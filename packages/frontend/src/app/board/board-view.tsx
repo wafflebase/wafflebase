@@ -34,6 +34,7 @@ import {
   STICKY_COLORS,
   dropStickyAt,
   dropStickyAtViewportCenter,
+  visibleWorldRect,
 } from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
@@ -42,8 +43,7 @@ import { BOARD_PLANE_BACKGROUND, BOARD_PLANE_THEME } from "./board-plane";
 import {
   BOARD_SHORTCUTS,
   BOARD_SHORTCUT_CATEGORIES,
-  boardToolForKey,
-  isTextEntryTarget,
+  handleBoardToolKey,
 } from "./board-shortcuts";
 import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
 import { BoardEmptyHint } from "./board-empty-hint";
@@ -360,6 +360,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
                     at,
                     colorValue: STICKY_COLORS[0].value,
                     occupied: readFrames(),
+                    visible: visibleWorldRect(vp.current, hostW, hostH),
                   });
                 },
               },
@@ -725,27 +726,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       if (!panning) canvas.style.cursor = "";
     };
     // Single-key tools (FigJam's V / T / S / R / O / L / X) and Shift+1
-    // zoom-to-fit. Tools only fire with nothing selected: with a selection,
-    // a printable key is the slides editor's type-to-edit (Google Slides
-    // parity), which must keep winning on a selected sticky.
+    // zoom-to-fit; the gates live in `handleBoardToolKey`.
     const onToolKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.repeat) return;
-      if (isTextEntryTarget(e.target) || editor.isTextEditing()) return;
-      if (
-        e.shiftKey && e.code === "Digit1" &&
-        !e.metaKey && !e.ctrlKey && !e.altKey
-      ) {
-        e.preventDefault();
-        zoom.fit();
-        return;
-      }
-      if (readOnly || editor.getSelection().length > 0) return;
-      const tool = boardToolForKey(e);
-      if (!tool) return;
-      e.preventDefault();
-      if (tool.kind === "select") editor.setInsertMode(null);
-      else if (tool.kind === "sticky") stickyInserterRef.current?.(STICKY_COLORS[0].value);
-      else editor.setInsertMode(tool.insert);
+      handleBoardToolKey(e, {
+        editor,
+        readOnly: readOnly === true,
+        fit: () => zoom.fit(),
+        dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
+      });
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keydown", onToolKey);

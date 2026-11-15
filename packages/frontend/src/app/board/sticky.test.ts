@@ -7,6 +7,7 @@ import {
   dropStickyAtViewportCenter,
   freeStickyCenter,
   isStickyElement,
+  visibleWorldRect,
 } from './sticky';
 
 describe('buildStickyInit', () => {
@@ -139,18 +140,41 @@ describe('freeStickyCenter', () => {
     expect(freeStickyCenter([sq(0, 0)], { x: step, y: 0 })).toEqual({ x: step, y: 0 });
   });
 
-  it('walks past a whole row to the first free square', () => {
-    const row = [sq(0, 0), sq(step, 0), sq(2 * step, 0)];
-    expect(freeStickyCenter(row, { x: 0, y: 0 })).toEqual({ x: 3 * step, y: 0 });
+  it('steps right first, then left', () => {
+    expect(freeStickyCenter([sq(0, 0)], { x: 0, y: 0 })).toEqual({ x: step, y: 0 });
+    expect(freeStickyCenter([sq(0, 0), sq(step, 0)], { x: 0, y: 0 })).toEqual({ x: -step, y: 0 });
+  });
+
+  it('walks out to the nearest free square of a crowded row', () => {
+    const row = [sq(-step, 0), sq(0, 0), sq(step, 0)];
+    expect(freeStickyCenter(row, { x: 0, y: 0 })).toEqual({ x: 2 * step, y: 0 });
   });
 
   it('steps off a partial cover, not only an exact one', () => {
     expect(freeStickyCenter([sq(-40, 30)], { x: 0, y: 0 })).toEqual({ x: step, y: 0 });
   });
 
-  it('falls back to the centre on a board too dense to find room', () => {
+  it('never steps outside the visible rect', () => {
+    // Zoomed in: only the centre square and its right neighbour fit.
+    const visible = { x: -100, y: -100, w: 100 + step + 100, h: 200, rotation: 0 };
+    expect(freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, visible)).toEqual({ x: step, y: 0 });
+    // Both visible squares taken: nudge, rather than walk off-screen.
+    expect(freeStickyCenter([sq(0, 0), sq(step, 0)], { x: 0, y: 0 }, visible)).toEqual({
+      x: STICKY_GAP, y: STICKY_GAP,
+    });
+  });
+
+  it('nudges rather than covering exactly on a board too dense to find room', () => {
     const wall = { x: -1e6, y: -1e6, w: 2e6, h: 2e6, rotation: 0 };
-    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5, y: 5 });
+    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5 + STICKY_GAP, y: 5 + STICKY_GAP });
+  });
+});
+
+describe('visibleWorldRect', () => {
+  it('maps the host through the viewport', () => {
+    expect(visibleWorldRect({ panX: 100, panY: 50, zoom: 2 }, 800, 600)).toEqual({
+      x: -50, y: -25, w: 400, h: 300, rotation: 0,
+    });
   });
 });
 

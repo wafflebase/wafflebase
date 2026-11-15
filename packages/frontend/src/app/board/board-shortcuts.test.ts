@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { boardToolForKey, isTextEntryTarget, BOARD_SHORTCUTS, BOARD_SHORTCUT_CATEGORIES } from "./board-shortcuts";
+import { describe, it, expect, vi } from "vitest";
+import {
+  boardToolForKey,
+  handleBoardToolKey,
+  isTextEntryTarget,
+  BOARD_SHORTCUTS,
+  BOARD_SHORTCUT_CATEGORIES,
+} from "./board-shortcuts";
 
 const key = (k: string, mods: Partial<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {}) => ({
   key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, ...mods,
@@ -80,5 +86,76 @@ describe("BOARD_SHORTCUTS", () => {
     for (const entry of BOARD_SHORTCUTS) {
       expect(BOARD_SHORTCUT_CATEGORIES).toContain(entry.category);
     }
+  });
+});
+
+describe("handleBoardToolKey", () => {
+  function setup(opts: { selection?: string[]; textEditing?: boolean; readOnly?: boolean } = {}) {
+    const editor = {
+      isTextEditing: vi.fn(() => opts.textEditing ?? false),
+      getSelection: vi.fn(() => opts.selection ?? []),
+      setInsertMode: vi.fn(),
+    };
+    const ctx = { editor, readOnly: opts.readOnly ?? false, fit: vi.fn(), dropSticky: vi.fn() };
+    return ctx;
+  }
+  const press = (key: string, init: KeyboardEventInit = {}, target?: EventTarget) => {
+    const e = new KeyboardEvent("keydown", { key, cancelable: true, ...init });
+    if (target) Object.defineProperty(e, "target", { value: target });
+    return e;
+  };
+
+  it("arms tools and drops a sticky on an idle board", () => {
+    const ctx = setup();
+    expect(handleBoardToolKey(press("t"), ctx)).toBe(true);
+    expect(ctx.editor.setInsertMode).toHaveBeenCalledWith("text");
+    expect(handleBoardToolKey(press("v"), ctx)).toBe(true);
+    expect(ctx.editor.setInsertMode).toHaveBeenCalledWith(null);
+    const s = press("s");
+    expect(handleBoardToolKey(s, ctx)).toBe(true);
+    expect(ctx.dropSticky).toHaveBeenCalledTimes(1);
+    expect(s.defaultPrevented).toBe(true);
+  });
+
+  it("leaves letters to type-to-edit while something is selected", () => {
+    const ctx = setup({ selection: ["sticky-1"] });
+    const e = press("t");
+    expect(handleBoardToolKey(e, ctx)).toBe(false);
+    expect(ctx.editor.setInsertMode).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("stands down during a text edit, in a field, and in a dialog", () => {
+    expect(handleBoardToolKey(press("s"), setup({ textEditing: true }))).toBe(false);
+    const ctx = setup();
+    expect(handleBoardToolKey(press("s", {}, document.createElement("input")), ctx)).toBe(false);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "alertdialog");
+    const button = document.createElement("button");
+    dialog.appendChild(button);
+    expect(handleBoardToolKey(press("s", {}, button), ctx)).toBe(false);
+    expect(ctx.dropSticky).not.toHaveBeenCalled();
+  });
+
+  it("works with a toolbar button focused", () => {
+    const ctx = setup();
+    expect(handleBoardToolKey(press("s", {}, document.createElement("button")), ctx)).toBe(true);
+    expect(ctx.dropSticky).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores auto-repeat and keys someone else already handled", () => {
+    const ctx = setup();
+    expect(handleBoardToolKey(press("s", { repeat: true }), ctx)).toBe(false);
+    const taken = press("s");
+    taken.preventDefault();
+    expect(handleBoardToolKey(taken, ctx)).toBe(false);
+    expect(ctx.dropSticky).not.toHaveBeenCalled();
+  });
+
+  it("refuses tools read-only but still fits on Shift+1, even with a selection", () => {
+    const ctx = setup({ readOnly: true, selection: ["a"] });
+    expect(handleBoardToolKey(press("s"), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("!", { code: "Digit1", shiftKey: true }), ctx)).toBe(true);
+    expect(ctx.fit).toHaveBeenCalledTimes(1);
   });
 });

@@ -80,43 +80,67 @@ export function buildStickyInit(colorValue: string, center: Point): ElementInit 
 /** Space left between a new sticky and the one it steps away from. */
 export const STICKY_GAP = 24;
 
-/** How many sticky-widths to walk right before giving up on a free spot. */
-const MAX_STEPS = 20;
+/** How many sticky-widths to walk each way before giving up on a free spot. */
+const MAX_STEPS = 10;
 
 function overlaps(a: Frame, b: Frame): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
+function contains(outer: Frame, inner: Frame): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  );
+}
+
+function stickyBox(center: Point): Frame {
+  return {
+    x: center.x - STICKY_SIZE / 2,
+    y: center.y - STICKY_SIZE / 2,
+    w: STICKY_SIZE,
+    h: STICKY_SIZE,
+    rotation: 0,
+  };
+}
+
 /**
  * Where a new sticky aimed at `center` should actually go: `center` itself
- * when that square is free, otherwise the first free square stepping
- * right by one sticky plus {@link STICKY_GAP}.
+ * when that square is free, otherwise the nearest free square along the
+ * same row, one sticky plus {@link STICKY_GAP} at a time — right first,
+ * then left, then two to the right, and so on.
  *
  * Without this every sticky from the toolbar lands on the exact viewport
  * centre, so the second one covers the first completely and reads as the
- * first having vanished. Stepping right rather than diagonally lays a
- * burst of notes out as a row, which is what a brainstorm wants, and it
- * keeps going right from whatever is already there. Rotation is ignored:
- * an axis-aligned test is enough to avoid a full cover, which is the
- * failure this exists for.
+ * first having vanished. Walking the row lays a burst of notes out the way
+ * a brainstorm wants. Rotation is ignored: an axis-aligned test is enough
+ * to avoid a full cover, which is the failure this exists for.
  *
- * Falls back to `center` after {@link MAX_STEPS} so a dense board never
- * throws a note off-screen.
+ * When `visible` (the on-screen world rect) is given, a square is only
+ * taken if it lies wholly inside it: the new sticky enters text edit
+ * straight away, and typing into a note the user cannot see is worse than
+ * a partial overlap. With no free visible square, the sticky is nudged one
+ * gap down and right of `center` — overlapping, but never an exact cover.
  */
-export function freeStickyCenter(occupied: readonly Frame[], center: Point): Point {
+export function freeStickyCenter(
+  occupied: readonly Frame[],
+  center: Point,
+  visible?: Frame,
+): Point {
   const step = STICKY_SIZE + STICKY_GAP;
   for (let i = 0; i <= MAX_STEPS; i++) {
-    const candidate = { x: center.x + i * step, y: center.y };
-    const box: Frame = {
-      x: candidate.x - STICKY_SIZE / 2,
-      y: candidate.y - STICKY_SIZE / 2,
-      w: STICKY_SIZE,
-      h: STICKY_SIZE,
-      rotation: 0,
-    };
-    if (!occupied.some((f) => overlaps(f, box))) return candidate;
+    for (const dir of i === 0 ? [0] : [1, -1]) {
+      const candidate = { x: center.x + dir * i * step, y: center.y };
+      const box = stickyBox(candidate);
+      if (visible && !contains(visible, box)) continue;
+      if (!occupied.some((f) => overlaps(f, box))) return candidate;
+    }
   }
-  return center;
+  return occupied.some((f) => overlaps(f, stickyBox(center)))
+    ? { x: center.x + STICKY_GAP, y: center.y + STICKY_GAP }
+    : center;
 }
 
 export interface DropStickyDeps {
@@ -131,8 +155,8 @@ export interface DropStickyDeps {
 }
 
 /**
- * Drop a sticky at the current viewport center — or the nearest free spot
- * to its right ({@link freeStickyCenter}) — select it, and enter text-edit
+ * Drop a sticky at the current viewport center — or the nearest free
+ * visible spot along its row ({@link freeStickyCenter}) — select it, and enter text-edit
  * so the user can type immediately. One `batch` = one undo unit. Returns
  * the new element id.
  */
@@ -141,7 +165,15 @@ export function dropStickyAtViewportCenter(deps: DropStickyDeps): string {
   return dropStickyAt({
     ...deps,
     at: screenToWorld(viewport, { x: hostWidth / 2, y: hostHeight / 2 }),
+    visible: visibleWorldRect(viewport, hostWidth, hostHeight),
   });
+}
+
+/** The world rect the viewport shows on a `w` × `h` host. */
+export function visibleWorldRect(viewport: Viewport, w: number, h: number): Frame {
+  const tl = screenToWorld(viewport, { x: 0, y: 0 });
+  const br = screenToWorld(viewport, { x: w, y: h });
+  return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y, rotation: 0 };
 }
 
 export interface DropStickyAtDeps {
@@ -151,6 +183,8 @@ export interface DropStickyAtDeps {
   at: Point;
   colorValue: string;
   occupied?: readonly Frame[];
+  /** On-screen world rect; a stepped-off sticky stays inside it. */
+  visible?: Frame;
 }
 
 /**
@@ -160,7 +194,7 @@ export interface DropStickyAtDeps {
  */
 export function dropStickyAt(deps: DropStickyAtDeps): string {
   const { store, editor, colorValue } = deps;
-  const center = freeStickyCenter(deps.occupied ?? [], deps.at);
+  const center = freeStickyCenter(deps.occupied ?? [], deps.at, deps.visible);
   let id = '';
   store.batch(() => {
     id = store.addElement(SYNTHETIC_SLIDE_ID, buildStickyInit(colorValue, center));

@@ -1,4 +1,4 @@
-import type { InsertKind } from "@wafflebase/slides";
+import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
 import type { ShortcutItem } from "@/components/shortcuts-help-dialog";
 
 /**
@@ -136,4 +136,42 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
       '[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]',
     ) !== null
   );
+}
+
+/** What {@link handleBoardToolKey} needs from the board. */
+export interface BoardToolKeyContext {
+  editor: Pick<SlidesEditor, "isTextEditing" | "getSelection" | "setInsertMode">;
+  readOnly: boolean;
+  fit: () => void;
+  dropSticky: () => void;
+}
+
+/**
+ * The board's document-level keydown for single-key tools and Shift+1
+ * zoom-to-fit. Returns whether it handled the key.
+ *
+ * The gates, in order: a key someone else already took, a held key's
+ * auto-repeat, a keystroke meant for a field / menu / dialog
+ * ({@link isTextEntryTarget}), and a live text edit all pass through.
+ * Shift+1 is a view action, so it works read-only and with a selection.
+ * Tools need an editable board with nothing selected: with a selection, a
+ * printable key is the slides editor's type-to-edit (Google Slides
+ * parity), which must keep winning on a selected sticky.
+ */
+export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): boolean {
+  if (e.defaultPrevented || e.repeat) return false;
+  if (isTextEntryTarget(e.target) || ctx.editor.isTextEditing()) return false;
+  if (e.shiftKey && e.code === "Digit1" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    ctx.fit();
+    return true;
+  }
+  if (ctx.readOnly || ctx.editor.getSelection().length > 0) return false;
+  const tool = boardToolForKey(e);
+  if (!tool) return false;
+  e.preventDefault();
+  if (tool.kind === "select") ctx.editor.setInsertMode(null);
+  else if (tool.kind === "sticky") ctx.dropSticky();
+  else ctx.editor.setInsertMode(tool.insert);
+  return true;
 }
