@@ -22,7 +22,6 @@ import {
   isCoarsePointer,
   TOUCH_HANDLE_TOLERANCE,
 } from "@/hooks/use-coarse-pointer";
-import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
@@ -34,6 +33,7 @@ import { dropStickyAtViewportCenter } from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
+import { BOARD_PLANE_BACKGROUND, BOARD_PLANE_THEME } from "./board-plane";
 import {
   createBoardMinimap,
   defaultMinimapVisible,
@@ -201,14 +201,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   );
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
-  // Same ref-capture pattern as SlidesView: the mount effect's closures
-  // are built once and must read the *current* resolved theme (for peer
-  // cursor colour) without re-running the whole mount on every toggle.
-  const { resolvedTheme } = useTheme();
-  const resolvedThemeRef = useRef(resolvedTheme);
-  resolvedThemeRef.current = resolvedTheme;
-  // Held so the theme effect can repaint the minimap's viewport frame,
-  // whose stroke follows the theme but would otherwise wait for a pan.
+  // Held so the grid-mode effect can repaint the minimap's viewport frame
+  // without waiting for a pan.
   const minimapRef = useRef<BoardMinimap | null>(null);
 
   // Background grid mode. React state so the toolbar's dropdown reflects
@@ -350,7 +344,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       dpr,
       initialVisible: defaultMinimapVisible(),
       coarsePointer: isCoarsePointer(),
-      getTheme: () => resolvedThemeRef.current,
+      getTheme: () => BOARD_PLANE_THEME,
+      planeBackground: BOARD_PLANE_BACKGROUND,
       getHostSize: () => ({ w: hostW, h: hostH }),
       // Forward reference to `commitViewport`, declared below: the
       // dependency is circular (it repaints this minimap), so one side has
@@ -389,7 +384,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         container,
         gridKindRef.current,
         vp.current,
-        resolvedThemeRef.current,
+        BOARD_PLANE_THEME,
       );
     };
 
@@ -403,7 +398,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       container,
       gridKindRef.current,
       vp.current,
-      resolvedThemeRef.current,
+      BOARD_PLANE_THEME,
     );
 
     // Open ON the board's content instead of at the world origin. Boards sit
@@ -563,7 +558,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
-      editor.setPeers(mapBoardPeers(peers, resolvedThemeRef.current));
+      editor.setPeers(mapBoardPeers(peers, BOARD_PLANE_THEME));
       // The audience just opened: hand over the cursor intent the gate
       // above swallowed while nobody was watching. Without this, a user
       // who was stationary when the peer joined stays invisible until
@@ -870,17 +865,18 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // is here only to satisfy exhaustive-deps.
   }, [didMount, doc, readOnly, workspaceId, zoomValue]);
 
-  // Repaint the grid when the MODE or the theme changes — the two inputs
-  // that move without the viewport moving. Pan/zoom is covered by
+  // Repaint the grid when the MODE changes — the one input that moves
+  // without the viewport moving (the plane never follows the app theme,
+  // see `board-plane.ts`). Pan/zoom is covered by
   // `commitViewport`, and the initial paint by the mount effect.
   // Deliberately a separate effect: listing `gridKind` on the mount effect
   // would tear down and rebuild the whole editor on every toggle.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    applyGridBackground(container, gridKind, vp.current, resolvedTheme);
+    applyGridBackground(container, gridKind, vp.current, BOARD_PLANE_THEME);
     minimapRef.current?.repaintViewport(vp.current);
-  }, [gridKind, resolvedTheme]);
+  }, [gridKind]);
 
   // The board's picture for the template gallery
   // (docs/design/template-gallery.md): the canvas as it stands. A board is an
@@ -939,6 +935,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         ref={containerRef}
         data-document-id={documentId}
         className="relative flex-1 w-full h-full min-h-0"
+        style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
       />
     </div>
   );

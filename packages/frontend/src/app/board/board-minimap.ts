@@ -95,6 +95,13 @@ export interface BoardMinimapDeps {
   coarsePointer?: boolean;
   /** Current resolved theme, read at each paint. Defaults to light. */
   getTheme?: () => 'light' | 'dark';
+  /**
+   * The plane colour the scene is drawn on. The panel is a miniature of
+   * the plane, so when the host pins its plane (board-plane.ts) the panel
+   * has to match it, or a light-themed scene sits on a dark card. Defaults
+   * to the theme's `--card`.
+   */
+  planeBackground?: string;
 }
 
 export interface BoardMinimap {
@@ -130,6 +137,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   const panel = document.createElement('div');
   panel.style.cssText = PANEL_CSS;
+  if (deps.planeBackground) panel.style.background = deps.planeBackground;
 
   const canvas = document.createElement('canvas');
   // Chrome, not content: it sits inside the board container, so without this

@@ -8,7 +8,7 @@ a user check-in after each.
 
 - [x] 1. Esc commits an in-flight sticky / text edit instead of discarding it
       (`packages/slides/src/view/editor/editor.ts` `cancelled` flag; slides too)
-- [ ] 2. Board plane stays light in dark mode (canvas background + grid);
+- [x] 2. Board plane stays light in dark mode (canvas background + grid);
       content resolves against `defaultLight`, so the plane must match it
 - [ ] 3. New sticky / image cascades off an occupied viewport centre
       (`sticky.ts` `dropStickyAtViewportCenter`, `board-view.tsx` image insert)
