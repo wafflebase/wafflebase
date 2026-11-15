@@ -110,19 +110,25 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # `cache-binary: false`: the buildx binary would otherwise come from the
+      # same main-scoped Actions cache the build step no longer reads.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          cache-binary: false
 
       # Build natively on the matching runner architecture (no QEMU emulation)
       # and push by digest only; the merge job assembles the tagged manifest.
+      #
+      # No `cache-from`/`cache-to`: any job on main's ref, an agent's included,
+      # can write main-scoped Actions cache entries, and this job holds the
+      # registry login. scripts/test/trusted-cache.test.mjs pins it.
       - name: Build and push image by digest
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -160,8 +166,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # `cache-binary: false`, as in the build job.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          cache-binary: false
 
       # push to main -> :latest ; release -> :<tag_name> + :latest
       - name: Determine tags
