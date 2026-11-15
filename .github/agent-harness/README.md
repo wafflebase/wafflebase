@@ -68,9 +68,22 @@ does differently. Each is known and accepted for now:
   action's container, which cannot reach `$RUNNER_TEMP`, so the record and
   check steps around wafflebase's install are gone (`toolchain.test.mjs`
   holds the containment).
-- **`agent-implement` installs main with the toolchain action**, lifecycle
-  scripts off, rather than with its own install with scripts on; the prompt
-  tells the agent to generate the Prisma client.
+- **`agent-implement` runs in four jobs, and its agent does not push.**
+  `prepare` makes the App calls; `implement` installs main with the toolchain
+  action (lifecycle scripts off, rather than wafflebase's own install with
+  scripts on; the prompt tells the agent to generate the Prisma client) and
+  runs the agent with a read-only token and no App secret; `finish` checks the
+  agent's commits with `bundle-handoff.mjs` and pushes them with a token
+  minted only then; `report` posts the no-App and no-PR comments. A branch
+  whose commits touch `.github/workflows/**`, or that is not built on the
+  recorded base, is not pushed at all.
+- **Every agent is handed a pinned Bun installed without the Actions cache**
+  (`oven-sh/setup-bun`, `no-cache: true`), instead of the one
+  `claude-code-action` would restore from it. The core's
+  `scripts/agent/trusted-cache.mjs` holds every workflow here, wafflebase's
+  own included, to restoring no cache in a trusted job that holds a secret or
+  a write token; `scripts/test/trusted-cache.test.mjs` is this repository's
+  own reading of the same rule.
 - **The core is linted for bugs only.** `eslint.config.mjs` turns off three
   style rules the core does not follow (`no-unused-vars`, `no-useless-escape`,
   `no-control-regex`) for `scripts/agent/**`; `no-undef` and the rest stay.

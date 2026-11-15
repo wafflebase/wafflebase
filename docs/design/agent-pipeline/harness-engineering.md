@@ -1278,19 +1278,22 @@ Components:
   `@claude fix` mention on an issue (or manual dispatch) runs Claude Code headless,
   which follows the standard task workflow and opens a **draft** PR from an
   `agent/<issue#>-<slug>` branch. Structured spec via
-  `.github/ISSUE_TEMPLATE/agent-task.yml`. The agent's job mints two App
-  tokens: the gates' (branch protection, the acknowledgement), revoked before
-  the agent starts (a failed revocation skips the agent), and the agent's own
-  (contents only), the only one its checkout persists; the job's own token
-  reads only. Everything after the agent that runs repository code or needs
-  another credential — opening the draft PR from what the agent wrote, the
-  session summary, the effort record, the no-PR report — runs in a separate
-  `finish` job on a fresh runner, from a sparse checkout of main that persists
-  no credential, with the agent's output read as data, and only for a
-  commenter the write-access gate admitted.
-  `scripts/test/agent-workflow-guards.test.mjs` holds every agent job to the
-  same rule after its agent step, and every job that reads the agent's output
-  to running main's scripts only.
+  `.github/ISSUE_TEMPLATE/agent-task.yml`. It runs in four jobs. `prepare`
+  makes every App call before the agent (the write-access gate, branch
+  protection, the duplicate-branch pre-flight, the acknowledgement, the issue
+  text) and records the base commit. `implement` runs the agent with the
+  Claude credentials and a token that reads only; no App secret is referenced
+  there, because a runner is sent every secret its job references. The agent
+  commits and does not push. `finish`, on a fresh runner and a sparse
+  checkout of main that persists no credential, checks the agent's commits
+  with `scripts/agent/bundle-handoff.mjs` (one `agent/<issue>-` branch, built
+  on the recorded base, no `.github/workflows` change), mints a token that can
+  push only after they pass and never on a cancelled run, pushes them and
+  opens the draft PR. `report` posts the comments that must not depend on the
+  App. `finish` and `report` run only for a commenter the write-access gate
+  admitted. `scripts/test/agent-workflow-guards.test.mjs` holds that shape,
+  every agent job to the same rule after its agent step, and every job that
+  reads the agent's output to running main's scripts only.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
   failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
   `agent:managed` via `@claude loop`), `scripts/ci/summarize-ci.mjs` (Phase 21)
