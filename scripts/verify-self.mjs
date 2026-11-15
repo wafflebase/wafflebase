@@ -44,11 +44,17 @@ const LANES = [
   // fires, because a hung test never "finishes". Both flags shipped together for
   // that reason; only the timeout survives, for the reason below.
   //
-  //   --test-timeout=60000  cancels a test that hangs WHILE RUNNING and NAMES it
-  //     with its file and line, so the next one diagnoses itself. 60s is ~8x the
-  //     slowest single test measured here (7.7s, a CLI-spawning test, macOS) and
-  //     ~17x the lane's whole CI duration (3.5s). Deliberately loose: a flaky
-  //     timeout on a loaded runner would be worse than the hang it guards.
+  //   --test-timeout=180000  cancels a test that hangs WHILE RUNNING and NAMES
+  //     it with its file and line, so the next one diagnoses itself.
+  //     Deliberately loose: a flaky timeout on a loaded runner would be worse
+  //     than the hang it guards. The budget is per FILE, not per case: `--test`
+  //     runs each file in its own process and that process is one test to the
+  //     timeout. It was 60s when the slowest file took a few seconds.
+  //     `install-deps.test.mjs` (#1142) spawns the install a few dozen times
+  //     and takes ~75s on an idle macOS machine, longer under load, so 60s
+  //     failed local pre-push runs while CI on Linux passed. 180s is ~2.4x
+  //     that file and still names a hang well inside `ci.yml`'s
+  //     `timeout-minutes`.
   //
   //   --test-force-exit  WAS here and has been REMOVED, because it truncated the
   //     very reports this lane exists to produce. It exits the runner once every
@@ -80,7 +86,7 @@ const LANES = [
   // as a FILE to run. `scripts/test/test-lane.test.mjs` asserts the order.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
+    cmd: "cd scripts/agent && node --test-timeout=180000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
   // wafflebase's own agent arms (hunters, harvest, spec-to-pr, classify, …),
@@ -92,7 +98,7 @@ const LANES = [
   // `scripts/test/test-lane.test.mjs` holds both lanes to the shape above.
   {
     name: "agent-arms:tests",
-    cmd: "cd scripts/agent-arms && node --test-timeout=60000 --test '**/*.test.mjs'",
+    cmd: "cd scripts/agent-arms && node --test-timeout=180000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
   // Top-level harness scripts (`scripts/*.mjs`), whose suites live in
@@ -113,7 +119,7 @@ const LANES = [
   // A new `scripts/foo.mjs` is unclassified, which also forces one.
   {
     name: "scripts:tests",
-    cmd: "node --test-timeout=60000 --test 'scripts/test/**/*.test.mjs'",
+    cmd: "node --test-timeout=180000 --test 'scripts/test/**/*.test.mjs'",
   },
   // Repo-wide lint of `scripts/`, which is what `verify:fast` used to reach
   // first. Kept first here for the same reason: it is seconds long and catches
