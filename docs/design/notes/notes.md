@@ -211,6 +211,44 @@ the prefix.
 - **Presence peer cursors** — Yorkie presence via `@yorkie-js/react`,
   `usePresenceUpdater`, `UserPresence`.
 
+### Editing chrome
+
+The source pane and the toolbar follow the rest of the suite rather than a
+code editor's conventions (product principle 2, *familiar before novel*):
+
+- **Shortcuts are Google Docs'.** `formattingBindings` in `view/editor.ts`
+  binds Mod-B / Mod-I / Mod-Shift-X / Mod-K, Mod-Shift-7 / 8 / 9 for
+  numbered / bulleted / checkbox lists and Mod-Alt-0…6 for Normal text and
+  Heading 1–6, each running the toolbar's own command. They sit at
+  `Prec.high` because `basicSetup` binds Mod-I to "select parent syntax". A
+  read-only mount gets none. Vim mode binds them under `mac` only: off the
+  Mac, `Mod` is Ctrl, and Ctrl-B / Ctrl-I / Ctrl-K are vim's own keys. The
+  toolbar's tooltips and `aria-keyshortcuts` name a shortcut only where it
+  is bound.
+- **Headings are a set, not a toggle.** `setHeading(level)` rewrites the
+  `#` marker after a line's container prefix (quote, indent, list marker,
+  task box), so styling a quoted or listed line keeps it there. The toolbar
+  shows the caret line's level (`NoteInlineFormats.heading`) in a Normal
+  text / Heading 1–6 picker, the docs style picker's list minus Title and
+  Subtitle, which markdown has no syntax for.
+- **The pane wears the app's tokens.** `view/theme.ts` replaces the bundled
+  Xcode palette with an `EditorView.theme` over `--background` /
+  `--foreground` / `--muted-foreground` / `--border` / `--ring` /
+  `--selected` / `--link`, so light and dark follow the chrome and syrup is
+  the caret, never markup. Markdown punctuation recedes to the muted
+  foreground; headings read by weight, not size, so the monospace grid
+  holds. The parser is GFM (`markdownLanguage`), matching the preview, so
+  task boxes, tables and strikethrough highlight as such.
+- **View modes are visible toggles** (Editor / Split / Preview), with the
+  keyboard mode and the blame gutter in one "Editor settings" menu.
+- **Preview alone is a reading surface.** In `view` mode the preview steps
+  up from `prose-sm` to `prose-base` (`note-preview-reading`) and centres in
+  a ~75-character column; the padding is a `max()` against the pane's width
+  so the scrollbar stays at the pane edge. Links take the `link` token, and
+  a task item's checkbox replaces its bullet.
+- **An empty, writable note says what to do**: a placeholder in the source
+  pane names the markdown it accepts.
+
 ### Mobile
 
 Below the shared 768px breakpoint (`useIsMobile`), two things change. Both
@@ -218,16 +256,17 @@ are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
 
 - **Toolbar.** The strip holds 19 controls and `Toolbar` is
   `overflow-x-auto`, so on a phone nothing was clipped — it scrolled
-  sideways, carrying the right-pinned view-mode and keymap dropdowns off
-  screen. `NotesToolbar` now keeps undo / redo / bold / italic /
-  strikethrough inline and moves the list and insert controls into a `⋮`
-  overflow menu, the same split the docs toolbar uses
+  sideways, carrying the right-pinned view-mode and keymap controls off
+  screen. `NotesToolbar` now keeps undo / redo / the text style picker
+  (shortened to `Text` / `H1`…) / bold / italic / strikethrough inline,
+  collapses the view modes to a single Preview toggle, and moves the list
+  and insert controls into a `⋮` overflow menu, the same split the docs toolbar uses
   (`docs-formatting-toolbar.tsx`). Table is a fixed 3×3 insert there:
   `TableGridPicker` sizes by hovering across a grid and has no touch
   equivalent.
 - **No Split.** `both` is a fixed 50/50 pane layout
   (`packages/notes/src/view/editor.ts`), so it is two ~187px panes on a
-  375px screen. The view menu drops the mode, and `notes-detail` demotes a
+  375px screen. The toolbar does not offer the mode, and `notes-detail` demotes a
   stored `both` to `edit` for the render only — never written back, so the
   per-user desktop preference survives and a wider window gets split again.
   A mode picked *on* a phone is session-local for the same reason: persisting

@@ -23,6 +23,14 @@
 .dark .note-preview {
   @apply prose-invert;
 }
+/*
+ * Preview alone in the pane (`view` mode) is a reading surface, not a
+ * side-by-side check: one type step up, set in the ~75-character column the
+ * engine centres it in (`applyViewMode` in packages/notes `editor.ts`).
+ */
+.note-preview.note-preview-reading {
+  @apply prose-base;
+}
 
 @theme inline {
   /*

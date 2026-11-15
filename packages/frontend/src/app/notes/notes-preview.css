@@ -347,3 +347,45 @@
 .note-preview.note-tasks-interactive input.task-list-item-checkbox {
   cursor: pointer;
 }
+
+/*
+ * Links read as links: the `link` token (DESIGN.md → Links), not prose's
+ * underlined body color. The underline stays in running text — colour alone
+ * must not be the only cue (WCAG 1.4.1) — but recedes until hover.
+ */
+.note-preview a {
+  color: var(--link);
+  text-decoration-color: color-mix(in oklab, var(--link) 40%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.note-preview a:hover {
+  text-decoration-color: currentColor;
+}
+
+/*
+ * A task item is marked by its checkbox; prose's bullet beside it is a second
+ * marker for the same thing. The checkbox takes the bullet's place, hanging in
+ * the list's indent so the item text lines up with sibling bullets' text.
+ */
+.note-preview ul.contains-task-list {
+  list-style: none;
+}
+
+.note-preview li.task-list-item {
+  position: relative;
+}
+
+.note-preview li.task-list-item::marker {
+  content: none;
+}
+
+.note-preview li.task-list-item > .task-list-item-checkbox {
+  position: absolute;
+  left: -1.5em;
+  top: 0.4em;
+  margin: 0;
+  width: 0.95em;
+  height: 0.95em;
+  accent-color: var(--ring);
+}

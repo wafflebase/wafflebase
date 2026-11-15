@@ -18,6 +18,30 @@ export interface NoteInlineFormats {
   canIndent: boolean;
   /** Whether the selected list lines can move one level out. */
   canOutdent: boolean;
+  /**
+   * Heading level (1–6) of the line holding the caret, or 0 for a plain
+   * paragraph line. Read from the caret line only, like a word processor's
+   * style picker reads the paragraph the caret is in.
+   */
+  heading: NoteHeadingLevel;
+}
+
+/** A markdown ATX heading level, or 0 for "Normal text". */
+export type NoteHeadingLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+/**
+ * The part of a line that says which *container* it lives in — blockquote
+ * markers, indent, a list marker and a task checkbox — followed by an optional
+ * ATX heading marker. A heading is applied after the container prefix, so
+ * styling a quoted or listed line keeps it in its quote or list
+ * (`> ## Title`, `- ## Title`) instead of lifting it out.
+ */
+const HEADING_PREFIX_RE =
+  /^((?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?)(#{1,6}(?:[ \t]+|$))?/;
+
+function headingOf(text: string): NoteHeadingLevel {
+  const marker = HEADING_PREFIX_RE.exec(text)?.[2] ?? '';
+  return marker.replace(/[ \t]+$/, '').length as NoteHeadingLevel;
 }
 
 /**
@@ -73,6 +97,7 @@ export function computeActiveFormats(state: EditorState): NoteInlineFormats {
     list: list.kind,
     canIndent: list.canIndent,
     canOutdent: list.canOutdent,
+    heading: headingOf(state.doc.lineAt(state.selection.main.head).text),
   };
 }
 
@@ -342,6 +367,56 @@ export function insertTable(
       changes: { from: pos, insert: table },
       selection: EditorSelection.cursor(cursor),
       userEvent: 'input',
+      scrollIntoView: true,
+    }),
+  );
+  view.focus();
+}
+
+/**
+ * Set every line the selection touches to heading `level` (1–6), or back to a
+ * plain paragraph line with 0. A *set*, not a toggle — like a word
+ * processor's style picker and its Mod-Alt-<n> shortcuts, applying Heading 2
+ * to a Heading 2 leaves it a Heading 2. One transaction, so it undoes in one
+ * step.
+ */
+export function setHeading(view: EditorView, level: NoteHeadingLevel): void {
+  const { state } = view;
+  const { from, to } = state.selection.main;
+  const first = state.doc.lineAt(from).number;
+  const last = state.doc.lineAt(to).number;
+  const marker = level > 0 ? `${'#'.repeat(level)} ` : '';
+
+  const changes = [];
+  for (let n = first; n <= last; n++) {
+    const line = state.doc.line(n);
+    // The pattern's every part is optional, so it always matches.
+    const m = HEADING_PREFIX_RE.exec(line.text)!;
+    const container = m[1];
+    const current = m[2] ?? '';
+    if (current === marker) continue;
+    // A blank line in a multi-line selection is left blank rather than turned
+    // into an empty heading.
+    if (first !== last && line.text.trim() === '') continue;
+    changes.push({
+      from: line.from + container.length,
+      to: line.from + container.length + current.length,
+      insert: marker,
+    });
+  }
+  if (changes.length === 0) {
+    view.focus();
+    return;
+  }
+
+  const changeSet = state.changes(changes);
+  view.dispatch(
+    state.update({
+      changes: changeSet,
+      // Forward-mapped for the same reason as `toggleQuote`: a caret at the
+      // start of an empty line must land after the inserted `## `.
+      selection: state.selection.map(changeSet, 1),
+      userEvent: level > 0 ? 'input' : 'delete',
       scrollIntoView: true,
     }),
   );

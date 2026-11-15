@@ -12,7 +12,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { NoteEditorAPI, NoteInlineFormats } from "@wafflebase/notes";
+import type {
+  NoteEditorAPI,
+  NoteInlineFormats,
+  NoteKeymap,
+} from "@wafflebase/notes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NotesToolbar } from "./notes-toolbar";
 
@@ -48,6 +52,7 @@ const FORMATS: NoteInlineFormats = {
   list: null,
   canIndent: true,
   canOutdent: true,
+  heading: 0,
 };
 
 /** Smallest editor that leaves every toolbar control enabled and clickable. */
@@ -60,6 +65,7 @@ function stubEditor(): NoteEditorAPI {
     canInsertImage: () => true,
     undo: vi.fn(),
     redo: vi.fn(),
+    setHeading: vi.fn(),
     toggleBold: vi.fn(),
     toggleItalic: vi.fn(),
     toggleStrikethrough: vi.fn(),
@@ -78,14 +84,21 @@ function stubEditor(): NoteEditorAPI {
   } as unknown as NoteEditorAPI;
 }
 
-function renderToolbar(editor: NoteEditorAPI, onModeChange = vi.fn()) {
+function renderToolbar(
+  editor: NoteEditorAPI,
+  onModeChange = vi.fn(),
+  {
+    keymap = "default",
+    onKeymapChange = vi.fn(),
+  }: { keymap?: NoteKeymap; onKeymapChange?: (k: NoteKeymap) => void } = {},
+) {
   render(
     <TooltipProvider>
       <NotesToolbar
         mode="edit"
         onModeChange={onModeChange}
-        keymap="default"
-        onKeymapChange={vi.fn()}
+        keymap={keymap}
+        onKeymapChange={onKeymapChange}
         showAuthors={false}
         onShowAuthorsChange={vi.fn()}
         editor={editor}
@@ -143,13 +156,96 @@ describe("NotesToolbar on a desktop viewport", () => {
     ).toBeNull();
   });
 
-  it("offers Split in the view-mode menu", async () => {
-    const user = userEvent.setup();
+  it("shows Editor / Split / Preview as toggles, the current one pressed", () => {
     renderToolbar(stubEditor());
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
+    const group = within(strip()).getByRole("group", { name: "View mode" });
+    for (const label of ["Editor", "Split", "Preview"]) {
+      expect(within(group).getByRole("button", { name: label })).toBeDefined();
+    }
     expect(
-      screen.getByRole("menuitemcheckbox", { name: "Split" }),
-    ).toBeDefined();
+      within(group)
+        .getByRole("button", { name: "Editor" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("reports a picked mode, and not a re-picked one", async () => {
+    // `mode` is the *effective* mode. Echoing it back on a click that changed
+    // nothing would persist whatever the host demoted it to.
+    const user = userEvent.setup();
+    const onModeChange = vi.fn();
+    renderToolbar(stubEditor(), onModeChange);
+    const group = within(strip()).getByRole("group", { name: "View mode" });
+
+    await user.click(within(group).getByRole("button", { name: "Editor" }));
+    expect(onModeChange).not.toHaveBeenCalled();
+    await user.click(within(group).getByRole("button", { name: "Split" }));
+    expect(onModeChange).toHaveBeenCalledWith("both");
+  });
+
+  it("names each formatting shortcut on its control", () => {
+    renderToolbar(stubEditor());
+    // jsdom is not a Mac, so the chord is Control-based.
+    const expected: Record<string, string> = {
+      Bold: "Control+B",
+      Italic: "Control+I",
+      Strikethrough: "Control+Shift+X",
+      Link: "Control+K",
+      "Numbered list": "Control+Shift+7",
+      "Bullet list": "Control+Shift+8",
+      Checkbox: "Control+Shift+9",
+    };
+    for (const [label, chord] of Object.entries(expected)) {
+      expect(
+        within(strip())
+          .getByRole("button", { name: label })
+          .getAttribute("aria-keyshortcuts"),
+      ).toBe(chord);
+    }
+  });
+
+  it("advertises no Ctrl shortcut in vim mode, which leaves them to vim", () => {
+    renderToolbar(stubEditor(), vi.fn(), { keymap: "vim" });
+    expect(
+      within(strip())
+        .getByRole("button", { name: "Bold" })
+        .hasAttribute("aria-keyshortcuts"),
+    ).toBe(false);
+  });
+
+  it("applies a heading level from the text style menu", async () => {
+    const user = userEvent.setup();
+    const editor = stubEditor();
+    renderToolbar(editor);
+
+    await user.click(
+      within(strip()).getByRole("button", { name: "Text style: Normal text" }),
+    );
+    await user.click(
+      screen.getByRole("menuitemcheckbox", { name: /^Heading 2/ }),
+    );
+
+    expect(editor.setHeading).toHaveBeenCalledWith(2);
+    // Focus goes back to the source, not to the menu trigger.
+    expect(editor.focus).toHaveBeenCalled();
+  });
+
+  it("switches the keyboard mode from the editor settings menu", async () => {
+    const user = userEvent.setup();
+    const onKeymapChange = vi.fn();
+    renderToolbar(stubEditor(), vi.fn(), { onKeymapChange });
+
+    await user.click(
+      within(strip()).getByRole("button", { name: "Editor settings" }),
+    );
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Default" }));
+    expect(onKeymapChange).not.toHaveBeenCalled();
+
+    await user.click(
+      within(strip()).getByRole("button", { name: "Editor settings" }),
+    );
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Vim" }));
+    expect(onKeymapChange).toHaveBeenCalledWith("vim");
   });
 });
 
@@ -243,46 +339,24 @@ describe("NotesToolbar on a phone viewport", () => {
     expect(editor.insertTable).toHaveBeenCalledWith(3, 3);
   });
 
-  it("does not report a mode change when the active mode is re-picked", async () => {
-    // `mode` here is the *effective* mode, so on a phone a stored `both`
-    // arrives as `edit`. Reporting `edit` back would persist the demotion and
-    // destroy the user's desktop Split preference on a tap that changed
-    // nothing — Radix fires onCheckedChange for the checked item too.
+  it("collapses the view modes to one Preview toggle", async () => {
+    // Split is not offered on a phone: a two-pane split is ~187px a pane at
+    // 375px, and both mounting routes demote a stored `both` to `edit`.
     const user = userEvent.setup();
     const onModeChange = vi.fn();
     renderToolbar(stubEditor(), onModeChange);
 
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "Editor" }));
-
-    expect(onModeChange).not.toHaveBeenCalled();
-  });
-
-  it("reports a real mode change", async () => {
-    const user = userEvent.setup();
-    const onModeChange = vi.fn();
-    renderToolbar(stubEditor(), onModeChange);
-
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "Preview" }));
-
+    expect(within(strip()).queryByRole("button", { name: "Split" })).toBeNull();
+    expect(within(strip()).queryByRole("button", { name: "Editor" })).toBeNull();
+    await user.click(within(strip()).getByRole("button", { name: "Preview" }));
     expect(onModeChange).toHaveBeenCalledWith("view");
   });
 
-  it("does not offer Split in the view-mode menu", async () => {
-    const user = userEvent.setup();
+  it("keeps the text style picker on the strip, shortened", () => {
     renderToolbar(stubEditor());
-
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
-
-    expect(
-      screen.getByRole("menuitemcheckbox", { name: "Editor" }),
-    ).toBeDefined();
-    expect(
-      screen.getByRole("menuitemcheckbox", { name: "Preview" }),
-    ).toBeDefined();
-    expect(
-      screen.queryByRole("menuitemcheckbox", { name: "Split" }),
-    ).toBeNull();
+    const trigger = within(strip()).getByRole("button", {
+      name: "Text style: Normal text",
+    });
+    expect(trigger.textContent).toBe("Text");
   });
 });
