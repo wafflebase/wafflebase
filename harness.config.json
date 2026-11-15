@@ -36,7 +36,7 @@
         "tags": [
           "documentation"
         ],
-        "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is the one packages/ entry that is genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy."
+        "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is the one packages/ entry that is genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy. The tag also selects `core:test`, whose docs-site-theme test reads this package's VitePress theme and pins its copied brand colors to the palette."
       }
     ],
     "ciConfigReason": "The gating surface itself. A change to any of these forces a full run, so a PR can never use the filter to grade its own homework — the reduced-run decision is always made by the version of the mapping already on main. It also drives the loud `ci-config-changed` label and job-summary warning, because CODEOWNERS only binds when branch protection has 'Require review from Code Owners' switched on.",

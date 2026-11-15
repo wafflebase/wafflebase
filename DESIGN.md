@@ -332,6 +332,7 @@ brand layer swaps the zinc for warm-neutral ivory and ink.
 - **Ink** (ink) / **Stone** (stone-sub) / **Stone Rule** (stone-rule): brand-surface text, secondary text and borders.
 - **Stone Wash** (stone-wash / charcoal-wash, `--wb-wash`): the quiet fill for brand chips, template thumbnails and icon tiles, where butter used to sit. Ink, sub and deep-syrup text all clear 4.5:1 on it.
 - **Charcoal** (charcoal-bg, charcoal-paper, charcoal-ink, charcoal-sub, charcoal-rule): the brand layer's dark pair, a neutral charcoal rather than brown roast; dark mode's `--wb-syrup-deep` is bright syrup, not butter.
+- **The docs site** (`packages/documentation`) is a brand surface and wears this set, but as hex copied into its VitePress theme (`.vitepress/theme/style.css`) rather than an import of `@wafflebase/core/tokens.css`, which would make that leaf package wait on a core build. Change a brand neutral there too. Its links take strong syrup (VitePress's `brand-1` colors text), and its `important` callout is syrup rather than VitePress's purple.
 - These are `palette.brandNeutrals` in `@wafflebase/core/tokens`, separate from `palette.neutrals` (the old cream/walnut values), which the engines still use as *document* colors — docs default text, the formatting swatches, the Wafflebase slide theme. Restyling the brand must not recolor content. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark, app-foreground-dark, app-muted-foreground-dark, app-border-dark).
 
 ### Named Rules

@@ -151,13 +151,15 @@ test("selection against the real lane graph", async (t) => {
     assert.ok(selected.has("verify:entropy"));
   });
 
-  await t.test("a documentation change runs only its build", () => {
+  await t.test("a documentation change runs its build and the theme test", () => {
     const selected = select({
       full: false,
       packages: ["documentation"],
       tags: ["documentation"],
     });
     assert.ok(selected.has("documentation:build"));
+    // core's docs-site-theme test reads the docs theme.
+    assert.ok(selected.has("core:test"));
     assert.ok(!selected.has("frontend:build"));
     assert.ok(!selected.has("sheets:check"));
   });
