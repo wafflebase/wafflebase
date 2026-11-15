@@ -100,6 +100,14 @@ test("every tool in this directory decides the question through this module", ()
     /realpathSync\(process\.argv\[1\]\)/,
     /process\.argv\[1\]\.endsWith\(/,
   ];
+  // `command.mjs` is the ONE exception, and not a grandfathered one: seven
+  // workflows check that file out ALONE (non-cone sparse-checkout naming it),
+  // so importing this module there is ERR_MODULE_NOT_FOUND and no `@claude`
+  // verb is routed at all. It carries its own copy of the comparison, held to
+  // this module's BEHAVIOUR — delivered-alone and linked-path runs — by
+  // router-checkout.test.mjs. The banned forms below still apply to it; the
+  // correct one it uses matches none of them.
+  const DELIVERED_ALONE = "command.mjs";
   const files = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs") && f !== "direct-run.mjs");
   assert.ok(files.length > 20, `expected the agent tools, found ${files.length}`);
   for (const f of files) {
@@ -107,10 +115,17 @@ test("every tool in this directory decides the question through this module", ()
     for (const re of HAND_ROLLED) {
       assert.ok(!re.test(src), `${f} hand-rolls its entry check (${re}); use isEntryPoint from ./direct-run.mjs`);
     }
-    if (src.includes("isEntryPoint(")) {
+    if (src.includes("isEntryPoint(") && f !== DELIVERED_ALONE) {
       assert.match(src, /import \{ isEntryPoint \} from "\.\/direct-run\.mjs";/, f);
     }
   }
+  // The exemption is a claim about how command.mjs is delivered. If it ever
+  // grows the import, it is no longer the exception and this line says so.
+  assert.doesNotMatch(
+    readFileSync(path.join(HERE, DELIVERED_ALONE), "utf8"),
+    /import \{ isEntryPoint \} from "\.\/direct-run\.mjs";/,
+    `${DELIVERED_ALONE} is checked out alone by seven workflows; it cannot import this module (see router-checkout.test.mjs)`,
+  );
 });
 
 test("the tools the agent jobs launch from the staged directory gate through this module", () => {

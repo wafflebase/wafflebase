@@ -52,6 +52,39 @@ link`). The first draft of the fix comment conflated them.
   holds the whole directory to the shared module, so the next tool cannot
   hand-roll the broken form again.
 
+- **Round 3 (review panel: blast-radius).** One blocking finding, and the
+  mirror image of round 2's: that round read the callers of the *scripts*, this
+  one read the callers of the *file*. `command.mjs` is not checked out as part
+  of `scripts/agent` — seven workflows fetch it **by name** with a non-cone
+  sparse-checkout for their cheap `route` job, so wiring it to
+  `direct-run.mjs` gave the `@claude` router its first local import and a file
+  that is not on disk there. Every verb would have died with
+  `ERR_MODULE_NOT_FOUND` before `parseCommand` was reached, and the unit tests
+  could not see it because they import the router from a full checkout.
+
+  The obvious fix — widen all seven sparse-checkouts to carry
+  `direct-run.mjs` too — was written, tested, and then **could not be pushed**:
+  this pipeline's App token has no `workflows` permission, so any commit
+  touching `.github/workflows/` is rejected outright (`refusing to allow a
+  GitHub App to create or update workflow … without workflow permission`) and
+  nothing in the commit lands, fix included. A fix that cannot be delivered is
+  not a fix; the constraint belongs in the design, not in a retry.
+
+  So the router keeps its own copy of the comparison and imports node builtins
+  only, which is what its delivery shape actually requires. Three things keep
+  the copy honest: `router-checkout.test.mjs` reproduces the delivery — it
+  copies `command.mjs` out ALONE and runs it, asserting the verb on stdout and
+  in `GITHUB_OUTPUT`, plus a linked-path run that would catch the original
+  symlink bug in the copy; `direct-run.test.mjs` asserts `command.mjs` is still
+  the only exemption and that it has not grown the import; and the banned
+  hand-rolled forms still apply to it, since the correct comparison matches
+  none of them.
+
+  The general lesson, twice over now: a shared module's blast radius is the set
+  of ways its importers are *delivered*, not just the set of ways they are
+  invoked. Round 2 read the callers of the scripts; this one had to read how the
+  file reaches the disk — and then how the fix reaches the remote.
+
   `scripts/agent-arms/` is deliberately still on `path.resolve(argv[1])`:
   those are started from the checkout (`node ./scripts/agent-arms/classify.mjs`),
   not from a staged copy under the runner's temp directory, which is the

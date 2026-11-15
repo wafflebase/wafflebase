@@ -92,6 +92,17 @@ takes both sides through `realpath` and **throws** on a path it cannot resolve;
 `install-deps.mjs` turns that into its usual refusal, because the one outcome
 this install may never produce is silence.
 
+The `@claude` router, `scripts/agent/command.mjs`, is the one tool that may not
+import it, and the reason is delivery rather than taste: seven workflows fetch
+that file **alone** (`sparse-checkout: scripts/agent/command.mjs`,
+`sparse-checkout-cone-mode: false`) for their cheap `route` job, so a local
+import there resolves to nothing on disk, node exits with
+`ERR_MODULE_NOT_FOUND`, and every verb stops being routed. It therefore carries
+its own copy of the comparison, held to `isEntryPoint`'s *behaviour* —
+delivered-alone and linked-path runs — by
+`scripts/agent/router-checkout.test.mjs`, with `direct-run.test.mjs` asserting
+the exemption is still the only one.
+
 | What decides how an install behaves | What the agent jobs do with it |
 | --- | --- |
 | Which pnpm runs | Set up by `pnpm/action-setup` (pinned to a commit) with an explicit `version`, **before** the branch is checked out — the action reads the workspace it runs in, so at that step the workspace holds main's tree or nothing. The script reads the version of the package behind `pnpm` on `PATH` and refuses any other than `PNPM_VERSION`; `packageManager` must name the same version; version switching is off for the install |
