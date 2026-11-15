@@ -7,13 +7,18 @@ import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { Loader } from "@/components/loader";
 
-import { PrivateRoute } from "./PrivateRoute";
 import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
 import { HomeOrRedirect } from "./app/home-or-redirect";
 import { AnalyticsTracker } from "./analytics";
 import { NavigationGuardProvider } from "./components/navigation-guard/navigation-guard-provider";
 
+// Lazy because it mounts the YorkieProvider: a static import would put the
+// Yorkie SDK on the critical path of the public pages (`/`, `/login`,
+// `/templates`), none of which open a Yorkie document.
+const PrivateRoute = lazyWithRetry(() =>
+  import("./PrivateRoute").then((m) => ({ default: m.PrivateRoute })),
+);
 const Login = lazyWithRetry(() => import("@/app/login/page"));
 const Documents = lazyWithRetry(() => import("@/app/documents/page"));
 const DocumentDetail = lazyWithRetry(

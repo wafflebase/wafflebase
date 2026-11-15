@@ -10,6 +10,9 @@ import {
 } from "@wafflebase/sheets";
 import { getUniqueTabName } from "@/app/documents/tab-name";
 import { parseCsvFile } from "./csv-actions";
+import { sheetImportBaseName } from "./sheet-import-name";
+
+export { sheetImportBaseName };
 
 export type ImportedSpreadsheetFile = {
   document: SpreadsheetDocument;
@@ -29,14 +32,6 @@ function fileExtension(fileName: string): string {
   return dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : "";
 }
 
-export function sheetImportBaseName(
-  fileName: string,
-  fallback = "Imported Sheet",
-): string {
-  const dot = fileName.lastIndexOf(".");
-  const baseName = (dot >= 0 ? fileName.slice(0, dot) : fileName).trim();
-  return baseName || fallback;
-}
 
 export function createSpreadsheetDocumentFromImportedSheets(
   importedSheets: ImportedSheet[],

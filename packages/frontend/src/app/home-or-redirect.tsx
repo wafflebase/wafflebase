@@ -1,14 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { fetchWorkspaces } from "@/api/workspaces";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { Navigate } from "react-router-dom";
 import { Loader } from "@/components/loader";
 
-const HomePage = lazyWithRetry(() => import("@/app/home/page"));
+const loadHomePage = () => import("@/app/home/page");
+const HomePage = lazyWithRetry(loadHomePage);
 
 export function HomeOrRedirect() {
+  // Start the homepage chunk alongside the session check rather than after
+  // it, so a signed-out visitor waits for one round trip, not two. A
+  // signed-in visitor is redirected and pays only for a small unused chunk.
+  useEffect(() => {
+    void loadHomePage().catch(() => {});
+  }, []);
+
   const { data: user, isLoading: userLoading } = useQuery({
     queryKey: ["me-optional"],
     queryFn: fetchMeOptional,
