@@ -97,3 +97,11 @@ Each fix was mutation-checked: reverting it fails its test.
 - [x] The probe-vocabulary pin says what it pins
 - [x] The one-trusted-checkout wiring rule is listed as an upstream candidate
 
+## Review round 3
+
+- [x] The docs/ layout check ignores case when listing and allows only the
+      exact `docs/` spelling, so an index entry under `Docs/` is refused
+- [x] Its header says where else it runs (pre-push, advisory) and that CI
+      is the authority
+- [x] The upstream note lists all four summarize-ci renderer fixes
+

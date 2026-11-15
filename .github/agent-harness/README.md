@@ -74,6 +74,8 @@ not, or will do differently. Each is known and accepted for now:
   checked out after it). An assertion in the core's `config-wiring.test.mjs`
   that no other `.trusted-*` exists in the workspace at that step would keep
   a future job from breaking it quietly.
-- **`scripts/ci/summarize-ci.mjs` in yorkie** has the two rendering issues
-  fixed here: a cut can leave a fence open, and the lane name in the heading
-  is not escaped.
+- **`scripts/ci/summarize-ci.mjs` in yorkie** needs the four rendering fixes
+  made here: a cut can leave a fence open; a fence indented by up to three
+  spaces is not counted as one when closing it; the lane name and exit code
+  in the headings are not escaped; and a `lanesTotal` that is not a
+  non-negative integer is rendered as it is.
