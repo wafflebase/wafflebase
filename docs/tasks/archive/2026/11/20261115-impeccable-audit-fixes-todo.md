@@ -9,13 +9,13 @@ docs canvas, board). That needs its own design doc.
 
 ## 1. Optimize — bundle closures
 - [x] `upload-queue.ts` loads the sheet/docx/pptx importers with `import()`
-- [ ] ~~`shared-document.tsx` stops pulling the slides/notes engines~~ — deferred: the page also statically imports SheetView/DocsView/NotesView, and the image-resolver install depends on a layout-effect ordering contract; needs a per-type lazy split of its own
+- ~~`shared-document.tsx` stops pulling the slides/notes engines~~ — deferred: the page also statically imports SheetView/DocsView/NotesView, and the image-resolver install depends on a layout-effect ordering contract; needs a per-type lazy split of its own
 - [x] `vendor-yorkie` no longer on the homepage's critical path
-- [ ] ~~SheetView: skip `setActiveCellForComment` when the cell is unchanged~~ — reverted in self-review: the comment-popover placement effect relies on the per-tick object to follow its cell on scroll
+- ~~SheetView: skip `setActiveCellForComment` when the cell is unchanged~~ — reverted in self-review: the comment-popover placement effect relies on the per-tick object to follow its cell on scroll
 
 ## 2. Adapt — mobile and touch
 - [x] Conditional-format / data-validation panels fit a 375px viewport
-- [ ] ~~Comment / history / PDF side panels don't crush the editor on phones~~ — reverted in self-review: a `fixed inset-0` overlay covered the revision preview and fought the mobile edit bar; needs a designed bottom sheet
+- ~~Comment / history / PDF side panels don't crush the editor on phones~~ — reverted in self-review: a `fixed inset-0` overlay covered the revision preview and fought the mobile edit bar; needs a designed bottom sheet
 - [x] Homepage comparison table no longer clips at 375px
 - [x] PDF region-comment drag surface sets `touch-action: none`
 - [x] Slides panel resizers use pointer events (`attachPanelResizer`, unit-tested)
@@ -33,7 +33,7 @@ docs canvas, board). That needs its own design doc.
 - [x] One Accent: empty-state create buttons step down to outline (workspace-settings' conditional per-field Save left as is: each appears only while its own field is edited)
 - [x] Hand-rolled primaries use `hover:bg-primary-hover`
 - [x] Inline light-only colors use tokens (sheet image placeholder)
-- [ ] ~~Docs toolbar default swatches stop using `--wb-ink`/`--wb-paper`~~ — deferred: they preview the docs engine's document default, which has no CSS token; values are visually identical in both themes
+- ~~Docs toolbar default swatches stop using `--wb-ink`/`--wb-paper`~~ — deferred: they preview the docs engine's document default, which has no CSS token; values are visually identical in both themes
 - [x] DESIGN.md: correct the Sheets mobile-shell claim; docked panels carry no shadow
 
 ## Review
