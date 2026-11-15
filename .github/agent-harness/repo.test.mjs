@@ -389,6 +389,7 @@ test("every command a prompt names is one this repository has", () => {
 test("verifyDescription says what verify:fast runs", () => {
   const fast = PACKAGE.scripts["verify:fast"];
   for (const [phrase, command] of [
+    ["the `docs/` layout check", "pnpm verify:docs-paths"],
     ["the lint of `scripts/` and `plugins/`", "pnpm lint:scripts"],
     ["the doc index and link checks", "pnpm verify:doc-index && pnpm verify:doc-links"],
     ["the core build and suite", "pnpm core build && pnpm core test"],

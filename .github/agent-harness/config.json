@@ -67,7 +67,7 @@
   },
   "fixer": {
     "verifyCommand": "pnpm verify:fast",
-    "verifyDescription": "the lint of `scripts/` and `plugins/`, the doc index and link checks, the core build and suite, the architecture lint, the frontend lint and suite, the backend's Jest suite, and the typecheck and suite of sheets, slides, cli, docs, notes and board",
+    "verifyDescription": "the `docs/` layout check, the lint of `scripts/` and `plugins/`, the doc index and link checks, the core build and suite, the architecture lint, the frontend lint and suite, the backend's Jest suite, and the typecheck and suite of sheets, slides, cli, docs, notes and board",
     "verifyFailureHint": "Run `pnpm --filter @wafflebase/backend exec prisma generate` once before it: the dependencies were installed without lifecycle scripts, so the backend's Prisma client is not generated yet.",
     "integrationWarning": "Do NOT run `pnpm verify:integration` or the browser lanes: they need Postgres, a Yorkie server and Docker browsers this job does not stand up",
     "integrationRerunBy": "them in CI",

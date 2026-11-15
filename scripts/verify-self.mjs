@@ -133,6 +133,16 @@ const LANES = [
     anyPkg: true,
     tags: ["docsProse"],
   },
+  // What may live under `docs/` at all: design documents and task records.
+  // It was a block of `.githooks/pre-commit` alone, so CI never ran it and an
+  // agent job, which does not wire the hooks, never did either. Same shape as
+  // the gate above: reads git's index, builds nothing.
+  {
+    name: "verify:docs-paths",
+    cmd: "pnpm verify:docs-paths",
+    anyPkg: true,
+    tags: ["docsProse"],
+  },
   // The third direction on the same subject. `verify:doc-index` asks whether a
   // file was ever introduced; `verify:entropy` walks links out of the design
   // docs; this one walks the whole graph from CLAUDE.md and asks whether the
