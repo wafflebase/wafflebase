@@ -1,17 +1,16 @@
 // Render CI's lane reports into the block the CI-fix agent is shown first.
 //
 // WHO CALLS IT. The shared agent harness's `agent-iterate-ci.yml` (yorkie's
-// core, which wafflebase is moving onto) downloads the artifact `ci.yml`
+// core, copied here by `scripts/agent/sync.mjs`) downloads the artifact `ci.yml`
 // uploads as `ci-lane-reports` and runs
 //
 //   node <main's copy of scripts>/ci/summarize-ci.mjs --dir <the download>
 //
-// from a copy of main's `scripts/` taken before the branch checkout. The name,
+// from main's `scripts/`, checked out beside the branch and staged under
+// `$RUNNER_TEMP` before anything of the branch's runs. The name,
 // the path and the flag are that workflow's, not this repository's choice
 // (`.github/agent-harness/config.json` sets `ci.laneReports` to say the
-// artifact exists). Until the switch, today's `agent-iterate-ci.yml` still runs
-// `scripts/agent/summarize-ci.mjs` on the `harness-reports` artifact; both
-// read the same files.
+// artifact exists).
 //
 // THE CONTRACT IS "SAY NOTHING OR SAY SOMETHING USEFUL". This prints nothing
 // on stdout and exits 3 unless a lane FAILED — including when the reports are
