@@ -31,9 +31,17 @@ concurrency:
   group: publish-ghpage
   cancel-in-progress: true
 
+# Nothing by default; the job below names its own grant.
+permissions: {}
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # `contents: write` for the two pushes to `gh-pages`: the Deploy step and
+    # the cleanup step. The site is served from that branch, so no `pages` or
+    # `id-token` scope is needed.
+    permissions:
+      contents: write
     # See docker-publish.yml for why all four clauses are needed — in particular
     # `event == 'push'`, without which a fork PR opened from a branch called
     # `main` (most forks' default) would satisfy the trigger's `branches` filter.
@@ -108,12 +116,12 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 10.5.2
+      # No `cache:`: main-scoped cache entries are writable by any job on main,
+      # and this job holds SENTRY_AUTH_TOKEN and a token that pushes gh-pages.
+      # scripts/test/trusted-cache.test.mjs pins it.
       - name: Setup Node
         if: steps.affected.outputs.deploy == 'true'
         uses: actions/setup-node@v4
-        with:
-          cache: "pnpm"
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install and Build
         if: steps.affected.outputs.deploy == 'true'

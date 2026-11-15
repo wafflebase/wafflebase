@@ -170,8 +170,16 @@ const LANES = [
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build", pkgs: ["core"] },
   // Vitest over `src/`; nothing here imports the `dist/` this package produces,
-  // so it declares no `needs`.
-  { name: "core:test", cmd: "pnpm core test", pkgs: ["core"] },
+  // so it declares no `needs`. Tagged `documentation` because
+  // `test/tokens/docs-site-theme.test.ts` reads the docs site's theme and pins
+  // its hand-copied brand colors to the palette: a theme-only edit is exactly
+  // the change that test exists to catch.
+  {
+    name: "core:test",
+    cmd: "pnpm core test",
+    pkgs: ["core"],
+    tags: ["documentation"],
+  },
   {
     name: "sheets:build",
     cmd: "pnpm sheets build",

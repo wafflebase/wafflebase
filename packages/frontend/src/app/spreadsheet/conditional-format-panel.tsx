@@ -308,7 +308,7 @@ export function ConditionalFormatPanel({
   };
 
   return (
-    <aside className="absolute inset-y-0 right-0 z-20 flex w-[26rem] flex-col overflow-hidden border-l bg-background shadow-lg">
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(26rem,100%)] flex-col overflow-hidden border-l bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -508,6 +508,7 @@ export function ConditionalFormatPanel({
 
               {requiresSingleValue(selectedRule.op) && (
                 <Input
+                  aria-label="Value"
                   value={selectedRule.value || ""}
                   placeholder={
                     selectedRule.op === "textContains"
@@ -528,6 +529,7 @@ export function ConditionalFormatPanel({
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     value={selectedRule.value || ""}
+                    aria-label="Minimum value"
                     placeholder="Min"
                     onChange={(event) =>
                       updateRule(selectedRule.id, {
@@ -537,6 +539,7 @@ export function ConditionalFormatPanel({
                   />
                   <Input
                     value={selectedRule.value2 || ""}
+                    aria-label="Maximum value"
                     placeholder="Max"
                     onChange={(event) =>
                       updateRule(selectedRule.id, {

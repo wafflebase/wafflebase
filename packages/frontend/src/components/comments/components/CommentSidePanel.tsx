@@ -56,7 +56,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
 
   return (
     <aside
-      className="flex h-full w-72 flex-col border-l bg-background shadow-lg"
+      className="flex h-full w-72 flex-col border-l bg-background"
       aria-label="Comments"
     >
       <header className="flex items-center justify-between border-b px-4 py-3">

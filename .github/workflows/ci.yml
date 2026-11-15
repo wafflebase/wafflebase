@@ -295,11 +295,15 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # The pnpm cache on pull_request and merge_group only. Those runs execute
+      # the PR's own tree anyway, so a poisoned entry gains nothing there. A push
+      # to main holds CODECOV_TOKEN and gates the deploys, and main-scoped
+      # entries are writable by any job on main. scripts/test/trusted-cache.test.mjs.
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: "pnpm"
+          cache: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'pnpm' || '' }}
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile

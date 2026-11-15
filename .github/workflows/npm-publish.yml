@@ -32,11 +32,12 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # No `cache:`: main-scoped cache entries are writable by any job on main,
+      # and this job holds NPM_TOKEN. scripts/test/trusted-cache.test.mjs.
       - name: Use Node.js 22.x
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies

@@ -324,7 +324,7 @@ function InsertImageDropdown({
                 placeholder="https://…"
                 value={urlInput}
                 onChange={(ev) => setUrlInput(ev.target.value)}
-                className="h-7 rounded border border-border bg-background px-2 text-sm outline-none focus:border-primary"
+                className="h-7 rounded border border-border bg-background px-2 text-sm focus-ring"
               />
               <div className="flex items-center justify-end gap-1">
                 <button
@@ -339,7 +339,7 @@ function InsertImageDropdown({
                 </button>
                 <button
                   type="submit"
-                  className="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:opacity-90"
+                  className="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary-hover focus-ring"
                 >
                   Insert
                 </button>

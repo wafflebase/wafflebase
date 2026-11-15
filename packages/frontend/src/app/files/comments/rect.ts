@@ -1,3 +1,4 @@
+import { scrollBehavior } from '@/lib/scroll-behavior';
 import type { PdfAnchor, PdfRect } from '@/types/comments.ts';
 
 export type PixelRect = { left: number; top: number; width: number; height: number };
@@ -100,7 +101,7 @@ export function scrollToAnchor(anchor: PdfAnchor): void {
 
   viewport.scrollTo({
     top: Math.max(0, anchorTop - viewportBox.height / 3),
-    behavior: 'smooth',
+    behavior: scrollBehavior(),
   });
 }
 

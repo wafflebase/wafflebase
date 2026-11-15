@@ -1689,7 +1689,10 @@ export function DocumentList({
                     </p>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="sm">
+                        {/* Outline, not primary: the toolbar's "New" is
+                            the view's one primary action (DESIGN.md, One
+                            Accent Rule). */}
+                        <Button size="sm" variant="outline">
                           <Plus className="w-4 h-4 mr-1" />
                           New
                         </Button>

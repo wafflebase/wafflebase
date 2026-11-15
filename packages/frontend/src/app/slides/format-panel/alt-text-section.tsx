@@ -29,6 +29,7 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
         Alt text
       </h3>
       <Textarea
+        aria-labelledby="format-alt-text-label"
         rows={3}
         value={draft}
         placeholder={

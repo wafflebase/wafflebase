@@ -32,17 +32,21 @@ export default function HomePage({
   }, [hash]);
 
   return (
-    <main className="scroll-smooth bg-[color:var(--wb-bg)]">
+    // Nav and footer sit beside `<main>`, not inside it, so they keep their
+    // navigation and contentinfo landmarks (the same shape as MarketingPage).
+    <div className="bg-[color:var(--wb-bg)]">
       <NavBar workspacePath={workspacePath} />
-      <HeroSection workspacePath={workspacePath} />
-      <DemoSection />
-      <FeaturesSection />
-      <UseCasesSection />
-      <InteropSection />
-      <WhySection />
-      <DeveloperSection />
-      <OpenSourceSection />
+      <main>
+        <HeroSection workspacePath={workspacePath} />
+        <DemoSection />
+        <FeaturesSection />
+        <UseCasesSection />
+        <InteropSection />
+        <WhySection />
+        <DeveloperSection />
+        <OpenSourceSection />
+      </main>
       <Footer />
-    </main>
+    </div>
   );
 }

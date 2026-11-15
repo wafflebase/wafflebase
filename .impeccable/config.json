@@ -85,5 +85,12 @@
         "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
       }
     ]
+  },
+  "hook": {
+    "enabled": true,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
   }
 }

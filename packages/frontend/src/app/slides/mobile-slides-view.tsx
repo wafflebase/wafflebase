@@ -1,4 +1,5 @@
 import { useDocument } from "@yorkie-js/react";
+import { scrollBehavior } from "@/lib/scroll-behavior";
 import {
   useCallback,
   useEffect,
@@ -631,7 +632,7 @@ function ThumbnailStrip({
     const el = itemRefs.current.get(currentSlideId);
     if (!el) return;
     el.scrollIntoView({
-      behavior: "smooth",
+      behavior: scrollBehavior(),
       inline: "center",
       block: "nearest",
     });

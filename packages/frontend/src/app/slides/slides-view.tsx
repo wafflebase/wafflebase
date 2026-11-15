@@ -1,3 +1,4 @@
+import { attachPanelResizer } from "./panel-resizer";
 import {
   initializeEditor,
   mountThumbnailPanel,
@@ -998,38 +999,20 @@ export function SlidesView({
     };
     scrollHost.addEventListener("scroll", onScrollHostScroll, { passive: true });
 
-    // Drag-to-resize the left column. Mousedown latches; mousemove
-    // updates leftWidth (clamped + rounded); mouseup persists to
-    // localStorage. Listeners attach to document so the drag continues
-    // even if the cursor leaves the handle.
-    let dragging = false;
+    // Drag-to-resize the left column and the notes panel. The pointer
+    // wiring lives in `attachPanelResizer`; each gesture here only clamps
+    // its own size on move and persists it to localStorage on release.
     let dragStartX = 0;
     let dragStartLeft = 0;
-    // Notes drag is a sibling state machine — single document
-    // mousemove / mouseup pair routes both gestures.
-    let draggingNotes = false;
     let dragStartY = 0;
     let dragStartNotesH = 0;
-    const onResizerDown = (e: MouseEvent) => {
-      e.preventDefault();
-      dragging = true;
-      dragStartX = e.clientX;
-      dragStartLeft = leftWidth;
-      // Lock the cursor and disable user-select so text in the panel
-      // doesn't get selected during a drag.
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    };
-    const onNotesResizerDown = (e: MouseEvent) => {
-      e.preventDefault();
-      draggingNotes = true;
-      dragStartY = e.clientY;
-      dragStartNotesH = notesHeight;
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-    };
-    const onDocMouseMove = (e: MouseEvent) => {
-      if (dragging) {
+    const disposeResizer = attachPanelResizer(resizer, {
+      cursor: "col-resize",
+      onStart: (e) => {
+        dragStartX = e.clientX;
+        dragStartLeft = leftWidth;
+      },
+      onMove: (e) => {
         const next = Math.min(
           MAX_LEFT_W,
           Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
@@ -1037,9 +1020,22 @@ export function SlidesView({
         if (next === leftWidth) return;
         leftWidth = next;
         layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
-        return;
-      }
-      if (draggingNotes) {
+      },
+      onEnd: () => {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
+        } catch {
+          /* ignore quota / privacy-mode failures */
+        }
+      },
+    });
+    const disposeNotesResizer = attachPanelResizer(notesResizer, {
+      cursor: "row-resize",
+      onStart: (e) => {
+        dragStartY = e.clientY;
+        dragStartNotesH = notesHeight;
+      },
+      onMove: (e) => {
         const rightRect = right.getBoundingClientRect();
         // Cap notes at MAX_NOTES_H_RATIO of the column so the canvas
         // always gets the remaining 40 %+. Re-evaluated each tick so
@@ -1060,35 +1056,15 @@ export function SlidesView({
         // ResizeObserver won't fire. Re-fit manually so the canvas
         // shrinks / grows in step with the notes panel.
         refitCanvas();
-      }
-    };
-    const onDocMouseUp = () => {
-      if (dragging) {
-        dragging = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        try {
-          window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
-        } catch {
-          /* ignore quota / privacy-mode failures */
-        }
-        return;
-      }
-      if (draggingNotes) {
-        draggingNotes = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
+      },
+      onEnd: () => {
         try {
           window.localStorage.setItem(NOTES_STORAGE_KEY, String(notesHeight));
         } catch {
           /* ignore quota / privacy-mode failures */
         }
-      }
-    };
-    resizer.addEventListener("mousedown", onResizerDown);
-    notesResizer.addEventListener("mousedown", onNotesResizerDown);
-    document.addEventListener("mousemove", onDocMouseMove);
-    document.addEventListener("mouseup", onDocMouseUp);
+      },
+    });
 
     thumbHandle = mountThumbnailPanel(
       thumbsHost,
@@ -1214,13 +1190,10 @@ export function SlidesView({
       unsubscribeZoom();
       unsubscribeHeight();
       scrollHost.removeEventListener("scroll", onScrollHostScroll);
-      document.removeEventListener("mousemove", onDocMouseMove);
-      document.removeEventListener("mouseup", onDocMouseUp);
-      // If the user navigated mid-drag, restore body cursor / select.
-      if (dragging || draggingNotes) {
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      }
+      // Ends a drag the user navigated away in the middle of, which also
+      // restores the body cursor / selection.
+      disposeResizer();
+      disposeNotesResizer();
       cancelAnimationFrame(raf);
       cleanupImagePaths();
       offSelection();

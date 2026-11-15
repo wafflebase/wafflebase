@@ -332,6 +332,7 @@ brand layer swaps the zinc for warm-neutral ivory and ink.
 - **Ink** (ink) / **Stone** (stone-sub) / **Stone Rule** (stone-rule): brand-surface text, secondary text and borders.
 - **Stone Wash** (stone-wash / charcoal-wash, `--wb-wash`): the quiet fill for brand chips, template thumbnails and icon tiles, where butter used to sit. Ink, sub and deep-syrup text all clear 4.5:1 on it.
 - **Charcoal** (charcoal-bg, charcoal-paper, charcoal-ink, charcoal-sub, charcoal-rule): the brand layer's dark pair, a neutral charcoal rather than brown roast; dark mode's `--wb-syrup-deep` is bright syrup, not butter.
+- **The docs site** (`packages/documentation`) is a brand surface and wears this set, but as hex copied into its VitePress theme (`.vitepress/theme/style.css`) rather than an import of `@wafflebase/core/tokens.css`, which would make that leaf package wait on a core build. Change a brand neutral there too. Its links take strong syrup (VitePress's `brand-1` colors text), and its `important` callout is syrup rather than VitePress's purple.
 - These are `palette.brandNeutrals` in `@wafflebase/core/tokens`, separate from `palette.neutrals` (the old cream/walnut values), which the engines still use as *document* colors — docs default text, the formatting swatches, the Wafflebase slide theme. Restyling the brand must not recolor content. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark, app-foreground-dark, app-muted-foreground-dark, app-border-dark).
 
 ### Named Rules
@@ -384,7 +385,7 @@ Spacing follows a 4px base (`xs` 4, `sm` 8, `md` 12, `lg` 16, `xl` 24). Cards an
 
 Brand surfaces are single-column scrolls centred at ~920px for the hero and wider for feature grids (3 columns at ≥768px, 1 below), with 64–80px vertical section padding.
 
-Responsive behavior branches at 768px. Below it, Slides and Sheets switch to dedicated mobile shells (bottom sheets, FABs) instead of shrinking the desktop toolbar.
+Responsive behavior branches at 768px. Below it, Slides switches to a dedicated mobile shell (bottom sheets, FABs); Sheets keeps its layout but hides the formula bar, adds a mobile edit bar and folds toolbar controls into a "More" menu; Docs folds controls into an overflow menu and scales the page to fit. Floating editor panels cap at the viewport width.
 
 ## Elevation & Depth
 
@@ -394,7 +395,7 @@ Flat by default. App surfaces separate by a 1px zinc rule and a tonal step (back
 - **Hairline lift** (`0 1px 2px 0 rgb(0 0 0 / 0.05)`): buttons and inputs at rest.
 - **Card rest** (`0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)`): app cards.
 - **Popover** (`0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)`): popovers, dropdown and context menus, find bars.
-- **Dialog** (`0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)`): dialogs and floating editor panels (comments, chart and pivot editors).
+- **Dialog** (`0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)`): dialogs and floating editor panels (chart, pivot, conditional-format and data-validation editors, which overlay the grid). A panel docked beside the editor (comments, version history, PDF thread detail) is separated by its 1px rule and carries no shadow.
 - **Brand card** (`0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)`): homepage feature, use-case and interop cards, template gallery and landing cards. Use-case cards lift 2px on hover; feature cards scale to 1.005.
 - **Brand panel** (`0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.18)`): the homepage open-source panel; the sign-in card takes the same shape at 0.22.
 - **Brand primary bevel** (`0 1px 0 var(--wb-syrup-deep), inset 0 1px 0 color-mix(in srgb, white 25%, transparent)`): the pill CTA's pressed-syrup edge.
