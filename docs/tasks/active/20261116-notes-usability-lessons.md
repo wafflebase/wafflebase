@@ -19,3 +19,4 @@
   a green `verify:fast` is that hook, not a flaky test — wrap the body with
   `$'...\n...'` before suspecting the suite.
 - Self-review round 2 (design fit, via requesting-code-review): two should-fix — `ul.contains-task-list` hid bullets on plain items in a mixed list; heading read/set touched `#` lines inside code fences. Fixed both (item-scoped marker rule; GFM syntax-tree code check + tests). Also: search-match outline off syrup, theme `mode` doc, design doc notes preview-only mounts. Deferred: shared shortcut catalog, radiogroup semantics for view modes, setext heading detection.
+- Self-review round 2 panel: one blocker (test-adequacy) — no test for leaving Preview on a phone. Fixed: toolbar test taps the pressed Preview toggle in `view` mode and expects `edit`.

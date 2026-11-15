@@ -16,6 +16,7 @@ import type {
   NoteEditorAPI,
   NoteInlineFormats,
   NoteKeymap,
+  NoteViewMode,
 } from "@wafflebase/notes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NotesToolbar } from "./notes-toolbar";
@@ -88,14 +89,19 @@ function renderToolbar(
   editor: NoteEditorAPI,
   onModeChange = vi.fn(),
   {
+    mode = "edit",
     keymap = "default",
     onKeymapChange = vi.fn(),
-  }: { keymap?: NoteKeymap; onKeymapChange?: (k: NoteKeymap) => void } = {},
+  }: {
+    mode?: NoteViewMode;
+    keymap?: NoteKeymap;
+    onKeymapChange?: (k: NoteKeymap) => void;
+  } = {},
 ) {
   render(
     <TooltipProvider>
       <NotesToolbar
-        mode="edit"
+        mode={mode}
         onModeChange={onModeChange}
         keymap={keymap}
         onKeymapChange={onKeymapChange}
@@ -350,6 +356,18 @@ describe("NotesToolbar on a phone viewport", () => {
     expect(within(strip()).queryByRole("button", { name: "Editor" })).toBeNull();
     await user.click(within(strip()).getByRole("button", { name: "Preview" }));
     expect(onModeChange).toHaveBeenCalledWith("view");
+  });
+
+  it("leaves Preview for the source when the pressed toggle is tapped", async () => {
+    // The only way back to editing on a phone: there is no Editor toggle.
+    const user = userEvent.setup();
+    const onModeChange = vi.fn();
+    renderToolbar(stubEditor(), onModeChange, { mode: "view" });
+
+    const preview = within(strip()).getByRole("button", { name: "Preview" });
+    expect(preview.getAttribute("aria-pressed")).toBe("true");
+    await user.click(preview);
+    expect(onModeChange).toHaveBeenCalledWith("edit");
   });
 
   it("keeps the text style picker on the strip, shortened", () => {
