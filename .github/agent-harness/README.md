@@ -61,3 +61,19 @@ not, or will do differently. Each is known and accepted for now:
   `postinstall` leaves `.githooks` unwired under CI so an agent's own
   `pnpm install` cannot re-arm the minutes-long pre-push.
 
+## Upstream candidates
+
+- **One trusted checkout when the toolchain step runs.** `install-deps.mjs`
+  leaves out of its walks, and covers in the container, only the
+  `.trusted-*` checkout it runs from. Any other `.trusted-*` directory is
+  read as the branch's: with a `.git` it is refused as a second `.git`;
+  without one (a `cp -R` copy) it is mounted read-write into the container
+  like the rest of the workspace, where a write is caught afterwards but a
+  read is not. All five shared jobs comply today (`.trusted-agent` and
+  `.trusted-protection` are removed before the step, `.trusted-cred` is
+  checked out after it). An assertion in the core's `config-wiring.test.mjs`
+  that no other `.trusted-*` exists in the workspace at that step would keep
+  a future job from breaking it quietly.
+- **`scripts/ci/summarize-ci.mjs` in yorkie** has the two rendering issues
+  fixed here: a cut can leave a fence open, and the lane name in the heading
+  is not escaped.

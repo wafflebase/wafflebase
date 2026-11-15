@@ -80,3 +80,20 @@ Two independent reviews (toolchain; configuration and the rest). Fixed:
 
 Each fix was mutation-checked: reverting it fails its test.
 
+## Review round 2
+
+- [x] The `docs/` layout rule moved from `.githooks/pre-commit` into
+      `scripts/verify-docs-paths.mjs`, which `verify:fast` runs first and
+      `verify:self` runs as a lane; the hook calls `verify:fast` only
+- [x] Corrected round 1's "no workflow relies on the hooks": the issue-to-PR
+      job did. The docs/ layout and `verify:fast` now run in CI; the
+      commit-message format is an accepted loss (the squash merge writes
+      the message that lands)
+- [x] `summarize-ci.mjs`: the lane total is rendered only as a count, and a
+      fence indented by up to three spaces counts as one
+- [x] `install-deps.mjs` realpaths both sides of its entry check, so a run
+      through a linked path refuses or installs instead of exiting 0
+- [x] The real-runtime test's skip probe asks Docker the way the script does
+- [x] The probe-vocabulary pin says what it pins
+- [x] The one-trusted-checkout wiring rule is listed as an upstream candidate
+

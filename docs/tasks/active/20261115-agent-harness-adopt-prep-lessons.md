@@ -33,3 +33,15 @@
 - `pnpm verify:fast` needs the engine packages built (`docs`, `slides`, …)
   before the typechecks that import them; a fresh worktree's first commit
   fails on that, not on the change.
+- Before switching a mechanism off, list what it checked, not what it was
+  for. Unwiring the git hooks under CI was right for the pre-push, but the
+  pre-commit also held the only copy of the `docs/` layout rule, and the
+  issue-to-PR job's comment said it relied on the wiring. A check that lives
+  only in a local hook should move to what CI runs, with the hook calling it.
+- An entry guard that compares a realpath with a path as typed fails open:
+  run through a link, the script exits 0 having done nothing. Realpath both
+  sides, and test the run through a link.
+- A test's skip probe must ask the way the code under test asks. `docker
+  info` with the developer's own configuration reached a daemon through a
+  context that the script, with an empty configuration, could not.
+
