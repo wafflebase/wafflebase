@@ -103,8 +103,9 @@ const span = (text) => cell(text).replace(/`/g, "'");
  */
 export function closeOpenFence(block) {
   let open = null;
+  // CommonMark: a fence may be indented by up to three spaces.
   for (const line of block.split("\n")) {
-    const m = /^(`{3,})/.exec(line);
+    const m = /^ {0,3}(`{3,})/.exec(line);
     if (!m) continue;
     if (open === null) open = m[1];
     else if (m[1].length >= open.length && line.trim() === m[1]) open = null;
@@ -124,6 +125,10 @@ function clip(text, max) {
   return s.length <= max ? s : `${s.slice(0, max)}\n…(${s.length - max} characters omitted)…`;
 }
 
+/** `summary.lanesTotal` when it is a count, else the number of rows: the artifact is the branch's. */
+const laneTotal = (summary, rows) =>
+  Number.isInteger(summary.lanesTotal) && summary.lanesTotal >= 0 ? summary.lanesTotal : rows.length;
+
 /**
  * The block, or `""` when no lane failed.
  *
@@ -141,7 +146,7 @@ export function renderDiagnosis(reading, { maxChars = MAX_BLOCK_CHARS } = {}) {
   out.push("");
   out.push(
     `${failed.length} failed, ${count("pass")} passed, ${count("skip")} skipped (an earlier lane failed), ` +
-      `${count("filtered")} filtered (not applicable to this change), of ${summary.lanesTotal ?? rows.length}.`,
+      `${count("filtered")} filtered (not applicable to this change), of ${laneTotal(summary, rows)}.`,
   );
   out.push("");
   out.push("| | lane | status | time |");
