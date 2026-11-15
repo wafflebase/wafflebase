@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   toggleBold,
   toggleItalic,
@@ -239,5 +240,39 @@ describe('heading state', () => {
   it('does not count a hash without a space', () => {
     expect(headingAt('#tag', 2)).toBe(0);
     expect(headingAt('####### seven', 2)).toBe(0);
+  });
+});
+
+describe('headings and code blocks', () => {
+  const FENCE = 'Intro\n```bash\n# install deps\nnpm ci\n```\nOutro';
+  const mountMd = (doc: string, from: number, to = from) =>
+    new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.range(from, to),
+        extensions: [markdown({ base: markdownLanguage })],
+      }),
+    });
+
+  it('does not read a comment in a fence as a heading', () => {
+    const view = mountMd(FENCE, FENCE.indexOf('install'));
+    expect(computeActiveFormats(view.state).heading).toBe(0);
+    view.destroy();
+  });
+
+  it('leaves code lines untouched, even when Normal text is picked on one', () => {
+    const view = mountMd(FENCE, FENCE.indexOf('install'));
+    setHeading(view, 0);
+    expect(view.state.doc.toString()).toBe(FENCE);
+    view.destroy();
+  });
+
+  it('restyles prose around a fence a selection crosses, not the code', () => {
+    const view = mountMd(FENCE, 0, FENCE.length);
+    setHeading(view, 2);
+    expect(view.state.doc.toString()).toBe(
+      '## Intro\n```bash\n# install deps\nnpm ci\n```\n## Outro',
+    );
+    view.destroy();
   });
 });

@@ -244,8 +244,13 @@ code editor's conventions (product principle 2, *familiar before novel*):
 - **Preview alone is a reading surface.** In `view` mode the preview steps
   up from `prose-sm` to `prose-base` (`note-preview-reading`) and centres in
   a ~75-character column; the padding is a `max()` against the pane's width
-  so the scrollbar stays at the pane edge. Links take the `link` token, and
-  a task item's checkbox replaces its bullet.
+  so the scrollbar stays at the pane edge. Every preview-only mount reads
+  this way — the revision-history preview and a share-link viewer included.
+  Links take the `link` token, and a task item's checkbox replaces its bullet
+  (on the item only: a plain item in the same list keeps its bullet).
+- **Headings skip code.** A `#` inside a fenced or indented code block is
+  code, so heading state ignores it and `setHeading` leaves the line alone,
+  read from the GFM syntax tree.
 - **An empty, writable note says what to do**: a placeholder in the source
   pane names the markdown it accepts.
 

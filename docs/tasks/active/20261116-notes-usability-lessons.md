@@ -15,3 +15,7 @@
 - **jsdom drops `max()` / `calc()` inline styles**, so a padding assertion on
   one passes in the browser and fails in Vitest. Assert the class instead.
 - Self-review round 1: one blocker (test-adequacy) — `setHeading` missing from the read-only no-write test and from an end-to-end API test. Fixed: added it to the read-only guard and a store-level API test.
+- **The commit-msg hook caps body lines at 80 chars.** A failed commit after
+  a green `verify:fast` is that hook, not a flaky test — wrap the body with
+  `$'...\n...'` before suspecting the suite.
+- Self-review round 2 (design fit, via requesting-code-review): two should-fix — `ul.contains-task-list` hid bullets on plain items in a mixed list; heading read/set touched `#` lines inside code fences. Fixed both (item-scoped marker rule; GFM syntax-tree code check + tests). Also: search-match outline off syrup, theme `mode` doc, design doc notes preview-only mounts. Deferred: shared shortcut catalog, radiogroup semantics for view modes, setext heading detection.

@@ -367,11 +367,9 @@
  * A task item is marked by its checkbox; prose's bullet beside it is a second
  * marker for the same thing. The checkbox takes the bullet's place, hanging in
  * the list's indent so the item text lines up with sibling bullets' text.
+ * Scoped to the item, not the list: markdown-it-task-lists marks the whole
+ * `<ul>` once any item is a task, and a plain item beside it keeps its bullet.
  */
-.note-preview ul.contains-task-list {
-  list-style: none;
-}
-
 .note-preview li.task-list-item {
   position: relative;
 }

@@ -1,3 +1,4 @@
+import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { computeListState, type NoteListKind } from './list-commands.js';
@@ -39,7 +40,24 @@ export type NoteHeadingLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 const HEADING_PREFIX_RE =
   /^((?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?)(#{1,6}(?:[ \t]+|$))?/;
 
-function headingOf(text: string): NoteHeadingLevel {
+/**
+ * Whether `pos` sits inside a fenced or indented code block. A `#` there is
+ * code (a shell comment, a C preprocessor line), not a heading, so heading
+ * state ignores it and `setHeading` leaves the line alone. Read from the
+ * parsed tree; a mount without the markdown language has none and treats
+ * every line as prose.
+ */
+function inCode(state: EditorState, pos: number): boolean {
+  const inner = syntaxTree(state).resolveInner(pos, 1);
+  for (let node: typeof inner | null = inner; node; node = node.parent) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') return true;
+  }
+  return false;
+}
+
+function headingOf(state: EditorState, pos: number): NoteHeadingLevel {
+  if (inCode(state, pos)) return 0;
+  const text = state.doc.lineAt(pos).text;
   const marker = HEADING_PREFIX_RE.exec(text)?.[2] ?? '';
   return marker.replace(/[ \t]+$/, '').length as NoteHeadingLevel;
 }
@@ -97,7 +115,10 @@ export function computeActiveFormats(state: EditorState): NoteInlineFormats {
     list: list.kind,
     canIndent: list.canIndent,
     canOutdent: list.canOutdent,
-    heading: headingOf(state.doc.lineAt(state.selection.main.head).text),
+    heading: headingOf(
+      state,
+      state.doc.lineAt(state.selection.main.head).from,
+    ),
   };
 }
 
@@ -395,6 +416,9 @@ export function setHeading(view: EditorView, level: NoteHeadingLevel): void {
     const container = m[1];
     const current = m[2] ?? '';
     if (current === marker) continue;
+    // Code is not prose: a selection that crosses a fence restyles the text
+    // around it and leaves the code exactly as it was.
+    if (inCode(state, line.from)) continue;
     // A blank line in a multi-line selection is left blank rather than turned
     // into an empty heading.
     if (first !== last && line.text.trim() === '') continue;

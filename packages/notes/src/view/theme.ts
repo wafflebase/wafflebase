@@ -84,7 +84,7 @@ const chrome = (dark: boolean) =>
       },
       '.cm-searchMatch': {
         backgroundColor: SELECTED,
-        outline: `1px solid ${CARET}`,
+        outline: `1px solid ${RULE}`,
       },
       '.cm-searchMatch.cm-searchMatch-selected': {
         backgroundColor: SELECTED,
@@ -125,7 +125,12 @@ const markdownHighlight = HighlightStyle.define([
   { tag: [t.angleBracket, t.tagName, t.attributeName], color: MUTED },
 ]);
 
-/** The note editor's theme for `mode`: token-driven chrome + markdown styling. */
+/**
+ * The note editor's theme for `mode`: token-driven chrome + markdown styling.
+ * `mode` only sets CodeMirror's own `dark` flag; the colours come from the
+ * host's tokens, which flip with its `.dark` class. Outside the app the
+ * fallbacks are the light values.
+ */
 export function noteEditorTheme(mode: 'light' | 'dark'): Extension {
   return [chrome(mode === 'dark'), syntaxHighlighting(markdownHighlight)];
 }
