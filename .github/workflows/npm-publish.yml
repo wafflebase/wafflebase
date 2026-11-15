@@ -15,6 +15,14 @@ permissions:
 
 jobs:
   publish:
+    # The agent App's `contents: write` also lets it publish a release, and this
+    # job answers one with `NPM_TOKEN`. Nothing legitimate publishes a release
+    # as the App, so a release it authored is refused. See docker-publish.yml
+    # for what this guard does not cover; scripts/test/release-guard.test.mjs
+    # pins it.
+    if: >-
+      github.event_name != 'release' ||
+      github.event.release.author.login != 'yorkie-agent[bot]'
     runs-on: ubuntu-latest
 
     steps:
