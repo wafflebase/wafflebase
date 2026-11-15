@@ -208,20 +208,27 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # Unset disables the document
                                         # analytics dashboard (returns
                                         # `enabled: false`).
-WAFFLEBASE_DEMO_RESET_TOKENS=           # Optional, comma-separated share
-                                        # tokens of the homepage demo
-                                        # documents (the frontend's
+WAFFLEBASE_DEMO_RESET_TARGETS=          # Optional, comma-separated
+                                        # `<shareToken>:<revisionId>` pairs
+                                        # for the homepage demo documents
+                                        # (tokens = the frontend's
                                         # VITE_DEMO_*_SHARED_TOKEN values).
-                                        # Once a day each is restored to its
-                                        # newest revision named
-                                        # WAFFLEBASE_DEMO_RESET_LABEL, so
-                                        # visitor edits do not pile up. Unset
-                                        # arms no timer. A document with no
-                                        # such revision is logged and left
-                                        # alone.
-WAFFLEBASE_DEMO_RESET_LABEL=demo-golden # Optional, the revision label to
-                                        # restore. Name it with the history
-                                        # panel's "Name current version".
+                                        # Once a day each is restored to that
+                                        # revision so visitor edits do not
+                                        # pile up. Unset arms no timer.
+                                        # Pinned by id, never by label:
+                                        # CreateRevision is not gated by the
+                                        # auth webhook, so any editor-link
+                                        # visitor can name a revision
+                                        # anything. A token with no
+                                        # `:<revisionId>` is not reset; at
+                                        # boot its newest revisions labelled
+                                        # WAFFLEBASE_DEMO_RESET_LABEL are
+                                        # logged with their ids, to pin one.
+WAFFLEBASE_DEMO_RESET_LABEL=demo-golden # Optional, the label that boot-time
+                                        # candidate listing filters on. Name
+                                        # it with the history panel's "Name
+                                        # current version".
 WAFFLEBASE_DEMO_RESET_HOUR_UTC=15       # Optional, 0..23. 15 = 00:00 KST.
                                         # Anything else falls back to 15.
 ```

@@ -1,7 +1,8 @@
 import {
   DEFAULT_DEMO_RESET_HOUR_UTC,
   DEFAULT_DEMO_RESET_LABEL,
-  findNewestRevision,
+  findCandidateRevisions,
+  MAX_CANDIDATES,
   msUntilNextRun,
   parseDemoResetConfig,
   REVISION_MAX_PAGES,
@@ -18,17 +19,28 @@ function env(values: Record<string, string>) {
 describe('parseDemoResetConfig', () => {
   it('is disabled with defaults when nothing is set', () => {
     expect(parseDemoResetConfig(env({}))).toEqual({
-      tokens: [],
+      targets: [],
       label: DEFAULT_DEMO_RESET_LABEL,
       hourUtc: DEFAULT_DEMO_RESET_HOUR_UTC,
     });
   });
 
-  it('trims, drops empties and dedupes tokens', () => {
+  it('reads token:revision pairs, trimming and skipping empties', () => {
     const config = parseDemoResetConfig(
-      env({ WAFFLEBASE_DEMO_RESET_TOKENS: ' a, ,b,a ,' }),
+      env({ WAFFLEBASE_DEMO_RESET_TARGETS: ' a : r1 , ,b,c:, ' }),
     );
-    expect(config.tokens).toEqual(['a', 'b']);
+    expect(config.targets).toEqual([
+      { token: 'a', revisionId: 'r1' },
+      { token: 'b', revisionId: undefined },
+      { token: 'c', revisionId: undefined },
+    ]);
+  });
+
+  it('keeps the last entry for a repeated token', () => {
+    const config = parseDemoResetConfig(
+      env({ WAFFLEBASE_DEMO_RESET_TARGETS: 'a:r1,a:r2' }),
+    );
+    expect(config.targets).toEqual([{ token: 'a', revisionId: 'r2' }]);
   });
 
   it('reads the label and hour', () => {
@@ -82,60 +94,65 @@ describe('msUntilNextRun', () => {
   });
 });
 
-describe('findNewestRevision', () => {
-  function pages(all: RevisionRef[]) {
-    const listPage = jest.fn((offset: number) =>
-      Promise.resolve(all.slice(offset, offset + REVISION_PAGE_SIZE)),
-    );
-    return listPage;
+describe('findCandidateRevisions', () => {
+  const at = new Date(Date.UTC(2026, 10, 15));
+
+  function rev(id: string, label: string): RevisionRef {
+    return { id, label, createdAt: at };
   }
 
   function filler(n: number, from = 0): RevisionRef[] {
-    return Array.from({ length: n }, (_, i) => ({
-      id: `auto-${from + i}`,
-      label: `snapshot-${from + i}`,
-    }));
+    return Array.from({ length: n }, (_, i) =>
+      rev(`auto-${from + i}`, `snapshot-${from + i}`),
+    );
   }
 
-  it('returns the first (newest) match', async () => {
+  function pages(all: RevisionRef[]) {
+    return jest.fn((offset: number) =>
+      Promise.resolve(all.slice(offset, offset + REVISION_PAGE_SIZE)),
+    );
+  }
+
+  it('returns labelled revisions newest first', async () => {
     const listPage = pages([
       ...filler(3),
-      { id: 'new', label: 'demo-golden' },
-      { id: 'old', label: 'demo-golden' },
+      rev('new', 'demo-golden'),
+      rev('old', ' demo-golden '),
     ]);
-    await expect(findNewestRevision(listPage, 'demo-golden')).resolves.toEqual({
-      id: 'new',
-      label: 'demo-golden',
-    });
+    const found = await findCandidateRevisions(listPage, 'demo-golden');
+    expect(found.map((r) => r.id)).toEqual(['new', 'old']);
     expect(listPage).toHaveBeenCalledTimes(1);
   });
 
-  it('pages past the first page', async () => {
-    const listPage = pages([
-      ...filler(REVISION_PAGE_SIZE + 7),
-      { id: 'golden', label: ' demo-golden ' },
-    ]);
-    await expect(
-      findNewestRevision(listPage, 'demo-golden'),
-    ).resolves.toMatchObject({ id: 'golden' });
+  it('pages past the first page and dedupes a shifted boundary', async () => {
+    const boundary = rev('b', 'demo-golden');
+    const first = [...filler(REVISION_PAGE_SIZE - 1), boundary];
+    const second = [boundary, rev('deeper', 'demo-golden')];
+    const listPage = jest.fn((offset: number) =>
+      Promise.resolve(offset === 0 ? first : second),
+    );
+    const found = await findCandidateRevisions(listPage, 'demo-golden');
+    expect(found.map((r) => r.id)).toEqual(['b', 'deeper']);
     expect(listPage).toHaveBeenNthCalledWith(2, REVISION_PAGE_SIZE);
   });
 
-  it('stops at a short page when the label is missing', async () => {
-    const listPage = pages(filler(REVISION_PAGE_SIZE + 1));
-    await expect(findNewestRevision(listPage, 'demo-golden')).resolves.toBe(
-      null,
+  it('stops at MAX_CANDIDATES', async () => {
+    const listPage = pages(
+      Array.from({ length: MAX_CANDIDATES + 3 }, (_, i) =>
+        rev(`g${i}`, 'demo-golden'),
+      ),
     );
-    expect(listPage).toHaveBeenCalledTimes(2);
+    const found = await findCandidateRevisions(listPage, 'demo-golden');
+    expect(found).toHaveLength(MAX_CANDIDATES);
   });
 
   it('gives up after the page cap', async () => {
     const listPage = jest.fn((offset: number) =>
       Promise.resolve(filler(REVISION_PAGE_SIZE, offset)),
     );
-    await expect(findNewestRevision(listPage, 'demo-golden')).resolves.toBe(
-      null,
-    );
+    await expect(
+      findCandidateRevisions(listPage, 'demo-golden'),
+    ).resolves.toEqual([]);
     expect(listPage).toHaveBeenCalledTimes(REVISION_MAX_PAGES);
   });
 });

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { YorkieService } from '../yorkie/yorkie.service';
@@ -10,9 +10,11 @@ const DOCS: Record<string, { id: string; type: string }> = {
   'tok-slides': { id: 'd-slides', type: 'slides' },
 };
 
+const AT = new Date(Date.UTC(2026, 10, 15));
+
 function setup(
   values: Record<string, string>,
-  revisions: Record<string, Array<{ id: string; label: string }>>,
+  revisions: Record<string, Array<{ id: string; label: string }>> = {},
 ) {
   const configService = {
     get: (key: string) => values[key],
@@ -28,11 +30,18 @@ function setup(
   const restoreRevision = jest.fn<Promise<void>, [string, string]>(() =>
     Promise.resolve(),
   );
+  const listRevisions = jest.fn((id: string, offset: number) =>
+    Promise.resolve(
+      offset === 0
+        ? (revisions[id] ?? []).map((r) => ({ ...r, createdAt: AT }))
+        : [],
+    ),
+  );
   const withDocument = jest.fn(
     (id: string, cb: (doc: unknown, client: unknown) => unknown) => {
       const client = {
         listRevisions: (_doc: unknown, { offset }: { offset: number }) =>
-          Promise.resolve(offset === 0 ? (revisions[id] ?? []) : []),
+          listRevisions(id, offset),
         restoreRevision: (_doc: unknown, revisionId: string) =>
           restoreRevision(id, revisionId),
       };
@@ -44,30 +53,27 @@ function setup(
     shareLinkService as unknown as ShareLinkService,
     { withDocument } as unknown as YorkieService,
   );
-  return { service, restoreRevision, withDocument };
+  return { service, restoreRevision, listRevisions, withDocument };
 }
 
 describe('DemoResetService', () => {
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
-  it('restores each document to its newest labelled revision', async () => {
-    const { service, restoreRevision, withDocument } = setup(
-      { WAFFLEBASE_DEMO_RESET_TOKENS: 'tok-sheet,tok-slides' },
-      {
-        'd-sheet': [
-          { id: 'auto', label: '' },
-          { id: 'g2', label: 'demo-golden' },
-          { id: 'g1', label: 'demo-golden' },
-        ],
-        'd-slides': [{ id: 's1', label: 'demo-golden' }],
-      },
-    );
+  it('restores each document to its pinned revision', async () => {
+    const { service, restoreRevision, listRevisions, withDocument } = setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-sheet:r-sheet,tok-slides:r-slides',
+    });
 
     await expect(service.resetAll()).resolves.toEqual(['restored', 'restored']);
     expect(restoreRevision.mock.calls).toEqual([
-      ['d-sheet', 'g2'],
-      ['d-slides', 's1'],
+      ['d-sheet', 'r-sheet'],
+      ['d-slides', 'r-slides'],
     ]);
+    // The pin is the whole decision: no label search at reset time.
+    expect(listRevisions).not.toHaveBeenCalled();
     expect(withDocument).toHaveBeenNthCalledWith(
       2,
       'd-slides',
@@ -76,53 +82,66 @@ describe('DemoResetService', () => {
     );
   });
 
-  it('isolates a missing link and a missing revision', async () => {
+  it('ignores a newer revision carrying the label', async () => {
+    // Anyone holding the editor link can name a revision "demo-golden".
     const { service, restoreRevision } = setup(
-      { WAFFLEBASE_DEMO_RESET_TOKENS: 'gone,tok-doc,tok-sheet' },
-      { 'd-sheet': [{ id: 'g', label: 'demo-golden' }] },
+      { WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-sheet:pinned' },
+      { 'd-sheet': [{ id: 'attacker', label: 'demo-golden' }] },
     );
+    await service.resetAll();
+    expect(restoreRevision).toHaveBeenCalledWith('d-sheet', 'pinned');
+  });
+
+  it('isolates a missing link and skips an unpinned entry', async () => {
+    const { service, restoreRevision } = setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: 'gone:r,tok-doc,tok-sheet:r-sheet',
+    });
 
     await expect(service.resetAll()).resolves.toEqual([
       'failed',
-      'no-revision',
+      'unpinned',
       'restored',
     ]);
     expect(restoreRevision).toHaveBeenCalledTimes(1);
   });
 
-  it('honors a custom label', async () => {
+  it('logs candidate revision ids for an unpinned entry', async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     const { service, restoreRevision } = setup(
+      { WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-doc' },
       {
-        WAFFLEBASE_DEMO_RESET_TOKENS: 'tok-sheet',
-        WAFFLEBASE_DEMO_RESET_LABEL: 'clean',
-      },
-      {
-        'd-sheet': [
-          { id: 'g', label: 'demo-golden' },
-          { id: 'c', label: 'clean' },
+        'd-doc': [
+          { id: 'auto', label: '' },
+          { id: 'g1', label: 'demo-golden' },
         ],
       },
     );
-    await service.resetAll();
-    expect(restoreRevision).toHaveBeenCalledWith('d-sheet', 'c');
+    await service.logCandidates();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(`g1 (${AT.toISOString()})`),
+    );
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('auto'));
+    expect(restoreRevision).not.toHaveBeenCalled();
   });
 
-  it('arms no timer when no token is configured', () => {
+  it('arms no timer when nothing is configured or pinned', () => {
     jest.useFakeTimers();
-    const { service } = setup({}, {});
-    service.onApplicationBootstrap();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    setup({}).service.onApplicationBootstrap();
+    setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-doc',
+    }).service.onApplicationBootstrap();
     expect(jest.getTimerCount()).toBe(0);
   });
 
   it('runs at the configured hour, then again a day later', async () => {
     jest.useFakeTimers({ now: new Date(Date.UTC(2026, 10, 15, 14)) });
-    const { service, restoreRevision } = setup(
-      {
-        WAFFLEBASE_DEMO_RESET_TOKENS: 'tok-sheet',
-        WAFFLEBASE_DEMO_RESET_HOUR_UTC: '15',
-      },
-      { 'd-sheet': [{ id: 'g', label: 'demo-golden' }] },
-    );
+    const { service, restoreRevision } = setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-sheet:r',
+      WAFFLEBASE_DEMO_RESET_HOUR_UTC: '15',
+    });
     service.onApplicationBootstrap();
 
     await jest.advanceTimersByTimeAsync(59 * 60 * 1000);

@@ -10,26 +10,32 @@ import { YorkieService } from '../yorkie/yorkie.service';
 import { yorkieDocKeyPrefix } from '../yorkie/yorkie-doc-key';
 import {
   DemoResetConfig,
-  findNewestRevision,
+  DemoResetTarget,
+  findCandidateRevisions,
   msUntilNextRun,
   parseDemoResetConfig,
   REVISION_PAGE_SIZE,
 } from './demo-reset-config';
 
-export type DemoResetOutcome = 'restored' | 'no-revision' | 'failed';
+export type DemoResetOutcome = 'restored' | 'unpinned' | 'failed';
 
 /**
- * Restores the homepage's live demo documents to a named revision once a day.
+ * Restores the homepage's live demo documents to a pinned revision once a day.
  *
  * The demo panes embed editor share links, so every visitor edits the same
- * documents. The good state is kept as a named revision (the history panel's
- * "Name current version") and this service puts it back daily; changing the
- * example is editing it and naming a new version with the same label.
+ * documents. The good state is kept as a revision (the history panel's "Name
+ * current version") whose **id** is pinned in `WAFFLEBASE_DEMO_RESET_TARGETS`.
+ * It is pinned rather than found by label because creating a revision is not
+ * gated by the auth webhook: any visitor can name one anything.
+ *
+ * An entry without a revision id is in setup: it is never restored, and at
+ * boot its newest revisions carrying `WAFFLEBASE_DEMO_RESET_LABEL` are logged
+ * with their ids, for the operator to pin one.
  *
  * One in-process timer, armed at boot. Production runs a single replica; with
  * more, each restores the same revision, which leaves the same content. A
  * restart re-arms for the next run rather than resetting on boot, so a deploy
- * never wipes a demo mid-afternoon.
+ * never wipes a demo mid-day.
  */
 @Injectable()
 export class DemoResetService
@@ -49,13 +55,17 @@ export class DemoResetService
   }
 
   onApplicationBootstrap(): void {
-    if (!this.config.tokens.length) return;
+    const { targets, hourUtc } = this.config;
+    if (!targets.length) return;
+    const pinned = targets.filter((t) => t.revisionId).length;
     this.logger.log(
-      `demo reset: ${this.config.tokens.length} document(s) daily at ` +
-        `${String(this.config.hourUtc).padStart(2, '0')}:00 UTC to revision ` +
-        `"${this.config.label}"`,
+      `demo reset: ${pinned} of ${targets.length} document(s) pinned, daily ` +
+        `at ${String(hourUtc).padStart(2, '0')}:00 UTC`,
     );
-    this.schedule();
+    if (pinned < targets.length) {
+      void this.logCandidates();
+    }
+    if (pinned) this.schedule();
   }
 
   onModuleDestroy(): void {
@@ -73,16 +83,16 @@ export class DemoResetService
   }
 
   /**
-   * Reset every configured document, one at a time. A failure is logged and
-   * does not stop the others; the result is per token, in config order.
+   * Reset every pinned document, one at a time. A failure is logged and does
+   * not stop the others; the result is per target, in config order.
    */
   async resetAll(): Promise<DemoResetOutcome[]> {
     if (this.running) return [];
     this.running = true;
     try {
       const outcomes: DemoResetOutcome[] = [];
-      for (const token of this.config.tokens) {
-        outcomes.push(await this.resetOne(token));
+      for (const target of this.config.targets) {
+        outcomes.push(await this.resetOne(target));
       }
       return outcomes;
     } finally {
@@ -90,47 +100,76 @@ export class DemoResetService
     }
   }
 
-  private async resetOne(token: string): Promise<DemoResetOutcome> {
-    // Only a prefix reaches the log: the token is an editor credential.
-    const tag = `${token.slice(0, 8)}…`;
+  private async resetOne({
+    token,
+    revisionId,
+  }: DemoResetTarget): Promise<DemoResetOutcome> {
+    if (!revisionId) return 'unpinned';
     try {
       const { document } = await this.shareLinkService.findByToken(token);
-      const { label } = this.config;
-      const outcome = await this.yorkieService.withDocument(
+      await this.yorkieService.withDocument(
         document.id,
-        async (doc, client) => {
-          const revision = await findNewestRevision(
-            (offset) =>
-              client.listRevisions(doc, {
-                pageSize: REVISION_PAGE_SIZE,
-                offset,
-              }),
-            label,
-          );
-          if (!revision) return 'no-revision' as const;
-          await client.restoreRevision(doc, revision.id);
-          return 'restored' as const;
-        },
+        (doc, client) => client.restoreRevision(doc, revisionId),
         // The restore happens server-side; nothing local needs pushing.
         {
           syncMode: 'readonly',
           docKeyPrefix: yorkieDocKeyPrefix(document.type),
         },
       );
-      if (outcome === 'no-revision') {
-        this.logger.warn(
-          `demo reset: ${tag} (${document.type} ${document.id}) has no ` +
-            `revision labelled "${label}"; left as is`,
-        );
-      } else {
-        this.logger.log(
-          `demo reset: restored ${document.type} ${document.id} to "${label}"`,
-        );
-      }
-      return outcome;
+      this.logger.log(
+        `demo reset: restored ${document.type} ${document.id} to ${revisionId}`,
+      );
+      return 'restored';
     } catch (err) {
-      this.logger.error(`demo reset: ${tag} failed: ${String(err)}`);
+      this.logger.error(
+        `demo reset: ${tokenTag(token)} failed: ${String(err)}`,
+      );
       return 'failed';
     }
   }
+
+  /** Log the labelled revisions of every unpinned target, for setup. */
+  async logCandidates(): Promise<void> {
+    const { label } = this.config;
+    for (const { token } of this.config.targets.filter((t) => !t.revisionId)) {
+      try {
+        const { document } = await this.shareLinkService.findByToken(token);
+        const candidates = await this.yorkieService.withDocument(
+          document.id,
+          (doc, client) =>
+            findCandidateRevisions(
+              (offset) =>
+                client.listRevisions(doc, {
+                  pageSize: REVISION_PAGE_SIZE,
+                  offset,
+                }),
+              label,
+            ),
+          {
+            syncMode: 'readonly',
+            docKeyPrefix: yorkieDocKeyPrefix(document.type),
+          },
+        );
+        const listed = candidates.length
+          ? candidates
+              .map((r) => `${r.id} (${r.createdAt.toISOString()})`)
+              .join(', ')
+          : 'none';
+        this.logger.warn(
+          `demo reset: ${tokenTag(token)} (${document.type} ${document.id}) ` +
+            `is not pinned; revisions labelled "${label}", newest first: ` +
+            `${listed}. Pin one as <token>:<revisionId>.`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `demo reset: listing ${tokenTag(token)} failed: ${String(err)}`,
+        );
+      }
+    }
+  }
+}
+
+/** Only a prefix reaches the log: the token is an editor credential. */
+function tokenTag(token: string): string {
+  return `${token.slice(0, 8)}…`;
 }
