@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AUTH, QUOTA, classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
 import { SESSION_LIMIT_RE, redactSecrets } from "../agent/redact.mjs";
-import { AUTH as PROBE_AUTH, TRANSIENT as PROBE_TRANSIENT, classifyProbeFailure } from "../agent/pick-fix-credential.mjs";
+import * as probe from "../agent/pick-fix-credential.mjs";
+
+const { classifyProbeFailure } = probe;
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost
@@ -168,14 +170,57 @@ test("classifyFailure: reads the RAW text, so redaction cannot change the verdic
 // arm — so these tests are what keep the two lists one vocabulary: the lists
 // themselves are compared pattern for pattern, and one message for each
 // pattern shows the two thresholds.
-test("the fix-credential probe's lists are this script's, pattern for pattern", () => {
-  // Exact, not by example: a pattern added, widened or narrowed in one copy
-  // classifies the examples below the same and would pass them.
-  const key = (list) => list.map((re) => `${re.source}/${re.flags}`).sort();
-  assert.ok(QUOTA.includes(SESSION_LIMIT_RE), "the quota list no longer holds the pipeline's own session-limit rule");
-  assert.deepEqual(key(QUOTA.filter((re) => re !== SESSION_LIMIT_RE)), key(PROBE_TRANSIENT), "the transient-capacity lists differ");
-  assert.deepEqual(key(AUTH), key(PROBE_AUTH), "the auth lists differ");
-});
+//
+// TWO CORES. The probe is part of the harness core, which wafflebase is moving
+// onto yorkie's copy. yorkie's main at 0fa3f92f keeps its lists private, with
+// a narrower auth list and no transient-first rule; yorkie's change that
+// exports both lists (with this ordering and these patterns) is not merged
+// yet. Against a core that exports both lists — this repository's today, and
+// yorkie's once that change lands — the two copies are compared in full.
+// Against one that does not, the test below pins that it exports neither
+// list, and its answers on the four messages where the two vocabularies
+// differ. An export of either list, or a different answer on any of those
+// four, fails here and is looked at rather than passing quietly; a change
+// elsewhere in that core's probe does not.
+const PROBE_LISTS = Array.isArray(probe.AUTH) && Array.isArray(probe.TRANSIENT);
+
+if (PROBE_LISTS) {
+  test("the fix-credential probe's lists are this script's, pattern for pattern", () => {
+    // Exact, not by example: a pattern added, widened or narrowed in one copy
+    // classifies the examples below the same and would pass them.
+    const key = (list) => list.map((re) => `${re.source}/${re.flags}`).sort();
+    assert.ok(QUOTA.includes(SESSION_LIMIT_RE), "the quota list no longer holds the pipeline's own session-limit rule");
+    assert.deepEqual(key(QUOTA.filter((re) => re !== SESSION_LIMIT_RE)), key(probe.TRANSIENT), "the transient-capacity lists differ");
+    assert.deepEqual(key(AUTH), key(probe.AUTH), "the auth lists differ");
+  });
+
+  test("the fix-credential probe: the rest of the auth words, and a transient signal beats them", () => {
+    for (const msg of ["not authenticated", "permission denied", "see /login"]) {
+      assert.equal(classifyProbeFailure(msg), "auth", msg);
+      assert.equal(classifyFailure(msg), "auth", msg);
+    }
+    // A transient refusal that also carries auth words is still transient: a
+    // 429 that says "unauthorized" must not latch a PR.
+    assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
+  });
+} else {
+  test("the shared core's probe is still yorkie main 0fa3f92f's where the vocabularies differ: no exported lists, auth beating a 429", () => {
+    const changed = "the shared core's probe changed — if it now exports AUTH and TRANSIENT the full comparison above applies; otherwise read the change and update this record";
+    assert.equal(probe.AUTH, undefined, changed);
+    assert.equal(probe.TRANSIENT, undefined, changed);
+    // What it answers today where this script's vocabulary differs. The first
+    // is the one that matters: a 429 that says "unauthorized" reads as a
+    // rejected credential there, refusing the slot and paging the PR.
+    for (const [msg, answer] of [
+      ["429 rate limited: unauthorized burst", "auth"],
+      ["not authenticated", "unknown"],
+      ["permission denied", "unknown"],
+      ["see /login", "unknown"],
+    ]) {
+      assert.equal(classifyProbeFailure(msg), answer, `${changed}: ${msg}`);
+    }
+  });
+}
 
 test("the fix-credential probe reads this vocabulary, narrowed to refusals that stay refused", () => {
   // The same rejected credential reads the same in both.
@@ -190,11 +235,8 @@ test("the fix-credential probe reads this vocabulary, narrowed to refusals that 
     "invalid credential",
     "expired token",
     "expired credential",
-    "not authenticated",
-    "permission denied",
     "Not logged in · Please run /login",
     "Please run /login",
-    "see /login",
   ]) {
     assert.equal(classifyProbeFailure(msg), "auth", msg);
     assert.equal(classifyFailure(msg), "auth", msg);
@@ -214,6 +256,34 @@ test("the fix-credential probe reads this vocabulary, narrowed to refusals that 
     assert.equal(classifyFailure(msg), "quota", msg);
     assert.equal(classifyProbeFailure(msg), "unknown", msg);
   }
-  // A transient refusal that also carries auth words is still transient.
-  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
+});
+
+test("the runner's own faults in the stderr tail are not a refusal, in either reading", () => {
+  // The SDK's exit error carries the CLI's stderr tail, so a filesystem error
+  // or a URL on the runner reaches both classifiers. Read as auth, this script
+  // would tell an operator their credential is broken, and the probe would
+  // refuse every slot and page the PR. The same cases as the core's own suite.
+  const exit = (tail) => `Claude Code process exited with code 1. stderr: ${tail}`;
+  for (const msg of [
+    exit("Error: EACCES: permission denied, mkdir '/tmp/probe-abc/.claude'"),
+    exit("Error: EPERM: permission denied, open '/tmp/probe-abc/.claude.json'"),
+    exit("sh: /usr/local/bin/claude: Permission denied"),
+    exit("mkdir: cannot create directory '/tmp/x': Permission denied"),
+    exit("fetch failed: GET https://console.example.com/oauth/login (ECONNRESET)"),
+    exit("500 Internal server error; see https://status.example.com/login"),
+    exit("    at Object.<anonymous> (/app/login.js:12:5)"),
+    exit("    at run (/login.mjs:3:1)"),
+    exit("GET /login/callback failed"),
+  ]) {
+    assert.equal(classifyFailure(msg), "unknown", msg);
+  }
+  // The same words still read as auth when they are about the credential.
+  for (const msg of [
+    exit("Not logged in · Please run /login"),
+    exit("You must sign in first. Run /login."),
+    exit("Error: permission denied for this token"),
+    "error 0 Permission denied: the credential lacks access",
+  ]) {
+    assert.equal(classifyFailure(msg), "auth", msg);
+  }
 });

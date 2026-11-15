@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "ignore": [
     "scripts/**",
+    ".github/**",
     ".claude/**",
     "plugins/**"
   ],

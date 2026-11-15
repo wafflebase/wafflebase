@@ -29,7 +29,7 @@ these four things in it are the whole job.
 
 Repo conventions are also yours, but as craft, not as a gate: task files are
 `docs/tasks/active/YYYYMMDD-<slug>-todo.md` paired with `-lessons.md`, design
-docs follow `docs/design/template.md` and are linked from
+docs follow `docs/design/TEMPLATE.md` and are linked from
 `docs/design/README.md`, and a new design doc belongs in the table for its area.
 
 ## NOT your lane (defer — do not report)

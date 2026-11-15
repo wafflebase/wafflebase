@@ -10,6 +10,7 @@ import {
   codeLocations,
   citationPath,
   citationInScope,
+  globToRegExp,
   HUNT_GROUNDS,
   HUNT_VERIFIER_SCHEMA,
   EXPLORER_SCHEMA,
@@ -191,6 +192,21 @@ test("citationPath / citationInScope", () => {
   // Fail quiet: a charter with no declared scope reports nothing, not everything.
   assert.ok(!citationInScope("packages/cli/src/bin.ts:27", []));
   assert.ok(!citationInScope("packages/cli/src/bin.ts:27", undefined));
+});
+
+test("globToRegExp: the charters' dialect, which is the arms' own and not the core's", () => {
+  // The core's matcher (config.mjs `compileGlob`) refuses `?` and takes `**`
+  // only as a whole segment. The charters were written for this one, so its
+  // reading of both is pinned here rather than inherited.
+  assert.ok(globToRegExp("**").test("packages/frontend/src/x.ts"));
+  assert.ok(globToRegExp("packages/frontend/**").test("packages/frontend/src/a.ts"));
+  assert.ok(!globToRegExp("packages/frontend/**").test("packages/backend/a.ts"));
+  assert.ok(globToRegExp("packages/*/src/**").test("packages/cli/src/a/b.ts"));
+  assert.ok(!globToRegExp("packages/*/src/**").test("packages/cli/x/src/a.ts"), "`*` stays inside one segment");
+  assert.ok(globToRegExp("docs/design/cli?.md").test("docs/design/cli2.md"), "`?` is one character");
+  assert.ok(!globToRegExp("docs/design/cli?.md").test("docs/design/cli/.md"), "`?` is not a separator");
+  assert.ok(globToRegExp("packages/cli/**.ts").test("packages/cli/src/a.ts"), "`**` inside a segment crosses separators");
+  assert.ok(!globToRegExp("packages/cli.md").test("packagesXcli.md"), "`.` is literal");
 });
 
 // --- monotonicity -----------------------------------------------------------

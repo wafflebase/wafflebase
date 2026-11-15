@@ -356,7 +356,8 @@ in `harness-engineering.md`.
 ## Lifecycle scripts are not replaced
 
 The workspace has two install scripts. The root `postinstall` wires `.githooks`,
-which the agent jobs do not want. The backend's runs `prisma generate`.
+which the agent jobs do not want (and which it skips when `CI` is set; see
+`harness-engineering.md`, "Local Git Hooks", for what CI checks instead). The backend's runs `prisma generate`.
 
 Generating the Prisma client is a build step of the branch — it loads the
 branch's schema and whatever generators the schema names — so it is not run by

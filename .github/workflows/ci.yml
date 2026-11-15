@@ -196,8 +196,13 @@ jobs:
               : "**Reduced run.** Lane selection is on"
                 + (a.heavy ? " and the heavy jobs still run." : " and the heavy jobs are skipped."));
             out.push("");
-            if (a.packages?.length) out.push(`- affected packages (incl. dependents): \`${a.packages.join("`, `")}\``);
-            if (a.tags?.length) out.push(`- areas: \`${a.tags.join("`, `")}\``);
+            // Code spans built without a backtick on a line that also holds a
+            // double quote: the shared harness suite reads every `run:` line as
+            // shell and would take one for a command substitution.
+            const tick = String.fromCharCode(96);
+            const spans = (xs) => xs.map((x) => tick + x + tick).join(", ");
+            if (a.packages?.length) out.push("- affected packages (incl. dependents): " + spans(a.packages));
+            if (a.tags?.length) out.push("- areas: " + spans(a.tags));
             for (const r of a.reasons ?? []) out.push(`- ${r}`);
             require("node:fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out.join("\n") + "\n");
           '
@@ -362,6 +367,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: harness-reports
+          path: .harness-reports/
+          include-hidden-files: true
+          retention-days: 14
+
+      # The same reports under the name the shared agent harness's CI-fix job
+      # (`agent-iterate-ci.yml` from yorkie's core) downloads when
+      # `.github/agent-harness/config.json` sets `ci.laneReports`, rendered by
+      # `scripts/ci/summarize-ci.mjs`. `harness-reports` above stays for
+      # `ci-report.yml` and for today's CI-fix job.
+      - name: Upload the lane reports for the CI-fix agent
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-lane-reports
           path: .harness-reports/
           include-hidden-files: true
           retention-days: 14

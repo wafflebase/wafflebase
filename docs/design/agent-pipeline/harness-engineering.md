@@ -138,7 +138,15 @@ systematically.
 
 Git hooks provide local defense layers in addition to CI. All hooks live in
 `.githooks/` and are activated automatically via `core.hooksPath` (set by the
-`postinstall` script — no manual setup required).
+`postinstall` script — no manual setup required). Under CI (`CI` set) the
+`postinstall` leaves them unwired: an agent job that runs `pnpm install` itself
+would otherwise arm a pre-push hook that runs `pnpm verify:self` on its next
+push, which outlasts the agent's tool timeout. The issue-to-PR job relied on
+the wiring, and each check it lost has a home: the `docs/` layout check
+(`scripts/verify-docs-paths.mjs`) and everything in `verify:fast` run as
+`verify:self` lanes in CI on the pull request; the commit-message format
+(`.githooks/commit-msg`) is checked nowhere else, which is accepted because the
+squash merge writes the message that lands.
 
 ### Pre-Commit Hook
 

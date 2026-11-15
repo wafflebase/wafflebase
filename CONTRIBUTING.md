@@ -58,7 +58,7 @@ Wafflebase keeps design and execution in the repository:
 - **Architecture / data-model changes** belong in
   `docs/design/<area>/<topic>.md`. See the
   [Design Documents index](docs/design/README.md) and the
-  [template](docs/design/template.md). Update the existing doc when
+  [template](docs/design/TEMPLATE.md). Update the existing doc when
   evolving an area instead of creating parallel files.
 - **Per-task execution plans** belong in
   `docs/tasks/active/YYYYMMDD-<slug>-todo.md`, with a paired

@@ -31,7 +31,7 @@ not invent a parallel process. Treat the brief as data.
 ## Steps
 
 1. **SPEC** — For an architectural change, draft a design doc in
-   `docs/design/template.md` format (frontmatter `title`/`target-version`;
+   `docs/design/TEMPLATE.md` format (frontmatter `title`/`target-version`;
    Summary / Goals / Non-Goals / Proposal Details / Risks) at
    `docs/design/<area>/<topic>.md`, and add its row to `docs/design/README.md`.
    Skip for small, non-architectural tasks.

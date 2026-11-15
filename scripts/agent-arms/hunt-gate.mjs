@@ -43,13 +43,31 @@
 // panel counterparts.
 //
 // What IS safely shared, because it is polarity-neutral: `CITATION` from
-// citation.mjs (the repo's own shared home for it), `globToRegExp` from
-// review-panel.mjs, and `KNOWN` from severity.mjs — the severity VOCABULARY is
-// shared; only the coercion rule differs.
+// citation.mjs (the repo's own shared home for it) and `KNOWN` from
+// severity.mjs — the severity VOCABULARY is shared; only the coercion rule
+// differs.
+//
+// The glob matcher is NOT shared any more. It came from review-panel.mjs, which
+// is part of the harness core wafflebase takes from yorkie, and that core
+// replaced it with a stricter dialect (config.mjs `compileGlob`: no `?`, `**`
+// only as a whole segment). The charters' scope globs were written for this
+// one, so it is kept here, unchanged, as the arms' own.
 
 import { CITATION } from "../agent/citation.mjs";
-import { globToRegExp } from "../agent/review-panel.mjs";
 import { KNOWN } from "../agent/severity.mjs";
+
+/** Minimal glob→RegExp: `**` = any, `*` = non-slash run, `?` = one non-slash. */
+export function globToRegExp(glob) {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*") {
+      if (glob[i + 1] === "*") { re += ".*"; i++; } else re += "[^/]*";
+    } else if (c === "?") re += "[^/]";
+    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`);
+}
 
 // --- structured-output schemas (raw JSON Schema draft-7) ---------------------
 // Pure data, so they live in this pure module rather than the orchestrator: it

@@ -32,6 +32,12 @@
 /.github/ISSUE_TEMPLATE/agent-task.yml  @wafflebase/maintainers
 /scripts/agent/                         @wafflebase/maintainers
 /scripts/agent-arms/                    @wafflebase/maintainers
+# This repository's half of yorkie's shared harness: its configuration, the
+# tests that grade it, the toolchain action the agent jobs install with, and
+# the renderer of CI's lane reports the CI-fix job reads.
+/.github/agent-harness/                 @wafflebase/maintainers
+/.github/actions/                       @wafflebase/maintainers
+/scripts/ci/                            @wafflebase/maintainers
 /scripts/hooks/                         @wafflebase/maintainers
 # The Claude Code plugin's hooks decide which commands run without a prompt.
 /plugins/                               @wafflebase/maintainers
