@@ -1513,6 +1513,13 @@ function stretchProblems(wf, jobName) {
         // Given a literal version and nothing else, it reads no file of the
         // workspace: no `node-version-file`, no `cache`, no registry `.npmrc`.
         if (!(Object.keys(s.with).length === 1 && /^\d+(\.x)?$/.test(String(s.with["node-version"] ?? "")))) problem("action", s, "setup-node after the branch checkout is given something other than a literal node-version");
+      } else if (s.uses.startsWith("oven-sh/setup-bun@")) {
+        // The Bun claude-code-action is handed, instead of the one it would
+        // install from the Actions cache. A literal version and `no-cache:
+        // true`, nothing else: no `bun-version-file` (a workspace file), no
+        // registry or scope (which write configuration), no cache restore.
+        const w = s.with;
+        if (!(Object.keys(w).length === 2 && /^\d+\.\d+\.\d+$/.test(String(w["bun-version"] ?? "")) && w["no-cache"] === true)) problem("action", s, "setup-bun is given something other than a literal bun-version and no-cache: true");
       } else {
         problem("action", s, `${s.uses} is not an action this guard knows to stay out of the workspace`);
       }
@@ -1734,6 +1741,9 @@ const MUTATIONS = {
   t19_write_into_staged_copy: ["redirect-target", ...rb('echo x > "$RUNNER_TEMP/agent-tools/set-state.mjs"')],
   t20_download_into_staged_copy: ["download-path", "          path: ${{ runner.temp }}/ci-reports\n", "          path: ${{ runner.temp }}/agent-tools\n"],
   t21_setup_node_cache_after_branch: ["action", ...pre("      - uses: actions/setup-node@0000000000000000000000000000000000000005 # v4.4.0\n        with:\n          node-version: 22.x\n          cache: pnpm\n")],
+  t23_bun_from_the_cache: ["action", "          no-cache: true\n", "          no-cache: false\n"],
+  t24_bun_version_from_the_workspace: ["action", '          bun-version: "1.3.14"\n', "          bun-version-file: .bun-version\n"],
+  t25_bun_registry: ["action", "          no-cache: true\n", "          no-cache: true\n          registry-url: https://example.test/\n"],
   t22_pnpm_after_toolchain: ["shell-command", SS, "        run: pnpm --filter @wafflebase/backend exec prisma generate\n"],
 };
 
@@ -1971,6 +1981,22 @@ const AGENT_OAUTH = new Set([
   "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
 ]);
 const ONE_TOKEN = /^\$\{\{\s*steps\.[\w-]+\.outputs\.token\s*\}\}$/;
+/**
+ * The pool credential the picker chose, written as one clause per slot
+ * (`steps.cred.outputs.slot == 'N' && secrets.CLAUDE_CODE_OAUTH_TOKEN_N`)
+ * falling back to the unsuffixed secret. Each clause must name its own slot's
+ * secret, so the expression can only ever hand over the picked one.
+ */
+function slotChain(v) {
+  const m = /^\$\{\{([\s\S]*)\}\}$/.exec(v.trim());
+  if (!m) return false;
+  const parts = m[1].split("||").map((t) => t.replace(/\s+/g, " ").trim());
+  if (parts.at(-1) !== "secrets.CLAUDE_CODE_OAUTH_TOKEN" || parts.length < 2) return false;
+  return parts.slice(0, -1).every((t) => {
+    const c = /^steps\.cred\.outputs\.slot == '([1-9])' && secrets\.CLAUDE_CODE_OAUTH_TOKEN_([1-9])$/.exec(t);
+    return c !== null && c[1] === c[2];
+  });
+}
 const CREDENTIAL = /\bsecrets\b|\bgithub\.token\b|\.outputs\.token\b/;
 
 /**
@@ -1995,7 +2021,7 @@ function postAgentProblems(wf) {
     for (const [key, value] of Object.entries(agent.with)) {
       const v = String(value);
       if (key === "claude_code_oauth_token") {
-        if (!AGENT_OAUTH.has(v.trim())) problems.push(`${job} gives the agent a credential other than the picked one: ${v}`);
+        if (!AGENT_OAUTH.has(v.trim()) && !slotChain(v)) problems.push(`${job} gives the agent a credential other than the picked one: ${v}`);
       } else if (key === "github_token") {
         // One App token, or the job's own token where the job may write nothing
         // (the agent's step is handed the job token anyway).
@@ -2159,6 +2185,8 @@ const POST_AGENT_MUTATIONS = {
   job_env_secret: [WORK_PERMS, "    permissions:\n      contents: read\n    env:\n      K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n    steps:\n      - id: pre\n"],
   workflow_env_secret: ["  GH_REPO: ${{ github.repository }}\n", "  GH_REPO: ${{ github.repository }}\n  K: ${{ secrets.ANTHROPIC_API_KEY }}\n"],
   agent_env_pool_secret: [AGENT_WITH, AGENT_WITH + "        env:\n          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}\n"],
+  agent_slot_chain_crossed: ["          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n", "          claude_code_oauth_token: ${{ steps.cred.outputs.slot == '1' && secrets.CLAUDE_CODE_OAUTH_TOKEN_2 || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"],
+  agent_slot_chain_extra_secret: ["          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n", "          claude_code_oauth_token: ${{ steps.cred.outputs.slot == '1' && secrets.CLAUDE_CODE_OAUTH_TOKEN_1 || secrets.AGENT_APP_PRIVATE_KEY || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"],
   agent_other_oauth: ["          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n", "          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}\n"],
   agent_with_secret: [AGENT_WITH, AGENT_WITH + "          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}\n"],
   agent_two_tokens: ["          github_token: ${{ steps.agent-token.outputs.token }}\n", "          github_token: ${{ steps.agent-token.outputs.token || steps.pre.outputs.token }}\n"],
@@ -2188,6 +2216,8 @@ test("the after-the-agent guard refuses each named edit, and accepts the jobs as
   const JOB_TOKEN = ["          github_token: ${{ steps.agent-token.outputs.token }}\n", "          github_token: ${{ github.token }}\n"];
   const withJobToken = POST_AGENT_FIXTURE.replace(...JOB_TOKEN).replace("        env:\n          GH_TOKEN: ${{ steps.agent-token.outputs.token }}\n", "");
   assert.deepEqual(postAgentFindings(withJobToken), []);
+  const SLOTS = ["          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n", "          claude_code_oauth_token: >-\n            ${{ steps.cred.outputs.slot == '1' && secrets.CLAUDE_CODE_OAUTH_TOKEN_1 ||\n            steps.cred.outputs.slot == '2' && secrets.CLAUDE_CODE_OAUTH_TOKEN_2 ||\n            secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"];
+  assert.deepEqual(postAgentFindings(POST_AGENT_FIXTURE.replace(...SLOTS)), []);
   assert.notDeepEqual(postAgentFindings(withJobToken.replace("    permissions:\n      contents: read\n    steps:\n      - id: pre\n", "    permissions:\n      contents: read\n      issues: write\n    steps:\n      - id: pre\n")), []);
   assert.deepEqual(postAgentFindings(POST_AGENT_FIXTURE.replace(...after(AT_FINISH_END, "        env:\n          TITLE: x\n        run: LC_ALL=C.UTF-8 bash -c 'printf \"%s\" \"${1:0:200}\"' _ \"$TITLE\"\n"))), []);
   for (const [name, [from, to]] of Object.entries(POST_AGENT_MUTATIONS)) {
@@ -2199,105 +2229,147 @@ test("the after-the-agent guard refuses each named edit, and accepts the jobs as
 
 /** A condition that can run a step after an earlier one failed. */
 const STATUS_FN = /\b(always|failure|cancelled|success)\s*\(/;
-/** The revocation's condition in the shared workflows: whenever the gates' token exists, whatever ran before. */
-const REVOKE_COND = "always() && steps.app-token.outcome == 'success'";
+/** A job's `if:` without the `${{ }}` around it and with its whitespace collapsed. */
+const jobIf = (j) => String(j?.raw.if ?? "").trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1").replace(/\s+/g, " ");
+const needsOf = (j) => [].concat(j?.raw.needs ?? []);
+const CLAUDE_SECRET = /^secrets\.CLAUDE_CODE_OAUTH_TOKEN(_[1-9])?$/;
 
-/** Every way agent-implement.yml leaves the shape below; empty when it holds. */
+/**
+ * Every way agent-implement.yml leaves the shape below; empty when it holds.
+ *
+ * The issue-to-PR verb runs in four jobs. `prepare` makes every App call
+ * before the agent and records who was admitted, the base commit and whether
+ * every gate passed. `implement` runs the agent: no App secret is referenced
+ * in it (a runner is sent every secret its job references, and the agent has
+ * that runner), its token reads only, and the agent commits without pushing.
+ * `finish`, on a fresh runner, checks those commits with main's
+ * `bundle-handoff.mjs` and only then mints a token that can push them.
+ * `report` posts what must not depend on the App. wafflebase's own workflow
+ * ran the agent beside an App token it revoked first; the property — the
+ * agent's job holds no credential that writes to the repository, and nothing
+ * the agent left runs with one — is the same, and now holds by construction.
+ */
 function implementShapeProblems(text) {
   const problems = [];
   const check = (ok, message) => ok || problems.push(message);
   const wf = parseWorkflow(text, "agent-implement.yml");
-  const implement = wf.jobs.find((j) => j.name === "implement");
-  const finish = wf.jobs.find((j) => j.name === "finish");
-  if (!implement || !finish) return ["no implement or no finish job"];
-  const { steps } = implement;
-  const at = steps.findIndex((s) => s.uses?.startsWith(MODEL_ACTION));
-  const model = steps[at];
-  const tokenIds = steps.filter((s) => s.uses?.startsWith("actions/create-github-app-token@")).map((s) => s.id);
-  check(JSON.stringify(tokenIds) === JSON.stringify(["app-token", "agent-token"]), `App tokens ${tokenIds}`);
-  check(/github_token:\s*\$\{\{\s*steps\.agent-token\.outputs\.token\s*\}\}/.test(model?.text ?? ""), "the agent is not given its own token");
-  // The job token reads only.
-  check(isObject(implement.raw.permissions) && Object.values(implement.raw.permissions).every((v) => v !== "write"), "the implement job's token can write");
-  // The gates' token: never revoked by the action at job end; revoked by us
-  // before the agent, fail-closed. The revocation runs whenever the token
-  // exists, and the agent runs only when every step before it succeeded (no
-  // status function in its condition), so a revocation that failed stops it.
-  check(steps.find((s) => s.id === "app-token")?.with["skip-token-revoke"] === true, "the gates' token is left to the action's post step");
-  const revokeAt = steps.findIndex((s) => s.isRun && /^gh api -X DELETE installation\/token$/.test(s.script.trim()) && /steps\.app-token\.outputs\.token/.test(s.text));
-  check(revokeAt >= 0 && revokeAt < at, "the gates' token is not revoked before the agent");
-  if (revokeAt >= 0) {
-    const revoke = steps[revokeAt];
-    check(revoke.cond === REVOKE_COND || revoke.cond === model.cond, `the revocation runs under "${revoke.cond}", neither "${REVOKE_COND}" nor the agent's condition`);
-    check(!("continue-on-error" in revoke.raw), "the agent can start after a failed revocation");
-    check(!STATUS_FN.test(model?.cond ?? ""), `the agent runs under "${model?.cond}", which can start it after a failed revocation`);
-    const lastUse = steps.reduce((k, s, i) => (i !== revokeAt && /steps\.app-token\.outputs\.token/.test(s.text) ? i : k), -1);
-    check(lastUse < revokeAt, "a step uses the gates' token after it was revoked");
-  }
-  // The one credential in .git/config is the agent's own: every checkout keeps
-  // none, or the agent's token.
-  for (const c of steps.filter((s) => s.uses?.startsWith("actions/checkout@"))) {
-    check(c.with["persist-credentials"] === false || c.with.token === AGENT_TOKEN, `the checkout ${c.name || c.with.path || "(workspace)"} persists a token other than the agent's`);
-  }
-  // The toolchain runs from the workspace, so the workspace is main's by then.
-  const toolchainAt = steps.findIndex((s) => s.uses === "./.github/actions/agent-toolchain");
-  const mainAt = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@") && s.with.ref === "main" && s.with.path === undefined);
-  check(toolchainAt > mainAt && mainAt >= 0 && toolchainAt < at, "the toolchain does not run after main is checked out into the workspace and before the agent");
-  check(steps.filter((s) => s.uses?.startsWith("./")).length === 1, "the implement job uses a local action other than the toolchain");
-  // After the agent: the log upload only.
-  check(JSON.stringify(steps.slice(at + 1).map((s) => s.uses?.replace(/@.*/, ""))) === '["actions/upload-artifact"]', "a step other than the log upload follows the agent");
-  // `finish` runs only for a commenter the write-access gate admitted.
-  const verifyAt = steps.findIndex((s) => s.name === "Verify actor has write access");
-  const admittedAt = steps.findIndex((s) => s.id === "admitted");
+  const job = (name) => wf.jobs.find((j) => j.name === name);
+  const [prepare, implement, finish, report] = ["prepare", "implement", "finish", "report"].map(job);
+  if (!prepare || !implement || !finish || !report) return ["no prepare, implement, finish or report job"];
+  const tokenSteps = (j) => j.steps.filter((s) => s.uses?.startsWith("actions/create-github-app-token@"));
+  const secretsIn = (j) => [...`${JSON.stringify(j.raw.env ?? {})}\n${j.steps.map((s) => s.text).join("\n")}`.matchAll(/secrets\.[A-Z0-9_]+/g)].map((m) => m[0]);
+
+  // prepare: the write-access gate, then the admitted record directly after it.
+  const ps = prepare.steps;
+  const verifyAt = ps.findIndex((s) => s.name === "Verify actor has write access");
+  const admittedAt = ps.findIndex((s) => s.id === "admitted");
   check(verifyAt >= 0 && admittedAt === verifyAt + 1, "the admitted record does not directly follow the write-access gate");
   if (admittedAt >= 0) {
-    const a = steps[admittedAt];
+    const a = ps[admittedAt];
     check(a.cond === "" && !("continue-on-error" in a.raw), "the admitted record can run when the gate refused");
     check(a.script?.trim() === 'echo "admitted=true" >> "$GITHUB_OUTPUT"', "the admitted record writes something else");
   }
-  check(/^\$\{\{\s*steps\.admitted\.outputs\.admitted\s*\}\}$/.test(String(implement.raw.outputs?.admitted ?? "")), "the job does not output the admitted record");
-  check(String(finish.raw.if ?? "").trim() === "always() && needs.implement.outputs.admitted == 'true'", `finish runs under "${finish.raw.if}"`);
-  // The fresh job: main's scripts and configuration from a checkout that keeps
-  // no credential, its own token, the agent's output as data.
-  check([].concat(finish.raw.needs ?? []).includes("implement"), "finish does not need implement");
+  check(/^\$\{\{\s*steps\.admitted\.outputs\.admitted\s*\}\}$/.test(String(prepare.raw.outputs?.admitted ?? "")), "prepare does not output the admitted record");
+  check(/^\$\{\{\s*steps\.ready\.outputs\.ready\s*\}\}$/.test(String(prepare.raw.outputs?.ready ?? "")), "prepare does not output that every gate passed");
+
+  // implement: the agent's job.
+  const is = implement.steps;
+  const at = is.findIndex((s) => s.uses?.startsWith(MODEL_ACTION));
+  const model = is[at];
+  check(at >= 0, "implement does not run the agent");
+  check(needsOf(implement).includes("prepare") && /\bneeds\.prepare\.outputs\.ready == 'true'/.test(jobIf(implement)) && !STATUS_FN.test(jobIf(implement).replace("!cancelled()", "")), `implement runs under "${jobIf(implement)}", not only once prepare passed every gate`);
+  check(isObject(implement.raw.permissions) && JSON.stringify(implement.raw.permissions) === '{"contents":"read"}', "the implement job's token holds more than contents: read");
+  check(tokenSteps(implement).length === 0, "the implement job mints an App token");
+  const foreign = secretsIn(implement).filter((x) => !CLAUDE_SECRET.test(x));
+  check(foreign.length === 0, `the implement job references ${[...new Set(foreign)].join(", ")}, which its runner would be sent`);
+  check(String(model?.with.github_token ?? "").trim() === "${{ github.token }}", "the agent is not given the job's own read-only token");
+  for (const c of is.filter((s) => s.uses?.startsWith("actions/checkout@"))) {
+    check(c.with["persist-credentials"] === false, "a checkout in the implement job persists a credential");
+  }
+  // The toolchain runs from the workspace, so the workspace is main's by then.
+  const toolchainAt = is.findIndex((s) => s.uses === "./.github/actions/agent-toolchain");
+  const mainAt = is.findIndex((s) => s.uses?.startsWith("actions/checkout@") && s.with.ref === "main" && s.with.path === undefined);
+  check(mainAt >= 0 && toolchainAt > mainAt && toolchainAt < at, "the toolchain does not run after main is checked out into the workspace and before the agent");
+  check(is.filter((s) => s.uses?.startsWith("./")).length === 1, "the implement job uses a local action other than the toolchain");
+  // After the agent: pack its commits as data, and hand them over. Nothing
+  // else, and nothing with a secret.
+  const after = is.slice(at + 1);
+  check(after.length === 2 && after[0].script?.trim().startsWith("git bundle create ") && after[1].uses?.startsWith("actions/upload-artifact@"), "a step other than packing and uploading the agent's output follows the agent");
+  check(after.every((s) => !/\bsecrets\b|\.outputs\.token\b/.test(s.text)), "a step after the agent holds a credential");
+
+  // finish: a fresh runner, main's scripts, the agent's output as data.
+  check(needsOf(finish).includes("implement") && needsOf(finish).includes("prepare"), "finish does not need prepare and implement");
+  check(jobIf(finish) === "!cancelled() && needs.prepare.outputs.admitted == 'true'", `finish runs under "${jobIf(finish)}"`);
   const co = finish.steps.filter((s) => s.uses?.startsWith("actions/checkout@"));
   check(co.length === 1 && co[0].with.path === undefined && co[0].with.ref === "main" && co[0].with["persist-credentials"] === false, "finish checks out other than main once into the workspace, without a credential");
   check(String(co[0]?.with["sparse-checkout"] ?? "").trim().split("\n").sort().join() === ".github/agent-harness,scripts/agent", "finish checks out more than the scripts and their configuration");
   check(finish.steps.find((s) => s.uses?.startsWith("actions/download-artifact@"))?.with.path === "${{ runner.temp }}/agent-output", "the agent's output lands elsewhere");
-  check(finish.steps.filter((s) => s.uses?.startsWith("actions/create-github-app-token@")).length === 1, "finish mints other than one token");
-  // wafflebase's own workflow classified the issue with an Anthropic API key,
-  // in the fresh job only. The shared one has no classifier, so no job holds it.
-  for (const j of wf.jobs) {
-    const holds = j.steps.some((s) => /secrets\.ANTHROPIC_API_KEY/.test(s.text)) || /secrets\.ANTHROPIC_API_KEY/.test(JSON.stringify(j.raw.env ?? {}));
-    check(!holds, `ANTHROPIC_API_KEY in job ${j.name}`);
+  // The token that can push exists only once main's bundle-handoff.mjs has
+  // passed the commits, and never on a cancelled run; it can push and do
+  // nothing else, and only the push step holds it.
+  const fs = finish.steps;
+  check(JSON.stringify(tokenSteps(finish).map((s) => s.id)) === '["app-token","push-token"]', `finish mints ${tokenSteps(finish).map((s) => s.id)}`);
+  const bundleAt = fs.findIndex((s) => s.id === "bundle");
+  check(bundleAt >= 0 && /^node scripts\/agent\/bundle-handoff\.mjs verify /.test(fs[bundleAt].script?.trim() ?? ""), "the agent's commits are not verified by main's bundle-handoff.mjs");
+  const pushTokenAt = fs.findIndex((s) => s.id === "push-token");
+  const pt = fs[pushTokenAt];
+  if (pt) {
+    check(pushTokenAt > bundleAt && /\bsteps\.bundle\.outcome == 'success'/.test(pt.cond) && /^\$\{\{ !cancelled\(\) && /.test(pt.cond) && !/\balways\(\)/.test(pt.cond), `the push token is minted under "${pt.cond}", not only after the commits passed and never on a cancelled run`);
+    const perms = Object.keys(pt.with).filter((k) => k.startsWith("permission-"));
+    check(JSON.stringify(perms) === '["permission-contents"]' && pt.with["permission-contents"] === "write", "the push token can do more than push contents");
+    const users = fs.filter((s, i) => i !== pushTokenAt && /steps\.push-token\.outputs\.token/.test(s.text));
+    check(users.length === 1 && users[0].id === "push" && /^node scripts\/agent\/bundle-handoff\.mjs push /.test(users[0].script?.trim() ?? ""), "the push token is held by a step other than main's bundle-handoff.mjs push");
+    if (users[0]) check(/^\$\{\{ !cancelled\(\) && /.test(users[0].cond) && !/\balways\(\)/.test(users[0].cond), `the push runs under "${users[0].cond}", which a cancelled run does not stop`);
   }
+
+  // report: what must not depend on the App, for an admitted commenter only.
+  check(jobIf(report) === "always() && needs.prepare.outputs.admitted == 'true'", `report runs under "${jobIf(report)}"`);
+  check(!report.steps.some((s) => s.uses?.startsWith("actions/checkout@") || s.isRun), "report checks something out or runs a script");
+
+  // wafflebase's own workflow classified the issue with an Anthropic API key.
+  // The shared one has no classifier, so no job holds it.
+  for (const j of wf.jobs) check(!secretsIn(j).includes("secrets.ANTHROPIC_API_KEY"), `ANTHROPIC_API_KEY in job ${j.name}`);
   return problems;
 }
 
-test("agent-implement revokes the gates' token before the agent, and does its later work in a fresh job", () => {
+test("agent-implement keeps every credential that writes out of the agent's job, and pushes only verified commits", () => {
   assert.deepEqual(implementShapeProblems(WF_TEXT("agent-implement.yml")), []);
 });
 
 test("agent-implement's shape refuses each named edit", () => {
   const text = WF_TEXT("agent-implement.yml");
-  const REVOKE = `      - name: Revoke the pre-agent token\n        if: ${REVOKE_COND}\n`;
   const ADMIT = '      - name: Record that the commenter was admitted\n        id: admitted\n        run: echo "admitted=true" >> "$GITHUB_OUTPUT"\n';
-  const PERMS = "      contents: read # the trusted checkout of the protection check\n";
-  const AGENT_IF = "      - name: Run Claude Code\n        if: steps.app.outputs.configured == 'true'\n";
+  const IMPLEMENT_PERMS = "      # that could push would let it skip `finish`'s checks.\n      contents: read\n";
+  const IMPLEMENT_IF = "      !cancelled() &&\n      needs.prepare.outputs.ready == 'true'\n";
+  const PUSH_TOKEN_IF = "        if: ${{ !cancelled() && vars.AGENT_PIPELINE_ENABLED == 'true' && steps.bundle.outcome == 'success' }}\n";
+  const PUSH_IF = "        if: ${{ !cancelled() && vars.AGENT_PIPELINE_ENABLED == 'true' && steps.push-token.outcome == 'success' }}\n";
+  const PUSH_PERM = "          permission-contents: write # push the verified branch, and nothing else\n";
+  const PACK = "      - name: Pack the agent's commits (untrusted output)\n";
+  const AGENT_TOKEN_LINE = "          github_token: ${{ github.token }}\n";
+  const IMPLEMENT_CHECKOUT = "          ref: main # not the dispatcher's ref: the prompt says the checkout is `main`\n          fetch-depth: 0 # full history for rebase and a full-diff self-review\n          persist-credentials: false\n";
   const edits = {
-    revoke_if_false: [REVOKE, "      - name: Revoke the pre-agent token\n        if: false\n"],
-    revoke_always: [REVOKE, "      - name: Revoke the pre-agent token\n        if: always()\n"],
-    revoke_fail_open: [REVOKE, `${REVOKE}        continue-on-error: true\n`],
-    agent_after_failed_revoke: [AGENT_IF, "      - name: Run Claude Code\n        if: always() && steps.app.outputs.configured == 'true'\n"],
-    agent_given_gates_token: ["          github_token: ${{ steps.agent-token.outputs.token }}", "          github_token: ${{ steps.app-token.outputs.token }}"],
-    checkout_persists_gates_token: ["          token: ${{ steps.agent-token.outputs.token }} # persisted", "          token: ${{ steps.app-token.outputs.token }} # persisted"],
-    toolchain_before_main: ["        uses: ./.github/actions/agent-toolchain\n", "        uses: ./.github/actions/setup\n"],
-    job_token_writes: [PERMS, "      contents: write\n"],
-    finish_ungated: ["    if: always() && needs.implement.outputs.admitted == 'true'", "    if: always() && needs.implement.result != 'skipped'"],
+    implement_token_writes: [IMPLEMENT_PERMS, IMPLEMENT_PERMS.replace("contents: read", "contents: write")],
+    implement_token_adds_issues: [IMPLEMENT_PERMS, IMPLEMENT_PERMS.replace("contents: read", "contents: read\n      issues: write")],
+    implement_references_app_key: ["      staged: ${{ steps.stage.outcome }}\n", "      staged: ${{ steps.stage.outcome }}\n    env:\n      K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n"],
+    implement_mints_token: [PACK, "      - name: m\n        id: t\n        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0\n" + PACK],
+    implement_ungated: [IMPLEMENT_IF, "      !cancelled()\n"],
+    implement_runs_after_failed_prepare: [IMPLEMENT_IF, "      always() &&\n      needs.prepare.outputs.ready == 'true'\n"],
+    agent_given_a_secret_token: [AGENT_TOKEN_LINE, "          github_token: ${{ secrets.GITHUB_TOKEN }}\n"],
+    implement_checkout_persists: [IMPLEMENT_CHECKOUT, IMPLEMENT_CHECKOUT.replace("persist-credentials: false", "persist-credentials: true")],
+    toolchain_elsewhere: ["        uses: ./.github/actions/agent-toolchain\n", "        uses: ./.github/actions/setup\n"],
+    step_after_agent: ["      - name: Hand the agent's output to the finish job\n", "      - name: m\n        run: node scripts/agent/metrics.mjs record\n      - name: Hand the agent's output to the finish job\n"],
+    push_token_before_verify: [PUSH_TOKEN_IF, "        if: ${{ !cancelled() && vars.AGENT_PIPELINE_ENABLED == 'true' && steps.app-token.outcome == 'success' }}\n"],
+    push_token_on_cancel: [PUSH_TOKEN_IF, "        if: always() && steps.bundle.outcome == 'success'\n"],
+    push_token_wider: [PUSH_PERM, PUSH_PERM + "          permission-pull-requests: write\n"],
+    push_on_cancel: [PUSH_IF, "        if: always() && steps.push-token.outcome == 'success'\n"],
+    push_token_to_pr_step: ["        id: open-pr\n        if: ${{ !cancelled() && vars.AGENT_PIPELINE_ENABLED == 'true' && steps.push.outcome == 'success' }}\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ steps.app-token.outputs.token }}\n", "        id: open-pr\n        if: ${{ !cancelled() && vars.AGENT_PIPELINE_ENABLED == 'true' && steps.push.outcome == 'success' }}\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ steps.push-token.outputs.token }}\n"],
+    finish_ungated: ["    if: ${{ !cancelled() && needs.prepare.outputs.admitted == 'true' }}\n", "    if: ${{ !cancelled() }}\n"],
+    report_ungated: ["    if: always() && needs.prepare.outputs.admitted == 'true'\n", "    if: always()\n"],
     admitted_always: [ADMIT, ADMIT.replace("        id: admitted\n", "        id: admitted\n        if: always()\n")],
     admitted_fail_open: [ADMIT, ADMIT.replace("        id: admitted\n", "        id: admitted\n        continue-on-error: true\n")],
     admitted_removed: [ADMIT, ""],
     admitted_before_gate: (t) => t.replace(ADMIT, "").replace("      - name: Verify actor has write access\n", `${ADMIT}      - name: Verify actor has write access\n`),
-    anthropic_key_in_implement: [PERMS, `${PERMS}    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}\n`],
+    anthropic_key_in_finish: ["    if: ${{ !cancelled() && needs.prepare.outputs.admitted == 'true' }}\n", "    if: ${{ !cancelled() && needs.prepare.outputs.admitted == 'true' }}\n    env:\n      K: ${{ secrets.ANTHROPIC_API_KEY }}\n"],
   };
   for (const [name, edit] of Object.entries(edits)) {
     let edited;

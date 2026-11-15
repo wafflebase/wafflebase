@@ -4,9 +4,10 @@
 # checked out, the agent scripts staged, the branch checked out, main's
 # scripts checked out beside it and staged, main's toolchain action checked
 # out beside it and run, the steps that read the branch and pick a
-# credential, the agent - and nothing else. The guard's named workflow edits
-# are applied to this file, not to the real workflows, so renaming or moving a
-# step there never moves a test case. It is not a workflow: nothing runs it.
+# credential, an uncached Bun, the agent - and nothing else. The guard's
+# named workflow edits are applied to this file, not to the real workflows,
+# so renaming or moving a step there never moves a test case. It is not a
+# workflow: nothing runs it.
 name: guard fixture
 on:
   workflow_run:
@@ -264,7 +265,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh api -X DELETE installation/token
+      - name: Install Bun for the agent, without the Actions cache
+        id: bun
+        uses: oven-sh/setup-bun@0000000000000000000000000000000000000007 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+          no-cache: true
       - name: Run Claude Code
         uses: anthropics/claude-code-action@0000000000000000000000000000000000000006 # v1
         with:
+          path_to_bun_executable: ${{ steps.bun.outputs.bun-path || '/nonexistent/bun' }}
           prompt: Fix the failing check.
