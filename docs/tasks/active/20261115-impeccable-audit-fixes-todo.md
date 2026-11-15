@@ -11,14 +11,14 @@ docs canvas, board). That needs its own design doc.
 - [x] `upload-queue.ts` loads the sheet/docx/pptx importers with `import()`
 - [ ] ~~`shared-document.tsx` stops pulling the slides/notes engines~~ — deferred: the page also statically imports SheetView/DocsView/NotesView, and the image-resolver install depends on a layout-effect ordering contract; needs a per-type lazy split of its own
 - [x] `vendor-yorkie` no longer on the homepage's critical path
-- [x] SheetView: skip `setActiveCellForComment` when the cell is unchanged
+- [ ] ~~SheetView: skip `setActiveCellForComment` when the cell is unchanged~~ — reverted in self-review: the comment-popover placement effect relies on the per-tick object to follow its cell on scroll
 
 ## 2. Adapt — mobile and touch
 - [x] Conditional-format / data-validation panels fit a 375px viewport
-- [x] Comment / history / PDF side panels don't crush the editor on phones
+- [ ] ~~Comment / history / PDF side panels don't crush the editor on phones~~ — reverted in self-review: a `fixed inset-0` overlay covered the revision preview and fought the mobile edit bar; needs a designed bottom sheet
 - [x] Homepage comparison table no longer clips at 375px
 - [x] PDF region-comment drag surface sets `touch-action: none`
-- [x] Slides panel resizers use pointer events
+- [x] Slides panel resizers use pointer events (`attachPanelResizer`, unit-tested)
 - [x] Dialog / Sheet close buttons get a real hit area
 - [x] Data-validation textarea is 16px on mobile
 

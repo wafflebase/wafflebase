@@ -1267,14 +1267,7 @@ export function SheetView({
         s.onSelectionChange(() => {
           const activeCell = s.getActiveCell();
           if (!activeCell) return;
-          // Keep the previous object when the cell is unchanged: this fires
-          // on every render tick, and a fresh object would re-render the
-          // whole SheetView (and its toolbar) each time.
-          setActiveCellForComment((prev) =>
-            prev && prev.r === activeCell.r && prev.c === activeCell.c
-              ? prev
-              : { ...activeCell },
-          );
+          setActiveCellForComment({ ...activeCell });
 
           const wsNow = doc.getRoot().sheets[tabId];
           if (!wsNow) return;

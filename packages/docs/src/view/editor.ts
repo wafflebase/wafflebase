@@ -3631,9 +3631,14 @@ export function initialize(
       if (!pixel) return;
 
       const targetTop = pixel.y * scaleFactor - lastCanvasHeight / 3;
+      // Jump rather than glide for a reader who asked the system for
+      // reduced motion (WCAG 2.3.3); the destination is the same.
+      const reduceMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       container.scrollTo({
         top: Math.max(0, targetTop),
-        behavior: 'smooth',
+        behavior: reduceMotion ? 'auto' : 'smooth',
       });
     },
     onCursorMove: (cb) => {
