@@ -177,10 +177,11 @@ test("classifyFailure: reads the RAW text, so redaction cannot change the verdic
 // exports both lists (with this ordering and these patterns) is not merged
 // yet. Against a core that exports both lists — this repository's today, and
 // yorkie's once that change lands — the two copies are compared in full.
-// Against one that does not, the test below pins EXACTLY what that core does
-// today, so any change to it — an export under another name, one list
-// without the other, a different answer — fails here and is looked at,
-// rather than passing quietly.
+// Against one that does not, the test below pins that it exports neither
+// list, and its answers on the four messages where the two vocabularies
+// differ. An export of either list, or a different answer on any of those
+// four, fails here and is looked at rather than passing quietly; a change
+// elsewhere in that core's probe does not.
 const PROBE_LISTS = Array.isArray(probe.AUTH) && Array.isArray(probe.TRANSIENT);
 
 if (PROBE_LISTS) {
@@ -203,7 +204,7 @@ if (PROBE_LISTS) {
     assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
   });
 } else {
-  test("the shared core's probe is still yorkie main 0fa3f92f's, exactly: no exported lists, auth beating a 429", () => {
+  test("the shared core's probe is still yorkie main 0fa3f92f's where the vocabularies differ: no exported lists, auth beating a 429", () => {
     const changed = "the shared core's probe changed — if it now exports AUTH and TRANSIENT the full comparison above applies; otherwise read the change and update this record";
     assert.equal(probe.AUTH, undefined, changed);
     assert.equal(probe.TRANSIENT, undefined, changed);
