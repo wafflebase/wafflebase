@@ -35,6 +35,14 @@ is the rest of Phase 21's agent observability stack (structured backend
 logging, per-branch observability context) and autonomous issue-filing
 (Phase 26 Tier 2).
 
+Since 2026-11-15 `scripts/agent/` and every `agent-*.yml` are a copy of
+yorkie-team/yorkie's shared harness core, written by its `sync.mjs`; what is
+wafflebase's own lives in `.github/agent-harness/` (configuration, its tests,
+and the list of what changed at the switch) and `.github/actions/agent-toolchain/`.
+The phases below record how wafflebase's own harness was built; where one names
+a script or a step the shared core does differently, `.github/agent-harness/README.md`
+says what took its place.
+
 ## Principles
 
 These five principles, adapted from
@@ -644,11 +652,10 @@ Filtered lanes render as `⊘` and skipped-after-failure as `⏭️`, because co
 the two would let a real failure read as a deliberate omission.
 
 **`filtered` is a distinct lane status, not a reuse of `skip`.**
-`scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
-this never got its turn". An unrecognised status is merely absent from that
-tool's counts; a reused one would have made it state something untrue about
-every filtered lane. Teaching it to render `filtered` is an outstanding
-follow-up.
+`scripts/ci/summarize-ci.mjs`, which the CI-fix job runs on the lane reports,
+renders `skip` as "an earlier lane failed, so this never got its turn" and
+`filtered` as "not applicable to this change"; a reused status would have made
+it state something untrue about every filtered lane.
 
 `overall` is `some(fail)`, not `every(pass)`: the two were equivalent only while
 `skip` could not appear without a `fail` ahead of it, which is exactly what
@@ -992,8 +999,8 @@ Deliverables:
 - Structured logging format for backend services (JSON, correlation IDs).
 - Per-branch or per-PR observability context (log grouping by change).
 - Agent-queryable failure summaries from lane report artifacts.
-  **Delivered** by `scripts/agent/summarize-ci.mjs`, which reads the
-  `.harness-reports/` reports (the summary + per-lane files that `verify:self`
+  **Delivered** by `scripts/ci/summarize-ci.mjs`, which reads the
+  `.harness-reports/` reports (uploaded by `ci.yml` as `ci-lane-reports`) (the summary + per-lane files that `verify:self`
   already emits) and prints a ranked root-cause digest (failing lane + its
   failure summary, downstream skips noted). Consumed by the autonomous
   contribution loop below.
@@ -1274,19 +1281,19 @@ Components:
   `.github/ISSUE_TEMPLATE/agent-task.yml`. The agent's job mints two App
   tokens: the gates' (branch protection, the acknowledgement), revoked before
   the agent starts (a failed revocation skips the agent), and the agent's own
-  (contents, pull requests, issues), the only one its checkout persists; the
-  job's own token reads only. Everything after the agent that runs
-  repository code or needs another credential — the session summary, the effort
-  record, the no-PR report and the classifier, the workflow's only holder of
-  `ANTHROPIC_API_KEY` — runs in a separate `finish` job on a fresh runner, from
-  a sparse checkout of main that persists no credential, with the agent's log
-  read as data, and only for a commenter the write-access gate admitted.
+  (contents only), the only one its checkout persists; the job's own token
+  reads only. Everything after the agent that runs repository code or needs
+  another credential — opening the draft PR from what the agent wrote, the
+  session summary, the effort record, the no-PR report — runs in a separate
+  `finish` job on a fresh runner, from a sparse checkout of main that persists
+  no credential, with the agent's output read as data, and only for a
+  commenter the write-access gate admitted.
   `scripts/test/agent-workflow-guards.test.mjs` holds every agent job to the
   same rule after its agent step, and every job that reads the agent's output
   to running main's scripts only.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
   failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
-  `agent:managed` via `@claude loop`), `scripts/agent/summarize-ci.mjs` (Phase 21)
+  `agent:managed` via `@claude loop`), `scripts/ci/summarize-ci.mjs` (Phase 21)
   feeds the diagnosis back to the agent, which pushes a fix. A bounded attempts counter
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
@@ -2098,9 +2105,11 @@ Components:
   check runs / CI conclusion / job results / the paged-comment latch). `set-state
   reconcile` re-derives the state from those unforgeable signals and overwrites
   drift; it runs on the stalled path and can be invoked manually.
-- **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
-  gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
-  `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
+- **Provenance** — the shared report jobs and the ready gate check the
+  `Assisted-by: Claude Code (autonomous)` disclosure on agent work. Locally,
+  `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash, gated on
+  `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces the commit trailer; the shared
+  workflows do not set that variable.
 
 - **Convergence detection (early exit from the fix loop).** `MAX_REVIEW_ROUNDS`
   is a blunt backstop — PR #521 burned all five rounds re-litigating overlapping

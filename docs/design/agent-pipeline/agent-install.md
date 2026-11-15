@@ -13,6 +13,12 @@ already holds an App token, and the steps that follow run main's staged scripts
 with credentials. This document states what the install guarantees, where each
 guarantee is enforced, and what to redo when pnpm moves.
 
+Since the switch to yorkie's shared harness core, the four jobs are yorkie's
+workflows, copied unchanged, and the install is this repository's toolchain
+action, `.github/actions/agent-toolchain`: `action.yml` fetches the pinned
+pnpm and runs `install-deps.mjs` beside it, which is the install described
+here. The jobs use main's copy of the action, checked out beside the branch.
+
 ## The property
 
 Before the agent starts, the job has executed nothing the branch wrote and has
@@ -41,16 +47,16 @@ pnpm is never run on the runner itself. `install-deps.mjs` runs
 | The container gets | How |
 | --- | --- |
 | The workspace | read-write, at the same absolute path, so what pnpm records about it holds afterwards |
-| The workspace's `.git` | **read-only**, mounted over it |
+| The workspace's `.git`, and each `.trusted-*` checkout in it | **covered** by an empty read-only directory: the install can neither read nor change them, so a credential a checkout persisted in `.git/config` is not in there |
 | pnpm's store, `$RUNNER_TEMP/agent-pnpm/store` | read-write, at the same path |
-| The pnpm the workflow installed | read-only at `/opt/pnpm`; it is located on `PATH` and its version read, not executed |
+| The pnpm the action fetched | read-only at `/opt/pnpm`; it is located on `PATH` and its version read, not executed |
 | `install-deps-container.cjs` | that one file of the staged scripts, read-only |
 | Node | the image's: `node:22-bookworm-slim`, pinned by digest |
 | An environment | `CI=true`, `HOME=/tmp/home` — nothing of the job's |
 | Privileges | the runner's uid:gid, `--cap-drop=ALL`, `no-new-privileges`, read-only image, an in-memory `/tmp` |
 | A network | `--network=bridge`: out to the registry, not the runner's own namespace |
 
-It does **not** get: the rest of `$RUNNER_TEMP/agent-tools`, the runner's
+It does **not** get: the action's directory, `$RUNNER_TEMP/agent-tools`, the runner's
 `$HOME`, the job's environment, the container runtime's socket, or any other
 path. It does share the runner's kernel, and can reach the network.
 
@@ -77,27 +83,27 @@ There is no fallback. If `docker` cannot be run the step fails. GitHub's
 `ubuntu-latest` image ships Docker (client and server) and the runner user may
 use it.
 
-One script, `scripts/agent/install-deps.mjs` (with
-`install-deps-lockfile.mjs`), run by all four jobs from main's copy of
-`scripts/agent`, staged outside the workspace in `$RUNNER_TEMP/agent-tools`.
+One script, `.github/actions/agent-toolchain/install-deps.mjs` (with
+`install-deps-lockfile.mjs`), run by the toolchain action from main's copy of
+it, checked out to `.trusted-toolchain` beside the branch.
 
 | What decides how an install behaves | What the agent jobs do with it |
 | --- | --- |
-| Which pnpm runs | Set up by `pnpm/action-setup` (pinned to a commit) with an explicit `version`, **before** the branch is checked out — the action reads the workspace it runs in, so at that step the workspace holds main's tree or nothing. The script reads the version of the package behind `pnpm` on `PATH` and refuses any other than `PNPM_VERSION`; `packageManager` must name the same version; version switching is off for the install |
+| Which pnpm runs | Fetched by the toolchain action: one tarball from the npm registry, checked against a pinned sha512 before it is unpacked under `$RUNNER_TEMP`, nothing of the workspace read. The script reads the version of the package behind `pnpm` on `PATH` and refuses any other than `PNPM_VERSION`; `packageManager` and the action's `PNPM_VERSION` must name the same version; version switching is off for the install |
 | Lifecycle scripts (root, workspace packages, dependencies) | `--ignore-scripts` |
 | `.pnpmfile.cjs` and other hooks | `--ignore-pnpmfile` |
 | What gets installed | `--frozen-lockfile`, and the lockfile allow-list below |
 | `.npmrc`, in any directory | Set aside for the install and put back afterwards, inside the container. Main carries none; if it ever does, a copy ships beside the script and stands in |
 | The job's environment (`npm_config_*`, `PNPM_*`, `NODE_OPTIONS`, tokens) | Not passed into the container at all. The runtime's client gets `PATH`, `HOME` and `DOCKER_HOST` |
 | Where pnpm writes | `modules-dir` and `virtual-store-dir` pinned inside the workspace; the store pinned to `$RUNNER_TEMP/agent-pnpm/store`, outside it. The same store is exported to later steps (`npm_config_store_dir` via `$GITHUB_ENV`) so a pnpm command the agent runs agrees with the install |
-| `pnpm-workspace.yaml` (projects, and in pnpm 10 settings) | Must be byte-identical to main's, shipped as `scripts/agent/install-deps.workspace.yaml` |
+| `pnpm-workspace.yaml` (projects, and in pnpm 10 settings) | Must be byte-identical to main's, shipped as `install-deps.workspace.yaml` beside the script |
 | `pnpm.*` in the root `package.json` | Only the keys in `ALLOWED_PNPM_KEYS` (`overrides`); any other key is refused |
 | The shape of the tree | Refused before pnpm runs: any `node_modules` (a fresh checkout has none), any symbolic link that does not lead into the working tree — followed one component at a time the way the kernel follows it, each link on the way resolved where it stands before the next `..` is applied, with every place passed through and the place reached required to be in the working tree; a target under `/proc`, `/dev` or `/sys` is refused by its text, since it is a different place for every process that follows it — a project directory that is itself a link, a second `.git`, a package manifest in YAML or JSON5 form, anything that cannot be listed. The workspace path itself must be absolute, without `..`, and not a link; `.git` must be a real directory |
 | `pnpm-lock.yaml` | Read by allow-list — see below |
 | `package.json` of every project | Read by allow-list — see below |
 | Afterwards | Every project's `node_modules` is a real directory whose entries resolve inside the workspace; nothing appeared beside the workspace or in `$RUNNER_TEMP` outside pnpm's own directory; the directory the script ran from is byte-for-byte what it was; `.git/hooks`, `.git/config` and `.git/info` are what they were; the package managers' configuration in the runner's home (`.npmrc`, `.yarnrc*`, `.pnpmrc`, `.config/pnpm`) is what it was; every symbolic link in the workspace — those the checkout brought as well as new ones — leads into the working tree, as written and as resolved; there is no second `.git`; nothing in the workspace is unlistable (what cannot be read is a refusal, never a skip); and a digest of the working tree — everything but `.git` and the `node_modules` directory of each project the lockfile installs for; every path, mode, link target and file body, each length-prefixed so that two different trees cannot read as one — is what it was. Anything else named `node_modules` is part of the tree like any other entry. The runner computes all of this by reading files; it runs no other program in the workspace, git included |
 | Dependency caches | None: no `cache:` on any setup action in an agent workflow |
-| The checkout's credential | `persist-credentials: false` on the branch checkout: the token is not in `.git/config` while the install runs. The agent step configures its own push credential |
+| The checkout's credential | The branch checkout persists the agent's own narrow token in `.git/config`, the one it pushes with; `.git` is covered in the container, so the install cannot read it |
 
 Every refusal is a `::error::install-deps: …` line and a non-zero exit before
 pnpm is reached.
@@ -134,7 +140,7 @@ disagree: within this subset the strict reader and pnpm's parser build the same
 tree (checked by a differential run of 1.5 million mutated documents against
 the parser pnpm 10.5.2 bundles; none accepted with a different reading).
 
-`install-deps.test.mjs` holds **main's own** `pnpm-lock.yaml` and manifests to
+`toolchain.test.mjs` holds **main's own** `pnpm-lock.yaml` and manifests to
 the allow-list, so a pull request that adds a dependency from outside the
 registry — or whose lockfile pnpm wrote in a form the reader does not take —
 fails CI on that pull request, where the choice is visible: change the
@@ -188,33 +194,32 @@ manifest — is the registry's, not the lockfile's. With pnpm 10.5.2, entries an
 bin names that point out of the package directory are kept inside it or skipped
 (checked by experiment).
 
-`scripts/agent/install-deps.test.mjs` runs the script — every refusal against a
-stubbed pnpm, and one install against the real one.
-`scripts/test/agent-workflow-guards.test.mjs` holds the four jobs to calling it
-from the staged location, with the toolchain set up before the branch and
-pinned, and no inline install, cache, persisted credential or build step beside
-it.
+`.github/agent-harness/toolchain.test.mjs` runs the script and the action's
+step — every refusal against a stubbed pnpm and container runtime, and one
+install in a real container with the real pnpm.
+`scripts/test/agent-workflow-guards.test.mjs` holds the four jobs to using
+main's copy of the action, and no inline install, cache, other persisted
+credential or build step beside it.
 
 ## Step order
 
-All four jobs end the same way: pnpm + Node (pinned, before the branch) →
-branch checkout without persisted credentials → **record a digest** of
-`$RUNNER_TEMP/agent-tools` → `node "$RUNNER_TEMP/agent-tools/install-deps.mjs"`
-→ **verify the digest** (`always()`).
+All four jobs set the toolchain up the same way, after the branch checkout:
+clear `.trusted-toolchain` → check main's `.github/actions/agent-toolchain` out
+to it (sparse, no credential) → `uses: ./.trusted-toolchain/.github/actions/agent-toolchain`
+→ add `/.trusted-toolchain/` to `.git/info/exclude`, so the directory cannot
+be committed to the branch. It stays until the job ends: the runner re-reads a
+local action's definition before its post steps.
 
 | Job | How main's `scripts/agent` gets to `$RUNNER_TEMP/agent-tools` |
 | --- | --- |
-| `agent-fix` / panel `fix` | The job starts on a checkout of main and copies `./scripts/agent` out before the branch replaces the workspace |
-| `iterate` / `reply` | After the branch checkout: clear `.trusted-agent`, check main out to it (sparse), copy it out, remove it |
+| `agent-fix` / panel `fix` | The job starts on a checkout of main and copies `./scripts/agent` and `.github/agent-harness` out before the branch replaces the workspace |
+| `iterate` | After the branch checkout: clear `.trusted-agent`, check main out to it (sparse), copy it out, remove it — before the toolchain runs |
+| `reply` | Main's scripts for the credential picker are checked out to `.trusted-cred` after the toolchain, and moved out of the workspace whole |
 
-Nothing trusted is run from inside the workspace. A path there is one the
-branch's own tree can reach — by a link, or by Node's module resolution walking
-up into an installed `node_modules`.
-
-A script rather than a composite action: every job already has main's
-`scripts/agent` in hand before the install, so the install rides the staging
-that exists instead of adding a second trusted checkout and a directory that has
-to outlive the job.
+Nothing trusted is run from inside the workspace but the toolchain action,
+from main's checkout. A path there is one the branch's own tree can reach — by
+a link, or by Node's module resolution walking up into an installed
+`node_modules` — which is why that checkout's path is cleared first.
 
 ### From the job's first step to the agent
 
@@ -225,8 +230,8 @@ line looks like: a plain scalar continued on the next line, a block header
 with a comment (`run: | # …`), an `if:` continued onto a second line, a key
 written after a `run: |` block. Before parsing, the four workflow files are
 held to a character allow-list: no control character but the newline (no
-CR, no tab), no U+2028/U+2029, and no non-ASCII character but the eleven they
-use today (`— – … → ≠ ⚠ ⏸ U+FE0F ✅ 🛑 🤖`). A lone CR or a line separator ends
+CR, no tab), no U+2028/U+2029, and no non-ASCII character but the twelve they
+use today (`— – … → ≠ ⚠ ⏸ U+FE0F ✅ 🛑 🤖 👋`). A lone CR or a line separator ends
 a line for one reader and not for another, and a look-alike letter reads as a
 command name it is not. One document, no parse error, no anchor, alias, merge
 key or tag.
@@ -250,24 +255,29 @@ Two rules hold for the trusted steps that run after the branch is checked out
 and before the agent, and the guard test enforces both:
 
 - **Nothing is written into the workspace, run from it, or set up to steer a
-  later step.** A write there goes wherever the tree leads it, whatever was
-  checked before. The CI-fix job's download of the failed run's reports goes to
-  `$RUNNER_TEMP/harness-reports`, and `summarize-ci.mjs` is pointed at it.
-- **A staged script is run after the install only once it has been checked**:
-  the check of the staged scripts sits directly before every use, and a use runs
-  only when that check ran or the install did not.
+  later step**, bar one pinned line: `.git/info/exclude`, directly after the
+  toolchain. A write there goes wherever the tree leads it, whatever was
+  checked before. The CI-fix job's download of the failed run's lane reports
+  goes to `$RUNNER_TEMP/ci-reports`, and main's `scripts/ci/summarize-ci.mjs`,
+  staged to `$RUNNER_TEMP/trusted-scripts`, is pointed at it.
+- **Nothing is written into the staged copies.** A redirect, `mkdir`, `chmod`
+  or download under `$RUNNER_TEMP` must land outside every directory the job
+  staged main's scripts to.
 
 The guard reads this stretch by **allow-list**, not by a list of forbidden
 spellings: there are too many ways to write a file, and more to change what a
 later command finds. A step is one of these, or the test fails.
 
-- **Pinned steps**, compared with their exact text: the side-directory clear,
-  checkout of main's `scripts/agent` (with exactly `ref`, `path`, the sparse
-  pattern and `persist-credentials: false`) and staging; the digest record; and
-  every check, which is handed nothing but `EXPECTED`. These are the steps that
-  must run `cp`, `rm`, `cd`, `find`, `sort`, `xargs` or `sha256sum`, which no
-  other step may. The install itself is held to its one command, and none of
-  these takes a `shell:`, `working-directory:` or `continue-on-error:`.
+- **Pinned steps**, compared with their shape: the side-directory clear (which
+  must come before each side checkout); the side checkout of main (exactly
+  `ref`, `path`, `sparse-checkout` of main's scripts, configuration or
+  toolchain action, `persist-credentials: false`); the staging (main's
+  `scripts/agent` first, then its configuration and the variable naming it,
+  its `scripts/`, and the side directory's removal) and the move of a side
+  directory out whole; the toolchain step, handed nothing; and the
+  `.git/info/exclude` line after it. These are the steps that must run `cp`,
+  `mv` or `rm`, which no other step may, and none takes a `shell:`,
+  `working-directory:` or `continue-on-error:`.
 - **Shell steps**, read into their simple commands (command substitutions
   included). Every command is one of these, with these arguments:
 
@@ -276,26 +286,31 @@ later command finds. A step is one of these, or the test fails.
   | `echo`, `true`, `exit` | anything; none; one literal status |
   | `printf` | a literal format that is not an option first (`-v` assigns, and an array subscript in its name runs `$( … )`) |
   | `test`, `[` | one literal `-f`/`-s`/`-n`/`-z`/`-d`/`-e` and an operand, or two operands around a literal `=`/`!=` — so the operator is never a variable, and never `-v` or `-R` |
-  | `cut`, `date` | options only (`-f`, `-d`; `-u`, `+format`): standard input, no file |
-  | `git` | `rev-parse <ref>`, or `ls-remote` with `origin` or a `github.com` URL and patterns that begin with a literal; no option at all, so nothing names a program (`--upload-pack`, `-u`, `--exec`, `-c`) |
-  | `gh` | `pr comment`, one pull request, `--body`, or a `--body-file` the job wrote directly under `$RUNNER_TEMP` — in this step before the command, or named by a step before the branch was checked out; any other file is one `gh` would publish |
-  | `node` | a staged script, `"$RUNNER_TEMP/agent-tools/<name>.mjs"`, first |
+  | `cut`, `date`, `tail` | options only (`-f`, `-d`; `-u`, `+format`; `-c <n>`): standard input, no file |
+  | `openssl` | `rand -hex <n>` |
+  | `mkdir`, `chmod` | `-p` / `+x` and one path under `$RUNNER_TEMP`, outside the staged copies |
+  | `git` | `rev-parse <ref>`, or `ls-remote` with `origin` or a `github.com` URL and patterns that begin with a literal; no option at all, so nothing names a program (`--upload-pack`, `-u`, `--exec`, `-c`). Two exact forms more, the fix-scope hook's: `config core.hooksPath` to a directory under `$RUNNER_TEMP`, and `rev-parse --path-format=absolute --git-path hooks` |
+  | `gh` | `pr comment`, one pull request, `--body`, or a `--body-file` the job wrote directly under `$RUNNER_TEMP` — in this step before the command, or named by a step before the branch was checked out; any other file is one `gh` would publish. And three exact forms: the branch-head read (`api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha`), the pre-agent token's revocation (`api -X DELETE installation/token`), the failed run's log (`run view "$RUN_ID" --log-failed`) |
+  | `node` | a staged script first: an `.mjs` under a directory the job staged main's copy to, named directly (`"$RUNNER_TEMP/agent-tools/<name>.mjs"`) or through a variable set to that directory |
 
   A shell assignment is refused unless it stands alone and names one of the
-  variables the scripts use (`ACTUAL`, `DIAG`). Every redirection names
-  `$GITHUB_OUTPUT`, `$GITHUB_STEP_SUMMARY`, a plain file name directly under
-  `$RUNNER_TEMP`, stderr or `/dev/null`. A step runs in the workspace or in
+  variables the scripts use (`ACTUAL`, `DIAG`, `UNREAD`, `EOF_MARK`, `HOOKS`,
+  `EFFECTIVE`). Every redirection names `$GITHUB_OUTPUT`,
+  `$GITHUB_STEP_SUMMARY`, a path under `$RUNNER_TEMP` outside the staged
+  copies, stderr or `/dev/null`. A step runs in the workspace or in
   `${{ runner.temp }}`, nowhere else.
-- **Actions**: a download into one directory under `$RUNNER_TEMP`, and
+- **Actions**: a download into one directory under `$RUNNER_TEMP` (not a staged
+  copy), `actions/setup-node` given only a literal `node-version`, and
   `github-script` with only `script`, `retries` and `github-token`. Its code is
   read by a small tokenizer and held to the calls and reads the workflows make
   — `github.rest.pulls.list`/`get`, `github.rest.issues.createComment`/
   `updateComment`, `github.rest.repos.getCollaboratorPermissionLevel`,
-  `github.paginate` over `listWorkflowRuns`/`listComments`, `core.setOutput`,
+  `github.rest.actions.listWorkflowRuns`, `github.paginate` over `listWorkflowRuns`/`listComments`, `core.setOutput`,
   `core.setFailed`, the log calls `core.debug`/`info`/`notice`/`warning`/
   `error`, `core.summary.addRaw(…).write()`, `String`, `Number`, `parseInt`,
-  `context.*` and `process.env.<NAME>` reads, and `filter`/`some`/`includes`/
-  `startsWith` on its own values. No bracket access but `[<integer>]`, no
+  `JSON.parse`, `context.*` and `process.env.<NAME>` reads (or `const { … } =
+  process.env`), and `filter`/`some`/`includes`/`startsWith`/`reduce` on its
+  own values. No bracket access but `[<integer>]`, no
   optional call, no `constructor`, `Function`, `eval`, `require`, `import`,
   tagged template or `${{ }}`, and no assignment outside a `const`/`let`
   declaration (destructuring included). A `//` comment ends at any line
@@ -320,15 +335,13 @@ unterminated quote, or a key the guard does not read. A line starting with `#`
 inside a `run:` or `script:` block is script, as YAML reads it; a script
 with no command it can read is refused.
 
-**When a staged script may run.** Each later check has the condition
-`steps.tools.outputs.digest != ''` and inherits `success()`. A step that uses a
-staged script after the install has no status function (`always()`,
-`failure()`, `cancelled()`, `success()`) in its `if:`, so it cannot run past a
-check that failed; and the record step and the install share one plain
-condition on earlier steps' outputs, so a check skipped for want of a digest
-means the install was skipped too. Before the install nothing of the branch's
-has run, and the staged copy is still what was staged: uses there need no
-check.
+**When a staged script may run.** Any time before the agent. wafflebase's own
+workflows ran the install on the runner, so they recorded a digest of the
+staged scripts before it and checked it before every later use. The toolchain
+action runs the install in a container that is given the workspace and nothing
+else of `$RUNNER_TEMP`, and fails the step if anything outside the workspace
+changed (`toolchain.test.mjs`), so the staged copies are out of its reach and
+there is no digest.
 
 The test carries a named workflow edit for each rule, which must be refused
 by that rule, and edits a maintainer may reasonably make (a new `echo` step, a
@@ -336,22 +349,6 @@ renamed or moved step, a comment line, `timeout-minutes`, a folded `run: >-`,
 `core.notice`), which must be accepted. Both are applied to a synthetic job of
 the same shape, `scripts/test/fixtures/agent-guard-workflow.yml`, not to the
 real workflows, so renaming or moving a step there never moves a case.
-
-### The digest
-
-Every later step of these jobs that holds a token runs a script from
-`$RUNNER_TEMP/agent-tools`, some of them under `always()`. The step before the
-install records a sha256 over that directory's names and contents as a **step
-output** — held by the runner, not by a file anything could rewrite — and the
-step after it recomputes it, as does a copy of that step placed directly
-before each later run of a staged script up to the agent. On a mismatch the directory is removed and the job
-fails, so no later step runs a script from it. The check is written in the
-workflow, not in the staged scripts, because a check cannot vouch for the
-directory it runs from.
-
-It covers the install. It does not cover the steps after the agent: the agent
-has a shell, and what runs after it in the same job is a known limit recorded
-in `harness-engineering.md`.
 
 ## Lifecycle scripts are not replaced
 
@@ -373,7 +370,7 @@ the same reason the scripts are off. No workflow-owned step needs the client.
 | `agent-fix` | The placeholder comment becomes "could not start the fix agent — a setup step failed before it ran" |
 | panel `fix` | The `stalled` job pages ("fix failed") |
 | `iterate` | "Page if the fix produced no commit" runs under `always()` and pages |
-| `reply` | A comment from a step keyed on the install's outcome |
+| `reply` | Nothing: a red job. wafflebase's own reply job commented; the shared one's report job posts only the agent's reply. A known gap, pinned by the guard and listed as an upstream candidate in `.github/agent-harness/README.md` |
 
 In each case the reason is the `::error::install-deps:` annotation on the run.
 
@@ -397,7 +394,7 @@ In each case the reason is the `::error::install-deps:` annotation on the run.
 ## What it does not watch
 
 The checks after the install look at the places a later step reads from: beside
-the workspace, `$RUNNER_TEMP`, the staged scripts, git's hooks and
+the workspace, `$RUNNER_TEMP`, the action's directory, git's hooks and
 configuration, the package managers' dotfiles in `$HOME`, the working tree. They do not watch the rest of `$HOME`,
 `/tmp` or the rest of the machine. What keeps the install out of
 those places is the list above, not a check afterwards.
@@ -429,8 +426,8 @@ Stated plainly, the property rests on these and on nothing else:
   namespace is what keeps the install to the workspace and the store. A fault
   there is outside what this design defends.
 - **The image, by digest**, and the registry that serves it.
-- **The pnpm the setup step installed** before the branch was checked out, and
-  the registry it came from. It is located on `PATH`, not chosen by the branch.
+- **The pnpm the action fetched**, by version and sha512, and the registry it
+  came from. It is located on `PATH`, not chosen by the branch.
 - **`PATH`, Node and Docker on the runner** as they are when the step starts:
   nothing before the install step has run anything of the branch's.
 - **No trusted step before the agent follows a path in the workspace or runs a
@@ -446,8 +443,9 @@ Stated plainly, the property rests on these and on nothing else:
 
 ## When pnpm moves
 
-`PNPM_VERSION` is pinned and `install-deps.test.mjs` fails when the root
-`packageManager` differs, on purpose: the lists above were established by
+`PNPM_VERSION` is pinned, in `install-deps.mjs` and in `action.yml` with the
+tarball's sha512, and `toolchain.test.mjs` fails when they or the root
+`packageManager` differ, on purpose: the lists above were established by
 experiment against pnpm 10.5.2, which reads settings from `.npmrc`, the command
 line, the environment, the `pnpm` field of the root `package.json`, and a fixed
 list of keys in `pnpm-workspace.yaml`. Later versions read more settings from
@@ -463,22 +461,17 @@ the workspace file. Before moving the pin, check for the new version that:
    above reaches a subprocess, a URL or a path;
 4. the YAML parser it bundles still reads the strict subset the same way
    (re-run the differential check);
-5. the real-pnpm test in `install-deps.test.mjs` still passes.
+5. the real-pnpm test in `toolchain.test.mjs` still passes.
 
 ## Follow-ups
 
-- **The `always()` steps after the agent.** In the CI-fix job, the on-demand
-  fix job and the panel's fix job, steps that run after the agent — under
-  `always()` — run staged scripts with the App token or the `GITHUB_TOKEN`.
-  The agent has a shell, and could by then have rewritten
-  `$RUNNER_TEMP/agent-tools`, `$GITHUB_PATH` or `.git/config`. This is so on
-  main before this change and is not touched by it. The fix is to move those
-  steps to a fresh job that does not share the agent's runner, as the
-  harness's own `report` job does.
+- **The `always()` steps after the agent** that ran staged scripts with a token
+  in the agent's own job are gone: the shared workflows moved that work to
+  report jobs on a fresh runner.
 
 ## Out of scope
 
-`agent-implement.yml` installs main, not a branch, and keeps its own install
-with scripts on; it names `ref: main` on its checkout, shares the pinned setup
-and has no cache. Actions in the *other* jobs of the agent workflows that are
-still referenced by tag are a separate change.
+`agent-implement.yml` installs main, not a branch: it runs the toolchain action
+from the workspace after checking out `ref: main`, with no cache. GitHub's own
+actions in the agent workflows are referenced by major tag in the shared core;
+the guard pins that list, and pinning them is an upstream candidate.
