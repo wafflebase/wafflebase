@@ -320,6 +320,12 @@ describe('formatValue extended formats', () => {
     expect(formatValue('-0.001', 'financial', undefined, us)).toBe('0.00');
   });
 
+  it('decides financial parentheses on the digits it displays', () => {
+    // A half step: Intl rounds 5e-7 up to 0.000001 where `toFixed` rounds it
+    // down to zero, so a `toFixed` check would drop the parentheses.
+    expect(formatValue('-0.0000005', 'financial', 6, us)).toBe('(0.000001)');
+  });
+
   it('keeps financial parentheses in locales without ASCII digits', () => {
     // ar-EG renders Arabic-Indic numerals, so the sign cannot be read back
     // off the digit glyphs.

@@ -338,14 +338,16 @@ export function formatValue(
     case 'financial': {
       const num = Number(value);
       if (isNaN(num)) return value;
-      const digits = safeFormat(Math.abs(num), locale, {
+      const options: Intl.NumberFormatOptions = {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
-      });
+      };
+      const digits = safeFormat(Math.abs(num), locale, options);
       // A value that rounds to zero shows no parentheses: `(0.00)` would
-      // claim a debit the digits do not show. Decided on the rounded number,
-      // not the glyphs, which are not ASCII digits in every locale.
-      const roundsToZero = Number(Math.abs(num).toFixed(decimals)) === 0;
+      // claim a debit the digits do not show. Compared against zero rendered
+      // through the same Intl path, so the decision rounds exactly as the
+      // displayed digits do and holds in locales without ASCII digits.
+      const roundsToZero = digits === safeFormat(0, locale, options);
       return num < 0 && !roundsToZero ? `(${digits})` : digits;
     }
     case 'accounting': {

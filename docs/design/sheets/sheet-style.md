@@ -246,8 +246,10 @@ neighbor cells is bounded by explicit custom borders.
 - `'scientific'` renders `1.23E+03` (`dp` mantissa digits, two-digit signed
   exponent)
 - `'accounting'` is a currency with negatives in parentheses and zero as a
-  dash (`($1,234.50)`, `$ -`); `'financial'` is the same without a symbol
-  (`(1,234.50)`)
+  dash (`($1,234.50)`, `$ -`); `'financial'` has no symbol, shows negatives
+  in parentheses and zero as `0.00`, not a dash (`(1,234.50)`, `0.00`) —
+  Google Sheets' Financial format `#,##0.00;(#,##0.00);0.00`. A negative that
+  rounds to zero at the shown precision drops its parentheses
 - `'date'` renders `YYYY-MM-DD`, keeping the time when the value carries one;
   `'time'` renders `HH:mm:ss` and `'datetime'` `YYYY-MM-DD HH:mm:ss` (midnight
   for a date-only value). Dates are strings in this model, not serials, so a

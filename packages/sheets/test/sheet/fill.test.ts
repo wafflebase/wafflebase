@@ -84,6 +84,53 @@ describe('Sheet.fill', () => {
     expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
   });
 
+  it('clears the ghosts of a spill anchor it overwrites', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 3, c: 1 }, 'top');
+    // MINVERSE spills a 2x2 identity into A4:B5.
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    await sheet.setData({ r: 6, c: 2 }, '=B4+B5+A5');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 6, c: 2 })).toBe('1');
+
+    sheet.selectStart({ r: 4, c: 1 });
+    expect(await sheet.fill('down')).toBe(true);
+
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('top');
+    expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('');
+    // A dependant of the cleared ghosts recalculates.
+    expect(await sheet.toDisplayString({ r: 6, c: 2 })).toBe('0');
+    // The former ghost is no longer read-only.
+    await sheet.setData({ r: 5, c: 2 }, 'free');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('free');
+  });
+
+  it('lets a spill it was blocking recover when it clears the blocker', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 5, c: 2 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    // B5 copies the (empty) A5 to its left, clearing the blocker.
+    sheet.selectStart({ r: 5, c: 2 });
+    expect(await sheet.fill('right')).toBe(true);
+
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
+  });
+
   // `MemStore` keeps no history, so "one undo step" is asserted the way the
   // collaborative store groups it: every write lands inside one batch.
   it('writes every cell inside a single batch (one undo step)', async () => {

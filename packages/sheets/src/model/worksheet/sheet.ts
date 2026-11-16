@@ -1120,6 +1120,38 @@ export class Sheet {
   }
 
   /**
+   * `clearSpillGhosts` is the cleanup owed before a spill anchor at `ref` is
+   * overwritten or deleted: drop its blocker registrations and, if it spilled,
+   * the ghost cells it still owns. Blocked anchors wrote no ghosts, and only
+   * cells pointing back at THIS anchor are deleted — see calculator.ts cleanup
+   * contract. Cleared ghost positions are added to `changedSrefs` when given.
+   */
+  private async clearSpillGhosts(
+    ref: Ref,
+    cell: Cell | undefined,
+    changedSrefs?: Set<Sref>,
+  ): Promise<void> {
+    if (!cell) return;
+    const anchorSref = toSref(ref);
+    if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+      this.clearSpillBlockers(anchorSref);
+      for (let dr = 0; dr < cell.spillRows; dr++) {
+        for (let dc = 0; dc < cell.spillCols; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+          const ghostCell = await this.store.get(ghostRef);
+          if (ghostCell?.spillAnchor === anchorSref) {
+            await this.store.delete(ghostRef);
+            changedSrefs?.add(toSref(ghostRef));
+          }
+        }
+      }
+    } else if (cell.spillBlocked) {
+      this.clearSpillBlockers(anchorSref);
+    }
+  }
+
+  /**
    * `setOnRefusal` registers a callback fired when a range gesture is refused
    * (used to surface a message instead of a silent no-op).
    */
@@ -1208,28 +1240,7 @@ export class Sheet {
       if (existing?.spillAnchor) return;
 
       // Clear ghost cells from any previous spill before overwriting the anchor.
-      // Skip blocked anchors (no ghosts were ever written) and only delete cells
-      // still owned by THIS anchor — see calculator.ts cleanup contract.
-      if (
-        existing?.spillRows &&
-        existing?.spillCols &&
-        !existing.spillBlocked
-      ) {
-        const anchorSref = toSref(target);
-        this.clearSpillBlockers(anchorSref);
-        for (let dr = 0; dr < existing.spillRows; dr++) {
-          for (let dc = 0; dc < existing.spillCols; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const ghostRef = { r: target.r + dr, c: target.c + dc };
-            const ghostCell = await this.store.get(ghostRef);
-            if (ghostCell?.spillAnchor === anchorSref) {
-              await this.store.delete(ghostRef);
-            }
-          }
-        }
-      } else if (existing?.spillBlocked) {
-        this.clearSpillBlockers(toSref(target));
-      }
+      await this.clearSpillGhosts(target, existing);
 
       const cell = cellFromInput(value, existing?.s);
 
@@ -1288,23 +1299,7 @@ export class Sheet {
         const ref = parseRef(sref);
 
         // Anchor cell being deleted: clear all its ghost cells first.
-        // Skip blocked anchors (no ghosts were ever written) and only delete
-        // cells still owned by THIS anchor — see calculator.ts cleanup contract.
-        if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
-          this.clearSpillBlockers(sref);
-          for (let dr = 0; dr < cell.spillRows; dr++) {
-            for (let dc = 0; dc < cell.spillCols; dc++) {
-              if (dr === 0 && dc === 0) continue;
-              const ghostRef = { r: ref.r + dr, c: ref.c + dc };
-              const ghostCell = await this.store.get(ghostRef);
-              if (ghostCell?.spillAnchor === sref) {
-                await this.store.delete(ghostRef);
-              }
-            }
-          }
-        } else if (cell.spillBlocked) {
-          this.clearSpillBlockers(sref);
-        }
+        await this.clearSpillGhosts(ref, cell);
 
         if (cell.s && Object.keys(cell.s).length > 0) {
           // Preserve style, clear value and formula.
@@ -2835,22 +2830,7 @@ export class Sheet {
       if (cell.spillAnchor) continue;
       // Clearing a spill anchor would orphan its ghosts, so drop them first —
       // the same cleanup contract `removeData` follows.
-      if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
-        this.clearSpillBlockers(sref);
-        for (let dr = 0; dr < cell.spillRows; dr++) {
-          for (let dc = 0; dc < cell.spillCols; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const ghostRef = { r: ref.r + dr, c: ref.c + dc };
-            const ghostCell = await this.store.get(ghostRef);
-            if (ghostCell?.spillAnchor === sref) {
-              await this.store.delete(ghostRef);
-              changedSrefs.add(toSref(ghostRef));
-            }
-          }
-        }
-      } else if (cell.spillBlocked) {
-        this.clearSpillBlockers(sref);
-      }
+      await this.clearSpillGhosts(ref, cell, changedSrefs);
       if (cell.s && Object.keys(cell.s).length > 0) {
         await this.store.set(ref, { s: cell.s });
       } else {
@@ -3354,6 +3334,7 @@ export class Sheet {
 
     const sourceGrid = await this.store.getGrid(source);
     const changedSrefs = new Set<Sref>();
+    const unblockedAnchors = new Set<Sref>();
 
     this.store.beginBatch();
     try {
@@ -3374,13 +3355,22 @@ export class Sheet {
               )
             : undefined;
 
+          if ((!nextCell || isEmptyCell(nextCell)) && !existing) continue;
+
+          // Overwriting a spill anchor would orphan its ghosts — drop them
+          // first, the cleanup contract `setData` and `removeData` follow.
+          await this.clearSpillGhosts(dest, existing, changedSrefs);
           if (!nextCell || isEmptyCell(nextCell)) {
-            if (!existing) continue;
             await this.store.delete(dest);
           } else {
             await this.store.set(dest, nextCell);
           }
-          changedSrefs.add(toSref(dest));
+          const destSref = toSref(dest);
+          changedSrefs.add(destSref);
+
+          // If this cell was blocking a spill, let that anchor re-attempt it.
+          const blockedAnchor = this.consumeSpillBlocker(destSref);
+          if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
         }
       }
 
@@ -3388,6 +3378,10 @@ export class Sheet {
         this.invalidateCrossSheetCache();
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
+        for (const anchor of unblockedAnchors) {
+          expanded.add(anchor);
+          if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+        }
         await calculate(this, dependantsMap, expanded);
       }
 
