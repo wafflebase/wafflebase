@@ -153,6 +153,14 @@ export class Spreadsheet {
   }
 
   /**
+   * `getFreezePane` returns how many rows and columns are frozen, so a host
+   * menu can offer "Unfreeze" only when there is something to unfreeze.
+   */
+  public getFreezePane(): { frozenRows: number; frozenCols: number } {
+    return this.sheet?.getFreezePane() ?? { frozenRows: 0, frozenCols: 0 };
+  }
+
+  /**
    * `setFreezePane` sets the freeze pane position and re-renders.
    */
   public async setFreezePane(frozenRows: number, frozenCols: number) {

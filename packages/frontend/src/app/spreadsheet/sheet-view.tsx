@@ -1879,6 +1879,7 @@ export function SheetView({
         <SheetContextMenu
           spreadsheet={sheetRef.current}
           readOnly={readOnly}
+          structureLocked={isPivotTab}
           // Its content is a `document.body` portal at `z-50`, so it leaves
           // this surface box entirely and outranks the overlay — Cut, Paste,
           // Insert, Delete and Insert comment all write the LIVE sheet. The

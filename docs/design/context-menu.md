@@ -55,10 +55,12 @@ from the long-press handler in
 SheetContextMenu (new)
 ├── Wraps canvas container as ContextMenuTrigger
 ├── onContextMenu: headerHitTest → determine menuType
-├── CellMenuItems: Cut, Copy, Paste, Delete + optional Insert comment,
-│                  Data validation, Insert pivot table, Delete image
-├── RowMenuItems: Insert above/below, Delete, Hide, Show
-└── ColumnMenuItems: Insert left/right, Delete, Hide, Show
+├── CellMenuItems: Cut, Copy, Paste, Delete values, Insert row above/below,
+│                  Insert column left/right, Delete row/column + optional
+│                  Insert comment, Data validation, Insert pivot table,
+│                  Delete image
+├── RowMenuItems: Insert above/below, Delete, Hide, Show, Freeze, Unfreeze
+└── ColumnMenuItems: Insert left/right, Delete, Hide, Show, Freeze, Unfreeze
 
 TabContextMenu (modified tab-bar.tsx)
 ├── Wraps tab element as ContextMenuTrigger
@@ -76,11 +78,27 @@ components/ui/context-menu.tsx (new)
 - Cut (disabled if readOnly)
 - Copy
 - Paste (disabled if readOnly)
-- Delete (disabled if readOnly)
+- Delete values (disabled if readOnly) — clears the selection's data
+- ─── separator ───
+- Insert N row(s) above / below
+- Insert N column(s) left / right
+- ─── separator ───
+- Delete N row(s)
+- Delete N column(s)
 - Insert comment (with keyboard hint; only if `onInsertComment` is wired)
 - Data validation (only if `onOpenDataValidation` is wired)
 - Insert pivot table (only if `onInsertPivotTable` is wired)
 - Delete image (only when an image is selected, via `selectedImageId` + `onDeleteImage`)
+
+Counts come from the selection range (or the active cell), normalized so a
+range drawn bottom-up still counts top-to-bottom, Google-style: "Insert 3 rows
+above" for a three-row selection. They call the same `Spreadsheet`
+`insertRows` / `insertColumns` / `deleteRows` / `deleteColumns` the header
+menu reaches, so there is one structural-edit path. Sheets has no menu bar, so
+the cell menu is the only place these are reachable without first selecting a
+whole header. Insert and delete (cell and header menus) are disabled when
+`readOnly` or `structureLocked` — the latter is set on a pivot output tab,
+whose cells the model refuses to shift (`Sheet.insertRows` & co. no-op there).
 
 The optional items are gated by their corresponding `SheetContextMenu` props
 (`onInsertComment`, `onOpenDataValidation`, `onInsertPivotTable`,
@@ -94,13 +112,22 @@ The optional items are gated by their corresponding `SheetContextMenu` props
 - ─── separator ───
 - Hide N row(s)
 - Show rows X–Y (only if adjacent hidden rows exist)
+- ─── separator ───
+- Freeze up to row N (N = last row of the selection; hidden when N is already
+  the frozen boundary or exceeds `MaxSnappedFreeze`)
+- Unfreeze rows (only if rows are frozen)
 
-All items disabled if readOnly. Labels reflect multi-selection count
+All items disabled if readOnly; insert/delete also when `structureLocked`.
+Freeze is view state, not structure, so a pivot output tab can still freeze.
+Freezing calls `Spreadsheet.setFreezePane` with the other axis's boundary
+unchanged — the same single store write the corner drag handle makes, so it is
+one undo step. Before this the drag handle was the only way to freeze. Labels reflect multi-selection count
 (e.g., "Insert 3 rows above").
 
 #### Column Menu
 
-Same pattern as Row Menu with left/right instead of above/below.
+Same pattern as Row Menu with left/right instead of above/below, and
+"Freeze up to column X" / "Unfreeze columns".
 
 #### Tab Menu
 
@@ -135,6 +162,10 @@ showColumns(indices: number[]): Promise<void>
 // (empty when none); the menu computes min/max over it for the label.
 findAdjacentHiddenRows(from: number, to: number): number[]
 findAdjacentHiddenColumns(from: number, to: number): number[]
+
+// Current freeze boundary, so the header menu offers Unfreeze only when
+// that axis is frozen.
+getFreezePane(): { frozenRows: number; frozenCols: number }
 ```
 
 ### Key Files

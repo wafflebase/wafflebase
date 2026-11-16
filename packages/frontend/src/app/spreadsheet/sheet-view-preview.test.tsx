@@ -105,6 +105,7 @@ function makeFakeSheet(): Record<string, unknown> {
     getSelectedIndices: vi.fn(() => null),
     getSelectionType: vi.fn(() => 'cell'),
     getSelectionRangeOrActiveCell: vi.fn(() => null),
+    getFreezePane: vi.fn(() => ({ frozenRows: 0, frozenCols: 0 })),
     onSelectionChange: vi.fn((cb: () => void) => {
       selectionChangeHandlers.push(cb);
       return () => {};
