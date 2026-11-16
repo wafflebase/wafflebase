@@ -82,6 +82,37 @@ describe('renderLayoutPreview', () => {
     expect(_previewCacheForTest.size).toBeLessThanOrEqual(128);
   });
 
+  it('paints the placeholder hints so the picker shows each slot', () => {
+    // The renderer's hints are opt-in (off for presentation, thumbnails and
+    // export); the layout picker opts in, the way Google Slides' does.
+    _previewCacheForTest.clear();
+    const painted: string[] = [];
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function patched(
+      this: HTMLCanvasElement,
+      contextId: string,
+      ...rest: unknown[]
+    ): unknown {
+      const ctx = (
+        originalGetContext as (this: HTMLCanvasElement, ...a: unknown[]) => unknown
+      ).call(this, contextId, ...rest) as Record<string, unknown> | null;
+      if (contextId === '2d' && ctx) {
+        const inner = ctx.fillText as (...a: unknown[]) => unknown;
+        ctx.fillText = (...args: unknown[]) => {
+          painted.push(String(args[0]));
+          return inner.apply(ctx, args);
+        };
+      }
+      return ctx;
+    } as HTMLCanvasElement['getContext'];
+    try {
+      renderLayoutPreview(BUILT_IN_LAYOUTS[1], defaultLight, DEFAULT_MASTER, { w: 160, h: 90 });
+    } finally {
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+    expect(painted).toContain('Click to add title');
+  });
+
   it('renders all 11 layouts without throwing', () => {
     _previewCacheForTest.clear();
     for (const layout of BUILT_IN_LAYOUTS) {

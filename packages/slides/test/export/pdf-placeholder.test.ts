@@ -8,9 +8,9 @@ import { DEFAULT_MASTER } from '../../src/model/master';
 import { BUILT_IN_LAYOUTS } from '../../src/model/layout';
 import { clearImageCacheForTests } from '../../src/view/canvas/image-cache';
 
-// Mock the renderer so we can capture the (cleaned) slide the exporter
-// hands to `drawSlide` and assert the editor-only placeholder ref was
-// stripped — the actual paint isn't needed for this assertion.
+// Mock the renderer so we can capture the options the exporter hands to
+// `drawSlide` and assert it never opts into the editor-only placeholder
+// hints — the actual paint isn't needed for this assertion.
 const drawSlideSpy = vi.hoisted(() => vi.fn());
 vi.mock('../../src/view/canvas/slide-renderer', () => ({
   drawSlide: drawSlideSpy,
@@ -107,7 +107,7 @@ afterEach(() => {
 });
 
 describe('exportSlidesPdf placeholder handling', () => {
-  it('strips placeholderRef so empty placeholders do not paint their ghost hint', async () => {
+  it('does not ask drawSlide for the editor-only placeholder hints', async () => {
     const { exportSlidesPdf } = await import('../../src/export/pdf');
     const slide: Slide = {
       ...({
@@ -126,7 +126,7 @@ describe('exportSlidesPdf placeholder handling', () => {
     await exportSlidesPdf(baseDoc([slide]), { scale: 1 });
 
     expect(drawSlideSpy).toHaveBeenCalledTimes(1);
-    const renderedSlide = drawSlideSpy.mock.calls[0][1] as Slide;
-    expect(renderedSlide.elements[0].placeholderRef).toBeUndefined();
+    const options = drawSlideSpy.mock.calls[0][3] as { showPlaceholderHints?: boolean };
+    expect(options.showPlaceholderHints).toBeFalsy();
   });
 });

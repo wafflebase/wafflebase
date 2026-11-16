@@ -129,6 +129,15 @@ export function startPresenter(options: PresenterOptions): Presenter;
 - Re-render whenever the active slide changes or `setDocument` is
   called. The renderer is the existing `SlideRenderer` — no DOM
   overlay, no element handles.
+- **Placeholder hints are editor-only.** The "Click to add title" ghost
+  in an empty layout placeholder is gated by
+  `SlideRendererOptions.showPlaceholderHints`, which defaults to off. Only
+  the editable editor canvas (`initialize()` sets it to `!readOnly`, so
+  desktop and mobile edit mode) and the layout picker previews opt in. The
+  presenter, transition offscreens, filmstrip thumbnails, PDF export,
+  read-only/mobile view mounts and the offline `render:slides` script
+  inherit the default, so the audience never sees the hint (Google Slides
+  parity).
 
 ### Keyboard
 
