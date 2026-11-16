@@ -53,7 +53,12 @@ import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
 import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
-import { getDefaultChartColumns } from "./chart-utils";
+import {
+  computeNewChartPlacement,
+  detectChartSourceLayout,
+  getDefaultChartColumns,
+  getDefaultChartTitle,
+} from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
 import { SheetLinkPopover } from "./components/SheetLinkPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
@@ -473,8 +478,22 @@ export function SheetView({
 
     const chartId = `chart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const sourceRange = `${toSref(range[0])}:${toSref(range[1])}`;
-    const anchor = toSref(range[0]);
-    const defaults = getDefaultChartColumns([range[0], range[1]] as const);
+    const parsed = [range[0], range[1]] as const;
+    const current = doc.getRoot();
+    const defaults = getDefaultChartColumns(
+      parsed,
+      detectChartSourceLayout(current.sheets[tabId], parsed),
+    );
+    const columns = {
+      sourceTabId: tabId,
+      sourceRange,
+      xAxisColumn: defaults.xAxisColumn ?? undefined,
+      seriesColumns: defaults.seriesColumns,
+    };
+    const size = { width: 420, height: 260 };
+    // Beside the data, never on top of it (Google Sheets parity).
+    const placement = computeNewChartPlacement(sheet, parsed, size);
+    const title = getDefaultChartTitle(current, columns);
 
     doc.update((root) => {
       const ws = root.sheets[tabId];
@@ -485,16 +504,10 @@ export function SheetView({
       ws.charts[chartId] = {
         id: chartId,
         type: "bar",
-        title: "Chart",
-        sourceTabId: tabId,
-        sourceRange,
-        xAxisColumn: defaults.xAxisColumn || undefined,
-        seriesColumns: defaults.seriesColumns,
-        anchor,
-        offsetX: 8,
-        offsetY: 8,
-        width: 420,
-        height: 260,
+        title,
+        ...columns,
+        ...placement,
+        ...size,
       } as SheetChart;
     });
 

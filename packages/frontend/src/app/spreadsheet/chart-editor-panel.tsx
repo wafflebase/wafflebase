@@ -15,12 +15,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartType, SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import {
+  NO_X_AXIS_COLUMN,
+  detectChartSourceLayout,
   formatA1Range,
   getDefaultChartColumns,
   parseA1Range,
   resolveChartColumns,
 } from "./chart-utils";
 import { getAllChartEntries, getChartEntry } from "./charts/chart-registry";
+
+/** Select value for "no X-axis column" (Radix forbids an empty item value). */
+const NO_X_AXIS_OPTION = "__none__";
 
 type ChartEditorPanelProps = {
   root: SpreadsheetDocument;
@@ -81,13 +86,16 @@ export function ChartEditorPanel({
     }
 
     const normalizedRange = formatA1Range(parsed);
-    const defaults = getDefaultChartColumns(parsed);
+    const defaults = getDefaultChartColumns(
+      parsed,
+      detectChartSourceLayout(root.sheets[chart.sourceTabId], parsed),
+    );
 
     const patch: Partial<SheetChart> = {
       sourceRange: normalizedRange,
       seriesColumns: defaults.seriesColumns,
     };
-    if (defaults.xAxisColumn) {
+    if (defaults.xAxisColumn !== null) {
       patch.xAxisColumn = defaults.xAxisColumn;
     }
 
@@ -112,7 +120,9 @@ export function ChartEditorPanel({
     applyRange(selectionRange);
   };
 
-  const handleXAxisChange = (nextXAxisColumn: string) => {
+  const handleXAxisChange = (option: string) => {
+    const nextXAxisColumn =
+      option === NO_X_AXIS_OPTION ? NO_X_AXIS_COLUMN : option;
     const availableSeriesColumns = columnSelection.columns
       .map((column) => column.column)
       .filter((column) => column !== nextXAxisColumn);
@@ -243,14 +253,18 @@ export function ChartEditorPanel({
                 Set a valid range to configure X-axis and series.
               </p>
             ) : (
-              <Select value={xAxisColumn || ""} onValueChange={handleXAxisChange}>
+              <Select
+                value={xAxisColumn ?? NO_X_AXIS_OPTION}
+                onValueChange={handleXAxisChange}
+              >
                 <SelectTrigger id="chart-x-axis" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NO_X_AXIS_OPTION}>None</SelectItem>
                   {columnSelection.columns.map((column) => (
                     <SelectItem key={column.column} value={column.column}>
-                      {column.column} - {column.label}
+                      {column.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

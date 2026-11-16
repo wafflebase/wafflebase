@@ -30,7 +30,8 @@ parity.
 - Horizontal bar charts (Phase 2: rename current "bar" to horizontal, add
   "column" for vertical)
 - Multiple data range combination (Phase 2)
-- Row/column switch, header recognition toggle (Phase 2)
+- Row/column switch, persisted header recognition toggle (Phase 2; automatic
+  detection ships — see §6a)
 - Advanced customization: axis min/max, log scale, trendlines, data labels,
   error bars (Phase 2+)
 - Specialized chart types: histogram, candlestick, waterfall, treemap,
@@ -63,7 +64,7 @@ export type SheetChart = {
   title?: string;
   sourceTabId: string;
   sourceRange: string;       // A1 notation (e.g. "A1:C20")
-  xAxisColumn?: string;      // column letter (e.g. "A")
+  xAxisColumn?: string;      // column letter (e.g. "A"); "" = none, unset = detect
   seriesColumns?: string[];  // column letters (e.g. ["B", "C"])
   anchor: Sref;
   offsetX: number;           // logical px from anchor cell
@@ -254,19 +255,58 @@ Phase 1 provides 3 built-in palettes:
 ```typescript
 const COLOR_PALETTES = {
   default: [
-    "var(--color-primary)",
-    "color-mix(in oklch, var(--color-primary) 78%, var(--color-background))",
-    "color-mix(in oklch, var(--color-primary) 68%, var(--color-foreground))",
-    "color-mix(in oklch, var(--color-primary) 56%, var(--color-background))",
-    "color-mix(in oklch, var(--color-primary) 46%, var(--color-foreground))",
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+    "var(--chart-5)",
   ],
   warm: ["#e76f51", "#f4a261", "#e9c46a", "#d4a373", "#c97c5d"],
   cool: ["#264653", "#2a9d8f", "#457b9d", "#6a8caf", "#84a9c4"],
 };
 ```
 
-The `default` palette preserves the existing theme-based color behavior.
-Named palettes use fixed colors that work across light and dark themes.
+The `default` palette is the design system's categorical series
+(`chart-1`…`chart-5` in DESIGN.md: syrup, denim, teal, rose, olive gold,
+each with a lifted dark-mode stop). It used to be five `color-mix` tints of
+the one syrup accent, which rendered as orange / brick / salmon and could
+not be told apart in a legend. Named palettes use fixed colors that work
+across light and dark themes.
+
+### 6a. Source Layout Detection and Placement
+
+`detectChartSourceLayout(sheet, range)` guesses, as Google Sheets does, how
+the source range is laid out. It runs at render time, so the editor and the
+chart always agree, and nothing new is stored:
+
+- **Header row** — the first row is a header when some column has
+  non-numeric text there over numeric data below. A numbers-only range
+  (`B2:D4`) has no header, so its first row is charted rather than becoming
+  series named "1200" / "1250". With no numbers below row 1 at all the old
+  header assumption stays.
+- **Label column** — the first column labels categories when its data holds
+  text, or when there is a header row (a "Year" column of 2024, 2025).
+  Numbers-only data without a header has none: every column is a series and
+  categories are row positions 1, 2, 3.
+
+`xAxisColumn` therefore has three states: a column letter (explicit),
+`NO_X_AXIS_COLUMN` (`""`, explicit "None" — the X-axis picker's first
+option), and unset (follow detection). A headerless column is named
+`Column C` in the legend and pickers; a data value is never shown as a
+header.
+
+On insert, `getDefaultChartTitle` names the chart after its series headers
+("Revenue", "Revenue and Cost by Month"; `Chart` without headers), and
+`computeNewChartPlacement` anchors it **beside** the source range — to the
+right, else below, kept inside the visible scrollable area when it fits,
+and to the right off screen otherwise — never on top of the data. A
+currency or percent source column makes the value axis tick in that format
+(`ChartDataset.valueFormat`); scatter keeps the plain formatter since one
+formatter serves both of its numeric axes.
+
+Known limitation: detection is not persisted, so editing the source so that
+the first row becomes all numbers flips it to data. A persisted Google-style
+"Use row 1 as headers" toggle remains the Phase 2 item below.
 
 ### 7. Data Flow
 

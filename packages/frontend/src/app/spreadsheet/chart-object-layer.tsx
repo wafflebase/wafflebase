@@ -1,5 +1,5 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
-import { parseRef, Spreadsheet } from "@wafflebase/sheets";
+import { formatValue, parseRef, Spreadsheet } from "@wafflebase/sheets";
 import { type DraftLayout, type HandlePosition } from "./object-layer-utils";
 import { SelectionOverlay } from "./selection-overlay";
 import { ObjectLayerViewport } from "./object-layer-viewport";
@@ -12,7 +12,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { IconDotsVertical, IconPencil, IconTrash } from "@tabler/icons-react";
-import { buildChartDataset, buildPieDataset } from "./chart-utils";
+import {
+  buildChartDataset,
+  buildPieDataset,
+  type ChartValueFormat,
+} from "./chart-utils";
 import { getChartEntry } from "./charts/chart-registry";
 
 type ChartObjectLayerProps = {
@@ -203,7 +207,13 @@ function ChartObject({
       }
     }
   }
-  const yAxisWidth = dataset ? getYAxisWidth(dataset) : 0;
+  // Scatter plots numbers on both axes through one formatter, so only the
+  // category charts take the source column's currency/percent format.
+  const formatValueTick =
+    entry.category === "scatter"
+      ? formatYAxisTick
+      : getValueTickFormatter(dataset?.valueFormat);
+  const yAxisWidth = dataset ? getYAxisWidth(dataset, formatValueTick) : 0;
   const isEmpty = isPie
     ? !pieDataset || pieDataset.entries.length === 0
     : !dataset || dataset.rows.length === 0 || dataset.series.length === 0;
@@ -293,7 +303,7 @@ function ChartObject({
               yAxisWidth={yAxisWidth}
               showGridlines={showGridlines}
               legendPosition={legendPosition}
-              formatYAxisTick={formatYAxisTick}
+              formatYAxisTick={formatValueTick}
             />
           )
         ) : (
@@ -327,15 +337,55 @@ function formatYAxisTick(value: number | string): string {
   return plainTickFormatter.format(numeric);
 }
 
-function getYAxisWidth(dataset: {
-  rows: Record<string, unknown>[];
-  series: { key: string }[];
-}): number {
+/**
+ * The value-axis tick formatter for a dataset: a currency or percent source
+ * column ticks in its own format (`$1,200.00`, `12.00%`), large currency
+ * amounts compactly (`$12K`); anything else keeps the plain formatter.
+ */
+function getValueTickFormatter(
+  valueFormat: ChartValueFormat | undefined,
+): (value: number | string) => string {
+  if (!valueFormat) return formatYAxisTick;
+  const compactCurrency = valueFormat.cu
+    ? safeCompactCurrency(valueFormat.cu)
+    : null;
+  return (value) => {
+    const numeric = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(numeric)) return String(value);
+    if (compactCurrency && Math.abs(numeric) >= 10_000) {
+      return compactCurrency.format(numeric);
+    }
+    return formatValue(String(numeric), valueFormat.nf, valueFormat.dp, {
+      currency: valueFormat.cu,
+    });
+  };
+}
+
+function safeCompactCurrency(currency: string): Intl.NumberFormat | null {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function getYAxisWidth(
+  dataset: {
+    rows: Record<string, unknown>[];
+    series: { key: string }[];
+  },
+  formatTick: (value: number | string) => string,
+): number {
   let maxLen = 0;
   for (const row of dataset.rows) {
     for (const s of dataset.series) {
       const v = row[s.key];
-      const str = typeof v === "number" ? formatYAxisTick(v) : String(v ?? "");
+      const str = typeof v === "number" ? formatTick(v) : String(v ?? "");
       if (str.length > maxLen) maxLen = str.length;
     }
   }
