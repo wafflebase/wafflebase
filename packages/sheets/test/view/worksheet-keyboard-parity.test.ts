@@ -25,6 +25,7 @@ type Proto = {
 const proto = Worksheet.prototype as unknown as Proto;
 
 function createContext(sheet = new Sheet(new MemStore())) {
+  const nameBox = { blur: vi.fn() };
   const ctx = {
     sheet,
     readOnly: false,
@@ -50,7 +51,11 @@ function createContext(sheet = new Sheet(new MemStore())) {
       hasFormula: vi.fn().mockReturnValue(false),
       getInput: vi.fn().mockReturnValue({}),
     },
-    formulaBar: { getFormulaInput: vi.fn().mockReturnValue({}) },
+    formulaBar: {
+      getFormulaInput: vi.fn().mockReturnValue({}),
+      getNameBox: vi.fn().mockReturnValue(nameBox),
+    },
+    nameBox,
     recordTabMove: proto.recordTabMove,
     takeTabReturn: proto.takeTabReturn,
     fillSelection: proto.fillSelection,
@@ -145,6 +150,45 @@ describe('Tab…Enter return column', () => {
     ctx.sheet.selectStart({ r: 7, c: 4 });
     await commitWith(ctx, 'Enter');
     expect(ctx.sheet.getActiveCell()).toEqual({ r: 8, c: 4 });
+  });
+
+  it('returns on a grid Enter after plain grid Tabs', async () => {
+    // B2, Tab, Tab (no editing) lands on D2; Enter goes to B3 rather than
+    // opening the editor on D2.
+    const ctx = createContext();
+    ctx.sheet.selectStart({ r: 2, c: 2 });
+
+    await gridKey(ctx, 'Tab');
+    await gridKey(ctx, 'Tab');
+    expect(ctx.sheet.getActiveCell()).toEqual({ r: 2, c: 4 });
+
+    await gridKey(ctx, 'Enter');
+    expect(ctx.sheet.getActiveCell()).toEqual({ r: 3, c: 2 });
+    expect(ctx.showCellInput).not.toHaveBeenCalled();
+    expect(ctx.tabRun).toBeNull();
+    expect(ctx.primeCellInputForSelection).toHaveBeenCalled();
+
+    // The run is consumed: the next grid Enter opens the editor again.
+    await gridKey(ctx, 'Enter');
+    expect(ctx.showCellInput).toHaveBeenCalledTimes(1);
+    expect(ctx.sheet.getActiveCell()).toEqual({ r: 3, c: 2 });
+  });
+
+  it('opens the editor on a grid Enter without a Tab run', async () => {
+    const ctx = createContext();
+    ctx.sheet.selectStart({ r: 2, c: 2 });
+    await gridKey(ctx, 'Enter');
+    expect(ctx.showCellInput).toHaveBeenCalledTimes(1);
+    expect(ctx.sheet.getActiveCell()).toEqual({ r: 2, c: 2 });
+  });
+
+  it('keeps Shift+Enter on the grid opening the editor', async () => {
+    const ctx = createContext();
+    ctx.sheet.selectStart({ r: 2, c: 2 });
+    await gridKey(ctx, 'Tab');
+    await gridKey(ctx, 'Enter', { shiftKey: true });
+    expect(ctx.showCellInput).toHaveBeenCalledTimes(1);
+    expect(ctx.sheet.getActiveCell()).toEqual({ r: 2, c: 3 });
   });
 
   it('does not return on Shift+Enter', async () => {
@@ -295,6 +339,23 @@ describe('name box navigation', () => {
       { r: 2, c: 2 },
       { r: 4, c: 4 },
     ]);
+  });
+
+  it('gives up the name box focus for every kind of reference', () => {
+    // Priming only takes focus for a single cell; a range or whole
+    // columns / rows must still leave the name box, or the next keys
+    // edit the reference.
+    for (const text of ['C3', 'B2:D4', 'A:C', '2:5']) {
+      const ctx = navCtx();
+      expect(proto.navigateFromNameBox.call(ctx, text)).toBe(true);
+      expect(ctx.nameBox.blur).toHaveBeenCalled();
+    }
+  });
+
+  it('keeps the name box focused for an invalid entry', () => {
+    const ctx = navCtx();
+    expect(proto.navigateFromNameBox.call(ctx, 'hello')).toBe(false);
+    expect(ctx.nameBox.blur).not.toHaveBeenCalled();
   });
 
   it('selects whole columns and rows', () => {

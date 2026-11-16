@@ -161,3 +161,43 @@ describe('FormulaBar name box', () => {
     expect(bar.isNameBoxTarget(bar.getFormulaInput())).toBe(false);
   });
 });
+
+describe('FormulaBar edit tracking', () => {
+  let bar: FormulaBar | undefined;
+
+  afterEach(() => {
+    bar?.cleanup();
+    bar = undefined;
+  });
+
+  async function mount(): Promise<FormulaBar> {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'stored');
+    sheet.selectStart({ r: 1, c: 1 });
+    bar = new FormulaBar();
+    document.body.appendChild(bar.getContainer());
+    bar.initialize(sheet);
+    await bar.render();
+    return bar;
+  }
+
+  it('reports a user edit until the stored value is rendered again', async () => {
+    const bar = await mount();
+    expect(bar.isEdited()).toBe(false);
+
+    // What `handlePaste`'s insertText produces: an input event only.
+    bar.getFormulaInput().innerText = 'pasted';
+    bar.getFormulaInput().dispatchEvent(new Event('input', { bubbles: true }));
+    expect(bar.isEdited()).toBe(true);
+
+    await bar.render();
+    expect(bar.isEdited()).toBe(false);
+    expect(bar.getValue()).toBe('stored');
+  });
+
+  it('does not count mirroring the cell editor as its own edit', async () => {
+    const bar = await mount();
+    bar.setValue('typed in the cell');
+    expect(bar.isEdited()).toBe(false);
+  });
+});

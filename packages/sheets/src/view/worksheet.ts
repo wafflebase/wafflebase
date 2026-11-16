@@ -5674,8 +5674,20 @@ export class Worksheet {
             this.render();
             this.scrollIntoView();
             this.primeCellInputForSelection();
-          } else if (!this.readOnly) {
-            this.showCellInput();
+          } else {
+            // Tab, Tab, Enter on the grid returns to the run's starting
+            // column one row down, as Enter from the editor does — rather
+            // than opening the editor on the cell the Tabs reached.
+            const tabReturn = event.shiftKey ? null : this.takeTabReturn();
+            if (tabReturn) {
+              this.sheet!.selectStart(tabReturn);
+              this.sheet!.move('down');
+              this.render();
+              this.scrollIntoView();
+              this.primeCellInputForSelection();
+            } else if (!this.readOnly) {
+              this.showCellInput();
+            }
           }
         },
       },
@@ -5988,6 +6000,10 @@ export class Worksheet {
 
     this.tabRun = null;
     this.focusGrid();
+    // Priming below takes focus only for a single cell, and a read-only
+    // viewer is never primed; a range or whole columns / rows would
+    // otherwise leave the keyboard in the name box.
+    this.formulaBar.getNameBox().blur();
     switch (target.kind) {
       case 'cell':
         this.sheet!.selectStart(target.ref);
@@ -6015,11 +6031,22 @@ export class Worksheet {
    * `commitEditForNameBox` saves an in-progress cell edit when the name box
    * takes focus, as clicking anywhere else outside the cell does in Google
    * Sheets — the navigation would otherwise drop it.
+   *
+   * The edit may live in either editor. Focus has already left both, so
+   * `finishEditing`'s "whichever is focused" cannot tell; the formula bar
+   * says itself whether it holds an edit. It wins over the cell editor:
+   * keyup mirrors every cell-editor change into it, while a context-menu
+   * paste into the formula bar reaches nothing else.
    */
   private async commitEditForNameBox(): Promise<void> {
     if (!this.sheet || this.readOnly) return;
-    if (!this.cellInput.isShown() || this.cellInput.isPrimed()) return;
-    const value = this.cellInput.getValue();
+    const formulaBarEdited = this.formulaBar.isEdited();
+    const cellInputEditing =
+      this.cellInput.isShown() && !this.cellInput.isPrimed();
+    if (!formulaBarEdited && !cellInputEditing) return;
+    const value = formulaBarEdited
+      ? this.formulaBar.getValue()
+      : this.cellInput.getValue();
     this.cellInput.hide();
     this.autocomplete.hide();
     this.formulaRanges = [];

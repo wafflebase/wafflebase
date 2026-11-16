@@ -119,6 +119,12 @@ export class FormulaBar {
   private boundHandleCompositionEnd: () => void;
   private boundHandlePaste: (e: ClipboardEvent) => void;
   private composing: boolean = false;
+  /**
+   * Whether the formula input holds text the user typed or pasted into it
+   * since it last showed the stored value. Mirroring the cell editor through
+   * `setValue` does not count: that text already lives in the cell editor.
+   */
+  private edited: boolean = false;
 
   constructor(theme: Theme = 'light', readOnly: boolean = false) {
     this.theme = theme;
@@ -260,6 +266,7 @@ export class FormulaBar {
       this.nameBox.value = label;
     }
     this.formulaInput.innerText = await this.sheet.toInputString(ref);
+    this.edited = false;
     this.renderInput();
   }
 
@@ -352,7 +359,17 @@ export class FormulaBar {
     return this.composing;
   }
 
+  /**
+   * `isEdited` reports an uncommitted edit in the formula input — one that
+   * no keyup may have copied to the cell editor (a context-menu paste), and
+   * that a focus move which skips `finishEditing` (the name box) would lose.
+   */
+  public isEdited(): boolean {
+    return this.edited;
+  }
+
   private handleInput(): void {
+    this.edited = true;
     if (this.composing) {
       return;
     }
