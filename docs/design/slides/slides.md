@@ -532,6 +532,24 @@ field through on every read.
 The thumbnail panel is collapsible via the View menu and uses virtual
 scrolling to stay responsive at the v1 ceiling (~100 slides).
 
+**Filmstrip semantics.** The panel container is a `role="listbox"`
+named "Slides" (`aria-multiselectable` in editors, where shift-click
+builds a slide set; not in read-only mounts). Each thumbnail row is a
+`role="option"` named "Slide n of N", plus ": <title>" when the slide's
+first title placeholder has text. `aria-selected` covers the current
+slide and the shift-click set — what a right-click acts on — and the
+container keeps DOM focus with `aria-activedescendant` on the current
+slide, so ArrowUp/Down are announced. A muted 12px slide number sits
+in a 28px gutter left of each thumb (Google Slides parity; the current
+slide's number takes the foreground color) and is `aria-hidden`, since
+the name already carries it. Names and numbers are rebuilt on every
+structural render (add / remove / reorder, local or remote) and
+`refreshContent` renames an option when its title text changes. Because
+`isEditableTarget` (`interactions/keyboard.ts`) skips listbox targets so
+foreign widgets keep their keys, the filmstrip carries
+`data-wfb-slides-filmstrip` and is exempt: focus parks on it after a
+thumbnail click while the user works on the unfocusable canvas.
+
 **Peer name tags.** The selection and cursor name tags in `overlay.ts`
 take their text color from `readableTextColor(peerColor)`
 (`@wafflebase/core/tokens`), which picks white or near-black `#1A1A1A`
