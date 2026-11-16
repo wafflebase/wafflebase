@@ -97,6 +97,20 @@ const FONT_SOURCES = {
   'kr-serif-bold': () => Promise.resolve(KR_FONT_BUFFER),
 };
 
+/**
+ * Font options for a test that is about something other than fonts: the
+ * in-memory fixture for every Noto KR key, and a transport that fails the
+ * test if anything still reaches for the CDN. Without them the export
+ * downloads the real OTFs from jsDelivr, so a CDN edge answering 404 (as it
+ * did to GitHub's runners on 2026-11-16) fails tests that never meant to
+ * exercise the network.
+ */
+const OFFLINE_FONTS = {
+  fontSources: FONT_SOURCES,
+  fontFetch: (input: RequestInfo | URL): Promise<Response> =>
+    Promise.reject(new Error(`unexpected font download: ${String(input)}`)),
+};
+
 describe('exportPdf', () => {
   it('produces a PDF with a %PDF- header for an ASCII document', async () => {
     const doc: Document = { blocks: [paragraph('p1', 'Hello world.')] };
@@ -168,7 +182,10 @@ describe('exportPdf', () => {
         ),
       ],
     };
-    const bytes = await exportPdf(doc, { imageFetcher: stubFetcher });
+    const bytes = await exportPdf(doc, {
+      ...OFFLINE_FONTS,
+      imageFetcher: stubFetcher,
+    });
     expect(looksLikePdf(bytes)).toBe(true);
     expect(calls).toEqual([
       'https://api.wafflebase.io/images/ff5cd97d-0627-4250-a947-05c422fe735f.png',
@@ -189,7 +206,7 @@ describe('exportPdf', () => {
         ),
       ],
     };
-    await expect(exportPdf(doc)).rejects.toThrow(
+    await expect(exportPdf(doc, OFFLINE_FONTS)).rejects.toThrow(
       /imageFetcher required: document contains 1 image inline\(s\); first: https:\/\/api\.wafflebase\.io\/images\/ff5cd97d-/,
     );
   }, 20000);
