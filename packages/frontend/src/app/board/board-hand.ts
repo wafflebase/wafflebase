@@ -30,8 +30,34 @@ export function createHandTool(): HandTool {
 }
 
 /**
+ * Whether a mouse/pen `pointerdown` starts a board pan instead of reaching
+ * the editor.
+ *
+ * Space held claims anywhere in the host (an explicit gesture). The hand
+ * tool and a read-only mount (which binds no editor pointer handlers, so a
+ * plain drag would otherwise do nothing) claim a plain left-drag only on
+ * the scene surface: the canvas and the overlay (selection handles
+ * included). The minimap is a child of the host too, and a drag on it is
+ * its own drag-to-navigate. Touch has its own gesture recognizer.
+ */
+export function claimsPanDrag(e: {
+  button: number;
+  pointerType: string;
+  spaceDown: boolean;
+  hand: boolean;
+  readOnly: boolean;
+  onScene: boolean;
+}): boolean {
+  if (e.pointerType === "touch") return false;
+  if (e.button === 1) return true;
+  if (e.button !== 0) return false;
+  return e.spaceDown || ((e.hand || e.readOnly) && e.onScene);
+}
+
+/**
  * The pan cursor a board host shows, written as `data-board-pan` on the
- * container and enforced by {@link BOARD_PAN_CURSOR_CSS}.
+ * canvas and overlay and enforced by {@link BOARD_PAN_CURSOR_CSS}. Not on
+ * the whole host, whose minimap keeps its own cursors.
  *
  * An attribute + `!important` rule rather than `canvas.style.cursor`
  * because the slides editor rewrites the canvas's inline cursor on every

@@ -190,11 +190,17 @@ describe("handleBoardToolKey", () => {
     expect(ctx.setHand).toHaveBeenLastCalledWith(false);
   });
 
-  it("gives a viewer hand and select, but no editing tools", () => {
+  it("disarms the hand on Esc without consuming it", () => {
+    const ctx = setup({ selection: ["a"] });
+    const e = press("Escape");
+    expect(handleBoardToolKey(e, ctx)).toBe(false);
+    expect(ctx.setHand).toHaveBeenCalledWith(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("gives a viewer no tools", () => {
     const ctx = setup({ readOnly: true });
-    expect(handleBoardToolKey(press("h"), ctx)).toBe(true);
-    expect(handleBoardToolKey(press("v"), ctx)).toBe(true);
-    expect(ctx.setHand).toHaveBeenLastCalledWith(false);
+    expect(handleBoardToolKey(press("h"), ctx)).toBe(false);
     expect(handleBoardToolKey(press("t"), ctx)).toBe(false);
   });
 

@@ -32,3 +32,14 @@ that the engine owns.
   swallowed the minimap's drag-to-navigate (a real viewer regression).
   Fixed by scoping it to the scene surface. Shift+2's framing had no test,
   so it was extracted as `selectionFitViewport` and given one.
+- Round 2: correctness and test-adequacy blocked. A hand drag starting on
+  a selection handle resized the element, and the drag-claim rule had no
+  test. The design-fit reviewer (superpowers) also found that a
+  double-click under the hand still entered text edit. Fixed: arming the
+  hand clears the selection, the claim covers the whole overlay, and a
+  capture `dblclick` guard runs while panning is armed. The rule is now
+  `claimsPanDrag` with tests. Also from the design reviewer: Esc disarms
+  the hand, the grab cursor is scoped to canvas + overlay, and the viewer
+  H/V special case is gone. Deferred: moving `fitSelection` into the zoom
+  binding, and zoom keys during an in-progress insert drag (pre-existing
+  for tool keys).

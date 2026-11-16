@@ -220,8 +220,8 @@ function isShiftDigit(e: KeyboardEvent, digit: 1 | 2): boolean {
  * View shortcuts work read-only and with a selection; the zoom chords
  * also honour auto-repeat (hold Mod+= to keep zooming) and suppress the
  * browser's page zoom, which on a canvas app only blurs the UI. Tools
- * ignore auto-repeat and need nothing selected, and all but hand and
- * select need an editable board:
+ * ignore auto-repeat and need an editable board with nothing selected
+ * (a read-only board pans on a plain drag already):
  * with a selection, a printable key is the slides editor's type-to-edit
  * (Google Slides parity), which must keep winning on a selected sticky.
  */
@@ -264,11 +264,16 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
     ctx.fitSelection();
     return true;
   }
-  if (ctx.editor.getSelection().length > 0) return false;
+  // Esc returns to Select (the shortcut sheet says so) from the hand
+  // as from any insert tool. Not consumed: the editor still runs its own
+  // Esc (clear the insert mode, deselect).
+  if (e.key === "Escape") {
+    ctx.setHand(false);
+    return false;
+  }
+  if (ctx.readOnly || ctx.editor.getSelection().length > 0) return false;
   const tool = boardToolForKey(e);
   if (!tool) return false;
-  // Hand and select only move the view, so a viewer gets them too.
-  if (ctx.readOnly && tool.kind !== "hand" && tool.kind !== "select") return false;
   consume(e);
   if (tool.kind === "hand") {
     ctx.setHand(true);

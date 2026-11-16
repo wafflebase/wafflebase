@@ -56,6 +56,7 @@ import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
   BOARD_PAN_CURSOR_CSS,
+  claimsPanDrag,
   createHandTool,
   panCursor,
   type HandTool,
@@ -731,16 +732,33 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         hand: hand.get(),
         readOnly: readOnly === true,
       });
-      if (next) container.dataset.boardPan = next;
-      else delete container.dataset.boardPan;
+      for (const el of [canvas, overlay]) {
+        if (next) el.dataset.boardPan = next;
+        else delete el.dataset.boardPan;
+      }
     };
     syncPanCursor();
     // Arming the hand drops any armed insert tool; arming an insert tool
     // (toolbar or key) drops the hand, so exactly one tool is ever live.
+    // Arming it also drops the selection: its handles sit in the overlay,
+    // and a hand drag is a pan wherever it starts.
     const offHand = hand.subscribe(() => {
-      if (hand.get()) editor.setInsertMode(null);
+      if (hand.get()) {
+        editor.setInsertMode(null);
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      }
       syncPanCursor();
     });
+    // The pan claim above takes `pointerdown`, but the editor's `dblclick`
+    // (enter text edit / crop) is a separate event it never saw. While a
+    // left-drag pans, two quick grabs on a sticky must stay a pan.
+    const onDoubleClick = (e: MouseEvent) => {
+      if (!hand.get() && !spaceDown) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    container.addEventListener("dblclick", onDoubleClick, { capture: true });
     const offInsertMode = editor.onInsertModeChange(() => {
       if (editor.getInsertMode() !== null) hand.set(false);
     });
@@ -808,27 +826,20 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     window.addEventListener("blur", onWindowBlur);
 
     const onPointerDown = (e: PointerEvent) => {
-      const isMiddleButton = e.button === 1;
-      // `spaceDown` is keyboard state, not part of the pointer stream,
-      // and a touch `pointerdown` reports `button === 0` — so on a
-      // tablet with a keyboard folio, Space held plus a finger down
-      // would satisfy this branch AND the touch gesture below. Both
-      // would pan (its `stopPropagation` does not stop a listener on
-      // the same node), doubling the travel. Space-drag is a
-      // mouse gesture; scope it to one.
-      // The hand tool and a read-only mount (which binds no editor
-      // pointer handlers, so a plain drag would otherwise do nothing)
-      // pan on a plain left-drag, exactly like Space held.
-      // Scoped to the scene surface (unlike Space, which is an explicit
-      // gesture): the minimap is a child of `container` too, and a plain
-      // left-drag on it is its own drag-to-navigate, which this
-      // capture-phase claim would otherwise swallow.
-      const onScene = e.target === canvas || e.target === overlay;
-      const isSpaceDrag =
-        (spaceDown || ((hand.get() || readOnly === true) && onScene)) &&
-        e.button === 0 &&
-        e.pointerType !== "touch";
-      if (!isMiddleButton && !isSpaceDrag) return;
+      // Which drags pan is `claimsPanDrag`'s call. Touch never does here:
+      // on a tablet with a keyboard folio, Space held plus a finger down
+      // would otherwise satisfy this AND the touch gesture below, and both
+      // would pan (its `stopPropagation` does not stop a listener on the
+      // same node), doubling the travel.
+      const claimed = claimsPanDrag({
+        button: e.button,
+        pointerType: e.pointerType,
+        spaceDown,
+        hand: hand.get(),
+        readOnly: readOnly === true,
+        onScene: e.target instanceof Node && (e.target === canvas || overlay.contains(e.target)),
+      });
+      if (!claimed) return;
       e.preventDefault();
       // Registered on `container` (an ancestor of both the reused
       // editor's canvas and overlay) in the CAPTURE phase, and only
@@ -972,7 +983,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       detachTouch();
       offHand();
       offInsertMode();
-      delete container.dataset.boardPan;
+      container.removeEventListener("dblclick", onDoubleClick, { capture: true });
+      delete canvas.dataset.boardPan;
+      delete overlay.dataset.boardPan;
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keydown", onToolKey, true);
       document.removeEventListener("keyup", onKeyUp);
