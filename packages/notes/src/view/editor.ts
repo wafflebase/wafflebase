@@ -19,6 +19,7 @@ import {
   noteRemoteSelectionsTheme,
 } from './remote-selection.js';
 import { NotePreview } from './preview.js';
+import { noteCodeLanguage } from './code-languages.js';
 import {
   NOTE_SOURCE_SURFACE,
   noteEditorTheme,
@@ -498,8 +499,13 @@ export function initialize(
     // GFM, as the preview renders it: without it the source parses task
     // boxes as link references and has no strikethrough or table syntax.
     // `noteMarkdownTags` gives the block marks the theme colours their own
-    // highlight tags.
-    markdown({ base: markdownLanguage, extensions: noteMarkdownTags }),
+    // highlight tags; `codeLanguages` parses a fence's body in the language
+    // its info string names, loaded lazily on first use.
+    markdown({
+      base: markdownLanguage,
+      extensions: noteMarkdownTags,
+      codeLanguages: noteCodeLanguage,
+    }),
     // Only where it can be acted on: a viewer cannot start writing.
     readOnly ? [] : placeholder(PLACEHOLDER),
     // `[ ]` at the start of a line becomes a task item as the user types.

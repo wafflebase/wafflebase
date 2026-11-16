@@ -90,3 +90,43 @@ describe('noteMarkdownTags in the theme', () => {
     }
   });
 });
+
+describe('fenced code languages', () => {
+  /** Waits for the lazily loaded grammar to re-highlight the block. */
+  async function colorWhenStyled(
+    container: HTMLElement,
+    text: string,
+  ): Promise<string | null> {
+    for (let i = 0; i < 100; i++) {
+      const span = [...container.querySelectorAll('.cm-line span')].find(
+        (el) => el.childElementCount === 0 && el.textContent === text,
+      );
+      if (span) return getComputedStyle(span).color;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
+  }
+
+  it('highlights a fence in the language its info string names', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(
+      container,
+      new MemNoteStore('```ts\nexport const n = "s";\n```\n\n```\nexport plain\n```'),
+      'light',
+    );
+    try {
+      // The `ts` fence loads its grammar and colours `export` as a keyword;
+      // the untagged fence has no grammar, so its line stays one code-text
+      // span in the body colour.
+      expect(await colorWhenStyled(container, 'export')).toBe('rgb(179, 29, 40)');
+      expect(await colorWhenStyled(container, '"s"')).toBe('rgb(10, 48, 105)');
+      const plain = await colorWhenStyled(container, 'export plain');
+      expect(plain).not.toBeNull();
+      expect(plain).not.toBe('rgb(179, 29, 40)');
+    } finally {
+      editor.dispose();
+      container.remove();
+    }
+  });
+});

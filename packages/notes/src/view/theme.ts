@@ -45,8 +45,10 @@ const CODE_BAND = 'color-mix(in oklab, var(--muted-foreground, #71717a) 11%, tra
 /**
  * Markup hues, from the preview's highlight.js palette (github / github-dark)
  * so the source and the preview speak the same colour language. Each clears
- * 4.5:1 on its mode's work surface; the light red and green are GitHub's
- * deeper shades of the preview's, which measured 4.3:1 on the tint.
+ * 4.5:1 on its mode's work surface, and the code hues on the darker code
+ * band. Where the preview's github.css shade fell short there (red, green,
+ * grey, the keyword red), light mode takes a deeper GitHub shade of the
+ * same hue.
  */
 const PALETTE = {
   light: {
@@ -54,8 +56,13 @@ const PALETTE = {
     mark: '#cb2431',
     quote: '#1a7f37',
     code: '#032f62',
-    tag: '#22863a',
-    comment: '#6a737d',
+    tag: '#116329',
+    comment: '#59636e',
+    keyword: '#b31d28',
+    func: '#6f42c1',
+    constant: '#0550ae',
+    string: '#0a3069',
+    builtin: '#953800',
   },
   dark: {
     heading: '#79c0ff',
@@ -64,6 +71,11 @@ const PALETTE = {
     code: '#a5d6ff',
     tag: '#7ee787',
     comment: '#8b949e',
+    keyword: '#ff7b72',
+    func: '#d2a8ff',
+    constant: '#79c0ff',
+    string: '#a5d6ff',
+    builtin: '#ffa657',
   },
 } as const;
 
@@ -194,6 +206,50 @@ const markdownHighlight = (mode: 'light' | 'dark') => {
     { tag: [t.url, t.labelName], color: MUTED },
     { tag: t.link, color: LINK },
     { tag: codeText, color: FG },
+    // Code inside a fence whose language `code-languages.ts` knows: the
+    // preview's highlight.js roles (keyword / title / number / string /
+    // built_in), so a block is coloured the same on both sides.
+    {
+      tag: [
+        t.keyword,
+        t.controlKeyword,
+        t.definitionKeyword,
+        t.moduleKeyword,
+        t.operatorKeyword,
+        t.modifier,
+        t.self,
+      ],
+      color: c.keyword,
+    },
+    {
+      tag: [
+        t.function(t.variableName),
+        t.function(t.propertyName),
+        t.function(t.definition(t.variableName)),
+        t.className,
+        t.definition(t.typeName),
+      ],
+      color: c.func,
+    },
+    {
+      tag: [
+        t.number,
+        t.bool,
+        t.null,
+        t.constant(t.name),
+        t.propertyName,
+        t.attributeName,
+      ],
+      color: c.constant,
+    },
+    {
+      tag: [t.string, t.special(t.string), t.regexp, t.character],
+      color: c.string,
+    },
+    {
+      tag: [t.typeName, t.standard(t.name), t.special(t.variableName)],
+      color: c.builtin,
+    },
     {
       tag: t.monospace,
       color: c.code,
@@ -203,7 +259,7 @@ const markdownHighlight = (mode: 'light' | 'dark') => {
     { tag: t.contentSeparator, color: MUTED },
     // HTML in markdown (`<details>`, comments) and embedded code tokens.
     { tag: [t.comment, t.meta], color: c.comment, fontStyle: 'italic' },
-    { tag: [t.angleBracket, t.tagName, t.attributeName], color: c.tag },
+    { tag: [t.angleBracket, t.tagName], color: c.tag },
   ]);
 };
 

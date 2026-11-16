@@ -14,6 +14,16 @@ tell apart, and the source pane's syntax highlighting is too faint to read
 - [x] Tests + `pnpm verify:fast`
 - [x] Design doc (`docs/design/notes/notes.md`) + DESIGN.md note
 
+## Follow-up: language highlighting in fences
+
+- [x] Curated `codeLanguages` (16 languages) in one lazy chunk
+- [x] Code token palette matching the preview's highlight.js roles,
+      ≥4.5:1 on the code band in both modes (light keyword/function
+      deepened: 4.42 / 4.16 → 5.55 / 5.37)
+- [x] Test: a `ts` fence colours `export` / a string; untagged fence stays
+      body colour; fails with `codeLanguages` removed
+- [x] Chunk gate: 241 / 244 chunks, packs chunk 105 kB
+
 ## Review
 
 Source pane on `NOTE_SOURCE_SURFACE`, preview on paper; markup coloured

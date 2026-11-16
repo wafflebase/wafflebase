@@ -17,3 +17,13 @@
   with no backend or auth involved. Delete it before committing.
 - A fresh checkout may lack `node_modules` links (`@codemirror/language`
   unresolved in Vite): run a root `pnpm install` first.
+- **`@codemirror/legacy-modes` 6.5 does not typecheck against
+  `@codemirror/language` 6.12** — it types parsers from the new
+  `@codemirror/streamparser` package (private `tabSize` mismatch). Pin
+  6.4.x until `language` moves up.
+- **`lang-markdown` already pulls in `lang-html` (with JS and CSS).** Those
+  grammars were in the notes engine before this change; only the extra
+  languages are new weight.
+- **A dev page open while Vite re-optimizes new deps crashes in
+  `hasChild`**: two `@lezer/common` copies. It is a stale page, not a bug;
+  reload. A production build has one copy.
