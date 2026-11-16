@@ -5,12 +5,6 @@
 # repository that runs the harness, and each calls this action where a
 # repository's own setup steps would otherwise be.
 #
-# NOT USED YET. Today's agent workflows set pnpm up themselves and run
-# `scripts/agent/install-deps.mjs` from their staged copy of `scripts/agent`.
-# This action is what replaces those steps when the shared core is synced over
-# `scripts/agent/**` and `.github/workflows/agent-*.yml`; the copy under
-# `scripts/agent/` goes with that sync.
-#
 # IT RUNS WITH A TOKEN IN THE ENVIRONMENT AND, IN FOUR OF THE FIVE JOBS, A PULL
 # REQUEST'S BRANCH IN THE WORKSPACE. Those four take this directory from `main`,
 # checked out into `.trusted-toolchain`, never from the branch; the issue-to-PR

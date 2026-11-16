@@ -19,7 +19,8 @@ there, omit it.**
 
 ## When to Use
 
-- Merging an agent-pipeline PR (`agent/*` branch), especially from a **fork**.
+- Merging an agent-pipeline PR (`agent/*` branch), or a contributor's PR
+  from a **fork** (the pipeline itself only runs on same-repo branches).
 - PR is `CONFLICTING` / `DIRTY` and needs conflict resolution before merge.
 - You want the squash commit to carry the **combined effort** of all the
   agent sessions (turns / tokens / time), not just the diff.
@@ -124,7 +125,12 @@ non-interactive tool call. Have the human run it, then continue.
      --subject "<subject> (#N)" --body-file <path>
    ```
    `--admin` skips the required review; drop it and `gh pr review --approve`
-   instead if you'd rather record an approval. Squash auto-dedupes
+   instead if you'd rather record an approval. `main` requires approval of
+   the most recent reviewable push (the shared harness's `@claude fix` on an
+   issue refuses to start without it; `.github/agent-harness/README.md`), so
+   an approval from before your step-3 push no longer counts, and GitHub does
+   not let whoever made that push approve it: another maintainer approves,
+   or you use `--admin`. Squash auto-dedupes
    `Co-Authored-By` trailers, so keep them in the body. The local merge commit
    from step 2 disappears — squash collapses the branch-vs-main diff into one.
 
@@ -165,6 +171,7 @@ copied summary already carries cost and weighted tokens.
 | `refusing to allow an OAuth App ... without workflow scope` | `gh` token lacks `workflow`. `gh auth refresh -h github.com -s workflow` (interactive — have the human run it). |
 | Conflict "resolved" but PR still `CONFLICTING`; `.git/MERGE_HEAD` present, resolution only *staged* | The commit-msg hook rejected the >70-char auto-merge subject, so the merge never committed. Re-run the merge with a length-bounded `-m "Merge main into PR #<N> (resolve conflict)"` (≤70 chars). |
 | `mergeable=MERGEABLE` but `state=BLOCKED` | Branch protection: usually a required **review** (`REVIEW_REQUIRED`), sometimes a pending required check. Approve, wait, or `--admin` (only if `enforce_admins=false`). |
+| Approved before, `BLOCKED` after you pushed the conflict resolution | The last reviewable push needs its own approval, and not from you: you made the push. Ask another maintainer, or `--admin`. |
 | Green "CI" but still can't merge | "CI" ≠ the required contexts. Verify `verify-self/browser/integration` specifically. |
 | Can't push to a fork PR branch | Needs `maintainer_can_modify == true`; push by fork URL, not `origin`. |
 | `git push` times out but the ref updated | SSH lingers after a successful push; confirm with `git ls-remote`. Don't re-push. |

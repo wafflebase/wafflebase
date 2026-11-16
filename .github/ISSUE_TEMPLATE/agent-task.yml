@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Fill this out completely. A maintainer reviews the spec and, when it is
-        sufficient, kicks off the agent by commenting `@claude implement this`
+        sufficient, kicks off the agent by commenting `@claude fix`
         on the issue. The agent follows `CLAUDE.md` / `CONTRIBUTING.md` exactly
         and opens a **draft** PR for a final human review before merge.
 

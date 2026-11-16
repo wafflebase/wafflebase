@@ -3619,15 +3619,14 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
 - **Both directions are observed.** The effort summary counts clean→blocking
   escalations beside blocking→clean flips.
 
-**Where the new post-fixer work runs.** yorkie-js-sdk runs every step after the
-agent in a separate job, because the agent's shell can write `$GITHUB_ENV`,
-`~/.gitconfig` and `.git/config` for the rest of its own job. This pipeline still
-runs its existing reporting steps inside `fix`, after the agent. The infra page and
-the removal record do not join them: they run in a new `fix-evidence` job (one in
-each fixer workflow) on a fresh runner, from trusted main, reading the branch head
-through the API. Moving the existing steps is a separate change. `fix-evidence`
-failing on its own does not page — it is evidence plus one page, and a failed
-fixer it did not page still reaches `stalled`.
+**Where the post-fixer work runs.** Every step after the agent runs in a separate
+job, because the agent's shell can write `$GITHUB_ENV`, `~/.gitconfig` and
+`.git/config` for the rest of its own job: `report` in `agent-fix.yml` and
+`fix-report` in the panel, each on a fresh runner from trusted main, reading the
+branch head through the API. The infra page and the removal record are posted
+there with the rest of the report. wafflebase's own copy of the pipeline, before
+the switch to yorkie's shared core (#1159), kept its reporting steps inside `fix`
+and ran only these two in a `fix-evidence` job.
 
 **Measured choices.** The carry key is `--verbatim`, not `--stable`: `--stable`
 discards whitespace, so an indentation-only change that alters behaviour carried
@@ -3658,7 +3657,7 @@ panel workflow starts on CI's `requested` event, and that run supersedes this on
 it reads fix reports after its gate, `deps`, checkout and the steps up to "Read
 fix-agent reports", about 1–3 minutes after the push. A record posted later is
 never used. Whether a `fix` job cancelled by that supersede still publishes the
-outputs `fix-evidence` reads is unverified here and in yorkie-js-sdk.
+outputs its report job reads is unverified.
 
 Not yet run on a real wafflebase PR: the structural tests (`carry-wiring`,
 `infra-wiring`, `evidence-wiring`) pin step order and conditions, and the probe was
