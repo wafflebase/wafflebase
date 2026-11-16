@@ -15,7 +15,7 @@
 import { readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { formatUsd, formatMinutes } from "./metrics.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 /** severity counts → "1 crit, 2 maj" (blocking first, zeroes dropped). */
 export function severityCell(counts) {
@@ -158,6 +158,6 @@ function main() {
   }
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   main();
 }

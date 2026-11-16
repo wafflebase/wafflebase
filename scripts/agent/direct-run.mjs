@@ -1,62 +1,72 @@
-// Was a script run, or imported? One answer for every tool in this directory.
+// Was this module run, or imported? One answer for every tool in this package.
 //
-// WHY THIS EXISTS. The agent jobs do not start these files from the checkout:
-// each workflow copies `scripts/agent` to `$RUNNER_TEMP/agent-tools` and runs
-// them from there — `node "$RUNNER_TEMP/agent-tools/install-deps.mjs"`,
-// `node "$RUNNER_TEMP/agent-tools/set-state.mjs"`, and so on for every tool the
-// panel and the fix rounds call. A runner's temp directory can pass through a
-// symbolic link, and Node resolves a module's own `import.meta.url` through
-// links while leaving `argv[1]` exactly as typed. So the comparison each of
-// those files used to make — `path.resolve(argv[1]) === fileURLToPath(import.meta.url)`,
-// or the weaker `import.meta.url === \`file://${argv[1]}\`` — comes out unequal
-// on precisely the runner they run on, and the script exits 0 having done
-// nothing: no install, no state written, no refusal, and a step the workflow
-// credits as successful.
+// WHY IT IS SHARED. The workflows do not start these files from the checkout
+// they were written in: they copy the package to `$RUNNER_TEMP/agent-tools`, or
+// sparse-check it out into a side path, and run `node "<there>/<tool>.mjs"`.
+// Any of those directories can pass through a symbolic link, and Node resolves
+// a module's own `import.meta.url` through links while leaving
+// `process.argv[1]` exactly as typed. Compared as written —
+// `path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)` — the two
+// differ on precisely the runner the tool runs on, the CLI block is skipped,
+// and the process exits 0 having done nothing: no state written, no refusal,
+// and a step the workflow credits as a success. So both sides go through
+// `realpath`, here, once.
 //
-// So both sides go through `realpath`. And an entry path that exists but cannot
-// be resolved THROWS rather than answering "imported": returning false there
-// reinstates the same silent no-op this module exists to remove, which is the
-// one failure mode none of these tools can afford.
+// A repository may have a `scripts/direct-run.mjs` of its own (the one this
+// core is written in does, with the same name and call). This package cannot
+// import it: every workflow stages this directory without its parent, so a
+// `../` import is ERR_MODULE_NOT_FOUND (`checks.test.mjs` pins it). And a path
+// that exists but cannot be resolved THROWS here rather than falling back to
+// the plain comparison, because that fallback answers "imported" in exactly
+// the linked case and so restores the silent no-op.
+//
+// ONE TOOL MAY NOT IMPORT THIS: `command.mjs`, which route jobs check out
+// alone (`router-checkout.test.mjs` says which, and runs it that way). It
+// carries an inline copy of the function below; keep the two in step.
 
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * True when the module that passed its own `import.meta.url` is the file Node
- * was asked to run, false when it was imported.
+ * True when the module whose `import.meta.url` is passed is the file Node was
+ * asked to run, false when it was imported. Call as
+ * `isDirectRun(import.meta.url)`.
  *
- * @param {string} metaUrl the caller's own `import.meta.url`
+ * @param {string} moduleUrl the caller's own `import.meta.url`
  * @returns {boolean}
  * @throws {Error} when a path that exists cannot be resolved through symbolic
- *   links, so neither answer is known to be the right one.
+ *   links, so neither answer is known to be right.
  */
-export function isEntryPoint(metaUrl) {
-  const entry = process.argv[1];
-  // `node --eval` and the REPL: there is no script, so no file is being run as
-  // one. Not an unknown — the only way to get here is an `import()` from eval.
-  if (!entry) return false;
-
-  const self = fileURLToPath(metaUrl);
-  // The common case, and the cheap one: no link anywhere on the path.
-  if (path.resolve(entry) === self) return true;
-
-  let realEntry;
+export function isDirectRun(moduleUrl) {
+  const typed = process.argv[1];
+  // `node --eval`, `node --test` with no file, the REPL: no script was run.
+  if (!typed) return false;
+  const self = fileURLToPath(moduleUrl);
+  // The common case: nothing on the path is a link.
+  if (path.resolve(typed) === self) return true;
+  let entry;
   try {
-    realEntry = realpathSync(entry);
+    entry = realpathSync(typed);
   } catch (error) {
-    // A path that does not exist cannot be this module, which does.
-    if (error?.code === "ENOENT") return false;
-    throw unresolvable(entry, error);
+    // A path that is not there cannot be this module, which is — nor can a
+    // name too long to exist, which is what an `argv[1]` that is not a path
+    // at all (an argument after `node -e`) can be.
+    if (NOT_THERE.has(error?.code)) return false;
+    throw unresolvable(typed, error);
   }
   try {
-    return realEntry === realpathSync(self);
+    return entry === realpathSync(self);
   } catch (error) {
     throw unresolvable(self, error);
   }
 }
 
-const unresolvable = (target, cause) =>
-  new Error(`cannot tell whether this script was run or imported: ${target} does not resolve through symbolic links (${String(cause?.message ?? cause)})`, {
-    cause,
-  });
+const NOT_THERE = new Set(["ENOENT", "ENOTDIR", "ENAMETOOLONG"]);
+
+function unresolvable(target, cause) {
+  return new Error(
+    `cannot tell whether this script was run or imported: ${target} does not resolve through symbolic links (${cause?.message ?? cause})`,
+    { cause },
+  );
+}

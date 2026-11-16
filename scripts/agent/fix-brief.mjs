@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { gh, commitCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 import { resolveCheckNames as resolveNames } from "./prior-findings.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 /**
  * BOUND THE CHECKLIST. Each lens persists up to 60k chars of findings JSON, so an
@@ -312,4 +312,4 @@ function main() {
   );
 }
 
-if (isEntryPoint(import.meta.url)) main();
+if (isDirectRun(import.meta.url)) main();

@@ -1,9 +1,5 @@
 // Which tests did a fix round take away?
 //
-// Ported from yorkie-js-sdk (#1432 there); the incident numbers below are that
-// repository's. What differs here is the test layout this repo runs — see
-// `isRunnableTest` and `CASE`.
-//
 // WHY THIS EXISTS. On #1426 (e6900da) the fixer wrote a two-replica test for a
 // finding, watched it fail, DELETED it, and reported the finding "Fixed" with a
 // caveat in prose. The next round's adjudicator was told "a claim of having
@@ -12,47 +8,81 @@
 // (checks.mjs says as much), which reads the cumulative diff and cannot see a
 // test that was written and removed between two of its rounds.
 //
-// This is the mechanical half. A trusted `fix-evidence` job (one in each fixer
-// workflow) reads the round's commits through the API — never a checkout the
-// agent touched — and when a test file was deleted, renamed out of the
-// runner's reach, lost active cases, or had a suite switched off, posts a
-// `<!-- agent-fix-tests -->` record as `github-actions[bot]`. The next round
-// puts it in front of the adjudicator, before the author's fence, for every
-// claim and dispute it adjudicates (fix-report.mjs, rebuttal.mjs). It decides
-// nothing itself: a removed test can be a legitimate cleanup, so it is
-// EVIDENCE for a component that already re-reads the code, not a gate.
+// This is the mechanical half. The trusted `fix-report` job reads the round's
+// commits through the API — never a checkout the agent touched — and when a
+// test file was deleted, renamed out of the runner's reach, lost active cases,
+// or had a suite switched off, posts a `<!-- agent-fix-tests -->` record as
+// `github-actions[bot]`. The next round puts it in front of the adjudicator,
+// before the author's fence, for every claim and dispute it adjudicates
+// (fix-report.mjs, rebuttal.mjs). It decides nothing itself: a removed test can
+// be a legitimate cleanup, so it is EVIDENCE for a component that already
+// re-reads the code, not a gate.
 //
 // PER COMMIT, NOT ONE COMPARE. A three-dot compare diffs from the merge base:
 // a merge of main would be blamed on the fixer, a test committed and deleted
 // inside the round would not show at all, and only 300 files are listed. So the
-// round's OWN commits are taken (`pushedRoundCommits`: in one of the fixer's
-// pushes, in the PR's commit list, not merges) and each commit's files are
-// summed per path.
+// round's OWN commits are taken (`roundCommits`: in the compare, in the PR's
+// commit list, not merges) and each commit's files are summed per path.
 //
 // WHAT IT CANNOT SEE, stated because #1426 is the case that motivated it and is
 // one it would NOT have caught: there the test was written and deleted in the
 // working tree and never committed, so no commit ever held it. Only COMMITTED
-// tests are visible. The fixer prompt's rule — keep a reproducing test as
-// `it.fails`, never delete it — is the only guard for the uncommitted case. A
+// tests are visible. The fixer prompt's rule — keep a reproducing test, switched
+// off in place with the finding named, never delete it — is the only guard for
+// the uncommitted case. A
 // force-push that dropped commits is flagged (`rewritten`) rather than hidden:
 // the dropped commits are gone from the API too.
 //
-// WHICH COMMITS ARE THE ROUND'S is bounded by the fixer credential's own
-// pushes, read from the repository activity log (`fixerPushes`), never by the
-// branch head when this runs: a human's push after the fixer is not its work.
+// RULES PER LANGUAGE. What a test file, a case and a switched-off case look
+// like depends on the language, and which languages a repository's tests are
+// written in is `tests.rules` in its harness configuration:
+//   - `go`: `_test.go` files, top-level `func TestXxx(t *testing.T)` /
+//     `func FuzzXxx(f *testing.F)` cases, `t.Run` subtests, and
+//     `t.Skip`/`t.Skipf`/`t.SkipNow` as the way a case is switched off. Go has
+//     no `it.fails`: a reproducer the fixer could not fix is kept behind a
+//     `t.Skip`, so a skip IS recorded — beside a `--skipped` claim that is the
+//     honest record, beside a `--fixed` one it is the contradiction the
+//     adjudicator is shown it to catch. `tests.go` carries the two things the
+//     rules cannot know: which directories hold shared suite bodies, and the
+//     platform CI runs on.
+//   - `vitest`: `*.test.*` / `*.spec.*` files with `it(`/`test(` cases — the
+//     shape of this package's own tests too. The same rules read Jest and
+//     node:test, whose spellings differ: besides a case removed or a suite
+//     switched off, a FOCUS added (`.only`, `fit`, `fdescribe`), which stops
+//     every sibling, and a `{ skip }` / `{ todo }` OPTION added to a case,
+//     one-line or wrapped by a formatter, are recorded apart from cases.
+//   - `cargo`: Rust keeps most unit tests INSIDE the file they test, so
+//     there is no "test file" to find them in. A case is the `#[test]`
+//     attribute (and its family: `#[tokio::test]`, `#[rstest]`, …), which
+//     occurs only on tests, so every `.rs` patch is tallied whatever the file
+//     is. Switched off in place: `#[ignore]` — which is how a Rust fixer keeps
+//     a reproducer — `#[cfg_attr(…, ignore)]`, `#[should_panic]` added to an
+//     existing test, a `#[cfg(…)]` gate on a test or a test module, a removed
+//     `mod x_tests;` line (the file is still there and no longer compiled), a
+//     doc-test fence switched to `ignore`/`no_run`/`compile_fail`, and in a
+//     `Cargo.toml`, `test`/`doctest`/`harness`/`autotests = false` or a
+//     workspace member dropped. `tests.cargo` says where integration-test
+//     targets live and which files are test code although no naming
+//     convention says so. The rules and what a patch cannot show them are in
+//     `cargo-rules.mjs`.
+// `countCases` picks between the enabled sets by the file's extension.
 //
 // Usage:
-//   node test-removals.mjs post <pr> --before <sha> --branch <name>
-//     --actor <app-slug>[bot] --since <iso8601> [--head <sha>]
-// `--actor` and `--since` come from fix-job steps that ran BEFORE the agent
-// (the App token's slug, the before-fix stamp). `--head` is the sha the fix
-// report names (the round's reviewed head), which the record is joined on; it
-// defaults to `--before`. Posts only when something was removed, history was
-// rewritten, or the round was not fully read. Always exits 0: an unread round is "no
+//   node test-removals.mjs post <pr> --before <sha> --after <sha> [--head <sha>]
+//     [--pusher <app>[bot] --since <iso> --branch <name>]
+// `--head` is the sha the fix report names (the round's reviewed head), which
+// the record is joined on; it defaults to `--before`. With `--pusher`, `--since`
+// and `--branch`, the round ends at the App's own last push (`fixerHead`)
+// rather than at `--after`, the live head. Posts only when something
+// was removed, history was rewritten, or the round had more commits than are
+// read (`ROUND_COMMIT_CAP`). Always exits 0: an unread round is "no
 // evidence", which is exactly the behaviour before this existed.
 
 import { execFileSync } from "node:child_process";
-import { isEntryPoint } from "./direct-run.mjs";
+import path from "node:path";
+import { compileGlob, get } from "./config.mjs";
+import { cargoManifestTally, cargoTally } from "./cargo-rules.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 export const TEST_REMOVALS_MARKER = "<!-- agent-fix-tests ";
 export const TEST_REMOVALS_VERSION = 1;
@@ -69,56 +99,210 @@ const int = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
  * write this"; a newline would let a path write its own line there.
  */
 export function safePath(file) {
-  // eslint-disable-next-line no-control-regex
   return str(file).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/`/g, "'").slice(0, 300);
 }
 
-/** This repo's test layouts: `test/` and `tests/` trees, `__tests__/`, and every name a runner picks up. */
+// Which rule sets are on, and what the Go set needs to be told. Read once, at
+// import: a configuration without these throws here rather than letting every
+// file fall through to "not a test", which would record nothing, silently.
+const RULES = get("tests.rules");
+const GO_RULES = RULES.includes("go");
+const JS_RULES = RULES.includes("vitest");
+const GO_CONFIG = GO_RULES ? get("tests.go") : null;
+const CARGO_RULES = RULES.includes("cargo");
+const CARGO_CONFIG = CARGO_RULES ? get("tests.cargo") : null;
+
+/**
+ * The test layouts: `test/` trees and `__tests__/` in any language; with the Go
+ * rules, `*_test.go` and Go files under a shared-suite directory; with the JS
+ * rules, `*.test.*` / `*.spec.*` / `*_test.*` files.
+ *
+ * A shared-suite directory (`tests.go.sharedSuiteDirs`) holds suite bodies in
+ * non-`_test.go` files that thin `_test.go` wrappers call. Decided by the
+ * PATH, not by whether the patch shows `*testing.T`: whether a signature is in
+ * a hunk's context depends on how much context the diff carries, and the
+ * record must not change with it.
+ */
 export function isTestFile(file) {
   const f = str(file);
-  return /(^|\/)(test|tests|__tests__)\//.test(f) || isRunnableTest(f);
+  // What cargo builds is decided by cargo's rules and nothing else. The
+  // directory names below were written for other languages: under them,
+  // `src/bin/tests/main.rs` is a shipped binary and `src/test/x.rs` a module
+  // of the library.
+  if (isCargoGoverned(f)) return isCargoTestSource(f);
+  return /(^|\/)(test|tests|__tests__)\//.test(f) || isSharedGoSuite(f) || isRunnableTest(f);
 }
 
 /**
- * A file a runner picks up by NAME, wherever it lives. This repo's runners:
- *   `*.test.{ts,tsx,mjs,…}`  Vitest (the engine packages, frontend) and
- *                            `node --test` (scripts/, scripts/agent/)
- *   `*.spec.ts`              Jest, packages/backend (`testRegex: .spec.ts$`)
- *   `*.e2e-spec.ts`          Jest, packages/backend/test/jest-e2e.json
- *   `*.integration.ts`       `tsx --test`, packages/frontend (test:integration)
- * Dot-separated only, unlike the js-sdk copy's `[._]`: no runner here collects
- * `_test` or `-test`, and `hit-test.ts` (packages/slides) is source.
+ * A path whose meaning cargo decides: Rust source, a manifest or lockfile,
+ * anything under `.cargo/`. With the cargo rules on, such a path is a test
+ * file only by those rules, and is never documentation — `docs/` and
+ * `tests/` in its path say nothing about what it is built into.
  */
-export function isRunnableTest(file) {
-  return /\.(?:test|spec|e2e-spec|integration)\.[cm]?[jt]sx?$/.test(str(file));
+export function isCargoGoverned(file) {
+  const f = str(file);
+  return CARGO_RULES && (/\.rs$/.test(f) || /(^|\/)Cargo\.(toml|lock)$/.test(f) || /(^|\/)\.cargo\//.test(f));
 }
 
+// Cargo. An INTEGRATION-TEST TARGET is a `.rs` file directly in a package's
+// `tests/` directory, or `tests/<name>/main.rs`: cargo builds exactly those,
+// by name, and nothing deeper (`tests/support/mod.rs` is a helper some target
+// declares). Which directories those are is `tests.cargo.integrationTestDirs`.
+const CARGO_TARGETS = (CARGO_CONFIG?.integrationTestDirs ?? []).flatMap((dir) => [compileGlob(`${dir}/*.rs`), compileGlob(`${dir}/*/main.rs`)]);
+const CARGO_TEST_TREES = (CARGO_CONFIG?.integrationTestDirs ?? []).map((dir) => compileGlob(`${dir}/**`));
+const CARGO_TEST_ONLY = (CARGO_CONFIG?.testOnlyFileGlobs ?? []).map(compileGlob);
+// A unit-test module in a file of its own, by the two names the convention
+// has: `tests.rs` / `test.rs`, and `<anything>_tests.rs` / `_test.rs`, under
+// a `src/`. The parent declares it `#[cfg(test)] mod <name>;`.
+const CARGO_UNIT_TEST_FILE = /(^|\/)src\/(.*\/)?(tests?|[^/]*_tests?)\.rs$/;
+// A package's build script runs at compile time, with the job's tokens in
+// reach. It is one only at a package's root, and telling a package root from
+// a path takes the manifests; so no file with this name is taken for a test,
+// wherever it is. (`tests/build.rs` is a real test target, refused: it pages.)
+const CARGO_BUILD_SCRIPT = /(^|\/)build\.rs$/;
+// Where cargo finds TARGETS by itself and builds each file as one: a file
+// there is a binary, an example or a benchmark whatever it is called.
+const CARGO_AUTO_TARGET_DIR = /(^|\/)(src\/bin|examples|benches)\//;
+
+/**
+ * A Rust file that is test code as a WHOLE: under an integration-test
+ * directory, named as a unit-test module, or listed in
+ * `tests.cargo.testOnlyFileGlobs`. Never a `build.rs`. A source file with a `mod tests` at the
+ * bottom is NOT one — see `cargo-rules.mjs` for how those are handled.
+ */
+function isCargoTestSource(file) {
+  if (!CARGO_RULES || !/\.rs$/.test(file) || CARGO_BUILD_SCRIPT.test(file)) return false;
+  return isCargoTestByConfiguration(file) || isCargoUnitTestByName(file);
+}
+
+/** Named by the configuration: under an integration-test directory, or a listed test-only file. */
+function isCargoTestByConfiguration(file) {
+  return CARGO_TEST_TREES.some((re) => re.test(file)) || CARGO_TEST_ONLY.some((re) => re.test(file));
+}
+
+/**
+ * A Rust file that is a unit-test module BY ITS NAME ALONE: `tests.rs` or
+ * `*_tests.rs` under a `src/`, outside the directories cargo builds targets
+ * from, and not already named by the configuration. The name is a
+ * convention, not a fact — the file is test code only if its parent declares
+ * it under `#[cfg(test)]` — so the removal record and the lints take the
+ * name's word, and the fix guard's scope does not (`fix-guard.mjs`
+ * `rustDeclared`).
+ */
+export function isCargoUnitTestByName(file) {
+  const f = str(file);
+  return CARGO_RULES && CARGO_UNIT_TEST_FILE.test(f) && !CARGO_AUTO_TARGET_DIR.test(f) && !isCargoTestByConfiguration(f);
+}
+
+/** A file the cargo rules tally: any Rust source (cases identify themselves), and any `Cargo.toml`. */
+const isCargoManifest = (file) => CARGO_RULES && /(^|\/)Cargo\.toml$/.test(str(file));
+const isRust = (file) => CARGO_RULES && /\.rs$/.test(str(file));
+
+const SHARED_GO_SUITE = (GO_CONFIG?.sharedSuiteDirs ?? []).map(
+  (dir) => new RegExp(`(^|/)${dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(.*/)?[^/]*\\.go$`),
+);
+
+/** A shared Go suite body: a `.go` file under a configured shared-suite directory. */
+function isSharedGoSuite(file) {
+  const f = str(file);
+  return SHARED_GO_SUITE.some((re) => re.test(f));
+}
+
+// What `go test ./...` on CI's platform skips by NAME: a path element named
+// `testdata` or starting with `_` or `.`, and a `_GOOS`/`_GOARCH` (or
+// `_GOOS_GOARCH`) suffix for another platform.
+const GOOS = new Set(["aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos"]);
+const GOARCH = new Set(["386", "amd64", "amd64p32", "arm", "armbe", "arm64", "arm64be", "loong64", "mips", "mipsle", "mips64", "mips64le", "mips64p32", "mips64p32le", "ppc", "ppc64", "ppc64le", "riscv", "riscv64", "s390", "s390x", "sparc", "sparc64", "wasm"]);
+const CI_GOOS = GO_CONFIG?.ciPlatform.goos;
+const CI_GOARCH = GO_CONFIG?.ciPlatform.goarch;
+
+function goTestInReach(file) {
+  const parts = file.split("/");
+  if (parts.some((p) => p === "testdata" || p.startsWith("_") || p.startsWith("."))) return false;
+  // `name_GOOS_GOARCH_test.go`: go/build ignores the FIRST element as a
+  // constraint, so `linux_test.go` alone runs everywhere.
+  const elems = parts[parts.length - 1].replace(/_test\.go$/, "").split("_");
+  if (elems.length < 2) return true;
+  const last = elems[elems.length - 1];
+  const prev = elems.length >= 3 ? elems[elems.length - 2] : "";
+  if (GOARCH.has(last)) {
+    if (last !== CI_GOARCH) return false;
+    return !(GOOS.has(prev) && prev !== CI_GOOS);
+  }
+  return !(GOOS.has(last) && last !== CI_GOOS);
+}
+
+/**
+ * A file the runners pick up by NAME (`*_test.go` in reach of `go test` on CI;
+ * `*.test.*`, `*.spec.*`, `*_test.*` in JS, and the two a runner config adds
+ * in an adopter: Nest's `*.e2e-spec.*` and `*.integration.*`), wherever it
+ * lives. Kept to named suffixes, not any `-test`/`-spec`: through `isTestFile`
+ * this also decides what a scoped fix may touch.
+ * With the cargo rules, a Rust file is one only as an integration-test
+ * target. A unit-test file has no such name: it is compiled because a `mod`
+ * line reaches it, and renaming it without that line does not build.
+ */
+export function isRunnableTest(file) {
+  const f = str(file);
+  if (GO_RULES && /_test\.go$/.test(f)) return goTestInReach(f);
+  if (isRust(f)) return !CARGO_BUILD_SCRIPT.test(f) && CARGO_TARGETS.some((re) => re.test(f));
+  return JS_RULES && /(?:[._](?:test|spec)|\.e2e-spec|\.integration)\.[cm]?[jt]sx?$/.test(f);
+}
+
+const isGo = (file) => GO_RULES && /\.go$/.test(str(file));
+
+// JavaScript (the harness's own tests, and Vitest, Jest and node:test suites).
 // An ACTIVE case declaration at the start of a diff line: `it`/`test` with any
 // chain of the modifiers that still RUN (`only`, `each`, `concurrent`, `fails`,
 // `sequential`, `for`; Jest's `failing`), called or tagged (`test.each\`…\``),
-// or Jest's focused `fit` — only with a string title, because this repo has a
-// local `fit()` helper (`fit-to-content.test.ts`) whose calls are not cases.
+// or Jest's focused `fit` — only with a string title, because a helper named
+// `fit()` is common in code that lays things out, and its calls are not cases.
 // `.fails` (Vitest) and `.failing` (Jest) run and assert the failure — how a
 // fixer should record a reproduction it could not fix — so turning a case into
 // one is not a removal. `.skip`, `.todo`, `.skipIf(…)`, `.runIf(…)` and Jest's
 // `xit`/`xtest` may not run: a case rewritten to one stops matching, which
 // counts it removed.
-const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|sequential|for))*\s*[(`]|fit\s*\(\s*['"`])/;
-// A FOCUS: the focused case runs, and every sibling silently stops. Jest has
-// no CI guard (`CI=true jest --ci` reports "1 skipped, 1 passed", exit 0) and
-// this repo has no `no-focused-tests` rule. Vitest rejects `.only` under CI,
-// but counting it everywhere is simpler and costs nothing. Counted apart from
-// cases and netted only against itself, like a suite switched off.
-const FOCUS = /^[-+]\s*(?:(?:it|test|describe)(?:\.\w+)*\.only|fdescribe|fit(?=\s*\(\s*['"`]))\s*[(`]/;
+const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|sequential|for))*\s*[(`]|fit\s*\(\s*['"`]|fit(?:\.\w+)+\s*[(`])/;
+// A suite that may not run. Counted apart from cases and never netted against
+// added ones: one `describe.skip` silences every case under it without those
+// lines changing, so "one suite off, one case added" must still be reported.
+// Jest's `xdescribe` is the same switch spelled as a prefix.
+const SUITE_OFF = /^[-+]\s*(?:describe(?:\.\w+)*\.(?:skip|todo|skipIf|runIf)|xdescribe(?:\.\w+)*)\s*[(`]/;
+// A FOCUS: the focused case runs, and every sibling silently stops. `.only`
+// anywhere in the chain (`test.only.each(`, `it.only.each\``), and Jest's
+// prefixed spellings with or without one (`fdescribe.each(`, `fit.each(`). Jest has
+// no CI guard (`CI=true jest --ci` reports "1 skipped, 1 passed", exit 0), and
+// a repository need not lint for it. Vitest rejects `.only` under CI, but
+// counting it everywhere costs nothing. Counted apart from cases and netted
+// only against itself, like a suite switched off.
+const FOCUS = /^[-+]\s*(?:(?:it|test|describe)(?:\.\w+)*\.only(?:\.\w+)*|fdescribe(?:\.\w+)*|fit(?:\.\w+)+|fit(?=\s*\(\s*['"`]))\s*[(`]/;
 // node:test's OPTION form, `test("x", { todo: … }, fn)` / `{ skip: … }`: the
-// case still runs (todo) or is skipped, and a failure no longer fails the
-// suite. It is the form the fixer prompt gives for node:test files, so a newly
-// added one is evidence, netted only against lines that already carried it.
-const OPTION_OFF = /,\s*\{[^}]*\b(?:todo|skip)\s*:/;
-// The same option once Prettier has WRAPPED the call: the prompt's
-// `test("long title", { todo: '…' }, async () => {…})` overflows 80 columns,
-// and Prettier puts the opener, the title, the options and the callback on
-// lines of their own, the object itself broken one key per line when long:
+// case is skipped, or still runs and a failure no longer fails the suite. It is
+// the form a node:test file has instead of `.fails`, so a newly added one is
+// evidence, netted only against lines that already carried it. On a suite,
+// `describe("x", { skip: … }, fn)`, it switches the suite off. The object is
+// the first argument after the title; `optionOn` reads its keys.
+const OPTION_OBJECT = /,\s*(\{[^}]*)/;
+const SUITE_OPEN = /^[-+]\s*describe(?:\.\w+)*\s*\(/;
+// A `todo` / `skip` key and the value up to the next `,` or `}`.
+const OPTION_ENTRY = /(?:^|[{,])\s*(?:todo|skip)\s*:\s*([^,}]*)/g;
+// The values that leave the case running: node:test reads the option as
+// truthy or not, so `false`, `0`, an empty string, `null` and `undefined`
+// switch nothing off. Anything else — `true`, a reason string, an expression
+// such as `!process.env.CI` — may, and counts.
+const OPTION_FALSY = /^(?:false|0|''|""|``|null|undefined|void 0)$/;
+
+/** Does this text carry a `todo` / `skip` key whose value may be truthy? */
+function optionOn(text) {
+  for (const m of str(text).matchAll(OPTION_ENTRY)) {
+    if (!OPTION_FALSY.test(m[1].trim())) return true;
+  }
+  return false;
+}
+// The same option once a formatter has WRAPPED the call: a long title and an
+// option overflow the line, and Prettier puts the opener, the title, the
+// options and the callback on lines of their own, the object itself broken
+// one key per line when long:
 //
 //   test(                                test(
 //     'long title',                        'long title',
@@ -131,40 +315,8 @@ const OPTION_OFF = /,\s*\{[^}]*\b(?:todo|skip)\s*:/;
 // a quote, then the object — so a `test.each` table, a look-alike call or an
 // object in the body never counts (`wrappedOptions`).
 const WRAPPED_OPENER = /^\s*(?:it|test)(?:\.(?:only|concurrent|fails|failing|sequential))*\s*\(\s*$/;
+const WRAPPED_SUITE_OPENER = /^\s*describe(?:\.only)?\s*\(\s*$/;
 const WRAPPED_TITLE = /^\s*['"`]/;
-const OPTION_KEY = /(?:^|[{,])\s*(?:todo|skip)\s*:/;
-// A suite that may not run. Counted apart from cases and never netted against
-// added ones: one `describe.skip` silences every case under it without those
-// lines changing, so "one suite off, one case added" must still be reported.
-// Jest's `xdescribe` is the same switch spelled as a prefix.
-const SUITE_OFF = /^[-+]\s*(?:describe(?:\.\w+)*\.(?:skip|todo|skipIf|runIf)|xdescribe(?:\.\w+)*)\s*[(`]/;
-
-/**
- * The RAW counters of one patch: active cases removed and added, and each
- * switch (suite off, focus, node:test option) as lines added and removed. Raw,
- * so a round's commits can be summed per path before anything is clamped — a
- * suite skipped in one commit and re-enabled in the next is no disablement.
- */
-function tally(patch) {
-  const t = { removed: 0, added: 0, offAdded: 0, offRemoved: 0, focusAdded: 0, focusRemoved: 0, optAdded: 0, optRemoved: 0 };
-  const wrapped = wrappedOptions(patch);
-  t.optAdded += wrapped.added;
-  t.optRemoved += wrapped.removed;
-  for (const line of str(patch).split("\n")) {
-    if (line.startsWith("---") || line.startsWith("+++")) continue;
-    const plus = line[0] === "+";
-    if (line[0] !== "+" && line[0] !== "-") continue;
-    if (FOCUS.test(line)) plus ? t.focusAdded++ : t.focusRemoved++;
-    if (SUITE_OFF.test(line)) {
-      plus ? t.offAdded++ : t.offRemoved++;
-      continue;
-    }
-    if (!CASE.test(line)) continue;
-    plus ? t.added++ : t.removed++;
-    if (OPTION_OFF.test(line)) plus ? t.optAdded++ : t.optRemoved++;
-  }
-  return t;
-}
 
 /**
  * Options on WRAPPED case calls that a patch adds and removes. Each side of the
@@ -176,7 +328,8 @@ function tally(patch) {
  * which nets to zero like the one-line form.
  */
 function wrappedOptions(patch) {
-  const out = { added: 0, removed: 0 };
+  // `suiteAdded` / `suiteRemoved`: the same option on a wrapped `describe(`.
+  const out = { added: 0, removed: 0, suiteAdded: 0, suiteRemoved: 0 };
   const sides = { "+": { phase: 0 }, "-": { phase: 0 } };
   for (const line of str(patch).split("\n")) {
     if (line.startsWith("---") || line.startsWith("+++")) continue;
@@ -193,7 +346,8 @@ function wrappedOptions(patch) {
       const changed = mark === side;
       const hit = () => {
         if (changed && !st.counted) {
-          out[side === "+" ? "added" : "removed"]++;
+          const plus = side === "+";
+          out[st.suite ? (plus ? "suiteAdded" : "suiteRemoved") : (plus ? "added" : "removed")]++;
           st.counted = true;
         }
       };
@@ -204,7 +358,7 @@ function wrappedOptions(patch) {
         st.phase = 0;
         st.counted = false;
         if (/^\s*\{.*\}\s*,?\s*$/.test(text)) {
-          if (OPTION_KEY.test(text)) hit();
+          if (optionOn(text)) hit();
           continue;
         }
         if (/^\s*\{\s*$/.test(text)) {
@@ -215,41 +369,138 @@ function wrappedOptions(patch) {
       } else if (st.phase === 3) {
         // One key per line at the object's own depth; a nested object's keys
         // are not the case's options.
-        if (st.depth === 0 && /^\s*(?:todo|skip)\s*:/.test(text)) hit();
+        if (st.depth === 0 && optionOn(text)) hit();
         const opens = (text.match(/[{[(]/g) ?? []).length;
         const closes = (text.match(/[}\])]/g) ?? []).length;
         st.depth += opens - closes;
         if (st.depth < 0) st.phase = 0;
         continue;
       }
-      if (WRAPPED_OPENER.test(text)) st.phase = 1;
+      if (WRAPPED_OPENER.test(text) || WRAPPED_SUITE_OPENER.test(text)) {
+        st.phase = 1;
+        st.suite = WRAPPED_SUITE_OPENER.test(text);
+      }
     }
   }
   return out;
 }
 
+// Go. A top-level case is a `Test`/`Fuzz` function whose name continues with
+// anything but a lower-case letter (the `go test` rule) and whose parameter is
+// `*testing.T`/`*testing.F` — so `TestMain(m *testing.M)` and helpers are not
+// cases. gofmt puts top-level declarations at column 0. A subtest is a
+// `<x>.Run(…, func(<t> *testing.T)` call. Benchmarks are left out: `go test`
+// does not run them, so they cannot show that a finding reproduces. Rows of a
+// table-driven test are not seen — a known gap, stated rather than guessed at.
+const GO_CASE = /^[-+]func\s+(?:Test|Fuzz)(?![a-z])\w*\s*\(\s*\w+\s+\*testing\.[TF]\s*\)/;
+// In a shared suite body (a configured directory), a top-level `func RunXxx(` is the case:
+// gofmt breaks its signature over the following lines, so the parameter type
+// is not on the line to check.
+const GO_SHARED_CASE = /^[-+]func\s+Run[A-Z0-9_]\w*\s*\(/;
+const GO_SUBTEST = /^[-+]\s*[\w.]+\.Run\(.*func\s*\(\s*\w+\s+\*testing\.T\s*\)/;
+// A case switched off in place. Unlike `it.skip`, `t.Skip` is a new line in an
+// unchanged function, so it is counted apart from cases, like a disabled suite,
+// and netted only against skips removed in the same file. Any receiver
+// (`t`, `b`, `tb`, `s.T()`). Comment lines are not calls.
+const GO_SKIP = /^[-+](?!\s*\/\/).*[\w)]\.Skip(?:f|Now)?\(/;
+// A build constraint, current or legacy. In an existing test file, a new or
+// changed expression can take the whole file out of every lane that runs it
+// (`//go:build integration` → `//go:build ignore`), the Go form of a disabled
+// suite. A new file's constraint is not — it was never running — unless it
+// names the `ignore` tag, which no lane sets: a test born ignored is a test
+// switched off.
+const GO_BUILD = /^([-+])\/\/(?:go:build|\s*\+build)\s+(.*?)\s*$/;
+const ignores = (expr) => /(^|[^\w!])ignore(?!\w)/.test(expr);
+
 /**
- * Clamp raw counters to the record shape. Each switch is netted against
- * ITSELF only, so editing an already-skipped suite's title, or re-enabling
- * one, is not a disablement, and none is ever netted against added cases.
- * `focused` / `optionsOff` are present only when non-zero.
+ * Build-constraint expressions added that the same span never removed. `added`
+ * and `removed` are the expressions seen on `+` and `-` lines, unioned over a
+ * patch or over a whole round, so a constraint changed and changed back nets
+ * out. `newFile`: the file did not exist before the span.
  */
-function settle(t) {
-  const focused = Math.max(0, t.focusAdded - t.focusRemoved);
-  const optionsOff = Math.max(0, t.optAdded - t.optRemoved);
-  return {
-    removed: t.removed, added: t.added, suitesOff: Math.max(0, t.offAdded - t.offRemoved),
-    ...(focused ? { focused } : {}),
-    ...(optionsOff ? { optionsOff } : {}),
-  };
+function constraintsOff(added, removed, newFile, never = ignores) {
+  return [...added].filter((e) => !removed.has(e) && (!newFile || never(e))).length;
 }
 
-/** Active cases a unified diff removes and adds, and the switches it newly turns on. */
-export function countCases(patch) {
-  return settle(tally(patch));
+/**
+ * The raw tally behind `countCases`, kept SIGNED so a round can net it across
+ * commits before clamping: `offNet` is suites/skips switched off minus those
+ * switched back on, and the build-constraint sets are left for the caller.
+ */
+function tally(patch, { file = "", status = "" } = {}) {
+  // Rust and Cargo manifests have rules of their own, which read a hunk
+  // rather than a line; they return this same shape, plus `never`.
+  if (isRust(file)) return cargoTally(patch, { status, testFile: isTestFile(file) });
+  if (isCargoManifest(file)) return cargoManifestTally(patch, { status });
+  const go = isGo(file);
+  const shared = go && isSharedGoSuite(file);
+  let removed = 0, added = 0, offNet = 0, focusNet = 0, optNet = 0;
+  const builds = { "+": new Set(), "-": new Set() };
+  if (!go && JS_RULES) {
+    const wrapped = wrappedOptions(patch);
+    optNet += wrapped.added - wrapped.removed;
+    offNet += wrapped.suiteAdded - wrapped.suiteRemoved;
+  }
+  for (const line of str(patch).split("\n")) {
+    if (line.startsWith("---") || line.startsWith("+++")) continue;
+    const sign = line[0] === "+" ? 1 : -1;
+    if (go) {
+      const b = GO_BUILD.exec(line);
+      if (b) {
+        builds[b[1]].add(b[2]);
+        continue;
+      }
+      if (GO_SKIP.test(line)) {
+        offNet += sign;
+        continue;
+      }
+      if (!GO_CASE.test(line) && !GO_SUBTEST.test(line) && !(shared && GO_SHARED_CASE.test(line))) continue;
+    } else if (JS_RULES) {
+      if (FOCUS.test(line)) focusNet += sign;
+      if (SUITE_OFF.test(line)) {
+        offNet += sign;
+        continue;
+      }
+      if (SUITE_OPEN.test(line)) {
+        if (optionOn(OPTION_OBJECT.exec(line)?.[1])) offNet += sign;
+        continue;
+      }
+      if (!CASE.test(line)) continue;
+      if (optionOn(OPTION_OBJECT.exec(line)?.[1])) optNet += sign;
+    } else {
+      continue;
+    }
+    if (sign < 0) removed++;
+    else added++;
+  }
+  return { removed, added, offNet, focusNet, optNet, buildsAdded: builds["+"], buildsRemoved: builds["-"], newFile: status === "added" };
 }
 
-const RAW_ZERO = () => tally("");
+// `never`: which gates count in a file that is new. The Go answer (the
+// `ignore` tag) is the default; the cargo tally brings its own.
+const suitesOffOf = (t) => Math.max(0, t.offNet) + constraintsOff(t.buildsAdded, t.buildsRemoved, t.newFile, t.never);
+// The JavaScript switches, each netted against itself only. Only the JS rules
+// count them, so for any other file both are 0.
+const switchesOf = (t) => ({ focused: Math.max(0, t.focusNet ?? 0), optionsOff: Math.max(0, t.optNet ?? 0) });
+/** `focused` / `optionsOff` as a record carries them: present only when non-zero. */
+const presentSwitches = ({ focused, optionsOff }) => ({ ...(focused ? { focused } : {}), ...(optionsOff ? { optionsOff } : {}) });
+
+/**
+ * Active cases a unified diff removes and adds, and how many suites it newly
+ * switches off. Suite lines are netted against THEMSELVES only, so editing an
+ * already-skipped suite's title, or re-enabling one, is not a disablement.
+ * With the JS rules, `focused` and `optionsOff` count the focuses and the
+ * `{ skip }` / `{ todo }` options it newly adds, netted the same way, and are
+ * present only when non-zero.
+ * `file` picks the language (a `.go` file gets the Go rules, a `.rs` file or a
+ * `Cargo.toml` the cargo ones, anything else the JS ones); `status` is the
+ * file's GitHub status, which only the gate rules read: a gate in a NEW file
+ * counts only when nothing can satisfy it.
+ */
+export function countCases(patch, opts = {}) {
+  const t = tally(patch, opts);
+  return { removed: t.removed, added: t.added, suitesOff: suitesOffOf(t), ...presentSwitches(switchesOf(t)) };
+}
 
 /** One commit's (or one compare's) files → per-path entries. Not yet filtered. */
 function entries(files) {
@@ -261,20 +512,20 @@ function entries(files) {
     // `a_test.ts.off`, or `_test` dropped from the name) no longer runs: that is
     // the old file deleted, wherever the new name lives.
     const renamedAway = f?.status === "renamed" && isRunnableTest(was) && !isRunnableTest(now);
-    if (!isTestFile(now) && !renamedAway) continue;
+    // With the cargo rules every Rust file is read, test file or not: most
+    // Rust tests are inside the source file they test. So is every manifest.
+    const tallied = isRust(was) || isRust(now) || isCargoManifest(now);
+    if (!isTestFile(now) && !renamedAway && !tallied) continue;
     const deleted = f.status === "removed" || renamedAway;
     // GitHub omits `patch` for a diff too large to show. That is "unknown", not
-    // "nothing removed". A PURE rename (`changes: 0`) also carries no patch, and
-    // an unchanged file is not a removal; a rename that changed content is
-    // unknown like any other unshown diff.
-    if (typeof f.patch !== "string") {
-      const pureRename = f.status === "renamed" && !renamedAway && !(Number(f.changes) > 0);
-      if (!pureRename && (deleted || f.status === "modified" || f.status === "renamed")) {
-        out.push({ file: was, deleted, ...RAW_ZERO(), unreadable: true });
-      }
+    // "nothing removed". (A pure rename also carries no patch, but an unchanged
+    // file is not a removal.)
+    if (typeof f.patch !== "string" && !(f.status === "renamed" && !renamedAway)) {
+      if (deleted || f.status === "modified") out.push({ file: was, deleted, removed: 0, added: 0, suitesOff: 0, focused: 0, optionsOff: 0, unreadable: true });
       continue;
     }
-    out.push({ file: was, deleted, renamedAway, ...tally(f.patch) });
+    const t = tally(f.patch, { file: was, status: f.status });
+    out.push({ file: was, deleted, renamedAway, removed: t.removed, added: t.added, suitesOff: suitesOffOf(t), ...switchesOf(t), raw: t });
   }
   return out;
 }
@@ -283,11 +534,11 @@ function entries(files) {
 function removalsOf(list) {
   const out = [];
   for (const e of list) {
-    const c = settle(e);
-    const hit = e.unreadable || e.renamedAway || c.suitesOff > 0 || c.focused > 0 || c.optionsOff > 0
-      || (e.deleted ? c.removed > 0 : c.removed > c.added);
+    const hit = e.unreadable || e.renamedAway || e.suitesOff > 0 || e.focused > 0 || e.optionsOff > 0
+      || (e.deleted ? e.removed > 0 : e.removed > e.added);
     if (!hit) continue;
-    out.push({ file: e.file, deleted: e.deleted, ...c, ...(e.unreadable ? { unreadable: true } : {}) });
+    const { renamedAway: _r, raw: _t, focused, optionsOff, unreadable, ...rest } = e;
+    out.push({ ...rest, ...presentSwitches({ focused, optionsOff }), ...(unreadable ? { unreadable } : {}) });
   }
   return out;
 }
@@ -306,15 +557,36 @@ export function testRemovals(files) {
  * skipped: they bring in main, not the fixer's work. A test added in one commit
  * and deleted in a later one is a deletion that held cases — exactly what a
  * three-dot compare cannot see.
+ *
+ * Cases are summed; switch-offs — and focuses and options — are NETTED across
+ * the round before they are clamped. The Go fixer is told to write skips, so a
+ * skip added in one commit and taken out in a later one — or a constraint
+ * changed and changed back — is no switch-off at all, and clamping per commit
+ * would report it.
  */
 export function aggregateCommits(commits) {
   const byFile = new Map();
   for (const c of Array.isArray(commits) ? commits : []) {
     if (Array.isArray(c?.parents) && c.parents.length > 1) continue;
     for (const e of entries(c?.files)) {
-      const cur = byFile.get(e.file) ?? { file: e.file, deleted: false, ...RAW_ZERO() };
-      // RAW counters summed across the round, clamped once in `removalsOf`.
-      for (const k of Object.keys(RAW_ZERO())) cur[k] += e[k];
+      const fresh = !byFile.has(e.file);
+      const cur = byFile.get(e.file) ?? {
+        file: e.file, deleted: false, removed: 0, added: 0, suitesOff: 0, focused: 0, optionsOff: 0,
+        raw: { offNet: 0, focusNet: 0, optNet: 0, buildsAdded: new Set(), buildsRemoved: new Set(), newFile: e.raw?.newFile === true, never: e.raw?.never },
+      };
+      if (fresh && !e.raw) cur.raw.newFile = false;
+      cur.removed += e.removed;
+      cur.added += e.added;
+      if (e.raw) {
+        cur.raw.never ??= e.raw.never;
+        cur.raw.offNet += e.raw.offNet;
+        cur.raw.focusNet += e.raw.focusNet ?? 0;
+        cur.raw.optNet += e.raw.optNet ?? 0;
+        for (const x of e.raw.buildsAdded) cur.raw.buildsAdded.add(x);
+        for (const x of e.raw.buildsRemoved) cur.raw.buildsRemoved.add(x);
+      }
+      cur.suitesOff = suitesOffOf(cur.raw);
+      Object.assign(cur, switchesOf(cur.raw));
       cur.deleted = e.deleted || (cur.deleted && e.removed === 0 && e.added === 0);
       if (e.unreadable) cur.unreadable = true;
       if (e.renamedAway) cur.renamedAway = true;
@@ -337,68 +609,57 @@ export function roundCommits(compareCommits, prShas) {
     .filter((c) => c && prShas.has(c.sha) && Number(c.n) === 1);
 }
 
-/** One page of the repository activity log; a full page may not reach back far enough. */
-export const ACTIVITY_PAGE = 100;
-
 /**
- * The pushes the FIXER made, oldest first. `activities` is
- * `GET /repos/{o}/{r}/activity?ref=refs/heads/<branch>` (newest first); `actor`
- * is the fixer credential's login (`<app-slug>[bot]`); `since` is when the
- * round started, stamped in the fix job BEFORE the agent ran.
+ * The head the fix round itself pushed, or "" when that cannot be proven.
  *
- * WHY PUSHES, NOT A HEAD. The record used to compare BEFORE against the branch
- * head read when `fix-evidence` ran, and that is not the fixer's head: the fix
- * job's reporting steps and a fresh runner's start sit between the agent's last
- * push and that read, and a commit a human pushed in the gap was blamed on the
- * fixer. Nothing trustworthy can name the fixer's head from inside the fix job —
- * every step after the agent runs on its terms, and its own report is a claim it
- * could stop short of the commit that deleted a test. Nor can the commits: their
- * author and committer are whatever the agent's git config says (`claude[bot]`
- * for every agent workflow here), so a fixer could sign as a human and end a
- * "stop at the first foreign commit" walk before its deletion. The activity log
- * names the AUTHENTICATED pusher, which GitHub sets from the token, so the
- * round's commits are exactly the ones its credential pushed after it started,
- * wherever a human's push fell between them.
+ * The report job runs after the fixer, so the live branch ref may already hold
+ * commits a human pushed once the fixer was done; counting them would blame the
+ * round for them. GitHub's activity log records WHO PUSHED each ref update, and
+ * the fixer cannot choose that: it holds only the App's token. A commit's author
+ * and committer, by contrast, are whatever the fixer's shell set, so bounding
+ * the round by commit identity would let a fixer opt its own commits out of the
+ * record.
+ *
+ * So: start at `before`, follow pushes newer than `since` (when the round
+ * recorded `before`) whose `before` is the current head, and stop at the first
+ * push the App did not make. The result is the App's last head in that chain.
+ * "" (no such push, no bound, unreadable input) tells the caller to fall back to
+ * the live ref, the over-attributing side, as before this existed.
  */
-export function fixerPushes(activities, { actor = "", since = "", pageSize = ACTIVITY_PAGE } = {}) {
-  const start = Date.parse(str(since));
-  const list = Array.isArray(activities) ? activities : [];
-  if (!str(actor) || !Number.isFinite(start)) return { pushes: [], truncated: false };
-  const at = (a) => Date.parse(str(a?.timestamp));
-  const pushes = list
-    .filter((a) => (a?.activity_type === "push" || a?.activity_type === "force_push")
-      && a?.actor?.login === actor && at(a) >= start
-      && !/^0*$/.test(str(a?.before)) && !/^0*$/.test(str(a?.after)))
-    .sort((x, y) => at(x) - at(y))
-    .map((a) => ({ before: a.before, after: a.after, forced: a.activity_type === "force_push" }));
-  // A full page whose oldest entry is still inside the round may have cut off
-  // the round's first pushes.
-  const oldest = list.reduce((m, a) => Math.min(m, at(a)), Infinity);
-  return { pushes, truncated: list.length >= pageSize && oldest >= start };
-}
-
-/**
- * The round's own commits from the fixer's pushes: each push's compare
- * commits, kept by `roundCommits` (in the PR's commit list, not merges), each
- * sha once, in push order.
- */
-export function pushedRoundCommits(perPush, prShas) {
-  const seen = new Set();
-  const out = [];
-  for (const commits of Array.isArray(perPush) ? perPush : []) {
-    for (const c of roundCommits(commits, prShas)) {
-      if (seen.has(c.sha)) continue;
-      seen.add(c.sha);
-      out.push(c);
-    }
+export function fixerHead(activities, { before, pusher, since, ref } = {}) {
+  const t0 = Date.parse(str(since));
+  const login = str(pusher);
+  const full = str(ref).startsWith("refs/") ? str(ref) : `refs/heads/${str(ref)}`;
+  const start = str(before).toLowerCase();
+  if (!Number.isFinite(t0) || login === "" || str(ref) === "" || !/^[0-9a-f]{40}$/.test(start)) return "";
+  const list = (Array.isArray(activities) ? activities : [])
+    .filter((a) => a && typeof a === "object" && a.ref === full)
+    .filter((a) => a.activity_type === "push" || a.activity_type === "force_push")
+    .map((a) => ({ a, at: Date.parse(str(a.timestamp)) }))
+    .filter((x) => Number.isFinite(x.at) && x.at >= t0)
+    .sort((x, y) => x.at - y.at)
+    .map((x) => x.a);
+  let cur = start;
+  const used = new Set();
+  for (;;) {
+    const next = list.find((a) => !used.has(a) && str(a.before).toLowerCase() === cur);
+    if (!next || str(next.actor?.login) !== login) break;
+    const to = str(next.after).toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(to)) break;
+    used.add(next);
+    cur = to;
   }
-  return out;
+  return cur === start ? "" : cur;
 }
 
 /** Read at most this many of a round's commits; more is flagged `truncated`. */
 export const ROUND_COMMIT_CAP = 50;
 
-/** The first `cap` commits, and whether any were left unread. */
+/**
+ * The first `cap` commits, and whether any were left unread. A round past the
+ * cap is recorded as not fully read rather than silently shortened: what the
+ * unread commits removed is unknown, not nothing.
+ */
 export function capRoundCommits(commits, cap = ROUND_COMMIT_CAP) {
   const list = Array.isArray(commits) ? commits : [];
   return { commits: list.slice(0, cap), truncated: list.length > cap };
@@ -437,7 +698,7 @@ export function describeRemoval(r) {
   if (r?.unreadable === true) return `- ${file}: changed, but the diff was too large to read`;
   const parts = [];
   if (int(r?.removed) || int(r?.added)) parts.push(`${int(r?.removed)} active case(s) removed or disabled, ${int(r?.added)} added`);
-  if (int(r?.suitesOff)) parts.push(`${int(r.suitesOff)} suite(s) switched off`);
+  if (int(r?.suitesOff)) parts.push(`${int(r.suitesOff)} test(s) or suite(s) switched off`);
   if (int(r?.focused)) parts.push(`${int(r.focused)} focus(es) added (\`.only\`/\`fit\`/\`fdescribe\`), which stops every sibling`);
   if (int(r?.optionsOff)) parts.push(`${int(r.optionsOff)} case(s) given a \`{ todo }\`/\`{ skip }\` option`);
   return `- ${file}: ${parts.join("; ")}`;
@@ -493,48 +754,41 @@ function main() {
     return i >= 0 ? str(argv[i + 1]) : "";
   };
   const before = flag("before");
-  const branch = flag("branch");
-  const actor = flag("actor");
-  const since = flag("since");
+  let after = flag("after");
   const head = /^[0-9a-f]{7,40}$/i.test(flag("head")) ? flag("head") : before;
-  if (verb !== "post" || !/^\d+$/.test(str(pr)) || !/^[0-9a-f]{40}$/i.test(before) || !branch
-    || !/^[A-Za-z0-9-]+\[bot\]$/.test(actor) || !Number.isFinite(Date.parse(since))) {
-    console.error("usage: test-removals.mjs post <pr> --before <sha40> --branch <name> --actor <app>[bot] --since <iso8601> [--head <sha>]");
+  if (verb !== "post" || !/^\d+$/.test(str(pr)) || !/^[0-9a-f]{40}$/i.test(before) || !/^[0-9a-f]{40}$/i.test(after)) {
+    console.error("usage: test-removals.mjs post <pr> --before <sha40> --after <sha40> [--head <sha>] [--pusher <login> --since <iso> --branch <name>]");
     return;
   }
   const ghJson = (args) => JSON.parse(execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+  // End the round at the App's own last push (see `fixerHead`), not at whatever
+  // the branch holds now. Unprovable → the live ref, as before.
+  if (flag("pusher") && flag("since") && flag("branch")) {
+    try {
+      const acts = ghJson(["api", `repos/{owner}/{repo}/activity?ref=${encodeURIComponent(flag("branch"))}&per_page=100`]);
+      const own = fixerHead(acts, { before, pusher: flag("pusher"), since: flag("since"), ref: flag("branch") });
+      if (own && own !== after.toLowerCase()) console.error(`test-removals: the round ends at the App's last push ${own.slice(0, 12)}, not the live head ${after.slice(0, 12)}.`);
+      if (own) after = own;
+      else console.error("test-removals: no push of the App's follows the round's start; using the live head.");
+    } catch (err) {
+      console.error(`test-removals: could not read the branch's push activity (${err.message}); using the live head.`);
+    }
+  }
   const ghLines = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
     .split("\n").filter((l) => l.trim() !== "").map((l) => JSON.parse(l));
   let commits;
-  let after = "";
   let rewritten = false;
   let truncated = false;
   try {
-    // The fixer's pushes, not the branch head (`fixerPushes` says why).
-    const ref = encodeURIComponent(`refs/heads/${branch}`);
-    const activity = ghJson(["api", `repos/{owner}/{repo}/activity?ref=${ref}&per_page=${ACTIVITY_PAGE}`]);
-    const found = fixerPushes(activity, { actor, since });
-    truncated = found.truncated;
-    const pushes = found.pushes.filter((p) => /^[0-9a-f]{40}$/i.test(p.before) && /^[0-9a-f]{40}$/i.test(p.after));
-    if (pushes.length === 0) {
-      console.error(`test-removals: ${actor} pushed nothing to ${branch} since ${since}; recording nothing.`);
-      return;
-    }
-    after = pushes[pushes.length - 1].after;
-    const perPush = [];
-    for (const p of pushes) {
-      // Each compare is used for its COMMIT list and status only — the commits
-      // paginate cleanly; the file list does not (it is capped and lives on page 1).
-      const status = ghJson(["api", `repos/{owner}/{repo}/compare/${p.before}...${p.after}`, "--jq", "{status: .status, behind: .behind_by}"]);
-      if (p.forced || status.status === "diverged" || Number(status.behind) > 0) rewritten = true;
-      perPush.push(ghLines(["api", "--paginate", `repos/{owner}/{repo}/compare/${p.before}...${p.after}?per_page=100`, "--jq", ".commits[] | {sha, n: (.parents | length)}"]));
-    }
-    // `--jq` prints a bare string RAW, not as JSON, so the shas are emitted as
-    // JSON strings (`tojson`) to go through the same line parser.
+    // The compare is used for its COMMIT list and status only — the commits
+    // paginate cleanly; the file list does not (it is capped and lives on page 1).
+    const status = ghJson(["api", `repos/{owner}/{repo}/compare/${before}...${after}`, "--jq", "{status: .status, behind: .behind_by}"]);
+    rewritten = status.status === "diverged" || Number(status.behind) > 0;
+    const inRound = ghLines(["api", "--paginate", `repos/{owner}/{repo}/compare/${before}...${after}?per_page=100`, "--jq", ".commits[] | {sha, n: (.parents | length)}"]);
     const prShas = new Set(ghLines(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`, "--jq", ".[].sha | tojson"]));
     commits = [];
-    const capped = capRoundCommits(pushedRoundCommits(perPush, prShas));
-    truncated = truncated || capped.truncated;
+    const capped = capRoundCommits(roundCommits(inRound, prShas));
+    truncated = capped.truncated;
     for (const { sha } of capped.commits) {
       const files = ghLines(["api", "--paginate", `repos/{owner}/{repo}/commits/${sha}?per_page=100`, "--jq", ".files[]"]);
       commits.push({ sha, parents: [{}], files });
@@ -552,12 +806,12 @@ function main() {
     execFileSync("gh", ["pr", "comment", pr, "--body-file", "-"], {
       input: renderTestRemovals({ head, after, removals, rewritten, truncated }), encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
     });
-    console.error(`test-removals: recorded ${removals.length} file(s)${rewritten ? " (history rewritten)" : ""}.`);
+    console.error(`test-removals: recorded ${removals.length} file(s)${rewritten ? " (history rewritten)" : ""}${truncated ? " (commits past the cap unread)" : ""}.`);
   } catch (err) {
     console.error(`test-removals: could not post (${err.message}).`);
   }
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   main();
 }

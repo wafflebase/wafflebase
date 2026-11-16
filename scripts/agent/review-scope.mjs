@@ -43,7 +43,7 @@ import { gh, prCommitsWithCheckRuns, commitCheckRuns, allCheckRuns, parseArgs, p
 import { lensApplies } from "./review-panel.mjs";
 import { groupReviewRounds, isRerunCommand } from "./rounds.mjs";
 import { parseCommand } from "./command.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-fA-F]{40}$/;
@@ -438,7 +438,7 @@ async function main() {
 
 // A crash must not take the panel down: report `full` and exit 0. There is no
 // failure of this script that a full review does not correctly absorb.
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   main().catch((err) => {
     console.error(`review-scope: crashed (${err.message}) — reviewing in full.`);
     emit({ mode: "full", sinceSha: "", reason: "scope-error", rounds: 0 });

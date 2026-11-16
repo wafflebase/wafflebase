@@ -33,7 +33,7 @@
 import { appendFileSync } from "node:fs";
 import { gh, commitCheckRuns, parseArgs } from "./gh-checks.mjs";
 import { resolveCheckNames as resolveNames } from "./prior-findings.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 const str = (v) => (typeof v === "string" ? v : "");
 
@@ -213,4 +213,4 @@ function emit(args, decision) {
   console.error(`fix-eligible: ${decision.eligible ? "ELIGIBLE" : "not eligible"} — ${decision.reason}`);
 }
 
-if (isEntryPoint(import.meta.url)) main();
+if (isDirectRun(import.meta.url)) main();

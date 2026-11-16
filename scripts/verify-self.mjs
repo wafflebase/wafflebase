@@ -84,22 +84,31 @@ const LANES = [
   //
   // THE REMAINING FLAG GOES BEFORE `--test`. Put it after and node reads it
   // as a FILE to run. `scripts/test/test-lane.test.mjs` asserts the order.
+  //
+  // `npm ci` FIRST, from the committed lockfile and with lifecycle scripts off:
+  // the shared core's suites may import its own packages (`trusted-cache.test.mjs`
+  // parses workflows with `yaml`, a devDependency), the way yorkie's
+  // `agent-scripts.yml` installs before it runs them. Without it the lane fails
+  // in CI, where nothing else installs `scripts/agent`, while passing on any
+  // machine that happens to have `scripts/agent/node_modules`.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=180000 --test '**/*.test.mjs'",
+    cmd: "cd scripts/agent && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error && node --test-timeout=180000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
   // wafflebase's own agent arms (hunters, harvest, spec-to-pr, classify, …),
   // which live beside the core rather than in it: `scripts/agent` is to become a
   // byte-identical copy of yorkie's shared harness core, whose sync deletes any
   // file the upstream lacks. The same invocation for the same reasons as above,
-  // and it too runs without `scripts/agent/node_modules` — the arms load the
-  // core's packages through `core-deps.mjs`, whose own suite is skipped here.
+  // It runs AFTER `agent:tests`: the arms load the core's packages through
+  // `core-deps.mjs`, and that lane's `npm ci` replaces
+  // `scripts/agent/node_modules` while it runs.
   // `scripts/test/test-lane.test.mjs` holds both lanes to the shape above.
   {
     name: "agent-arms:tests",
     cmd: "cd scripts/agent-arms && node --test-timeout=180000 --test '**/*.test.mjs'",
     tags: ["agent"],
+    needs: ["agent:tests"],
   },
   // Top-level harness scripts (`scripts/*.mjs`), whose suites live in
   // `scripts/test/`. NOTHING RAN THESE BEFORE THIS LANE. `agent:tests` above
@@ -564,10 +573,9 @@ for (const { name, cmd } of LANES) {
   // Checked before the `failed` cascade below, because the two mean different
   // things and must not be conflated: `filtered` is "no changed path can reach
   // this lane", `skip` is "an earlier lane failed, so this never got its turn".
-  // `scripts/agent/summarize-ci.mjs` renders `skip` as the latter in prose, so
+  // `scripts/ci/summarize-ci.mjs` renders `skip` as the latter in prose, so
   // reusing `skip` would have made it state, confidently, something untrue about
-  // every filtered lane. An unrecognised status is instead simply absent from
-  // its counts, which is the safe direction to be wrong in.
+  // every filtered lane; it counts `filtered` on its own.
   if (!selected.has(name)) {
     const filteredReport = {
       lane: name,

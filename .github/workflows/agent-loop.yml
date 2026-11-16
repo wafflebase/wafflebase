@@ -32,12 +32,25 @@ jobs:
       contents: read
     outputs:
       command: ${{ steps.route.outputs.command }}
+      # This repository's values for the jobs below, which hold no `contents`
+      # permission and so have no checkout to read them from. Read here, from
+      # main, by scripts/agent/workflow-values.mjs.
+      app_slug: ${{ steps.cfg.outputs.app_slug }}
+      docs_ref: ${{ steps.cfg.outputs.docs_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: scripts/agent/command.mjs
+          ref: main
+          # The scripts and the configuration they read, from the same ref: a
+          # script resolves `.github/agent-harness` beside its own checkout.
+          sparse-checkout: |
+            scripts/agent
+            .github/agent-harness
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      - name: Read the harness configuration
+        id: cfg
+        run: node scripts/agent/workflow-values.mjs app_slug docs_ref >> "$GITHUB_OUTPUT"
       - name: Route command
         id: route
         env:
@@ -76,6 +89,54 @@ jobs:
               core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
             }
 
+      # THE APP MAY NOT EXIST YET, and one repository variable turns every verb
+      # on at once. `review` and `summarize` need no App — they post with
+      # GITHUB_TOKEN — so a repository can enable Phase 1 while the App is still
+      # being set up. This verb cannot: the mint below is its second step, and
+      # without the secrets it fails there, producing a red X in Actions and
+      # NOTHING in the PR thread. The person who typed the verb sees no answer.
+      #
+      # `secrets` is not available in a job-level `if:`, so the check is a step
+      # that publishes an output the rest of the job reads.
+      - name: Is the GitHub App configured?
+        id: app
+        env:
+          APP_ID: ${{ secrets.AGENT_APP_ID }}
+          APP_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+        run: |
+          # Both halves, because `create-github-app-token` needs both and a
+          # half-registered pair is a real state: the two secrets are set in two
+          # separate operations, and the private key is the half that gets
+          # rotated. Testing only the id would report "configured" for a
+          # repository that cannot mint a token — the failure then lands in the
+          # mint step, past every arm that exists to answer the commenter.
+          if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AGENT_APP_ID or AGENT_APP_PRIVATE_KEY is unset; this verb needs the GitHub App."
+          fi
+
+      - name: Say so, and stop
+        if: steps.app.outputs.configured != 'true'
+        uses: actions/github-script@v7
+        env:
+          APP_SLUG: ${{ needs.route.outputs.app_slug }}
+          DOCS_REF: ${{ needs.route.outputs.docs_ref }}
+        with:
+          retries: 3
+          script: |
+            const { APP_SLUG, DOCS_REF } = process.env;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: '⏸️ This verb needs the `' + APP_SLUG + '` GitHub App, which is not configured on this '
+                + 'repository yet (`AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY`). It pushes commits, and a '
+                + '`GITHUB_TOKEN` push does not re-trigger CI — so the loop would stop without saying so.\n\n'
+                + '`@claude review` and `@claude summarize` work today; they post with `GITHUB_TOKEN` and '
+                + 'push nothing. See ' + DOCS_REF + '.',
+            });
+
       # Comments are posted/edited with a GitHub App token, NOT GITHUB_TOKEN: on a
       # fork-PR-triggered run GITHUB_TOKEN is read-only, so the fork-fallback note
       # would 403. The App token isn't subject to that restriction. Loop runs no
@@ -83,6 +144,7 @@ jobs:
       # comment API (issues:write); the label + CI re-run stay on GITHUB_TOKEN,
       # which is writable on the same-repo path where they actually execute.
       - name: Generate GitHub App token (comments)
+        if: steps.app.outputs.configured == 'true'
         id: app-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
@@ -92,6 +154,7 @@ jobs:
 
       # Post the "working on it" comment immediately, then edit it with the result.
       - name: Post running placeholder
+        if: steps.app.outputs.configured == 'true'
         id: placeholder
         uses: actions/github-script@v7
         with:
@@ -106,6 +169,7 @@ jobs:
             core.setOutput('id', String(data.id));
 
       - name: Enable the loop (label + re-run CI), or fall back on forks
+        if: steps.app.outputs.configured == 'true'
         id: enable
         env:
           PLACEHOLDER_ID: ${{ steps.placeholder.outputs.id }}
@@ -140,9 +204,35 @@ jobs:
             }
             await github.rest.issues.addLabels({ owner, repo, issue_number: pr_number, labels: ['agent:managed'] });
 
+            // WHAT THIS DELIBERATELY DOES NOT DO: apply `agent:candidate`
+            // to the issue `Fixes #N` names.
+            //
+            // It is tempting, and it repairs a real gap — the panel's
+            // design-fit lens is BLOCKING and resolves its spec from that
+            // issue, trusting it only when it carries `agent:candidate` and
+            // was not filed by a Bot, so every human-opened PR is graded by a
+            // blocking lens against an empty spec.
+            //
+            // The label cannot carry that meaning on its own. It is applied at
+            // one instant; the panel reads the issue's CURRENT body at
+            // another, and the issue's author can edit it in between. Labelling
+            // here would let a maintainer vouch for text that is replaced
+            // before it is graded, and would widen that to every human PR —
+            // today it only reaches issues agent-implement has acted on.
+            //
+            // Binding a vouch to the content it vouched for needs a digest
+            // recorded at label time and checked at read time, in four places
+            // (both writers, both readers), across two bot identities with a
+            // decision about which may vouch. That is its own change. See
+            // docs/design/agent-command-verbs.md §1.1.
+            const specNote = '\n\nThe blocking `design-fit` lens reviews with **no spec** unless the issue this PR fixes carries `agent:candidate`. Apply it by hand if you have read that issue and want the PR graded against it.';
+
             // Re-run the latest CI run for the head SHA so the loop engages now
             // (a green run → review panel; a red run → CI-fix arm). Best-effort:
             // if there's nothing to re-run, the label still engages the next CI run.
+            // No docs-only caveat: `ci.yml` has no path filter on its workflow
+            // trigger, so every pull request produces a CI run and every pull
+            // request therefore reaches the panel.
             let ciNote = "\n\nIt will engage on the next CI run.";
             try {
               // Mirrors `ciRunToRerun` / `ciRunToAwait` in scripts/agent/checks.mjs,
@@ -229,6 +319,18 @@ jobs:
                     ciNote = '\n\nWaited for the in-flight CI run to finish, then re-ran it to engage the loop.';
                   }
                 }
+              } else if (target && target.conclusion === 'failure') {
+                // THE GUARD BELONGS HERE, unlike in agent-rerun.yml's matching
+                // branch, and the difference is the latch. `rerun` deletes a
+                // paged latch immediately before this point, which is what makes
+                // it certain agent-iterate-ci skipped and nothing is in flight.
+                // `loop` deletes nothing: the run already completed, so the CI
+                // arm already fired for it and its fixer may be pushing right
+                // now — and its concurrency group is cancel-in-progress keyed on
+                // the branch, so re-running here would cancel that fixer
+                // mid-push.
+                ciNote = '\n\nCI is red and the CI-fix arm owns that completion, so nothing was re-run here — the label is applied and the loop engages on its next run.';
+                target = null;
               } else if (target) {
                 ciNote = '\n\nRe-running CI now to engage the loop.';
               }
@@ -241,7 +343,7 @@ jobs:
             core.setOutput('outcome',
               "🔁 Loop enabled — this PR is now `agent:managed`. On green CI the review panel runs and can promote it; " +
               "on red CI the fixer pushes a follow-up commit. Bounded by the pipeline's round/attempt caps; a human approval is still required to merge." +
-              ciNote);
+              ciNote + specNote);
 
       # Edit the placeholder into the final result. always() so a failure in the
       # enable step still replaces the "working on it" note instead of stranding it.

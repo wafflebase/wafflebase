@@ -19,6 +19,7 @@
 // test can assert the mutation as well as the code: "0 means promoted" is false
 // if nothing called `gh pr ready`.
 
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -102,6 +103,11 @@ if (argv[0] === "pr" && argv[1] === "view") {
   process.stdout.write(JSON.stringify(body === "junk" ? { message: "not an array" } : body));
 } else if (argv[0] === "api" && joined.includes("check-runs")) {
   process.stdout.write(JSON.stringify({ check_runs: cfg.checkRuns || [] }));
+} else if (argv[0] === "api" && /issues\\/\\d+\\/comments/.test(joined)) {
+  // \`--paginate --slurp\` wraps the pages in an array, so the shape is
+  // [[...page1], [...page2]] and the caller flattens it. \`comments\` is the
+  // single-page shorthand a test uses to say "the hand-off is already there".
+  process.stdout.write(JSON.stringify([cfg.comments || []]));
 } else {
   process.stdout.write("{}");
 }
@@ -142,7 +148,7 @@ function okConfig(over = {}) {
       started_at: AT,
       app: { slug: "github-actions" },
     })),
-    files: [{ filename: "packages/sheets/src/index.ts" }],
+    files: [{ filename: "pkg/document/crdt/tree.go" }],
     fail: [],
     ...over,
   };
@@ -353,30 +359,32 @@ test("gate 1b: a branch that edits the CI definition is not promoted by its own 
   assert.ok(!promoted(unreadable.calls));
 
   // ...and an ordinary code-only PR is unaffected.
-  const ordinary = run(["7", "--promote"], okConfig({ files: [{ filename: "packages/docs/src/a.ts" }] }));
+  const ordinary = run(["7", "--promote"], okConfig({ files: [{ filename: "server/rpc/yorkie_server.go" }] }));
   assert.equal(ordinary.code, 0);
   assert.ok(promoted(ordinary.calls));
 });
 
 test("gate 1b covers the WHOLE CI-defining surface, not just .github/**", () => {
-  // `ci.yml` contains almost no test logic: it runs `pnpm verify:self` and
-  // `pnpm verify:integration`, both resolved from the MERGE REF's root
-  // `package.json` into `scripts/verify-*.mjs`, whose lane selection reads
-  // `harness.config.json`. A gate that refused only `.github/workflows|actions/**`
-  // let a branch gut CI through any of those and still auto-promote — while the
-  // hand-off comment told the human reviewer the run had executed main's CI
-  // definition. Every path here is one the agent App CAN push.
+  // A CI workflow contains almost no test logic: its steps resolve through the
+  // MERGE REF's build files into whatever lint configuration the branch ships,
+  // and it grades the integration suite against a stack the branch also owns.
+  // A gate that refused only `.github/workflows|actions/**` let a branch gut CI
+  // through any of those and still auto-promote — while the hand-off comment
+  // told the human reviewer the run had executed main's CI definition. Every
+  // path here is one the agent App CAN push.
+  //
+  // The first four are the fixture configuration's `ci.definingPaths`; the rest
+  // are the entries every repository shares. A repository's own list is graded
+  // by its `repo.test.mjs`.
   for (const filename of [
-    "package.json",
-    "packages/sheets/package.json",
-    "scripts/verify-self.mjs",
-    "scripts/verify-integration.mjs",
-    "scripts/changed-areas.mjs",
-    "harness.config.json",
-    "knip.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
+    "build.config",
+    "deps.lock",
+    "tools/ci/lanes/run.sh",
+    "tools/lint.sh",
     ".github/CODEOWNERS",
+    "scripts/setup.sh",
+    "scripts/hooks/install.mjs",
+    ".githooks/pre-commit",
   ]) {
     const { code, stdout, stderr, calls } = run(["7", "--promote"], okConfig({ files: [{ filename }] }));
     assert.equal(code, 1, `${filename} decides what CI does, so its green run is not evidence about main's CI`);
@@ -585,14 +593,50 @@ test("exit 0: --promote flips the PR, sets one lifecycle label, posts the hand-o
   assert.ok(comment?.includes(HANDOFF_MARKER), "harvest.mjs finds the hand-off by this marker");
 });
 
-test("exit 0: an already-ready PR is a no-op, not a re-promotion", () => {
+test("exit 0: a NON-DRAFT PR still gets the label and the hand-off (#2033)", () => {
+  // THE BUG THIS PINS. `agent:ready` and the hand-off comment used to sit BELOW
+  // an `if (!pr.isDraft) process.exit(0)` early return, so a PR opened
+  // non-draft — every `@claude loop` opt-in, and every human PR carrying
+  // `agent:managed` — cleared all four gates and was then left on
+  // `agent:reviewing` forever with no hand-off posted. The promote job exited 0
+  // and reported `promoted`, so nothing anywhere said the hand-off had not
+  // happened. Being out of draft is the state ONE of the three promotion steps
+  // targets; it is not evidence the other two ran.
   const { code, stdout, calls } = run(
     ["7", "--promote"],
     okConfig({ pr: { ...okConfig().pr, isDraft: false } }),
   );
   assert.equal(code, 0);
-  assert.match(stdout, /already marked ready/);
-  assert.ok(!promoted(calls));
+  assert.ok(!promoted(calls), "there is no draft to flip, so `gh pr ready` must not be called");
+  assert.match(stdout, /not a draft/);
+
+  const put = calls.find((c) => c.startsWith("api -X PUT"));
+  assert.ok(put, "the lifecycle label must still be set");
+  assert.match(put, /labels\[\]=agent:ready/);
+  assert.doesNotMatch(put, /labels\[\]=agent:reviewing/, "the PR must not stay on agent:reviewing");
+
+  const comment = calls.find((c) => c.startsWith("pr comment"));
+  assert.ok(comment?.includes(HANDOFF_MARKER), "the hand-off must still be posted");
+});
+
+test("exit 0: the hand-off is posted ONCE, however many green rounds run", () => {
+  // The flip to ready used to be the de-facto idempotence guard: a PR could only
+  // be promoted out of draft once. Promoting a non-draft PR removes that guard,
+  // so the marker has to carry it — otherwise every later green panel round
+  // re-posts the same hand-off.
+  const { code, calls } = run(
+    ["7", "--promote"],
+    okConfig({
+      pr: { ...okConfig().pr, isDraft: false },
+      comments: [{ id: 1, body: `${HANDOFF_MARKER}\n## 🤝 Ready for human review` }],
+    }),
+  );
+  assert.equal(code, 0);
+  assert.ok(!calls.some((c) => c.startsWith("pr comment")), "no duplicate hand-off");
+
+  // The label is still reasserted: it is a REPLACE and therefore idempotent, and
+  // it is the one step that repairs a lifecycle label a later round moved away.
+  assert.ok(calls.some((c) => c.startsWith("api -X PUT") && c.includes("labels[]=agent:ready")));
 });
 
 test("exit 0: the best-effort label and comment steps cannot change the code", () => {

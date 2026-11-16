@@ -1,6 +1,8 @@
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  LEDGER_AUTHOR_LOGINS,
   isOwnComment,
   renderFixEffort,
   classifyFixResult,
@@ -228,10 +230,10 @@ test("detectFlips: stays-blocking or stays-clean is not a flip; clean→blocking
   assert.deepEqual(detectFlips(escalate).flips, []); // only blocking→clean counts
 });
 
-// yorkie-js-sdk#1426: a lens approved round 4 and blocked round 5 on a diff
-// nobody had changed. The metric looked only for blocking→clean, so the flip
-// that cost the PR its ready label was counted nowhere. It is now reported in
-// its own list — `flips` keeps its meaning for every existing reader.
+// #1426: a lens approved round 4 and blocked round 5 on a diff nobody had
+// changed. The metric looked only for blocking→clean, so the flip that cost the
+// PR its ready label was counted nowhere. It is now reported in its own list —
+// `flips` keeps its meaning for every existing reader.
 test("detectFlips: clean→blocking is reported as an ESCALATION, separately from flips", () => {
   const records = [
     reviewRound([{ id: "blast-radius", blocking: true }, { id: "security", blocking: false }]),
@@ -880,7 +882,7 @@ test("isOwnComment: a comment that merely QUOTES a marker is not ours", () => {
   // `<!-- agent-metrics-summary -->` while explaining the harness's comment
   // surfaces; `summarize` ran five seconds later and deleted the review. Nothing
   // failed — safeDeleteComment is best-effort — so the comment just vanished.
-  const bot = { login: "yorkie-agent[bot]", type: "Bot" };
+  const bot = { login: "fixture-agent[bot]", type: "Bot" };
   const review = {
     user: bot,
     body: "<!-- agent-review:abc -->\n## Review\nThe doc enumerates every surface: "
@@ -937,4 +939,60 @@ test("both sweeps actually route through isOwnComment", async () => {
     );
     assert.match(src, new RegExp(`isOwnComment\\(c, ${marker}\\)`), `the ${marker} sweep must use isOwnComment`);
   }
+});
+
+// --- the ledger's author boundary -------------------------------------------
+
+test("LEDGER_AUTHOR_LOGINS matches the latch's trusted authors exactly", () => {
+  // The summary this module renders is posted by `github-actions[bot]`, which
+  // `rounds.mjs::isPagedLatchComment` trusts. So the set of authors whose
+  // records may reach that body has to be the same set that may write a latch —
+  // a wider list here would let a comment this module trusts launder a marker
+  // into a comment the latch trusts. The copy is literal because importing
+  // rounds.mjs here would couple the two modules; the test is what keeps them
+  // in step.
+  assert.deepEqual([...LEDGER_AUTHOR_LOGINS], [...PAGE_AUTHOR_LOGINS]);
+});
+
+import { PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
+test("an agent-written execution log cannot put a marker into a trusted comment", async () => {
+  // The log lives in the agent's $RUNNER_TEMP, so the trusted report job reads
+  // it as data. A string where a count belongs used to concatenate through `+`,
+  // and a model id was copied verbatim — both into a comment posted as the App.
+  const { parseExecution, sumExecutions, serializeRecord, parseMetricComment, renderFixEffort } =
+    await import("./metrics.mjs");
+  const { isPagedLatchComment, PAGED_LATCH } = await import("./rounds.mjs");
+  const APP = { type: "Bot", login: "fixture-agent[bot]" };
+  const evil = [{
+    type: "result",
+    subtype: "success",
+    is_error: true,
+    api_error_status: PAGED_LATCH,
+    num_turns: PAGED_LATCH,
+    duration_ms: "1",
+    total_cost_usd: 1.5,
+    session_id: PAGED_LATCH,
+    usage: { input_tokens: PAGED_LATCH, output_tokens: 10 },
+    modelUsage: { [PAGED_LATCH]: {}, "claude-opus-5": {} },
+  }];
+  for (const rec of [parseExecution(evil, "review-fix"), sumExecutions(evil, "review-fix")]) {
+    assert.equal(rec.turns, 0);
+    assert.equal(rec.tokens, 10);
+    assert.equal(rec.durationMs, 0);
+    assert.equal(rec.costUsd, 1.5);
+    assert.equal(rec.sessionId, "");
+    assert.deepEqual(rec.models, ["claude-opus-5"]);
+    const body = serializeRecord({ ...rec, note: PAGED_LATCH });
+    assert.equal(isPagedLatchComment({ body, user: APP }), false);
+    assert.equal(parseMetricComment(body).note, PAGED_LATCH, "the record still round-trips exactly");
+  }
+  const effort = renderFixEffort({
+    rec: parseExecution(evil, "review-fix"),
+    outcome: { ok: false, kind: "api-error", status: PAGED_LATCH, reason: "" },
+  });
+  assert.equal(isPagedLatchComment({ body: effort, user: APP }), false);
+  // `status` is an HTTP status or nothing — never text from the log.
+  assert.ok(!effort.includes("agent-review-paged"), "a non-numeric status is dropped, not neutralised");
+  const withStatus = renderFixEffort({ rec: null, outcome: { ok: false, kind: "api-error", status: 529, reason: "r" } });
+  assert.match(withStatus, /api-error 529/);
 });

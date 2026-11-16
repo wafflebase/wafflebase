@@ -36,10 +36,10 @@
 // widen without noticing what it was holding back.
 //
 // yorkie's shared harness core carries the same rule
-// (`scripts/agent/trusted-cache.mjs`); this repository must pass it at the
-// next sync. That checker also flags `anthropics/claude-code-action` without
-// `path_to_bun_executable`, which only the core's own `agent-*.yml` use and
-// which the sync fixes, so it is not repeated here.
+// (`scripts/agent/trusted-cache.mjs`), and its suite (`npm test` in
+// `scripts/agent`) runs it over this repository's workflows. That checker
+// also flags `anthropics/claude-code-action` without `path_to_bun_executable`,
+// which only the core's own `agent-*.yml` use, so it is not repeated here.
 
 import test from "node:test";
 import assert from "node:assert/strict";

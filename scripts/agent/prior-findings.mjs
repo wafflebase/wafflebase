@@ -27,7 +27,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { BLOCKING, normalizeSeverity } from "./severity.mjs";
 import { latestLensRuns } from "./review-state.mjs";
 import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 // Stable PREFIX of the synthetic record review-panel.mjs writes when a lens hits
 // an API/quota outage (its `summaryText`: "Review could not run — Claude API/quota
@@ -287,4 +287,4 @@ function main() {
 }
 
 // Only run as a CLI, so the pure helpers above are importable by tests.
-if (isEntryPoint(import.meta.url)) main();
+if (isDirectRun(import.meta.url)) main();

@@ -36,7 +36,7 @@ import path from "node:path";
 import { gh, commitCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 import { latestLensRuns, parseReviewState, serializeReviewState } from "./review-state.mjs";
 import { lensApplies } from "./review-panel.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 const SHA = /^[0-9a-f]{40}$/i;
 // The GitHub conclusions a lens check is posted with (see the post step), mapped
@@ -169,7 +169,7 @@ function main() {
   setOutput("reason", result.ok ? a.mode : result.reason.replace(/\n/g, " "));
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   try {
     main();
   } catch (err) {

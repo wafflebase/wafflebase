@@ -90,8 +90,11 @@ test("every release-triggered job that reads a secret refuses a release the agen
 });
 
 test("the guard names the App the agent workflows actually run as", () => {
-  const panel = readFileSync(path.join(WORKFLOWS, "agent-review-panel.yml"), "utf8");
-  assert.ok(panel.includes(`'${APP_BOT}'`), `agent-review-panel.yml no longer names ${APP_BOT}; update APP_BOT here and in the publish workflows`);
+  // The shared agent workflows name no App: they read it from this
+  // repository's harness configuration.
+  const { repo } = JSON.parse(readFileSync(path.join(REPO_ROOT, ".github/agent-harness/config.json"), "utf8"));
+  assert.equal(`${repo.appSlug}[bot]`, APP_BOT, `.github/agent-harness/config.json names the App ${repo.appSlug}; update APP_BOT here and in the publish workflows`);
+  assert.ok(repo.appLogins.includes(APP_BOT), `.github/agent-harness/config.json's appLogins no longer include ${APP_BOT}`);
 });
 
 test("the checker refuses the loosenings it exists to catch", () => {

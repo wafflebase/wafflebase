@@ -1,11 +1,13 @@
 # A synthetic agent job for scripts/test/agent-workflow-guards.test.mjs.
 #
-# It has the shape of the four installing jobs - main checked out, the agent
-# scripts staged, the branch checked out, main's scripts staged beside it, a
-# digest recorded, the install, checks before each use of a staged script, the
-# agent - and nothing else. The guard's named workflow edits are applied to
-# this file, not to the real workflows, so renaming or moving a step there
-# never moves a test case. It is not a workflow: nothing runs it.
+# It has the shape of the four installing jobs of the shared harness - main
+# checked out, the agent scripts staged, the branch checked out, main's
+# scripts checked out beside it and staged, main's toolchain action checked
+# out beside it and run, the steps that read the branch and pick a
+# credential, an uncached Bun, the agent - and nothing else. The guard's
+# named workflow edits are applied to this file, not to the real workflows,
+# so renaming or moving a step there never moves a test case. It is not a
+# workflow: nothing runs it.
 name: guard fixture
 on:
   workflow_run:
@@ -18,14 +20,17 @@ jobs:
   iterate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    permissions:
+      contents: read
     steps:
       - name: Check out trusted main
         uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
         with:
           ref: main
           persist-credentials: false
+      - uses: actions/setup-node@0000000000000000000000000000000000000005 # v4.4.0
+        with:
+          node-version: 22.x
       - name: Verify commenter has write access
         uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0
         with:
@@ -46,7 +51,10 @@ jobs:
           DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
         run: node ./scripts/agent/review-round-guard.mjs "$PR"
       - name: Stage the trusted agent scripts
-        run: cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"
+        run: |
+          cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"
+          cp -R ./.github/agent-harness "${{ runner.temp }}/agent-harness"
+          echo "AGENT_HARNESS_CONFIG_DIR=${{ runner.temp }}/agent-harness" >> "$GITHUB_ENV"
       - name: Download the agent SDK
         uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0
         with:
@@ -54,31 +62,49 @@ jobs:
           path: /tmp/agent-sdk
       - name: Unpack the agent SDK beside the trusted scripts
         run: tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C "$RUNNER_TEMP/agent-tools"
-      - uses: pnpm/action-setup@0000000000000000000000000000000000000004 # v4.1.0
+      - name: Generate the agent's narrow token
+        id: agent-token
+        uses: actions/create-github-app-token@0000000000000000000000000000000000000004 # v1.12.0
         with:
-          version: 10.5.2
-      - uses: actions/setup-node@0000000000000000000000000000000000000005 # v4.4.0
-        with:
-          node-version: 22
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-contents: write
       - name: Check out the branch
         uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
-          persist-credentials: false
-      - name: Clear the path the trusted agent scripts are checked out to
+          token: ${{ steps.agent-token.outputs.token }}
+      - name: Re-verify the checked-out commit
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          EXPECTED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::The branch moved." >&2
+            exit 1
+          fi
+      - name: Clear the path the trusted copy is checked out to
         run: rm -rf .trusted-agent
       - name: Check out trusted main beside the branch
         uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
         with:
           ref: main
           path: .trusted-agent
-          sparse-checkout: scripts/agent
+          sparse-checkout: |
+            scripts/agent
+            .github/agent-harness
+            scripts/ci
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Stage the trusted agent scripts beside the branch
+      - name: Stage the trusted scripts beside the branch
         run: |
           cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
+          # main's configuration, named for every later step
+          cp -R .trusted-agent/.github/agent-harness "${{ runner.temp }}/agent-harness"
+          echo "AGENT_HARNESS_CONFIG_DIR=${{ runner.temp }}/agent-harness" >> "$GITHUB_ENV"
+          cp -R .trusted-agent/scripts "${{ runner.temp }}/trusted-scripts"
           rm -rf .trusted-agent
       - name: Attempts guard
         id: attempts
@@ -97,85 +123,83 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.attempts.outputs.pr }}
         run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked
-      - name: Record a digest of the staged agent scripts
-        id: tools
+      - name: Clear the path the toolchain action is checked out to
         if: steps.guard.outputs.proceed == 'true'
-        run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          digest="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-      - name: Install dependencies
-        id: install
+        run: rm -rf .trusted-toolchain
+      - name: Check out the toolchain action (trusted, from main)
         if: steps.guard.outputs.proceed == 'true'
-        run: node "$RUNNER_TEMP/agent-tools/install-deps.mjs"
-      - name: Verify the staged agent scripts are unchanged
-        if: always() && steps.tools.outputs.digest != ''
-        env:
-          EXPECTED: ${{ steps.tools.outputs.digest }}
-        run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          if [ "$actual" != "$EXPECTED" ]; then
-            cd "$RUNNER_TEMP"
-            rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
-            exit 1
-          fi
-      - name: Download harness reports from the failed CI run
+        uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
+        with:
+          ref: main
+          path: .trusted-toolchain
+          sparse-checkout: .github/actions/agent-toolchain
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Set up the toolchain
         if: steps.guard.outputs.proceed == 'true'
+        uses: ./.trusted-toolchain/.github/actions/agent-toolchain
+      - name: Keep the toolchain action out of the fixer's commits
+        if: steps.guard.outputs.proceed == 'true'
+        run: echo '/.trusted-toolchain/' >> .git/info/exclude
+      - name: Download the CI lane reports
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
         uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0
         with:
-          name: harness-reports
-          path: ${{ runner.temp }}/harness-reports/
+          name: ci-lane-reports
+          path: ${{ runner.temp }}/ci-reports
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      - name: Re-verify the checked-out commit
+      - name: Summarize the failure
+        id: diag
         if: steps.guard.outputs.proceed == 'true'
         env:
-          EXPECTED: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPORTS: ${{ runner.temp }}/ci-reports
+          TOOLS: ${{ runner.temp }}/trusted-scripts
         run: |
-          ACTUAL="$(git rev-parse HEAD)"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::The branch moved." >&2
-            exit 1
+          DIAG=""
+          if [ -f "$TOOLS/ci/summarize-ci.mjs" ]; then
+            DIAG="$(node "$TOOLS/ci/summarize-ci.mjs" --dir "$REPORTS" || true)"
           fi
+          if [ -z "$DIAG" ]; then
+            DIAG="$(gh run view "$RUN_ID" --log-failed 2>/dev/null | tail -c 40000)"
+          fi
+          EOF_MARK="HARNESS_EOF_$(openssl rand -hex 8 2>/dev/null || date +%s%N)"
+          {
+            echo "summary<<$EOF_MARK"
+            printf '%s\n' "$DIAG"
+            echo "$EOF_MARK"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DIAG" >> "$GITHUB_STEP_SUMMARY"
       - name: Record branch head before fix
         id: before-fix
         if: steps.guard.outputs.proceed == 'true'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
-      - name: Verify the staged agent scripts are unchanged
-        if: steps.tools.outputs.digest != ''
-        env:
-          EXPECTED: ${{ steps.tools.outputs.digest }}
         run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          if [ "$actual" != "$EXPECTED" ]; then
-            cd "$RUNNER_TEMP"
-            rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
-            exit 1
-          fi
-      - name: Summarize the failure
-        id: diag
+          echo "sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Install the fix-scope pre-push hook
         if: steps.guard.outputs.proceed == 'true'
-        run: |
-          DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" "$RUNNER_TEMP/harness-reports")"
-          printf '%s\n' "$DIAG" >> "$GITHUB_STEP_SUMMARY"
-      - name: Verify the staged agent scripts are unchanged
-        if: steps.tools.outputs.digest != ''
+        continue-on-error: true
         env:
-          EXPECTED: ${{ steps.tools.outputs.digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          if [ "$actual" != "$EXPECTED" ]; then
-            cd "$RUNNER_TEMP"
-            rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+          node "$RUNNER_TEMP/agent-tools/fix-guard.mjs" allowed "$PR" --head "$HEAD_SHA" --out "$RUNNER_TEMP/fix-scope.txt"
+          HOOKS="$RUNNER_TEMP/agent-hooks"
+          mkdir -p "$HOOKS"
+          printf '#!/bin/sh\nexec node "%s" prepush --allowed "%s"\n' \
+            "$RUNNER_TEMP/agent-tools/fix-guard.mjs" "$RUNNER_TEMP/fix-scope.txt" > "$HOOKS/pre-push"
+          chmod +x "$HOOKS/pre-push"
+          git config core.hooksPath "$HOOKS"
+          EFFECTIVE="$(git rev-parse --path-format=absolute --git-path hooks)"
+          if [ "$EFFECTIVE" != "$HOOKS" ]; then
+            echo "::error::git will read hooks from $EFFECTIVE, not $HOOKS" >&2
             exit 1
           fi
       - name: Set state to fixing
@@ -185,19 +209,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.attempts.outputs.pr }}
         run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
-      - name: Verify the staged agent scripts are unchanged
-        if: steps.tools.outputs.digest != ''
-        env:
-          EXPECTED: ${{ steps.tools.outputs.digest }}
-        run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          if [ "$actual" != "$EXPECTED" ]; then
-            cd "$RUNNER_TEMP"
-            rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
-            exit 1
-          fi
       - name: Page that no credential is live
         if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available == 'false'
         env:
@@ -222,39 +233,46 @@ jobs:
         run: |
           test -s "$DISPATCH_FILE"
           gh pr comment "$PR" --body-file "$DISPATCH_FILE"
-      - name: Verify the staged agent scripts are unchanged
-        if: steps.tools.outputs.digest != ''
-        env:
-          EXPECTED: ${{ steps.tools.outputs.digest }}
+      - name: Clear the path the credential picker is checked out to
+        run: rm -rf .trusted-cred
+      - name: Check out trusted main (for the credential picker)
+        uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
+        with:
+          ref: main
+          path: .trusted-cred
+          sparse-checkout: |
+            scripts/agent
+            .github/agent-harness
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Move the trusted copy out of the agent's workspace
         run: |
-          cd "$RUNNER_TEMP/agent-tools"
-          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
-          if [ "$actual" != "$EXPECTED" ]; then
-            cd "$RUNNER_TEMP"
-            rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
-            exit 1
-          fi
+          rm -rf "$RUNNER_TEMP/trusted-cred"
+          mv .trusted-cred "$RUNNER_TEMP/trusted-cred"
       - name: Pick a credential from the pool
         id: cred
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          [ -f "$RUNNER_TEMP/agent-tools/pick-credential.mjs" ] || {
+          [ -f "$RUNNER_TEMP/trusted-cred/scripts/agent/pick-credential.mjs" ] || {
             echo "pick-credential.mjs is not on main yet"
             exit 0
           }
-          node "$RUNNER_TEMP/agent-tools/pick-credential.mjs"
-      - name: Tell the pull request the install did not complete
-        if: failure() && steps.install.outcome == 'failure'
-        continue-on-error: true
-        working-directory: ${{ runner.temp }}
+          node "$RUNNER_TEMP/trusted-cred/scripts/agent/pick-credential.mjs"
+      - name: Revoke the pre-agent token
+        if: always() && steps.app-token.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ steps.attempts.outputs.pr }}
-        run: gh pr comment "$PR" --body "The install did not complete; see the run."
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh api -X DELETE installation/token
+      - name: Install Bun for the agent, without the Actions cache
+        id: bun
+        uses: oven-sh/setup-bun@0000000000000000000000000000000000000007 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+          no-cache: true
       - name: Run Claude Code
         uses: anthropics/claude-code-action@0000000000000000000000000000000000000006 # v1
         with:
+          path_to_bun_executable: ${{ steps.bun.outputs.bun-path || '/nonexistent/bun' }}
           prompt: Fix the failing check.

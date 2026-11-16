@@ -2,6 +2,8 @@
 // A required check "passes" iff its LATEST run on the SHA concluded success;
 // a required check that never ran counts as NOT passed (fail closed).
 
+import { compileGlob, get } from "./config.mjs";
+
 /**
  * Review checks the ready gate requires when the caller passes no
  * `--require-checks` — i.e. the local preview `spec-to-pr.mjs` suggests. The
@@ -86,32 +88,30 @@ export const CI_WORKFLOW_FILE = "ci.yml";
  *
  * A `pull_request` run executes the merge ref's copy of everything CI reaches,
  * so a branch that edits any of these hands gate 1 a green run that proves
- * nothing about main's CI. `.github/workflows/ci.yml` is the obvious one and is
- * nowhere near sufficient: `ci.yml` contains almost no test logic. It runs
- * `pnpm verify:self` and `pnpm verify:integration`, both resolved from the merge
- * ref's root `package.json` into `scripts/verify-*.mjs`, whose lane selection
- * reads `harness.config.json`. Listing only the two `.github` prefixes — which an
- * earlier revision of this gate did — meant a branch could gut CI through
- * `package.json` and still auto-promote, while the hand-off comment told the
- * human reviewer the run had executed main's CI definition.
+ * nothing about main's CI. The CI workflow file is the obvious one and is
+ * nowhere near sufficient: a workflow contains almost no test logic. Its steps
+ * call into build files, lint configuration, dependency manifests and scripts,
+ * all of which resolve through the merge ref, and it grades the integration
+ * suite against a stack the branch also owns. Listing only the `.github`
+ * prefixes — which an earlier revision of this gate did — meant a branch could
+ * gut CI through a build file and still auto-promote, while the hand-off
+ * comment told the human reviewer the run had executed main's CI definition.
  *
- * This list MIRRORS `harness.config.json`'s `ci.ciConfig` — the repository's own,
- * CODEOWNER-ed definition of "files that decide how much CI runs" — plus two
- * entries that list does not need and this gate does:
- *   - `.github/actions/**` — a composite action is workflow content that happens
- *     to live elsewhere; `ciConfig` omits it only because no such action exists
- *     yet.
- *   - a per-package `package.json` (one wildcard segment under `packages/`) — a
- *     package's own `test`/`typecheck` script is what `verify:self` invokes for
- *     that package, so editing it edits a lane. Spelled in prose because the
- *     glob's middle wildcard followed by a slash would close this comment.
- * `checks.test.mjs` asserts the mirror covers `ciConfig` entry for entry, so the
- * two cannot drift silently.
+ * TWO PARTS. The entries every repository shares are written here: the
+ * workflows and actions, CODEOWNERS, the harness configuration itself, and
+ * the local enforcement layer. What a
+ * particular repository's CI resolves through — its build files, its lint and
+ * codegen configuration, its dependency graph, the scripts its lanes call —
+ * is `ci.definingPaths` in the repository's harness configuration, and the
+ * reason each of those entries is listed is written beside the test that pins
+ * them (`.github/agent-harness/repo.test.mjs`).
  *
- * Hard-coded here rather than read from `harness.config.json` at runtime for a
- * provenance reason: the promote job checks out the DEFAULT BRANCH, so this
- * module is main's copy, whereas a file read would be whatever tree the caller
- * happens to be standing in. The drift test is what keeps the duplication honest.
+ * PROVENANCE. The promote job checks out the DEFAULT BRANCH, so this module is
+ * main's copy, and `config.mjs` resolves the configuration from beside the
+ * module that is running — main's copy too. It is never read from whatever
+ * tree the caller happens to be standing in. A missing or incomplete
+ * configuration throws at import, so this list cannot be quietly shorter than
+ * the repository's own.
  *
  * WHAT THIS STILL DOES NOT COVER, stated because the hand-off comment must not
  * overclaim it: a branch can always edit its own test files, and CI dutifully
@@ -120,37 +120,41 @@ export const CI_WORKFLOW_FILE = "ci.yml";
  * supplied no part of the CI/harness definition", never "every assertion CI ran
  * came from main".
  */
-export const CI_DEFINING_PATHS = [
+export const CI_DEFINING_PATHS = Object.freeze([
   ".github/workflows/**",
   ".github/actions/**",
   ".github/CODEOWNERS",
-  "harness.config.json",
-  "knip.json",
-  "package.json",
-  "packages/*/package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "scripts/changed-areas.mjs",
-  "scripts/verify-*.mjs",
-];
+  // The harness configuration. It is read from the default branch, so a
+  // branch editing it changes nothing about its own run — but it now holds
+  // this very list, the review scopes and the bot allow-list, so a change to
+  // it is a change to the gates and goes to a human rather than promoting
+  // itself.
+  ".github/agent-harness/**",
+  ...get("ci.definingPaths"),
+  // The local enforcement layer. `setup.sh` decides what `core.hooksPath` and
+  // Claude Code's hook wiring point at, and the two hook directories are what
+  // they point at — a branch rewriting any of them changes what runs on a
+  // reviewer's machine and what a contributor's clone checks before pushing.
+  "scripts/setup.sh",
+  "scripts/hooks/**",
+  ".githooks/**",
+]);
 
-// `**` spans separators, `*` does not, everything else is literal. Deliberately
-// tiny and deliberately anchored at both ends: this is a REFUSAL surface, so a
-// pattern that accidentally matched less is a fail-open.
-const CI_DEFINING_RE = CI_DEFINING_PATHS.map(
-  (glob) =>
-    new RegExp(
-      `^${glob
-        .split("**")
-        .map((span) =>
-          span
-            .split("*")
-            .map((lit) => lit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-            .join("[^/]*"),
-        )
-        .join(".*")}$`,
-    ),
-);
+/**
+ * The ready gate's name for gate 1, and the hand-off comment's bullet for it —
+ * the two places `mark-ready.mjs` tells a human what the green CI run covered.
+ * Which lanes that is differs per repository, so both come from the harness
+ * configuration (`ci.gateLabel`, `ci.handoffSummary`).
+ *
+ * They are exported here for the reason `DEFAULT_REVIEW_CHECKS` is: mark-ready
+ * is a CLI with top-level `process.exit`, so nothing can import it, and these
+ * are the words a reviewer relies on when deciding how much the run proves.
+ */
+export const CI_GATE_NAME = `CI is green for this head SHA (${get("ci.gateLabel")})`;
+
+export const HANDOFF_CI_SUMMARY = get("ci.handoffSummary");
+
+const CI_DEFINING_RE = CI_DEFINING_PATHS.map(compileGlob);
 
 /** Does this changed path define what CI does? Non-strings → false. */
 export function definesCi(name) {

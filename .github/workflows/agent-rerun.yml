@@ -35,12 +35,26 @@ jobs:
       contents: read
     outputs:
       command: ${{ steps.route.outputs.command }}
+      # This repository's values for the job below, which needs them before it
+      # has a checkout to read them from. Read here, from main, by
+      # scripts/agent/workflow-values.mjs.
+      app_slug: ${{ steps.cfg.outputs.app_slug }}
+      docs_ref: ${{ steps.cfg.outputs.docs_ref }}
+      bot_logins: ${{ steps.cfg.outputs.bot_logins }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: scripts/agent/command.mjs
+          ref: main
+          # The scripts and the configuration they read, from the same ref: a
+          # script resolves `.github/agent-harness` beside its own checkout.
+          sparse-checkout: |
+            scripts/agent
+            .github/agent-harness
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      - name: Read the harness configuration
+        id: cfg
+        run: node scripts/agent/workflow-values.mjs app_slug docs_ref bot_logins >> "$GITHUB_OUTPUT"
       - name: Route command
         id: route
         env:
@@ -88,12 +102,61 @@ jobs:
               core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
             }
 
+      # THE APP MAY NOT EXIST YET, and one repository variable turns every verb
+      # on at once. `review` and `summarize` need no App — they post with
+      # GITHUB_TOKEN — so a repository can enable those while the App is still
+      # being set up. This verb cannot: without the secrets the mint below fails,
+      # producing a red X in Actions and NOTHING in the PR thread, so the person
+      # who typed the verb sees no answer at all.
+      #
+      # `secrets` is not available in a job-level `if:`, so the check is a step
+      # that publishes an output the rest of the job reads. After the trust gate,
+      # so an account without write access cannot make the bot post.
+      - name: Is the GitHub App configured?
+        id: app
+        env:
+          APP_ID: ${{ secrets.AGENT_APP_ID }}
+          APP_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+        run: |
+          # Both halves, because `create-github-app-token` needs both and a
+          # half-registered pair is a real state: the two secrets are set in two
+          # separate operations, and the private key is the half that gets
+          # rotated. Testing only the id would report "configured" for a
+          # repository that cannot mint a token — the failure then lands in the
+          # mint step, past every arm that exists to answer the commenter.
+          if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AGENT_APP_ID or AGENT_APP_PRIVATE_KEY is unset; @claude rerun needs the GitHub App."
+          fi
+
+      - name: Say so, and stop
+        if: steps.app.outputs.configured != 'true'
+        uses: actions/github-script@v7
+        env:
+          APP_SLUG: ${{ needs.route.outputs.app_slug }}
+          DOCS_REF: ${{ needs.route.outputs.docs_ref }}
+        with:
+          retries: 3
+          script: |
+            const { APP_SLUG, DOCS_REF } = process.env;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: '⏸️ `@claude rerun` needs the `' + APP_SLUG + '` GitHub App, which is not configured on '
+                + 'this repository yet (`AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY`). It re-engages a loop whose fix rounds push commits, and a `GITHUB_TOKEN` push does not re-trigger CI.\n\n'
+                + '`@claude review` and `@claude summarize` work today; they post with `GITHUB_TOKEN` '
+                + 'and push nothing. See ' + DOCS_REF + '.',
+            });
+
       # Human-facing comments go through a GitHub App token, NOT GITHUB_TOKEN: on a
       # fork-PR-triggered run GITHUB_TOKEN is read-only, so the "not managed" note
       # would 403. rerun runs no untrusted code (API calls only), so minting it here
       # is safe. The block-clearing + CI re-run below stay on GITHUB_TOKEN, which is
       # writable on the same-repo managed path where they actually execute.
       - name: Generate GitHub App token (comments)
+        if: steps.app.outputs.configured == 'true'
         id: app-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
@@ -102,6 +165,7 @@ jobs:
           permission-issues: write
 
       - name: Post running placeholder
+        if: steps.app.outputs.configured == 'true'
         id: placeholder
         uses: actions/github-script@v7
         with:
@@ -116,9 +180,11 @@ jobs:
             core.setOutput('id', String(data.id));
 
       - name: Clear the block and re-run CI
+        if: steps.app.outputs.configured == 'true'
         id: rerun
         env:
           PLACEHOLDER_ID: ${{ steps.placeholder.outputs.id }}
+          BOT_LOGINS: ${{ needs.route.outputs.bot_logins }}
         uses: actions/github-script@v7
         with:
           retries: 3
@@ -154,13 +220,29 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: pr_number, per_page: 100,
             });
+            // WHO WROTE IT IS PART OF THE TEST. Matching the marker alone means
+            // any account can get a comment permanently deleted by quoting it —
+            // this repository is public — and `clearedLatch` would report the
+            // deletion as a latch cleared. Mirrors `isPagedLatchComment`
+            // (scripts/agent/rounds.mjs), which cannot be imported here: this
+            // step runs before any checkout. Keep the two in step. The logins
+            // are `repo.botLogins`, read by the `route` job; `JSON.parse`
+            // throws on a value that never arrived.
+            const PAGE_AUTHORS = JSON.parse(process.env.BOT_LOGINS);
+            const TRUSTED_ASSOC = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const wroteTheLatch = (c) =>
+              (c.user && c.user.type === 'Bot' && PAGE_AUTHORS.includes(c.user.login)) ||
+              TRUSTED_ASSOC.includes(c.author_association);
             let clearedLatch = 0;
             for (const c of comments) {
               const body = c.body || '';
-              if (body.includes('<!-- agent-review-paged -->') || body.includes('<!-- agent-paged -->')) {
-                try { await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id }); clearedLatch++; }
-                catch (e) { core.warning(`Could not delete paged comment ${c.id} (${e.message}).`); }
+              if (!body.includes('<!-- agent-review-paged -->') && !body.includes('<!-- agent-paged -->')) continue;
+              if (!wroteTheLatch(c)) {
+                core.notice(`Ignoring a paged marker from ${c.user?.login ?? 'unknown'} — not a latch writer.`);
+                continue;
               }
+              try { await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id }); clearedLatch++; }
+              catch (e) { core.warning(`Could not delete paged comment ${c.id} (${e.message}).`); }
             }
 
             // Drop the single-value blocked label (best-effort; a fresh round re-derives
@@ -277,6 +359,22 @@ jobs:
                   }
                 }
               } else if (target) {
+                // NO `conclusion === 'failure'` GUARD HERE, and the asymmetry
+                // with the in-flight branch above is the whole point.
+                //
+                // That branch guards a run that completes AFTER this step
+                // started: its completion event dispatches agent-iterate-ci
+                // fresh — by then this job has already deleted the latch — and
+                // re-running would cancel that fixer mid-push.
+                //
+                // This branch is a run that completed BEFORE. agent-iterate-ci
+                // already fired for it and SKIPPED, because the paged latch was
+                // still on the PR at the time (it checks, and this job has only
+                // just removed it). Nothing is in flight, so declining to re-run
+                // would leave the PR exactly as this verb is meant to rescue it:
+                // unlatched, unlabelled, with no CI run and no push to produce
+                // one — dead. An earlier revision of this file applied the guard
+                // to both branches "for symmetry" and created that dead end.
                 ciNote = 'Re-running CI now; the review panel will run again and can promote or fix this PR.';
               }
 
@@ -304,8 +402,8 @@ jobs:
               " approval is still required to merge." +
               // review-scope.mjs: a rerun on a head whose verdicts are already on
               // record REUSES them instead of drawing a fresh sample, so say which
-              // one to type for the other. (yorkie-js-sdk#1426's second rerun
-              // re-reviewed an identical head for ~$10.)
+              // one to type for the other. (#1426's second rerun re-reviewed an
+              // identical head for ~$10.)
               " If this commit already has a verdict, it is reused rather than reviewed again —" +
               " comment `@claude rerun review` to ask for a fresh review.");
 
@@ -339,7 +437,11 @@ jobs:
         if: steps.rerun.outputs.engaged == 'true'
         continue-on-error: true
         with:
-          sparse-checkout: scripts/agent
+          # The scripts and the configuration they read, from the same ref: a
+          # script resolves `.github/agent-harness` beside its own checkout.
+          sparse-checkout: |
+            scripts/agent
+            .github/agent-harness
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Update loop status (rerun)

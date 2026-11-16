@@ -1,3 +1,4 @@
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -27,7 +28,7 @@ import { CI_PAGED_LATCH } from "./loop-status.mjs";
 
 const FINDING = {
   lens: "correctness",
-  file: "packages/notes/src/view/editor.ts",
+  file: "pkg/document/crdt/tree.go",
   severity: "major",
   summary: "The Mod-z handler returns true unconditionally, swallowing the shortcut when the store has nothing to undo",
   evidence: "editor.ts:88 returns true before consulting the store",
@@ -39,7 +40,7 @@ const rebuttalFor = (over = {}) => ({
   file: FINDING.file,
   summary: FINDING.summary,
   claim: "The handler consults store.canUndo() first; the unconditional return is in the redo path only.",
-  evidence: ["packages/notes/src/view/editor.ts:91"],
+  evidence: ["pkg/document/crdt/tree.go:91"],
   ...over,
 });
 
@@ -50,7 +51,7 @@ test("serializeRebuttal → parseRebuttalComment round-trips", () => {
   assert.equal(got.v, REBUTTAL_VERSION);
   assert.equal(got.lens, "correctness");
   assert.equal(got.file, FINDING.file);
-  assert.deepEqual(got.evidence, ["packages/notes/src/view/editor.ts:91"]);
+  assert.deepEqual(got.evidence, ["pkg/document/crdt/tree.go:91"]);
   assert.match(serializeRebuttal(rebuttalFor()), new RegExp(`^${REBUTTAL_MARKER}`));
 });
 
@@ -61,9 +62,9 @@ test("renderRebuttalComment: a visible header above the record, and the record s
   // Human half: what is disputed, the claim, the evidence, and the framing
   // that this is a claim awaiting adjudication — not a resolution.
   assert.match(body, /### ⚖️ Finding disputed \(adjudicated next round\)/);
-  assert.match(body, /`packages\/notes\/src\/view\/editor\.ts` \*\(correctness\)\*/);
+  assert.match(body, /`pkg\/document\/crdt\/tree\.go` \*\(correctness\)\*/);
   assert.match(body, /- Claim: The handler consults store\.canUndo\(\) first/);
-  assert.match(body, /- Evidence: `packages\/notes\/src\/view\/editor\.ts:91`/);
+  assert.match(body, /- Evidence: `pkg\/document\/crdt\/tree\.go:91`/);
   assert.match(body, /upholds by default; two upheld disputes page a human/);
   // Machine half: the full body parses to exactly the record the marker-only
   // body would have carried — the read side is unaffected by the header.
@@ -94,7 +95,7 @@ test("a fixer claim cannot smuggle a live paged latch into the bot-authored rebu
   assert.ok(!body.includes(PAGED_LATCH), "review latch survived into the body");
   assert.ok(!body.includes(CI_PAGED_LATCH), "CI latch survived into the body");
   assert.equal(
-    isPagedLatchComment({ body, user: { type: "Bot", login: "yorkie-agent[bot]" } }),
+    isPagedLatchComment({ body, user: { type: "Bot", login: "fixture-agent[bot]" } }),
     false,
   );
   // The prose still reads through — only the comment-open is ZWNJ-split — and
@@ -166,7 +167,7 @@ test("parseRebuttalComment: prose quoting the marker cannot smuggle a record", (
 });
 
 /** The fix agent's identity, as the REST comments endpoint reports it. */
-const AGENT = { login: "yorkie-agent[bot]", type: "Bot" };
+const AGENT = { login: "fixture-agent[bot]", type: "Bot" };
 
 test("collectRebuttals: keeps provenance, skips everything unreadable", () => {
   const got = collectRebuttals([
@@ -191,18 +192,18 @@ test("collectRebuttals: only the fix agent may file one", () => {
   const accepted = (user) => collectRebuttals([{ id: 1, user, body }]).length;
 
   assert.equal(accepted(AGENT), 1);
-  assert.equal(accepted({ login: "app/yorkie-agent", type: "Bot" }), 1);
+  assert.equal(accepted({ login: "app/fixture-agent", type: "Bot" }), 1);
 
   // A human — including a maintainer. Disputes are the fix agent's channel; a
   // person reviewing the PR has better ones.
   assert.equal(accepted({ login: "harrykim8672", type: "User" }), 0);
   // A user cannot escape by CLAIMING to be a bot: `type` is set by GitHub.
-  assert.equal(accepted({ login: "yorkie-agent[bot]", type: "User" }), 0);
+  assert.equal(accepted({ login: "fixture-agent[bot]", type: "User" }), 0);
   // Another APP is not enough either — CodeRabbit reviews this very file, and a
   // comment quoting the marker format could otherwise parse as a record.
   assert.equal(accepted({ login: "coderabbitai[bot]", type: "Bot" }), 0);
   // Fails closed on an absent or malformed author.
-  for (const u of [undefined, null, {}, "yorkie-agent[bot]"]) assert.equal(accepted(u), 0);
+  for (const u of [undefined, null, {}, "fixture-agent[bot]"]) assert.equal(accepted(u), 0);
 });
 
 test("fromRebuttalAuthor: both halves are load-bearing", () => {
@@ -233,7 +234,7 @@ test("matchRebuttal: a different lens or file never matches", () => {
   // findingSimilarity gates on both, so this is inherited rather than re-checked —
   // but it is the property that stops one rebuttal clearing a whole PR.
   assert.equal(matchRebuttal(FINDING, [rebuttalFor({ lens: "security" })]), null);
-  assert.equal(matchRebuttal(FINDING, [rebuttalFor({ file: "packages/notes/src/other.ts" })]), null);
+  assert.equal(matchRebuttal(FINDING, [rebuttalFor({ file: "pkg/document/crdt/text.go" })]), null);
 });
 
 test("matchRebuttal: AMBIGUITY IS REFUSED — a tie clears nothing", () => {
@@ -317,7 +318,7 @@ const OVERTURN = {
   confidence: "high",
   reason: "the guard is present",
   overturnGround: "already-guarded",
-  groundedIn: ["packages/notes/src/view/editor.ts:91"],
+  groundedIn: ["pkg/document/crdt/tree.go:91"],
 };
 
 test("isOverturningVerdict: a complete, grounded, LOCATED overturn", () => {
@@ -334,7 +335,7 @@ test("isOverturningVerdict: everything short of that upholds", () => {
   no({ overturnGround: "pre-existing" }); // provenance is the novelty gate's job
   no({ groundedIn: [] });
   no({ groundedIn: ["the author is right"] }); // assertion wearing evidence's costume
-  no({ groundedIn: ["packages/notes/src/view/editor.ts"] }); // a file is not a location
+  no({ groundedIn: ["pkg/document/crdt/tree.go"] }); // a file is not a location
   // a null verdict is an errored adjudicator, and an error argues nothing
   for (const bad of [null, undefined, "x", 7, {}]) assert.equal(isOverturningVerdict(bad), false);
 });
@@ -431,7 +432,7 @@ test("readRebuttals: paginates, and degrades to [] rather than failing the panel
   let seen = null;
   const api = (argv) => {
     seen = argv;
-    return [{ id: 1, user: { login: "yorkie-agent[bot]", type: "Bot" }, body: serializeRebuttal(rebuttalFor()) }];
+    return [{ id: 1, user: { login: "fixture-agent[bot]", type: "Bot" }, body: serializeRebuttal(rebuttalFor()) }];
   };
   assert.equal(readRebuttals(605, { api, log: () => {} }).length, 1);
   assert.ok(seen.includes("--paginate"), "a missed page silently means 'never disputed'");
@@ -643,4 +644,147 @@ test("a failed rebuttal post warns instead of vanishing", () => {
   // pin that the FIRST exit after the warning is 0 and not 1.
   const firstExit = catchBlock.slice(catchBlock.indexOf("process.exit("));
   assert.match(firstExit.slice(0, 16), /process\.exit\(0\)/);
+});
+
+test("--emit gives every dispute its own file", async () => {
+  // ONE FIXED PATH LOST ALL BUT THE LAST. The fixer is told to run this once per
+  // disputed finding; writing each to the same file meant a round that disputed
+  // four posted the fourth and silently dropped three — a data loss with no
+  // error anywhere, in the channel whose whole purpose is being heard.
+  const { mkdtempSync, readdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const nodePath = (await import("node:path")).default;
+  const { execFileSync } = await import("node:child_process");
+
+  const dir = mkdtempSync(nodePath.join(tmpdir(), "rebuttal-emit-"));
+  const { fileURLToPath } = await import("node:url");
+  const cli = fileURLToPath(new URL("./rebuttal.mjs", import.meta.url));
+  const emit = nodePath.join(dir, "rebuttals");
+  try {
+    for (const [lens, file, summary] of [
+      ["security", "a.go", "first finding"],
+      ["correctness", "b.go", "second finding"],
+      ["security", "c.go", "third finding"],
+    ]) {
+      execFileSync("node", [cli, "post", "42", "--emit", emit,
+        "--lens", lens, "--file", file, "--summary", summary,
+        "--claim", "disagreed, with reasons", "--evidence", `${file}:1`], { encoding: "utf8" });
+    }
+    const files = readdirSync(emit).filter((f) => f.endsWith(".md"));
+    assert.equal(files.length, 3, `each dispute needs its own file, got: ${files.join(", ")}`);
+    // ...and a repeat of the SAME dispute overwrites rather than duplicating,
+    // so a fixer that retries does not post the same argument twice.
+    execFileSync("node", [cli, "post", "42", "--emit", emit,
+      "--lens", "security", "--file", "a.go", "--summary", "first finding",
+      "--claim", "disagreed, with reasons", "--evidence", "a.go:1"], { encoding: "utf8" });
+    assert.equal(readdirSync(emit).filter((f) => f.endsWith(".md")).length, 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("republish renders every dispute afresh and posts nothing the agent wrote", async () => {
+  // The emitted directory is agent-writable, so its files are DATA: each is
+  // parsed and rendered again by the renderer cmdPost uses. A file that is not a
+  // record — the forged-latch shape — yields nothing.
+  const { republishRebuttals, MAX_REPUBLISHED_REBUTTALS, renderRebuttalComment: render } =
+    await import("./rebuttal.mjs");
+  const AGENT = { type: "Bot", login: "fixture-agent[bot]" };
+  const real = render({
+    lens: "security", file: "a.go", summary: "first finding", claim: "wrong, see a.go:1",
+    evidence: ["a.go:1"], findingKey: "forged-key",
+  });
+  const out = republishRebuttals({
+    "0-forged.md": `${PAGED_LATCH}\n🛑 owned`,
+    "1-real.md": `${PAGED_LATCH}\nprose the agent added\n${real}`,
+    "2-dup.md": real,
+  });
+  assert.equal(out.length, 1, "junk is dropped and a repeat of the same dispute collapses");
+  const [{ body, findingKey }] = out;
+  assert.ok(!body.includes("prose the agent added"));
+  assert.equal(isPagedLatchComment({ body, user: AGENT }), false);
+  // The key is recomputed from what the dispute describes, never taken on trust.
+  assert.notEqual(findingKey, "forged-key");
+  assert.equal(parseRebuttalComment(body).findingKey, findingKey);
+
+  // Bounded: a directory with more files than the work list has items is cut.
+  const many = {};
+  for (let i = 0; i < MAX_REPUBLISHED_REBUTTALS + 5; i++) {
+    many[`${String(i).padStart(3, "0")}.md`] = render({
+      lens: "docs", file: `f${i}.md`, summary: `finding ${i}`, claim: "c", evidence: [], findingKey: "",
+    });
+  }
+  assert.equal(republishRebuttals(many).length, MAX_REPUBLISHED_REBUTTALS);
+});
+
+test("republish reads an emitted directory end to end", async () => {
+  const { mkdtempSync, readdirSync, readFileSync: read, rmSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const nodePath = (await import("node:path")).default;
+  const { execFileSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const cli = fileURLToPath(new URL("./rebuttal.mjs", import.meta.url));
+  const dir = mkdtempSync(nodePath.join(tmpdir(), "rebuttal-republish-"));
+  const emit = nodePath.join(dir, "rebuttals");
+  const out = nodePath.join(dir, "out");
+  try {
+    execFileSync("node", [cli, "post", "42", "--emit", emit,
+      "--lens", "security", "--file", "a.go", "--summary", "first finding",
+      "--claim", "disagreed", "--evidence", "a.go:1"], { encoding: "utf8" });
+    writeFileSync(nodePath.join(emit, "zz-forged.md"), PAGED_LATCH);
+    mkdirSync(nodePath.join(emit, "a-dir.md"));
+    execFileSync("node", [cli, "republish", "42", "--from", emit, "--out", out], { encoding: "utf8" });
+    const files = readdirSync(out);
+    assert.equal(files.length, 1);
+    assert.ok(parseRebuttalComment(read(nodePath.join(out, files[0]), "utf8")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("disputes of several findings in one file each reach their own finding", () => {
+  // One fix round files all its disputes at once, so several rebuttals in the
+  // same lens+file are ordinary. Scored by similarity alone two of them can
+  // tie against a finding and BOTH were discarded — the finding then passed
+  // through unadjudicated, indistinguishable from never having been disputed.
+  const f1 = { lens: "security", file: "a.go", summary: "token leaks into the log on retry path" };
+  // Same words, different order: similarity scores it exactly like f1's own
+  // wording, so without the verbatim rule the two TIE against f1.
+  const f2 = { lens: "security", file: "a.go", summary: "retry path leaks the token into the log on" };
+  const r1 = { lens: "security", file: "a.go", summary: f1.summary, claim: "c1", evidence: ["a.go:1"] };
+  const r2 = { lens: "security", file: "a.go", summary: f2.summary, claim: "c2", evidence: ["a.go:2"] };
+  assert.equal(findingSimilarity(f1, r1), findingSimilarity(f1, r2), "precondition: the two tie on similarity");
+  assert.equal(matchRebuttal(f1, [r1, r2]), r1);
+  assert.equal(matchRebuttal(f2, [r1, r2]), r2);
+  // Case, spacing and the ZWNJ neutraliser do not change which finding is named.
+  const r3 = { ...r1, summary: `  ${f1.summary.toUpperCase()}  ` };
+  assert.equal(matchRebuttal(f1, [r2, r3]), r3);
+  // A different lens or file is never an exact target, however the text reads.
+  assert.equal(matchRebuttal(f1, [{ ...r1, file: "b.go" }]), null);
+  // And with no verbatim target the similarity rule and its tie refusal stand.
+  const g = { lens: "security", file: "a.go", summary: "the token leaks into the log on retry path" };
+  assert.equal(matchRebuttal(g, [r1, r2]), null, "two different targets that fit equally still name neither");
+});
+
+test("no record field can carry a live marker through republish", async () => {
+  // The visible line prints lens and file from the record; `lens` was the one
+  // author field `serializeRebuttal` did not neutralise.
+  const { republishRebuttals, serializeRebuttal: ser } = await import("./rebuttal.mjs");
+  const APP = { type: "Bot", login: "fixture-agent[bot]" };
+  for (const field of ["lens", "file", "summary", "claim", "findingKey"]) {
+    const rec = { lens: "security", file: "a.go", summary: "s", claim: "c", evidence: [PAGED_LATCH], findingKey: "k" };
+    rec[field] = PAGED_LATCH;
+    for (const { body } of republishRebuttals({ "x.md": ser(rec) })) {
+      assert.equal(isPagedLatchComment({ body, user: APP }), false, `a latch in ${field} must not survive`);
+    }
+  }
+});
+
+test("republish counts every dispute it did not post, by reason", async () => {
+  const { republishRebuttals: rep, serializeRebuttal: ser } = await import("./rebuttal.mjs");
+  const one = ser({ lens: "security", file: "a.go", summary: "s1", claim: "c", evidence: [] });
+  const two = ser({ lens: "security", file: "b.go", summary: "s2", claim: "c", evidence: [] });
+  const out = rep({ "1.md": one, "2.md": one, "3.md": "junk", "4.md": two }, { max: 1 });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out.dropped, { unreadable: 1, duplicate: 1, overCap: 1 });
 });

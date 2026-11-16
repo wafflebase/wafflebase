@@ -25,6 +25,8 @@
 // standalone element, which is how a caller marks the cacheable prefix — see the
 // mirrored constant below.
 
+// The repository's MCP allow-list (`ask.permittedMcpTools`), read at import.
+import { get } from "./config.mjs";
 // The credential pool. Not the SDK, so a static import is fine here — the lazy
 // rule above exists to keep the pure helpers testable without the SDK on disk,
 // and token-pool.mjs has no dependencies at all.
@@ -73,7 +75,7 @@ export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
  *   * A conventional MCP grant trusts a server the SDK connects to — another
  *     process, whose capabilities this file cannot see or bound.
  *   * These are `createSdkMcpServer` tools defined in THIS repo, running in THIS
- *     process, whose handler is `scripts/agent-arms/hunt-tool.mjs` and whose entire
+ *     process, whose handler is `scripts/agent/hunt-tool.mjs` and whose entire
  *     reachable surface is `node <cli-bin> <argv…>` behind `assertSafeArgv`,
  *     a replaced environment, and a probe budget.
  *
@@ -83,11 +85,35 @@ export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
  * `mcpServers`), and keeping them apart preserves the meaning of the existing
  * tests that assert no MCP name reaches a review-panel session.
  *
- * Matching is exact, so `mcp__wafflebase__exec`, `mcp__other__run` and every
- * future MCP name remain refused because they are absent — the same inversion
- * that makes the allow-list above work.
+ * Matching is exact, so every MCP name is refused because it is absent — the
+ * same inversion that makes the allow-list above work.
+ *
+ * The names are the repository's, from `ask.permittedMcpTools`: which tools a
+ * repository implements in process is the repository's to say, and the
+ * loader accepts only exact `mcp__<server>__<tool>` names — no wildcard, no
+ * bare server, no permission rule. An empty list refuses every MCP name, which
+ * is the direction to fail in, and adding one is a deliberate, reviewed edit to
+ * a CI-defining file, not a side effect of wiring a server up somewhere else.
  */
-export const PERMITTED_MCP_TOOLS = Object.freeze(["mcp__wafflebase__run", "mcp__wafflebase__ui"]);
+export const PERMITTED_MCP_TOOLS = Object.freeze([...get("ask.permittedMcpTools")]);
+
+/**
+ * Paths no session may read, as permission rules (`//` = absolute).
+ *
+ * A session's environment necessarily holds the Claude credential it runs on,
+ * and a bare `Read` rule reaches any path — verified with the CLI:
+ * `--allowedTools Read` read /etc/hosts from an unrelated cwd, and
+ * `--disallowedTools "Read(//etc/**)"` refused it while ./ stayed readable. So
+ * a prompt injection in the diff under review could ask for
+ * /proc/self/environ, and the verdict is published. `redactSecrets` masks the
+ * value verbatim, not an encoding of it. Denied for every read-capable tool.
+ */
+export const DENIED_READ_PATHS = Object.freeze(["//proc/**", "//sys/**"]);
+
+/** `disallowedTools` rules denying `DENIED_READ_PATHS` to each built-in tool. */
+export function deniedReadRules(tools) {
+  return tools.flatMap((tool) => DENIED_READ_PATHS.map((p) => `${tool}(${p})`));
+}
 
 const PERMITTED_SET = new Set(PERMITTED_TOOLS);
 
@@ -186,7 +212,7 @@ export function assertAllowedTools(allowedTools) {
  *
  * Kept as a local literal rather than re-exported from the SDK so the pure
  * prompt builders — here and in review-panel.mjs — need no static SDK import.
- * The agent test lane (`scripts/verify-self.mjs`) deliberately runs with the SDK
+ * The agent test lane (`.github/workflows/agent-scripts.yml`) deliberately runs with the SDK
  * NOT installed, which works only because the import stays lazy.
  *
  * A wrong marker is not an error to the SDK. It is just a prompt block that
@@ -504,6 +530,9 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
     // here to be callable, but must NOT appear in `tools`, which is built-ins
     // only. Anything absent from both stays denied by `dontAsk`.
     allowedTools: sessionTools,
+    // Deny rules win over the allow list: no read-capable tool may open
+    // /proc or /sys, where the credential this session runs on is readable.
+    disallowedTools: deniedReadRules(builtinTools),
     // Only attach the server(s) when one was actually wired — `askStructured`
     // keys its MCP timeout backstop off the presence of this field.
     ...(hasServers ? { mcpServers } : {}),

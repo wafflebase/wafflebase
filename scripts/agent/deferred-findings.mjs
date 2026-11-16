@@ -2,7 +2,9 @@
 //
 // WHAT WAS ALREADY THERE, so this is not sold as a rescue. Nothing is being
 // deleted today: `verdict.json` keeps every finding a lens raised, demoted ones
-// included. The non-blocking pile is durable. What it is not is ADDRESSED TO ANYONE:
+// included, and the stage-detail capture (`buildStageDetail`, default ON) keeps the
+// raw per-sample findings before `unionSamples` and before `clusterFindings`. The
+// non-blocking pile is durable. What it is not is ADDRESSED TO ANYONE:
 //
 //   - `output.text` is filtered to `critical|major` and `lane !== 'backlog'` when
 //     the panel writes it, deliberately and for three named consumers (see the
@@ -12,6 +14,11 @@
 //   - `output.summary` does carry Minor, Nit and demoted sections, but it is
 //     markdown for a human, and `proseOnly` cuts every finding section out of it
 //     before the fixer ever sees it.
+//   - the stage-detail capture is a DIAGNOSTIC. It is per-sample and PRE-cluster,
+//     so one defect two samples both raised appears twice and never went through
+//     `annotateFindings`; and it is committed to a separate repository by a
+//     collector on its own schedule. A tool asking "what did this round defer on
+//     this PR" cannot answer from it without re-implementing clustering.
 //
 // So this module adds a SECOND check run, advisory, with no consumer that gates —
 // the same finding set `verdict.json` already holds, projected once, on the PR, in
@@ -38,7 +45,7 @@ import path from "node:path";
 import { parseArgs } from "./gh-checks.mjs";
 import { BLOCKING, normalizeSeverity } from "./severity.mjs";
 import { findingLocation } from "./novelty.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 /**
  * The check-run name, and it is load-bearing that it is OUTSIDE
@@ -198,6 +205,14 @@ export function deferredRecord(finding, lens) {
     ...(stamped && str(finding.lane) ? { lane: str(finding.lane) } : {}),
     ...(stamped && str(finding.novelty?.origin) ? { noveltyOrigin: str(finding.novelty.origin) } : {}),
     ...(stamped && str(finding.surface?.scope) ? { surfaceScope: str(finding.surface.scope) } : {}),
+    // The out-of-diff gate's two facts, primitives only, for the same reason as
+    // the three above: `anchor` is git's answer and `causation` the judge's, and
+    // a reader (or `follow-up-issues.mjs`) decides from both rather than from a
+    // derived "why". `outOfDiffDemoted` is the gate's own boolean, carried so a
+    // record need not re-implement `isIndependentVerdict` to know.
+    ...(stamped && str(finding.outOfDiff?.anchor) ? { anchorScope: clip(finding.outOfDiff.anchor, 20) } : {}),
+    ...(stamped && str(finding.outOfDiff?.causation) ? { causation: clip(finding.outOfDiff.causation, 20) } : {}),
+    ...(stamped && finding.outOfDiff?.demotes === true ? { outOfDiffDemoted: true } : {}),
   };
 }
 
@@ -259,8 +274,9 @@ export function buildDeferredText(records, { panelSha = null, maxChars = MAX_TEX
     // This is the sha of the `.trusted` checkout, which is where the rubrics the
     // panel actually read come from. NOT the PR head: `.trusted` is checked out at
     // `ref: main`, so the head sha names a tree that need not contain these rubrics
-    // at all. NOT a rubric content hash either — none exists in `lenses.json` or
-    // at panel write time. `null` when the sha
+    // at all. NOT `rubric_sha256` either — that is computed by the eval harness
+    // (`config-build.mjs`, and it is in `SNAPSHOT_ONLY_LENS_KEYS`), is absent from
+    // `lenses.json`, and is unreachable at panel write time. `null` when the sha
     // could not be resolved, because "unknown" is a fact and a fabricated stamp is
     // worse than none.
     panel_sha: /^[0-9a-f]{40}$/.test(str(panelSha)) ? str(panelSha) : null,
@@ -455,6 +471,6 @@ function main(argv) {
   );
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   main(process.argv);
 }

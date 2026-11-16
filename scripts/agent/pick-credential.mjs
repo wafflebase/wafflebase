@@ -44,7 +44,7 @@
 
 import { appendFileSync } from "node:fs";
 import { createTokenPool, slotSuffix, MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 /**
  * Choose a slot from a constructed pool. Pure over the pool object, so the decision is
@@ -98,6 +98,12 @@ function main() {
   if (out) appendFileSync(out, `slot=${slot}\nreason=${reason}\ncapacity=${note}\n`);
 }
 
-if (isEntryPoint(import.meta.url)) {
+// Four workflows run this file from the staged copy
+// `cp -R scripts/agent "$RUNNER_TEMP/agent-tools"` makes, a path that may pass
+// through a symbolic link; `direct-run.mjs` says why that needs realpaths on
+// both sides. (Nor a `file://` template: a `file:`
+// URL percent-encodes and `process.argv[1]` does not, so a clone under
+// `~/My Projects/` would silently skip the CLI.)
+if (isDirectRun(import.meta.url)) {
   main();
 }

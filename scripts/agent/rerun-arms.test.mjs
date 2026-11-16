@@ -12,11 +12,13 @@
 // The step is read out of the YAML rather than re-typed, for the reason the
 // mirror test already gives: a hand copy can only prove this file agrees with
 // itself.
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +50,9 @@ function stepScript(file, stepId) {
   assert.ok(body.length > 10, `${file}: extracted an implausibly short script for ${stepId}`);
   return body.join("\n");
 }
+
+/** What the steps' `env:` blocks hand in: the placeholder and `repo.botLogins`. */
+const STEP_ENV = { PLACEHOLDER_ID: "42", BOT_LOGINS: JSON.stringify(PAGE_AUTHOR_LOGINS) };
 
 const CI = (id, status, conclusion) => ({ id, status, conclusion, html_url: `https://example/${id}` });
 const HEAD = "sha-head";
@@ -101,8 +106,14 @@ async function drive(script, { runs, poll = [], headSha = HEAD, freshSha, pollEr
   let clock = 1_000_000;
   Date.now = () => (clock += 20_000);
   globalThis.setTimeout = (cb) => { cb(); return 0; };
-  const realPlaceholder = process.env.PLACEHOLDER_ID;
-  process.env.PLACEHOLDER_ID = "42";
+  // The step's `env:`, as the workflow hands it in. A variable the script
+  // reads and this table does not supply fails here by name, not as a
+  // JSON.parse of `undefined` deep in the step.
+  for (const [, name] of script.matchAll(/process\.env\.([A-Z_][A-Z0-9_]*)/g)) {
+    assert.ok(Object.hasOwn(STEP_ENV, name), `the step reads ${name}, which this test does not supply`);
+  }
+  const saved = Object.fromEntries(Object.keys(STEP_ENV).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, STEP_ENV);
   try {
     await new Function("github", "context", "core", "process", `return (async () => {\n${script}\n})()`)(
       github, context, core, process,
@@ -110,8 +121,10 @@ async function drive(script, { runs, poll = [], headSha = HEAD, freshSha, pollEr
   } finally {
     Date.now = realNow;
     globalThis.setTimeout = realTimeout;
-    if (realPlaceholder === undefined) delete process.env.PLACEHOLDER_ID;
-    else process.env.PLACEHOLDER_ID = realPlaceholder;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
   return { outputs, calls };
 }

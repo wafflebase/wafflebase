@@ -112,10 +112,11 @@ test("capacityLine: junk yields an empty line rather than a wrong number", () =>
 const AMBIENT_ALLOWED = new Map([
   [
     "agent-summarize.yml",
-    "Has no repo checkout at all and is deliberately built without repo credentials " +
-      "('Summarize (read-only; no repo credentials)'). Running the picker needs a trusted " +
-      "copy of it on disk, so wiring it would mean adding a checkout to the one job that " +
-      "was designed not to have one — for the least consequential step in the pipeline.",
+    "Deliberately built without a write-capable credential ('Summarize (read-only " +
+      "token; no shell)'). Its only checkout is a shallow, credential-free copy of the " +
+      "default branch for the action's own git setup, added after the picker decision; " +
+      "wiring the picker onto it is possible but not done — for the least consequential " +
+      "step in the pipeline.",
   ],
 ]);
 
@@ -130,7 +131,9 @@ test("every claude-code-action step selects a slot, or is a documented exception
     const text = readFileSync(path.join(WORKFLOWS, f), "utf8");
     if (!text.includes("claude-code-action")) continue;
     const bare = text.includes("claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}");
-    const picked = text.includes("steps.cred.outputs.slot != ''");
+    // Either form: the computed lookup, or the chain of named slots that
+    // replaces it where a job must name every secret it is sent.
+    const picked = text.includes("steps.cred.outputs.slot != ''") || text.includes("steps.cred.outputs.slot == '1'");
     if (bare) ambient.push(f);
     if (picked) wired++;
   }
@@ -143,7 +146,60 @@ test("every claude-code-action step selects a slot, or is a documented exception
       `pool slot zero: ${unexplained.join(", ")}. Run the picker, or add an entry to ` +
       "AMBIENT_ALLOWED saying why not.",
   );
-  assert.ok(wired >= 4, `expected at least 4 wired workflows, found ${wired}`);
+  // DERIVED, not a literal floor. Upstream pins 4 because it installs 5 such
+  // workflows; a repository that installs fewer would fail this for having
+  // ported less rather than for pinning a slot. The invariant that carries over
+  // is the partition: every workflow calling claude-code-action is either wired
+  // or documented, and at least one is wired so the loop is not vacuous.
+  assert.ok(wired > 0, "no workflow selects a slot — this guard would be vacuous");
+  assert.equal(
+    wired + ambient.length,
+    files.filter((f) => readFileSync(path.join(WORKFLOWS, f), "utf8").includes("claude-code-action")).length,
+    "a claude-code-action workflow is neither wired to the picker nor a documented exception",
+  );
+});
+
+test("a chain of named slots resolves exactly as the computed lookup did", () => {
+  // `secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', slot)]` names its secret by
+  // a value known only at run time, so which secrets the job is sent cannot be
+  // read off the file. A job that must name every secret it holds spells the
+  // pool out instead, one slot per alternative. This runs that expression for
+  // every value the picker can write — and some it cannot — against the
+  // lookup it replaces.
+  const chained = readdirSync(WORKFLOWS).filter((f) => f.endsWith(".yml"))
+    .map((f) => [f, readFileSync(path.join(WORKFLOWS, f), "utf8")])
+    .filter(([, text]) => text.includes("steps.cred.outputs.slot == '1'"));
+  for (const [f, text] of chained) {
+    const lines = text.split("\n");
+    const at = lines.findIndex((l) => /^\s+claude_code_oauth_token: >-$/.test(l));
+    assert.ok(at > 0, `${f}: the chain must be a folded \`claude_code_oauth_token: >-\` value`);
+    const indent = /^(\s*)/.exec(lines[at])[1].length;
+    const body = [];
+    for (const l of lines.slice(at + 1)) {
+      if (l.trim() !== "" && /^(\s*)/.exec(l)[1].length <= indent) break;
+      body.push(l.trim());
+    }
+    const expr = /^\$\{\{([\s\S]*)\}\}$/.exec(body.join(" "))?.[1];
+    assert.ok(expr, `${f}: the value is not one expression`);
+    assert.doesNotMatch(expr, /secrets\s*\[/, `${f}: the chain must name each secret, not look one up`);
+    const run = new Function("SLOT", "S", `return (${expr
+      .replace(/steps\.cred\.outputs\.slot/g, "SLOT")
+      .replace(/\bsecrets\.([A-Z0-9_]+)/g, "S.$1")
+      .replace(/([^!=])==(?!=)/g, "$1===")});`);
+    const lookup = (slot, S) => (slot !== "" && S[`${TOKEN_ENV}_${slot}`]) || S[TOKEN_ENV];
+    const full = Object.fromEntries([TOKEN_ENV, ...Array.from({ length: MAX_SLOTS }, (_, i) => `${TOKEN_ENV}_${i + 1}`)].map((n) => [n, `value-of-${n}`]));
+    const named = new Set([...expr.matchAll(/\bsecrets\.([A-Z0-9_]+)/g)].map((m) => m[1]));
+    assert.deepEqual([...named].sort(), Object.keys(full).sort(), `${f}: the chain must name every pool slot and nothing else`);
+    for (const slot of ["", ...Array.from({ length: MAX_SLOTS }, (_, i) => String(i + 1))]) {
+      assert.equal(run(slot, full), lookup(slot, full), `${f}: slot ${JSON.stringify(slot)}`);
+      // A slot whose secret is unset falls back to slot zero, as before.
+      const hole = { ...full, [`${TOKEN_ENV}_${slot}`]: "" };
+      if (slot !== "") assert.equal(run(slot, hole), full[TOKEN_ENV], `${f}: unset slot ${slot}`);
+    }
+    // A value the picker never writes reaches slot zero, never another secret.
+    for (const junk of ["0", String(MAX_SLOTS + 1), "1 ", "x"]) assert.equal(run(junk, full), full[TOKEN_ENV], `${f}: slot ${JSON.stringify(junk)}`);
+  }
+  assert.ok(chained.length > 0, "no workflow uses the chain — this guard would be vacuous");
 });
 
 test("each wired workflow guards the picker and fails open", () => {
@@ -172,7 +228,9 @@ test("each wired workflow guards the picker and fails open", () => {
     // silently reports `pool-unconfigured` forever.
     assert.match(text, /CLAUDE_CODE_OAUTH_TOKEN_8: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN_8 \}\}/, `${f}: pool env missing`);
   }
-  assert.ok(checked >= 4, `expected >= 4 wired workflows, checked ${checked}`);
+  // Same reasoning as the derived count above: the per-file assertions are the
+  // guard, and this only keeps the loop from silently covering nothing.
+  assert.ok(checked > 0, "no workflow runs the env-based picker — this guard would be vacuous");
 });
 
 test("no workflow runs the picker from an untrusted checkout", () => {
@@ -182,9 +240,15 @@ test("no workflow runs the picker from an untrusted checkout", () => {
   // `$RUNNER_TEMP/agent-tools` snapshot, or an explicit trusted sparse checkout.
   const TRUSTED = [
     "$RUNNER_TEMP/agent-tools/pick-credential.mjs", // staged from main before the branch checkout
-    ".trusted-cred/scripts/agent/pick-credential.mjs", // explicit trusted sparse checkout
+    "$RUNNER_TEMP/trusted-cred/scripts/agent/pick-credential.mjs", // trusted sparse checkout, moved clear of the workspace
     "scripts/agent/pick-credential.mjs", // workspace IS main (issue_comment default ref)
   ];
+  // `.trusted-cred/...` is NOT on this list any more, deliberately. `path:` is
+  // relative to $GITHUB_WORKSPACE, so that spelling left main's copy inside the
+  // tree an agent is told to commit and push — untracked and unignored. The
+  // checkout still lands there (actions/checkout will not write outside the
+  // workspace) and is moved out before the agent runs; the test below pins the
+  // move.
   const files = readdirSync(WORKFLOWS).filter((f) => f.endsWith(".yml"));
   for (const f of files) {
     const text = readFileSync(path.join(WORKFLOWS, f), "utf8");
@@ -194,18 +258,28 @@ test("no workflow runs the picker from an untrusted checkout", () => {
   }
 });
 
-test("agent-review-reply takes its trusted copy AFTER the branch checkout, and runs it from outside the workspace", () => {
-  // `actions/checkout` cleans its target path, so a root checkout running later would
-  // delete the `.trusted-agent` subdirectory and the `[ -f ]` guard would silently skip.
-  // The copy is then staged in the runner's temp directory and the picker runs from
-  // there: a directory inside the workspace is one the branch's own tree can reach.
+test("agent-review-reply stages its trusted copy after the branch, and out of it", () => {
+  // Two properties, both ordering.
+  //
+  // AFTER the branch checkout: `actions/checkout` cleans its target path, so a
+  // root checkout running later would delete the subdirectory and the `[ -f ]`
+  // guard would silently skip to the ambient credential.
+  //
+  // OUT OF the workspace before the agent: the agent step below is told to
+  // commit and push, and `path:` is workspace-relative — so main's copy of
+  // scripts/agent would otherwise sit untracked and unignored in a
+  // contributor's branch, one `git add -A` from being committed.
   const text = readFileSync(path.join(WORKFLOWS, "agent-review-reply.yml"), "utf8");
   const branch = text.indexOf("ref: ${{ steps.pr.outputs.ref }}");
-  const trusted = text.indexOf("path: .trusted-agent");
-  const staged = text.indexOf('cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"');
-  const picker = text.indexOf('node "$RUNNER_TEMP/agent-tools/pick-credential.mjs"');
-  assert.ok(branch > 0 && trusted > 0 && staged > 0 && picker > 0, "all four must be present");
+  const trusted = text.indexOf("path: .trusted-cred");
+  const moved = text.indexOf('mv .trusted-cred "$RUNNER_TEMP/trusted-cred"');
+  const picker = text.indexOf('node "$RUNNER_TEMP/trusted-cred/scripts/agent/pick-credential.mjs"');
+  const agent = text.indexOf("uses: anthropics/claude-code-action@");
+  for (const [name, at] of [["branch", branch], ["trusted", trusted], ["moved", moved], ["picker", picker], ["agent", agent]]) {
+    assert.ok(at > 0, `${name} step not found`);
+  }
   assert.ok(branch < trusted, "the trusted checkout must come after the branch checkout");
-  assert.ok(trusted < staged && staged < picker, "the trusted copy must be staged before the picker runs");
-  assert.doesNotMatch(text, /node \.trusted/, "nothing is run from the side directory");
+  assert.ok(trusted < moved, "the move must come after the checkout it moves");
+  assert.ok(moved < picker, "the picker must read the moved copy");
+  assert.ok(moved < agent, "the copy must leave the workspace before the agent can commit it");
 });

@@ -18,9 +18,10 @@
 //      branch that can edit that file produces a genuinely green run at the
 //      genuine path with no tests in it. Gate 1b closes that:
 //   1b. The branch supplies NO part of the CI definition — none of
-//      `CI_DEFINING_PATHS` (checks.mjs), which mirrors harness.config.json's own
-//      `ci.ciConfig` gating surface: workflows, composite actions, the verify
-//      scripts, the root and per-package manifests, the lockfile. If it touches
+//      `CI_DEFINING_PATHS` (checks.mjs): the workflows, plus what this
+//      repository's harness configuration lists as the build files, the lint
+//      and codegen configuration, the dependency manifests and the stacks its
+//      CI resolves through. If it touches
 //      any of them, CI's verdict for this SHA is evidence about the BRANCH's CI
 //      definition rather than about main's, so it is not the evidence gate 1
 //      claims to read and auto-promotion is refused. Such a PR is not blocked,
@@ -58,6 +59,12 @@
 // hand-off comment. The final review + merge stay human, enforced by branch
 // protection.
 //
+// Each of those three guards on its OWN state, not on draft state: a PR that is
+// already out of draft (a human `agent:managed` PR, an `@claude loop` opt-in —
+// only the loop's own PRs start as drafts) still needs the label and the
+// hand-off. Skipping them on `!isDraft` is what stranded #2033 on
+// `agent:reviewing` after a clean panel round.
+//
 // Usage:
 //   node ./scripts/agent/mark-ready.mjs <pr-number> [--promote] [--require-checks a,b,c]
 //     (default is a dry run that only reports gate status and exits non-zero if
@@ -68,9 +75,26 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
-import { allRequiredPassed, ciConclusion, CI_WORKFLOW_FILE, definesCi, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import {
+  allRequiredPassed,
+  ciConclusion,
+  CI_GATE_NAME,
+  CI_WORKFLOW_FILE,
+  definesCi,
+  DEFAULT_REVIEW_CHECKS,
+  HANDOFF_CI_SUMMARY,
+} from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
 import { disclosesAiAuthorship, HANDOFF_MARKER } from "./disclosure.mjs";
+
+// `maxBuffer`: node's default is 1 MiB, and `gh api --paginate` over a busy PR
+// blows through it. When it does, `execFileSync` throws `ENOBUFS` — not an API
+// error, not an empty result, a CRASH — and the caller reports it as whatever
+// its own failure means. On #2026 that was the review-round guard dying and the
+// pipeline announcing "the fixer agent failed", which it had not: it never ran.
+// A PR accumulates comments as it is reviewed, so this gets MORE likely the
+// longer a PR is worked on, which is exactly backwards.
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -111,7 +135,7 @@ if (REQUIRED_CHECKS.length === 0 && !process.argv.includes("--allow-no-checks"))
 }
 
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8" });
+  return execFileSync("gh", args, { encoding: "utf8", maxBuffer: GH_MAX_BUFFER });
 }
 
 function ghJson(args) {
@@ -127,7 +151,7 @@ function ghJson(args) {
 function ghMutate(args) {
   const token = process.env.GH_MUTATION_TOKEN;
   const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
-  return execFileSync("gh", args, { encoding: "utf8", env });
+  return execFileSync("gh", args, { encoding: "utf8", env, maxBuffer: GH_MAX_BUFFER });
 }
 
 // --- gather PR state -------------------------------------------------------
@@ -155,7 +179,8 @@ const body = pr.body ?? "";
 // conclusion, so this is evidence a separate actor (GitHub Actions) produced —
 // unlike the <!-- harness-verification --> PR comment, which the author agent
 // could post itself with issues:write. A workflow run concludes "success" only
-// when every CI job (verify-self / verify-browser / verify-integration) passed.
+// when every CI job that ran passed — here `build`, plus whichever of `bench`,
+// `complex-test` and `load-test` the path filter admitted.
 function ciPassed(sha) {
   if (!sha) return false;
   let data;
@@ -187,16 +212,37 @@ function ciPassed(sha) {
     );
     process.exit(2);
   }
-  return ciConclusion(data.workflow_runs) === "success";
+  const runs = data.workflow_runs || [];
+  // NO RUN AT ALL is reported separately, because the two unknowns need
+  // different words. A CI workflow with a trigger-level path filter files no
+  // run at all for a PR that touches only filtered paths, so this gate could
+  // never go green for it and the operator would have to promote by hand. A
+  // repository running this harness filters at the JOB level instead, so that
+  // every PR produces a run; a PR whose lanes were all filtered out reaches
+  // this gate with a green run and promotes like any other.
+  //
+  // So an empty list is not routine. It means this sha's run is not
+  // visible — deleted, or aged past retention — and the gate still refuses,
+  // because "no evidence CI passed" is not "CI passed" and the whole point of
+  // gate 1 is that promotion rests on evidence.
+  if (runs.length === 0) {
+    console.error(
+      `No run of ${CI_WORKFLOW_FILE} is visible for ${sha}. Every pull request produces\n` +
+        "one, so this is a run that was deleted or has aged out rather than one that was\n" +
+        "never required — there is no evidence CI passed, and the gate refuses.",
+    );
+    return false;
+  }
+  return ciConclusion(runs) === "success";
 }
 
 const ciGate = ciPassed(pr.headRefOid);
 
 // --- gate 1b: the CI definition came from main, not from the branch ---------
 
-// Which paths count is `CI_DEFINING_PATHS` in checks.mjs, mirrored from
-// harness.config.json's `ci.ciConfig` — see `definesCi` there for why the two
-// `.github` prefixes this gate started with were nowhere near enough.
+// Which paths count is `CI_DEFINING_PATHS` in checks.mjs — see `definesCi`
+// there for why the two `.github` prefixes this gate started with were nowhere
+// near enough.
 
 // Paginated explicitly rather than with `gh api --paginate`, which concatenates
 // one JSON array per page and does not parse. A PR too large to enumerate is a
@@ -320,7 +366,7 @@ const disclosure = disclosesAiAuthorship(body);
 // --- report ----------------------------------------------------------------
 
 const gates = [
-  { name: "CI verification (verify:self ✅ + verify:integration ✅/skip)", ok: ciGate },
+  { name: CI_GATE_NAME, ok: ciGate },
   { name: "CI's definition came from main (branch supplies no CI-defining path)", ok: ciDefinitionGate },
   { name: `Review panel approved (all lens checks ✅: ${REQUIRED_CHECKS.join(", ")})`, ok: reviewApproved },
   { name: "AI authorship disclosed in PR body", ok: disclosure },
@@ -329,6 +375,28 @@ const gates = [
 console.log(`Ready-gate report for PR #${prNumber} (${pr.url})`);
 for (const g of gates) {
   console.log(`  ${g.ok ? "✅" : "❌"} ${g.name}`);
+}
+
+// THE ONE GATE A HUMAN AUTHOR HITS BY DEFAULT, so it says what to do about it.
+//
+// Issue → PR discloses in the body it opens, so the PRs that reach this gate
+// without one are human-authored ones that opted into the loop with `@claude
+// loop` — and their bodies come from .github/PULL_REQUEST_TEMPLATE.md, which says
+// nothing about AI authorship. Left as a bare ❌ the report reads as a broken
+// pipeline on every such PR, which is how a report stops being read.
+//
+// It still refuses, and the question it asks is still the right one: once the
+// fix agent has pushed to a branch, the PR carries code an agent wrote, and the
+// human being handed it should be told so before they review it rather than
+// after.
+if (!disclosure) {
+  console.error(
+    "\nThe PR body must disclose autonomous AI authorship before this promotes it.\n" +
+      "Add a line such as:\n" +
+      "  This PR was worked on autonomously by Claude Code.\n" +
+      "The predicate is in scripts/agent/disclosure.mjs. Promoting by hand is\n" +
+      "always available and is the right answer for a PR no agent has pushed to.",
+  );
 }
 if (!reviewApproved) {
   for (const c of REQUIRED_CHECKS) console.log(`      ${perCheck[c] ? "✅" : "❌"} ${c}`);
@@ -346,28 +414,39 @@ if (!promote) {
   process.exit(0);
 }
 
-if (!pr.isDraft) {
-  console.log("\nPR is already marked ready — nothing to do.");
-  process.exit(0);
-}
-
 // --- promote ---------------------------------------------------------------
 
-// Flip draft → ready. This is the one mutation the default GITHUB_TOKEN can't
-// do; a failure here is a permission/tooling problem, NOT a gate failure — exit
-// 3 (distinct from the exit-1 "gates not satisfied") with a clear message so the
-// workflow surfaces it loudly (and the stalled net pages a human) instead of
-// silently leaving the PR a draft.
-try {
-  ghMutate(["pr", "ready", prNumber]);
-} catch (err) {
-  console.error(
-    `\nAll ready-gates passed, but flipping PR #${prNumber} to ready FAILED: ${err.message}\n` +
-      "This is a permission/tooling problem, not a gate failure. The promote job " +
-      "must pass a GitHub App token via GH_MUTATION_TOKEN that can mark a PR ready — " +
-      "the default GITHUB_TOKEN cannot (markPullRequestReadyForReview).",
-  );
-  process.exit(3);
+// Promotion is THREE mutations — flip draft → ready, set `agent:ready`, post the
+// hand-off — and only the first one is about draft state. This used to return
+// early on `!pr.isDraft`, reading "not a draft" as "already promoted", which is
+// only true for the PRs the loop itself opened: those start as drafts, so out of
+// draft does mean this script had already run.
+//
+// Every OTHER way into the loop opens a PR that is not a draft — a human PR
+// labelled `agent:managed`, an `@claude loop` opt-in — and for those the early
+// return skipped the two mutations that had never run. #2033 cleared all four
+// gates on round 7 and sat on `agent:reviewing` with no hand-off until it was
+// merged by hand; the promote job exited 0 and reported `promoted`, so nothing
+// said otherwise. Each step now guards on ITS OWN state instead.
+if (pr.isDraft) {
+  // The one mutation the default GITHUB_TOKEN can't do; a failure here is a
+  // permission/tooling problem, NOT a gate failure — exit 3 (distinct from the
+  // exit-1 "gates not satisfied") with a clear message so the workflow surfaces
+  // it loudly (and the stalled net pages a human) instead of silently leaving
+  // the PR a draft.
+  try {
+    ghMutate(["pr", "ready", prNumber]);
+  } catch (err) {
+    console.error(
+      `\nAll ready-gates passed, but flipping PR #${prNumber} to ready FAILED: ${err.message}\n` +
+        "This is a permission/tooling problem, not a gate failure. The promote job " +
+        "must pass a GitHub App token via GH_MUTATION_TOKEN that can mark a PR ready — " +
+        "the default GITHUB_TOKEN cannot (markPullRequestReadyForReview).",
+    );
+    process.exit(3);
+  }
+} else {
+  console.log("\nPR is not a draft — no flip needed; labelling and handing off.");
 }
 
 // Single-value state → `agent:ready` (best-effort; a label hiccup must not abort
@@ -403,12 +482,7 @@ const handoff = [
   "This PR was authored autonomously by Claude Code and has cleared the harness",
   "ready gate:",
   "",
-  "- ✅ CI verification (`verify:self` and `verify:integration`) is green, for this",
-  "  exact head SHA, on a PR based on the default branch — and the branch changes",
-  "  none of the paths that define what CI does (`harness.config.json`'s",
-  "  `ci.ciConfig` surface: workflows, composite actions, `scripts/verify-*.mjs`,",
-  "  the root and per-package manifests, the lockfile), so the CI definition that",
-  "  run executed came from `main` rather than from the branch.",
+  ...HANDOFF_CI_SUMMARY,
   "  This does NOT mean every assertion CI ran is main's: a branch can still weaken",
   "  its own tests, which is what the test-adequacy lens reads the diff for.",
   `- ✅ The review panel approved with no blocking findings (${REQUIRED_CHECKS.join(", ")}).`,
@@ -419,12 +493,40 @@ const handoff = [
   "requires. Merge, release, and deploy remain manual.",
 ].join("\n");
 
-// Best-effort: the PR is already flipped to ready; don't fail the promotion if
-// the hand-off comment can't be posted.
-try {
-  ghMutate(["pr", "comment", prNumber, "--body", handoff]);
-} catch (err) {
-  console.warn(`PR flipped to ready, but posting the hand-off comment failed: ${err.message}`);
+// IDEMPOTENCE, which the draft flip used to provide for free: a PR could only
+// leave draft once, so this line could only be reached once. A non-draft PR has
+// no such latch — it can clear the gates on every green panel round — so the
+// marker carries it instead.
+//
+// A read failure POSTS. The two outcomes are a duplicate comment and a missing
+// hand-off, and only one of them loses information; "I could not tell" must not
+// be resolved as "it is already there".
+function handoffAlreadyPosted() {
+  try {
+    const pages = ghJson([
+      "api",
+      "--paginate",
+      "--slurp",
+      `repos/{owner}/{repo}/issues/${prNumber}/comments?per_page=100`,
+    ]);
+    const comments = Array.isArray(pages) ? pages.flat() : [];
+    return comments.some((c) => (c?.body ?? "").includes(HANDOFF_MARKER));
+  } catch (err) {
+    console.warn(`Could not read the PR's comments to de-duplicate the hand-off: ${err.message}`);
+    return false;
+  }
+}
+
+// Best-effort: the PR is already ready; don't fail the promotion if the hand-off
+// comment can't be posted.
+if (handoffAlreadyPosted()) {
+  console.log("Hand-off comment already present — not re-posting it.");
+} else {
+  try {
+    ghMutate(["pr", "comment", prNumber, "--body", handoff]);
+  } catch (err) {
+    console.warn(`PR marked ready, but posting the hand-off comment failed: ${err.message}`);
+  }
 }
 
 console.log(`\nPromoted PR #${prNumber} to ready and requested human review.`);

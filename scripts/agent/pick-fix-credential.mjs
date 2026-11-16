@@ -34,19 +34,15 @@
 //     strictly worse than pausing and saying so.
 //
 // THE PROBE (`--probe`). The pool state knows only what the PANEL's sessions
-// saw. On yorkie-js-sdk#1426 it named CLAUDE_CODE_OAUTH_TOKEN ("live-slot", "0
-// retired") and the fixer died 0.5 s after init at $0, having already been
-// charged a round. A slot the panel never touched, or one whose window closed
-// after the panel finished, reads as live. So with `--probe` each candidate
-// gets a one-word query before the round is recorded, and the first that
-// answers is the one handed out. Same two fail directions as above: every
-// candidate REFUSED (a closed usage window or a rejected credential) is a
-// known-dead pool and `available=false`; anything inconclusive — a transient
-// overload, an unclassified error, a timeout, an SDK that will not load —
-// proceeds.
-//
-// The refusal vocabulary is the pre-arm check's (`auth-smoke.mjs`'s
-// `classifyFailure`), narrowed: see `classifyProbeFailure`.
+// saw. On #1426 it named CLAUDE_CODE_OAUTH_TOKEN ("live-slot", "0 retired") and
+// the fixer died 0.5 s after init at $0, having already been charged a round. A
+// slot the panel never touched, or one whose window closed after the panel
+// finished, reads as live. So with `--probe` each candidate gets a one-word query
+// before the round is recorded, and the first that answers is the one handed
+// out. Same two fail directions as above: every candidate REFUSED (a closed
+// usage window or a rejected credential) is a known-dead pool and
+// `available=false`; anything inconclusive — a transient overload, an
+// unclassified error, a timeout, an SDK that will not load — proceeds.
 //
 // It runs before the branch checkout, so the pool secrets it needs are never in
 // a process that has branch code on disk.
@@ -62,7 +58,7 @@ import path from "node:path";
 import { MAX_SLOTS, TOKEN_ENV, slotSuffix, readPoolSlots } from "./token-pool.mjs";
 import { SESSION_LIMIT_RE } from "./redact.mjs";
 import { classifyFixResult } from "./metrics.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 // Re-exported, not redefined: `token-pool.mjs` owns the slot naming, and a second
 // copy of this mapping is exactly the drift its docblock warns about.
@@ -149,12 +145,11 @@ export function candidateNames(state, configuredNames) {
   return configured.filter((n) => live.has(n));
 }
 
-// The pre-arm check's vocabulary, NARROWED. Its transient-capacity list and
-// its auth list, which `auth-smoke.mjs` keeps for the WIDE form
-// (`classifyFailure`). Copied rather than imported: `auth-smoke.mjs` is one of
-// wafflebase's own arms, which live outside the shared core, and the jobs run
-// this file from a staged copy of `scripts/agent` that carries the core only.
-// `auth-smoke.test.mjs` holds the two to one vocabulary.
+// The vocabulary of wafflebase's pre-arm check (`auth-smoke.mjs`), NARROWED:
+// its transient-capacity list and its auth list, which that check keeps for
+// the WIDE form. Exported so a repo that keeps its own copy can hold the two to
+// one vocabulary pattern for pattern; an adopter's copy cannot import this one,
+// because the jobs run it from a staged copy of the core only.
 export const TRANSIENT = [
   /rate[ _-]?limit/i,
   /\b429\b/,
@@ -171,10 +166,12 @@ export const AUTH = [
   /invalid[ _-]?(api[ _-]?key|token|credential)/i,
   /expired[ _-]?(token|credential)/i,
   /not[ _-]?authenticated/i,
-  // Not a filesystem error. A failure is classified from the CLI's stderr
+  // Not a filesystem error. A failed probe is classified from the CLI's stderr
   // tail, where the runner's own EACCES/EPERM ("EACCES: permission denied,
-  // mkdir …") or a shell's "/path: Permission denied" can appear.
+  // mkdir …") or a shell's "/path: Permission denied" can appear; read as auth,
+  // a passing fault there would refuse every slot and page the PR.
   /(?<!(?:E(?:ACCES|PERM)|\/[^\s:]*): )permission[ _-]?denied/i,
+  // What an unauthenticated Agent SDK says: "Not logged in · Please run /login".
   /not[ _-]?logged[ _-]?in/i,
   /please run \/login/i,
   // The bare command only: not a URL's or a file's path (`…/oauth/login`,
@@ -185,24 +182,18 @@ export const AUTH = [
 /**
  * "quota" | "auth" | "unknown" for a probe that did not answer.
  *
- * A "refused" answer here latches something: every candidate refusing posts
- * the paged latch and stops the PR until a human reruns it. So only a refusal
- * that STAYS refused counts: a closed usage window (until it resets) or a
- * rejected credential. A plain 429, "rate limit", "overloaded" or "capacity"
- * is transient, and on an API-wide blip every slot would read as dead and the
- * PR would latch for nothing — so it is `unknown`, which the probe treats as
- * "proceed". The same line the panel's own failover draws: `isAccountLimit`
- * keys on the usage window, not on a rate limit.
+ * A "refused" answer from every slot pages the PR and pauses it until
+ * loop-sweep retries NO_LIVE_CREDENTIAL (60 minutes at the earliest) or a
+ * human reruns it, so only a refusal that STAYS refused counts: a closed usage window
+ * (until it resets) or a rejected credential. A plain 429, "rate limit",
+ * "overloaded" or "capacity" is transient — on an API-wide blip every slot would
+ * read as dead and the PR would latch for nothing — so it is `unknown`, which
+ * proceeds. The same line the panel's own failover draws: `isAccountLimit` keys
+ * on USAGE_LIMIT, not on RATE_LIMITED.
  *
- * The pre-arm check wants the WIDE form (a quota refusal still proves the
- * credential was accepted, and its exit 2 says "retry"); a latch wants this
- * one. One vocabulary, two thresholds: the auth list and SESSION_LIMIT_RE are
- * the same, so the two cannot disagree about what a rejected credential looks
- * like.
- *
- * Order: a closed usage window first (it often arrives worded as auth, and
- * with a 429); then any transient capacity signal, which wins over auth words
- * so a 429 that also says "403" or "unauthorized" cannot latch a PR; then auth.
+ * Order: a closed usage window first (it often arrives worded as auth, and with
+ * a 429); then any transient capacity signal, which wins over auth words so a
+ * 429 that also says "403" or "unauthorized" cannot latch a PR; then auth.
  */
 export function classifyProbeFailure(message) {
   const text = String(message ?? "");
@@ -243,19 +234,18 @@ export async function probeCredentials({ names, check, log = console.log }) {
  * One credential, one word, no tools, a hard timeout.
  *
  * The child gets ONLY the token under test, PATH, and a throwaway HOME and
- * CLAUDE_CONFIG_DIR. Not `process.env` — unlike auth-smoke.mjs, which runs where
- * nothing else is at stake: this step holds every pool secret, and the CLI it
- * starts would otherwise inherit all nine. And not the real HOME: the CLI
- * writes state there, on the runner the fixer later gets a shell on.
+ * CLAUDE_CONFIG_DIR. Not `process.env`: this step holds every pool secret, and
+ * the CLI it starts would otherwise inherit all nine. And not the real HOME: the
+ * CLI writes state there, on the runner the fixer later gets a shell on.
  *
  * 30 s, serial. Nine dead slots cost at most 4.5 minutes of the fix job's
- * 90-minute wall; a healthy pool answers on the first.
+ * 55-minute wall; a healthy pool answers on the first.
  */
 export function probeEnv(token, home) {
   return { PATH: process.env.PATH ?? "", HOME: home, CLAUDE_CONFIG_DIR: home, CLAUDE_CODE_OAUTH_TOKEN: token };
 }
 
-function sdkCheck(query, model, token, timeoutMs = 30_000) {
+export function sdkCheck(query, model, token, timeoutMs = 30_000) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   const home = mkdtempSync(path.join(tmpdir(), "probe-"));
@@ -278,7 +268,10 @@ function sdkCheck(query, model, token, timeoutMs = 30_000) {
         failure = `${m.subtype ?? ""} ${m.api_error_status ?? ""} ${m.result ?? ""}`;
       }
     } catch (err) {
-      failure = abort.signal.aborted ? "timeout" : String(err?.message ?? err);
+      // Keep a result message the session already sent: the CLI can exit
+      // non-zero after it, and the exit error alone carries only stderr.
+      const thrown = abort.signal.aborted ? "timeout" : String(err?.message ?? err);
+      failure = failure === "(no result message)" ? thrown : `${failure} ${thrown}`;
     } finally {
       clearTimeout(timer);
       rmSync(home, { recursive: true, force: true });
@@ -359,12 +352,9 @@ async function main(argv) {
   }
 }
 
-// `isEntryPoint`, not the `file://${argv[1]}` template this once used: that
-// compared a percent-encoded URL against a raw path, so the script did nothing
-// at all when run from a path with a space or `%` in it — and neither form
-// survived the staged directory passing through a symbolic link, which is the
-// case `direct-run.mjs` exists for.
-if (isEntryPoint(import.meta.url)) {
+// Same guard, same reasons, as `pick-credential.mjs`: this runs from the
+// staged `$RUNNER_TEMP/agent-tools` copy.
+if (isDirectRun(import.meta.url)) {
   // Fail OPEN on a crash, like every other doubt here: no `available=` written
   // reads as "proceed" in the workflow.
   main(process.argv.slice(2)).catch((err) => console.log(`pick-fix-credential: crashed (${err.message}); proceeding as before`));

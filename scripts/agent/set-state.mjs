@@ -30,7 +30,17 @@
 import { execFileSync } from "node:child_process";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import { ciConclusion, CI_WORKFLOW_FILE } from "./checks.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { get } from "./config.mjs";
+import { isDirectRun } from "./direct-run.mjs";
+
+// `maxBuffer`: node's default is 1 MiB, and `gh api --paginate` over a busy PR
+// blows through it. When it does, `execFileSync` throws `ENOBUFS` — not an API
+// error, not an empty result, a CRASH — and the caller reports it as whatever
+// its own failure means. On #2026 that was the review-round guard dying and the
+// pipeline announcing "the fixer agent failed", which it had not: it never ran.
+// A PR accumulates comments as it is reviewed, so this gets MORE likely the
+// longer a PR is worked on, which is exactly backwards.
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -46,6 +56,14 @@ export const LIFECYCLE_LABELS = STATES.map((s) => `${LABEL_PREFIX}${s}`);
 export const LEGACY_LIFECYCLE_LABELS = ["agent:iterating", "agent:needs-human-review"];
 /** Every label computeLabelSet strips before adding the one new state label. */
 export const MANAGED_LABELS = [...LIFECYCLE_LABELS, ...LEGACY_LIFECYCLE_LABELS];
+
+/**
+ * Bot identities whose paged-latch comment `reconcile` believes: the same
+ * `repo.botLogins` list `rounds.mjs::PAGE_AUTHOR_LOGINS` is. Read from the
+ * harness configuration here rather than imported from `rounds.mjs`, so this
+ * CLI does not pull that module in; `set-state.test.mjs` pins them equal.
+ */
+export const LATCH_AUTHOR_LOGINS = get("repo.botLogins");
 
 /** "reviewing" → "agent:reviewing"; null for an unknown state. */
 export function labelFor(state) {
@@ -133,7 +151,7 @@ export function deriveState(signals = {}) {
 // --- gh-backed CLI ---------------------------------------------------------
 
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8" });
+  return execFileSync("gh", args, { encoding: "utf8", maxBuffer: GH_MAX_BUFFER });
 }
 function ghJson(args) {
   return JSON.parse(gh(args));
@@ -145,7 +163,7 @@ function ghJson(args) {
 function ghMutate(args) {
   const token = process.env.GH_MUTATION_TOKEN;
   const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
-  return execFileSync("gh", args, { encoding: "utf8", env });
+  return execFileSync("gh", args, { encoding: "utf8", env, maxBuffer: GH_MAX_BUFFER });
 }
 
 // Advisory: never break the pipeline. Log and exit 0 on any operational problem.
@@ -246,8 +264,22 @@ function gatherSignals(pr) {
   try {
     const pages = ghJson(["api", "--paginate", "--slurp", `repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`]);
     const comments = Array.isArray(pages) ? pages.flat() : [];
-    sig.ciPagedLatch = comments.some((c) => (c.body || "").includes("<!-- agent-paged -->"));
-    sig.reviewPagedLatch = comments.some((c) => (c.body || "").includes("<!-- agent-review-paged -->"));
+    // AUTHOR-CHECKED, the last read of these markers that was not. The latch
+    // dominates `deriveState`, this repository is public, and the markers are
+    // invisible HTML comments — so a body-only test let any account stamp a PR
+    // `agent:blocked` by quoting one. Same rule as `rounds.mjs`,
+    // `loop-status.mjs` and the two throttles: trust is the AUTHOR, never the
+    // payload.
+    const TRUSTED_LATCH_ASSOC = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+    const wroteTheLatch = (c) => {
+      const o = c && typeof c === "object" ? c : {};
+      const user = o.user && typeof o.user === "object" ? o.user : {};
+      if (user.type === "Bot" && LATCH_AUTHOR_LOGINS.includes(user.login)) return true;
+      return TRUSTED_LATCH_ASSOC.has(String(o.author_association ?? ""));
+    };
+    const latches = comments.filter(wroteTheLatch);
+    sig.ciPagedLatch = latches.some((c) => (c.body || "").includes("<!-- agent-paged -->"));
+    sig.reviewPagedLatch = latches.some((c) => (c.body || "").includes("<!-- agent-review-paged -->"));
   } catch {
     complete = false; // the paged latch dominates deriveState — never guess it
   }
@@ -296,7 +328,7 @@ function bailUsage() {
 }
 
 // Only run the CLI when executed directly (not when imported for tests).
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   const argv = process.argv;
   const dryRun = argv.includes("--dry-run");
   if (argv[2] === "reconcile") {

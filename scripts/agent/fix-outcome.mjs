@@ -7,8 +7,7 @@
 // not converge, when the API had stopped answering. The cause was computed by
 // `classifyFixResult`, but only into the job summary, which nobody paged reads.
 //
-// This runs in a trusted job (js-sdk's `fix-report`, wafflebase's
-// `fix-evidence`), on a runner the agent never had a
+// This runs in the trusted `fix-report` job, on a runner the agent never had a
 // shell on, and decides from the fixer's execution log:
 //
 //   infra  the fixer step FAILED, the branch head is KNOWN not to have
@@ -40,7 +39,8 @@ import { execFileSync } from "node:child_process";
 import { classifyFixResult } from "./metrics.mjs";
 import { PAGED_LATCH } from "./rounds.mjs";
 import { parseArgs } from "./gh-checks.mjs";
-import { isEntryPoint } from "./direct-run.mjs";
+import { RETRYABLE_CODES, usageLimitMarker, MAX_USAGE_RETRIES } from "./loop-sweep.mjs";
+import { isDirectRun } from "./direct-run.mjs";
 
 /**
  * Decide from the execution log and the two facts the workflow knows. Pure.
@@ -65,8 +65,11 @@ export function classifyFixOutcome({ messages, fixer, advanced } = {}) {
 }
 
 function adviceFor(code) {
-  if (code === "USAGE_LIMIT" || code === "RATE_LIMITED" || code === "POOL_EXHAUSTED") {
-    return "An account usage window is closed. It reopens on its own; comment `@claude rerun` once it has, or register more `CLAUDE_CODE_OAUTH_TOKEN_N` secrets so one busy account cannot starve the fixer.";
+  if (RETRYABLE_CODES.includes(code)) {
+    // The sweep (loop-sweep.mjs) reads the marker this page carries and retries
+    // on a backoff, so the human is no longer the alarm clock — but is still told
+    // how to go faster, and that the retries are bounded.
+    return `An account usage window is closed. It reopens on its own, and the loop retries automatically (up to ${MAX_USAGE_RETRIES} times, backing off from an hour). Comment \`@claude rerun\` to retry sooner, or register more \`CLAUDE_CODE_OAUTH_TOKEN_N\` secrets so one busy account cannot starve the fixer.`;
   }
   if (code.startsWith("AUTH_")) {
     return "A Claude credential was refused. Check the `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_N` secrets on the `agent` environment, then comment `@claude rerun`.";
@@ -85,7 +88,10 @@ export function renderInfraPage({ outcome, runUrl = "" }) {
     "",
     runUrl ? `Where to look: [this run](${runUrl}) → job \`fix\`, step "Address panel findings".` : null,
   ].filter((l) => l !== null).join("\n").replace(/<!--/g, "<!-\u200c-");
-  return `${PAGED_LATCH}\n${body}`;
+  // The retry marker goes BEFORE the neutralised body, beside the latch, and is
+  // built from the closed code vocabulary only — nothing from the log reaches it.
+  const retry = RETRYABLE_CODES.includes(outcome.code) ? `${usageLimitMarker({ code: outcome.code })}\n` : "";
+  return `${PAGED_LATCH}\n${retry}${body}`;
 }
 
 function main() {
@@ -124,6 +130,6 @@ function main() {
   out("paged", "true");
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (isDirectRun(import.meta.url)) {
   main();
 }
