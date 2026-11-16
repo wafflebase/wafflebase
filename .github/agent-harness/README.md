@@ -137,6 +137,16 @@ does differently. Each is known and accepted for now:
   a redundant escape in `config-wiring.test.mjs`, a control-character range
   in a `test-removals.mjs` regex. Harmless, but each is a
   rule wafflebase cannot apply to the copy until upstream fixes it.
+- **`disclosure.mjs`'s header is false here.** It says the commit-trailer
+  hook would never fire because no local autonomous arm sets its variable.
+  In wafflebase `/spec-to-pr` is that arm, exports
+  `WAFFLEBASE_AGENT_AUTONOMOUS`, and `scripts/hooks/require-ai-disclosure.sh`
+  fires on it. The paragraph would hold in every adopter if it said the CI
+  workflows set no such variable and left local arms to each repository.
+- **A stale comment in `checks.test.mjs`**: the `workflow_run` consumer test
+  says `agent-iterate-ci.yml` and `ci-report.yml` are not ported and filters
+  by presence; both are present here, so the comment no longer matches what
+  the test covers.
 - **`scripts/ci/summarize-ci.mjs` in yorkie** needs the four rendering fixes
   made here: a cut can leave a fence open; a fence indented by up to three
   spaces is not counted as one when closing it; the lane name and exit code
