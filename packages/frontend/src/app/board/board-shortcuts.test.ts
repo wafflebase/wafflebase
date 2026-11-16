@@ -234,6 +234,19 @@ describe("handleBoardToolKey", () => {
     expect(ctx.fitSelection).toHaveBeenCalledTimes(1);
   });
 
+  it("lets every other Mod chord through untouched", () => {
+    const ctx = setup({ selection: ["a"] });
+    for (const [k, code] of [["a", "KeyA"], ["z", "KeyZ"], ["s", "KeyS"], ["c", "KeyC"], ["/", "Slash"]]) {
+      const e = press(k, { code, metaKey: true, bubbles: true });
+      const stop = vi.spyOn(e, "stopPropagation");
+      expect(handleBoardToolKey(e, ctx)).toBe(false);
+      expect(e.defaultPrevented).toBe(false);
+      expect(stop).not.toHaveBeenCalled();
+    }
+    expect(ctx.zoomStep).not.toHaveBeenCalled();
+    expect(ctx.zoomTo).not.toHaveBeenCalled();
+  });
+
   it("leaves zoom chords to a text edit", () => {
     const ctx = setup({ textEditing: true });
     expect(handleBoardToolKey(press("=", { code: "Equal", metaKey: true }), ctx)).toBe(false);

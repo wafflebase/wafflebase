@@ -43,3 +43,8 @@ that the engine owns.
   H/V special case is gone. Deferred: moving `fitSelection` into the zoom
   binding, and zoom keys during an in-progress insert drag (pre-existing
   for tool keys).
+- Round 3 (the bound): only test-adequacy blocked, on two missing tests.
+  One proves that non-zoom Mod chords (Mod+A/Z/S/C//) pass through the
+  capture handler untouched; the other is a render test for the toolbar
+  Hand toggle and its subscription. Both were added after the round. No
+  fourth round was run, per the loop bound.
