@@ -44,6 +44,7 @@ import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { uploadImageFile } from "./image-upload";
+import { selectionToA1 } from "./rule-panel-utils";
 import { YorkieStore } from "./yorkie-store";
 import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
@@ -53,7 +54,12 @@ import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
 import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
-import { getDefaultChartColumns } from "./chart-utils";
+import {
+  computeNewChartPlacement,
+  detectChartSourceLayout,
+  getDefaultChartColumns,
+  getDefaultChartTitle,
+} from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
 import { SheetLinkPopover } from "./components/SheetLinkPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
@@ -243,6 +249,8 @@ export function SheetView({
   const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
     useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
+  // Bumped per Cmd/Ctrl+F so an already-open find bar refocuses its query.
+  const [findFocusRequest, setFindFocusRequest] = useState(0);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileEditState, setMobileEditState] = useState<{
@@ -473,8 +481,22 @@ export function SheetView({
 
     const chartId = `chart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const sourceRange = `${toSref(range[0])}:${toSref(range[1])}`;
-    const anchor = toSref(range[0]);
-    const defaults = getDefaultChartColumns([range[0], range[1]] as const);
+    const parsed = [range[0], range[1]] as const;
+    const current = doc.getRoot();
+    const defaults = getDefaultChartColumns(
+      parsed,
+      detectChartSourceLayout(current.sheets[tabId], parsed),
+    );
+    const columns = {
+      sourceTabId: tabId,
+      sourceRange,
+      xAxisColumn: defaults.xAxisColumn ?? undefined,
+      seriesColumns: defaults.seriesColumns,
+    };
+    const size = { width: 420, height: 260 };
+    // Beside the data, never on top of it (Google Sheets parity).
+    const placement = computeNewChartPlacement(sheet, parsed, size);
+    const title = getDefaultChartTitle(current, columns);
 
     doc.update((root) => {
       const ws = root.sheets[tabId];
@@ -485,16 +507,10 @@ export function SheetView({
       ws.charts[chartId] = {
         id: chartId,
         type: "bar",
-        title: "Chart",
-        sourceTabId: tabId,
-        sourceRange,
-        xAxisColumn: defaults.xAxisColumn || undefined,
-        seriesColumns: defaults.seriesColumns,
-        anchor,
-        offsetX: 8,
-        offsetY: 8,
-        width: 420,
-        height: 260,
+        title,
+        ...columns,
+        ...placement,
+        ...size,
       } as SheetChart;
     });
 
@@ -766,14 +782,7 @@ export function SheetView({
 
   const getSelectionRange = useCallback(() => {
     const sheet = sheetRef.current;
-    if (!sheet) return null;
-    if (sheet.getSelectionType() !== "cell") return null;
-
-    const ranges = sheet.getSelectionRanges();
-    if (ranges.length === 0) return null;
-    return ranges
-      .map((r) => `${toSref(r[0])}:${toSref(r[1])}`)
-      .join(", ");
+    return sheet ? selectionToA1(sheet) : null;
   }, []);
 
   const handleGridPointerDown = useCallback(
@@ -939,6 +948,7 @@ export function SheetView({
         // nothing will render.
         if (previewing) return;
         setFindBarOpen(true);
+        setFindFocusRequest((n) => n + 1);
       }
       // Open-only (Esc closes via Radix) matches the Slides binding;
       // `e.repeat` is filtered so auto-repeat on a held chord doesn't
@@ -980,6 +990,14 @@ export function SheetView({
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
+  }, []);
+
+  // The shortcut sheet opens from a keyboard chord, so it has no trigger for
+  // Radix to hand focus back to and the keyboard would land on <body>.
+  // Return it to the grid, on the cell that was selected.
+  const handleShortcutsHelpOpenChange = useCallback((open: boolean) => {
+    setShortcutsHelpOpen(open);
+    if (!open) sheetRef.current?.returnFocusToGrid();
   }, []);
 
   // Withholding the find bar unmounts it, and its query lives in its own
@@ -1855,6 +1873,7 @@ export function SheetView({
         <SheetContextMenu
           spreadsheet={sheetRef.current}
           readOnly={readOnly}
+          structureLocked={isPivotTab}
           // Its content is a `document.body` portal at `z-50`, so it leaves
           // this surface box entirely and outranks the overlay — Cut, Paste,
           // Insert, Delete and Insert comment all write the LIVE sheet. The
@@ -1914,12 +1933,13 @@ export function SheetView({
         {findBarOpen && !previewing && (
           <FindBar
             spreadsheet={sheetRef.current}
+            focusRequest={findFocusRequest}
             onClose={handleFindBarClose}
           />
         )}
         <SheetsShortcutsHelp
           open={shortcutsHelpOpen}
-          onOpenChange={setShortcutsHelpOpen}
+          onOpenChange={handleShortcutsHelpOpenChange}
         />
         {paintFormatSourceIndicator}
         {root && hasCharts && (

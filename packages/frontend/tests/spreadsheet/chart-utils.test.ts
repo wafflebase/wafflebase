@@ -100,7 +100,9 @@ describe("chart category/label formatting", () => {
 
   test("series/header titles stay raw even in a formatted column", () => {
     // A numeric-looking header in a number-formatted column must NOT be
-    // reformatted — it's an identifier, not a data label.
+    // reformatted — it's an identifier, not a data label. (The text "Units"
+    // header beside it is what marks row 1 as a header row: a numeric cell
+    // over numbers alone reads as data.)
     const doc = makeDoc(
       [
         [{ r: 1, c: 1 }, { v: "Region" }],
@@ -109,10 +111,13 @@ describe("chart category/label formatting", () => {
         [{ r: 1, c: 2 }, { v: "2025" }],
         [{ r: 2, c: 2 }, { v: "100" }],
         [{ r: 3, c: 2 }, { v: "200" }],
+        [{ r: 1, c: 3 }, { v: "Units" }],
+        [{ r: 2, c: 3 }, { v: "5" }],
+        [{ r: 3, c: 3 }, { v: "6" }],
       ],
       { "2": { nf: "number", dp: 2 } },
     );
-    const dataset = buildChartDataset(doc, chart);
+    const dataset = buildChartDataset(doc, { ...chart, sourceRange: "A1:C3" });
     // Series label is the raw header "2025", not "2,025.00".
     expect(dataset.series[0].label).toBe("2025");
     // But the numeric values are still charted.

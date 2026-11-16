@@ -1120,6 +1120,38 @@ export class Sheet {
   }
 
   /**
+   * `clearSpillGhosts` is the cleanup owed before a spill anchor at `ref` is
+   * overwritten or deleted: drop its blocker registrations and, if it spilled,
+   * the ghost cells it still owns. Blocked anchors wrote no ghosts, and only
+   * cells pointing back at THIS anchor are deleted — see calculator.ts cleanup
+   * contract. Cleared ghost positions are added to `changedSrefs` when given.
+   */
+  private async clearSpillGhosts(
+    ref: Ref,
+    cell: Cell | undefined,
+    changedSrefs?: Set<Sref>,
+  ): Promise<void> {
+    if (!cell) return;
+    const anchorSref = toSref(ref);
+    if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+      this.clearSpillBlockers(anchorSref);
+      for (let dr = 0; dr < cell.spillRows; dr++) {
+        for (let dc = 0; dc < cell.spillCols; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+          const ghostCell = await this.store.get(ghostRef);
+          if (ghostCell?.spillAnchor === anchorSref) {
+            await this.store.delete(ghostRef);
+            changedSrefs?.add(toSref(ghostRef));
+          }
+        }
+      }
+    } else if (cell.spillBlocked) {
+      this.clearSpillBlockers(anchorSref);
+    }
+  }
+
+  /**
    * `setOnRefusal` registers a callback fired when a range gesture is refused
    * (used to surface a message instead of a silent no-op).
    */
@@ -1208,28 +1240,7 @@ export class Sheet {
       if (existing?.spillAnchor) return;
 
       // Clear ghost cells from any previous spill before overwriting the anchor.
-      // Skip blocked anchors (no ghosts were ever written) and only delete cells
-      // still owned by THIS anchor — see calculator.ts cleanup contract.
-      if (
-        existing?.spillRows &&
-        existing?.spillCols &&
-        !existing.spillBlocked
-      ) {
-        const anchorSref = toSref(target);
-        this.clearSpillBlockers(anchorSref);
-        for (let dr = 0; dr < existing.spillRows; dr++) {
-          for (let dc = 0; dc < existing.spillCols; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const ghostRef = { r: target.r + dr, c: target.c + dc };
-            const ghostCell = await this.store.get(ghostRef);
-            if (ghostCell?.spillAnchor === anchorSref) {
-              await this.store.delete(ghostRef);
-            }
-          }
-        }
-      } else if (existing?.spillBlocked) {
-        this.clearSpillBlockers(toSref(target));
-      }
+      await this.clearSpillGhosts(target, existing);
 
       const cell = cellFromInput(value, existing?.s);
 
@@ -1288,23 +1299,7 @@ export class Sheet {
         const ref = parseRef(sref);
 
         // Anchor cell being deleted: clear all its ghost cells first.
-        // Skip blocked anchors (no ghosts were ever written) and only delete
-        // cells still owned by THIS anchor — see calculator.ts cleanup contract.
-        if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
-          this.clearSpillBlockers(sref);
-          for (let dr = 0; dr < cell.spillRows; dr++) {
-            for (let dc = 0; dc < cell.spillCols; dc++) {
-              if (dr === 0 && dc === 0) continue;
-              const ghostRef = { r: ref.r + dr, c: ref.c + dc };
-              const ghostCell = await this.store.get(ghostRef);
-              if (ghostCell?.spillAnchor === sref) {
-                await this.store.delete(ghostRef);
-              }
-            }
-          }
-        } else if (cell.spillBlocked) {
-          this.clearSpillBlockers(sref);
-        }
+        await this.clearSpillGhosts(ref, cell);
 
         if (cell.s && Object.keys(cell.s).length > 0) {
           // Preserve style, clear value and formula.
@@ -2835,22 +2830,7 @@ export class Sheet {
       if (cell.spillAnchor) continue;
       // Clearing a spill anchor would orphan its ghosts, so drop them first —
       // the same cleanup contract `removeData` follows.
-      if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
-        this.clearSpillBlockers(sref);
-        for (let dr = 0; dr < cell.spillRows; dr++) {
-          for (let dc = 0; dc < cell.spillCols; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const ghostRef = { r: ref.r + dr, c: ref.c + dc };
-            const ghostCell = await this.store.get(ghostRef);
-            if (ghostCell?.spillAnchor === sref) {
-              await this.store.delete(ghostRef);
-              changedSrefs.add(toSref(ghostRef));
-            }
-          }
-        }
-      } else if (cell.spillBlocked) {
-        this.clearSpillBlockers(sref);
-      }
+      await this.clearSpillGhosts(ref, cell, changedSrefs);
       if (cell.s && Object.keys(cell.s).length > 0) {
         await this.store.set(ref, { s: cell.s });
       } else {
@@ -3317,6 +3297,102 @@ export class Sheet {
     this.ranges = [fillRange];
     this.syncSelectionToPresence();
     return true;
+  }
+
+  /**
+   * `fill` is Google Sheets' Cmd/Ctrl+D (`down`) and Cmd/Ctrl+R (`right`):
+   * the first row (or column) of the selection is copied verbatim over the
+   * rest of it, formulas relocated by the offset. A selection one row (or
+   * column) deep copies from the row above (column to the left) instead.
+   * Unlike `autofill` it never extrapolates a series. One batch, so one undo
+   * step; the selection is left as it was.
+   */
+  public async fill(direction: 'down' | 'right'): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const range = this.getRangeOrActiveCell();
+    const down = direction === 'down';
+    const first = down ? range[0].r : range[0].c;
+    const last = down ? range[1].r : range[1].c;
+    const sourceLine = first === last ? first - 1 : first;
+    if (sourceLine < 1) {
+      return false;
+    }
+    const targets: Range = down
+      ? [{ r: sourceLine + 1, c: range[0].c }, range[1]]
+      : [{ r: range[0].r, c: sourceLine + 1 }, range[1]];
+    const source: Range = down
+      ? [{ r: sourceLine, c: range[0].c }, { r: sourceLine, c: range[1].c }]
+      : [{ r: range[0].r, c: sourceLine }, { r: range[1].r, c: sourceLine }];
+
+    if (this.getMergesIntersecting(targets).length > 0) {
+      this.refuse('merge-autofill');
+      return false;
+    }
+
+    const sourceGrid = await this.store.getGrid(source);
+    const changedSrefs = new Set<Sref>();
+    const unblockedAnchors = new Set<Sref>();
+
+    this.store.beginBatch();
+    try {
+      for (let r = targets[0].r; r <= targets[1].r; r++) {
+        for (let c = targets[0].c; c <= targets[1].c; c++) {
+          const dest = { r, c };
+          const existing = await this.store.get(dest);
+          // Ghost cells are read-only — never write into a spill position.
+          if (existing?.spillAnchor) continue;
+
+          const sourceRef = down ? { r: sourceLine, c } : { r, c: sourceLine };
+          const sourceCell = sourceGrid.get(toSref(sourceRef));
+          const nextCell = sourceCell
+            ? cloneCellForAutofill(
+                sourceCell,
+                dest.r - sourceRef.r,
+                dest.c - sourceRef.c,
+              )
+            : undefined;
+
+          if ((!nextCell || isEmptyCell(nextCell)) && !existing) continue;
+
+          // Overwriting a spill anchor would orphan its ghosts — drop them
+          // first, the cleanup contract `setData` and `removeData` follow.
+          await this.clearSpillGhosts(dest, existing, changedSrefs);
+          if (!nextCell || isEmptyCell(nextCell)) {
+            await this.store.delete(dest);
+          } else {
+            await this.store.set(dest, nextCell);
+          }
+          const destSref = toSref(dest);
+          changedSrefs.add(destSref);
+
+          // If this cell was blocking a spill, let that anchor re-attempt it.
+          const blockedAnchor = this.consumeSpillBlocker(destSref);
+          if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
+        }
+      }
+
+      if (changedSrefs.size > 0) {
+        this.invalidateCrossSheetCache();
+        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+        const dependantsMap = await this.store.buildDependantsMap(expanded);
+        for (const anchor of unblockedAnchors) {
+          expanded.add(anchor);
+          if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+        }
+        await calculate(this, dependantsMap, expanded);
+      }
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    return changedSrefs.size > 0;
   }
 
   /**
@@ -3815,11 +3891,43 @@ export class Sheet {
   }
 
   /**
-   * `expandFilterRangeForHeaderOnlySelection` extends a single-row selection
-   * downward to contiguous data rows in the selected columns.
+   * `expandToCurrentRegion` grows `range` while any of its four edges touches
+   * a populated cell — the "current region" Ctrl+A selects first.
+   */
+  private async expandToCurrentRegion(range: Range): Promise<Range> {
+    let curr = cloneRange(range);
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const border of toBorderRanges(curr, this.dimensionRange)) {
+        if (!(await this.hasContents(border))) {
+          continue;
+        }
+
+        curr = mergeRanges(curr, border);
+        expanded = true;
+      }
+    }
+    return curr;
+  }
+
+  /**
+   * `expandFilterRangeForHeaderOnlySelection` decides the filter range when
+   * the selection alone does not describe a table:
+   *
+   * - a single cell expands to its contiguous data region in all four
+   *   directions, as Google Sheets does (a filter made from A1 of a table
+   *   covers the table, not column A);
+   * - a single row of headers extends downward through contiguous data rows
+   *   in the selected columns.
+   *
+   * Any other explicit selection is the range the user meant.
    */
   private async expandFilterRangeForHeaderOnlySelection(range: Range): Promise<Range> {
     const normalized = toRange(range[0], range[1]);
+    if (isSameRef(normalized[0], normalized[1])) {
+      return this.expandToCurrentRegion(normalized);
+    }
     if (normalized[0].r !== normalized[1].r) {
       return normalized;
     }
@@ -4235,21 +4343,8 @@ export class Sheet {
    * `selectAll` selects all the cells in the sheet.
    */
   async selectAll(): Promise<void> {
-    let prev = this.getRangeOrActiveCell();
-    let curr = cloneRange(prev);
-
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const border of toBorderRanges(curr, this.dimensionRange)) {
-        if (!(await this.hasContents(border))) {
-          continue;
-        }
-
-        curr = mergeRanges(curr, border);
-        expanded = true;
-      }
-    }
+    const prev = this.getRangeOrActiveCell();
+    const curr = await this.expandToCurrentRegion(prev);
 
     if (isSameRange(prev, curr)) {
       this.ranges = [cloneRange(this.dimensionRange)];

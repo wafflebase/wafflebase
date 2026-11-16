@@ -20,6 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
+| sheets usability pass (2026-11-16) | [20261116-sheets-usability-pass-todo.md](./active/20261116-sheets-usability-pass-todo.md) | [20261116-sheets-usability-pass-lessons.md](./active/20261116-sheets-usability-pass-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./active/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./active/20261115-agent-harness-switch-lessons.md) |
 | docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./active/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./active/20261115-docs-site-brand-neutrals-lessons.md) |

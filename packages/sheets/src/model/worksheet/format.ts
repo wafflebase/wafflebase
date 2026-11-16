@@ -107,7 +107,25 @@ function parseDateValue(
   return { date: parsed, hasTime: false };
 }
 
-function safeFormatDate(value: string, _locale: string): string {
+type DatePart = 'date' | 'time' | 'datetime';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * `safeFormatDate` renders a date string as the requested part. `date` keeps
+ * the time when the value carries one (the behavior documents already rely
+ * on); `time` and `datetime` always show it, midnight for a date-only value.
+ *
+ * The model stores dates as strings, never as serial numbers, so a bare number
+ * under `time`/`datetime` passes through untouched rather than being read by
+ * `Date`'s permissive parser as some arbitrary year.
+ */
+function safeFormatDate(value: string, part: DatePart): string {
+  if (part !== 'date' && !isNaN(Number(value))) {
+    return value;
+  }
   const result = parseDateValue(value);
   if (!result) {
     return value;
@@ -115,15 +133,72 @@ function safeFormatDate(value: string, _locale: string): string {
 
   const { date, hasTime } = result;
   const year = String(date.getFullYear()).padStart(4, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  if (!hasTime) {
-    return `${year}-${month}-${day}`;
+  const ymd = `${year}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  const hms = `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(
+    date.getSeconds(),
+  )}`;
+  if (part === 'time') {
+    return hms;
   }
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  const second = String(date.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  if (part === 'datetime' || hasTime) {
+    return `${ymd} ${hms}`;
+  }
+  return ymd;
+}
+
+/**
+ * `formatScientific` renders `1234.5` as `1.23E+03`: a mantissa with exactly
+ * `decimals` fraction digits and a signed, at-least-two-digit exponent, the
+ * shape Google Sheets and Excel use for `0.00E+00`.
+ */
+function formatScientific(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+  const [mantissa, exponent] = value.toExponential(decimals).split('e');
+  const exp = Number(exponent);
+  const sign = exp < 0 ? '-' : '+';
+  return `${mantissa}E${sign}${String(Math.abs(exp)).padStart(2, '0')}`;
+}
+
+/**
+ * `formatAccounting` renders a currency with negatives in parentheses and zero
+ * as a dash (`$ -`), the accounting convention. The digits come from the same
+ * `Intl` currency format `currency` uses, so separators and symbol placement
+ * follow the locale.
+ */
+function formatAccounting(
+  value: number,
+  locale: string,
+  options: Intl.NumberFormatOptions,
+): string {
+  const accounting: Intl.NumberFormatOptions = {
+    ...options,
+    style: 'currency',
+    currencySign: 'accounting',
+  };
+  if (value !== 0) {
+    return safeFormat(value, locale, accounting);
+  }
+  let parts: Intl.NumberFormatPart[];
+  try {
+    parts = new Intl.NumberFormat(locale, accounting).formatToParts(0);
+  } catch {
+    return safeFormat(value, locale, accounting);
+  }
+  const numeric = new Set(['integer', 'group', 'decimal', 'fraction']);
+  let out = '';
+  let dashed = false;
+  for (const part of parts) {
+    if (!numeric.has(part.type)) {
+      out += part.value;
+    } else if (!dashed) {
+      out += '-';
+      dashed = true;
+    }
+  }
+  // Keep the dash visibly apart from an adjacent symbol: `$ -`, not `$-`.
+  return out.replace(/(\S)-/, '$1 -').replace(/-(\S)/, '- $1');
 }
 
 /**
@@ -146,7 +221,7 @@ export function decimalsInValue(value?: string): number {
  * `Intl` applies that convention, so anything reporting what such a cell shows
  * has to ask `Intl` the same question.
  */
-function currencyDecimals(locale: string, currency: string): number {
+export function currencyDecimals(locale: string, currency: string): number {
   try {
     const resolved = new Intl.NumberFormat(locale, {
       style: 'currency',
@@ -167,10 +242,11 @@ function currencyDecimals(locale: string, currency: string): number {
  * caller asking "does this still have a decimal to drop?" has to see those two
  * digits.
  *
- * Formats that pass the value through untouched (`plain`, `date`, none) report
- * the value's own precision. The numeric formats report their stored `dp`; with
- * none stored, `number`/`percent` render 2 digits and a `currency` renders its
- * own convention — which is what `formatValue` does for the same input.
+ * Formats that pass the value through untouched (`plain`, the date formats,
+ * none) report the value's own precision. The numeric formats report their
+ * stored `dp`; with none stored, `number`/`percent`/`scientific`/`financial`
+ * render 2 digits and `currency`/`accounting` render the currency's own
+ * convention — which is what `formatValue` does for the same input.
  */
 export function renderedDecimals(
   value: string,
@@ -178,10 +254,16 @@ export function renderedDecimals(
   options?: FormatValueOptions,
 ): number {
   const nf = style?.nf;
-  if (!nf || nf === 'plain' || nf === 'date') {
+  if (
+    !nf ||
+    nf === 'plain' ||
+    nf === 'date' ||
+    nf === 'time' ||
+    nf === 'datetime'
+  ) {
     return decimalsInValue(value);
   }
-  if (nf === 'currency' && style?.dp === undefined) {
+  if ((nf === 'currency' || nf === 'accounting') && style?.dp === undefined) {
     const locale = options?.locale ?? resolveSystemLocale();
     return currencyDecimals(
       locale,
@@ -248,8 +330,40 @@ export function formatValue(
         maximumFractionDigits: decimals,
       });
     }
+    case 'scientific': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      return formatScientific(num, decimals);
+    }
+    case 'financial': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      const options: Intl.NumberFormatOptions = {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      };
+      const digits = safeFormat(Math.abs(num), locale, options);
+      // A value that rounds to zero shows no parentheses: `(0.00)` would
+      // claim a debit the digits do not show. Compared against zero rendered
+      // through the same Intl path, so the decision rounds exactly as the
+      // displayed digits do and holds in locales without ASCII digits.
+      const roundsToZero = digits === safeFormat(0, locale, options);
+      return num < 0 && !roundsToZero ? `(${digits})` : digits;
+    }
+    case 'accounting': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      const accounting: Intl.NumberFormatOptions = { currency };
+      if (dp !== undefined) {
+        accounting.minimumFractionDigits = decimals;
+        accounting.maximumFractionDigits = decimals;
+      }
+      return formatAccounting(num, locale, accounting);
+    }
     case 'date':
-      return safeFormatDate(value, locale);
+    case 'time':
+    case 'datetime':
+      return safeFormatDate(value, format);
     default:
       return value;
   }

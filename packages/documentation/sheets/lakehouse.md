@@ -11,7 +11,8 @@ Lakehouse connections live alongside database connections; see
 
 ## Create a Lakehouse Tab
 
-1. Click the **+** at the end of the tab bar and choose **New lakehouse**.
+1. Click the small arrow next to the **+** at the end of the tab bar and choose
+   **Connect lakehouse table…**.
 2. The **Select lakehouse** dialog lists the Lakehouse connections your
    workspace already has. Click one to select it and click **Select**
    (double-clicking a connection does both), or click **New connection** to set

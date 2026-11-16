@@ -4,7 +4,11 @@ import {
   palette,
   readableTextColor,
 } from '@wafflebase/core/tokens';
-import { DarkTheme, LightTheme } from '../../src/view/theme';
+import {
+  DarkTheme,
+  LightTheme,
+  getCellTextColor,
+} from '../../src/view/theme';
 
 /**
  * Chrome colors come from the core palette (DESIGN.md, the Canvas Hex Rule).
@@ -36,5 +40,43 @@ describe('sheets theme', () => {
         expect(ratio, `${name}.${key} ${bg}`).toBeGreaterThanOrEqual(4.5);
       }
     }
+  });
+});
+
+describe('getCellTextColor', () => {
+  const light = LightTheme.cellTextColor;
+  const dark = DarkTheme.cellTextColor;
+
+  it('follows the theme for an unfilled cell', () => {
+    expect(getCellTextColor('light', light, undefined)).toBe(light);
+    expect(getCellTextColor('dark', dark, undefined)).toBe(dark);
+  });
+
+  it('keeps the authored ink on any fill in light mode', () => {
+    // Google Sheets parity: a dark fill keeps black text unless tc says not.
+    expect(getCellTextColor('light', light, '#1155CC')).toBe(light);
+  });
+
+  it('puts the authored ink on a pale fill in dark mode', () => {
+    expect(getCellTextColor('dark', dark, '#B7E1CD')).toBe(light);
+    expect(getCellTextColor('dark', dark, '#ffe')).toBe(light);
+    expect(getCellTextColor('dark', dark, 'rgba(255, 242, 204, 1)')).toBe(
+      light,
+    );
+  });
+
+  it('keeps the dark ink on a dark fill in dark mode', () => {
+    expect(getCellTextColor('dark', dark, '#1155CC')).toBe(dark);
+    expect(getCellTextColor('dark', dark, '#000000')).toBe(dark);
+  });
+
+  it('falls back to the theme ink for a fill it cannot read', () => {
+    expect(getCellTextColor('dark', dark, 'transparent')).toBe(dark);
+  });
+
+  it('lets an explicit text color win', () => {
+    expect(getCellTextColor('dark', dark, '#B7E1CD', '#FF0000')).toBe(
+      '#FF0000',
+    );
   });
 });

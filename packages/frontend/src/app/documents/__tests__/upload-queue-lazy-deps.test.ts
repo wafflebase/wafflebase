@@ -58,6 +58,9 @@ describe("upload queue lazy default deps: real modules", () => {
   // The cases below replace each module with a factory, which would keep
   // passing if the real export were renamed or the module moved. These
   // read the real modules through the same specifiers the wrappers use.
+  // A cold import transforms the whole graph (the pptx importer alone takes
+  // ~5s once the suite runs in parallel), so the default 5s budget times out
+  // on load rather than on anything these cases assert.
   it.each([
     ["@/app/spreadsheet/sheet-import-actions", "importSheetFile"],
     ["@/app/docs/docx-actions", "importDocx"],
@@ -66,7 +69,7 @@ describe("upload queue lazy default deps: real modules", () => {
   ])("%s exports %s", async (specifier, name) => {
     const real = await vi.importActual<Record<string, unknown>>(specifier);
     expect(typeof real[name]).toBe("function");
-  });
+  }, 30_000);
 });
 
 describe("upload queue lazy default deps", () => {

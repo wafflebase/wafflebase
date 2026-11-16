@@ -1,6 +1,12 @@
 import { CellStyle } from '../model/core/types';
 import { extractTokens } from '../formula/formula';
-import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
+import {
+  Theme,
+  ThemeKey,
+  getCellTextColor,
+  getThemeColor,
+  getFormulaRangeColor,
+} from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';
 import { escapeHTML } from './utils/html';
 import {
@@ -242,7 +248,14 @@ export class CellInput {
       ? decorations.join(' ')
       : 'none';
 
-    this.input.style.color = style?.tc || this.getThemeColor('cellTextColor');
+    // Same ink rule as the painted cell, so entering edit mode on a filled
+    // cell does not flip its text color.
+    this.input.style.color = getCellTextColor(
+      this.theme,
+      this.getThemeColor('cellTextColor'),
+      style?.bg,
+      style?.tc,
+    );
     this.input.style.backgroundColor =
       style?.bg || this.getThemeColor('cellBGColor');
     this.input.style.textAlign = style?.al || 'left';

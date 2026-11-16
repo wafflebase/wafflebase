@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import type { Spreadsheet } from "@wafflebase/sheets";
-import { toColumnLabel, inRange } from "@wafflebase/sheets";
+import {
+  toColumnLabel,
+  inRange,
+  MaxSnappedFreeze,
+} from "@wafflebase/sheets";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,6 +26,8 @@ import {
   IconEyeOff,
   IconEye,
   IconListCheck,
+  IconSnowflake,
+  IconSnowflakeOff,
 } from "@tabler/icons-react";
 
 type MenuType = "cell" | "row" | "column";
@@ -32,10 +38,34 @@ interface SelectionInfo {
   to: number;
 }
 
+/**
+ * The rows and columns a cell-menu right-click acts on: the span of the
+ * selection (or the active cell), normalized so a range drawn bottom-up
+ * still reads top-to-bottom.
+ */
+interface CellSpan {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+interface FreezeInfo {
+  frozenRows: number;
+  frozenCols: number;
+}
+
 interface SheetContextMenuProps {
   children: React.ReactNode;
   spreadsheet: Spreadsheet | undefined;
   readOnly?: boolean;
+  /**
+   * Refuses row/column insert and delete while leaving the rest of the menu
+   * alone. A pivot output tab is the case: its cells are materialized from
+   * the pivot definition, and `Sheet.insertRows` & co. already no-op there, so
+   * an enabled item would be a click that silently does nothing.
+   */
+  structureLocked?: boolean;
   /**
    * Withholds the menu without unmounting the grid it wraps.
    *
@@ -65,6 +95,7 @@ export function SheetContextMenu({
   children,
   spreadsheet,
   readOnly = false,
+  structureLocked = false,
   disabled = false,
   onCopy,
   onCut,
@@ -84,6 +115,11 @@ export function SheetContextMenu({
     null,
   );
   const [adjacentHidden, setAdjacentHidden] = useState<number[]>([]);
+  const [cellSpan, setCellSpan] = useState<CellSpan | null>(null);
+  const [freeze, setFreeze] = useState<FreezeInfo>({
+    frozenRows: 0,
+    frozenCols: 0,
+  });
 
   const updateMenuState = useCallback(
     (clientX: number, clientY: number) => {
@@ -130,6 +166,19 @@ export function SheetContextMenu({
 
       const sel = spreadsheet.getSelectedIndices();
       setSelectionInfo(sel);
+      setFreeze(spreadsheet.getFreezePane());
+
+      const range = spreadsheet.getSelectionRangeOrActiveCell();
+      setCellSpan(
+        range
+          ? {
+              top: Math.min(range[0].r, range[1].r),
+              bottom: Math.max(range[0].r, range[1].r),
+              left: Math.min(range[0].c, range[1].c),
+              right: Math.max(range[0].c, range[1].c),
+            }
+          : null,
+      );
 
       if (type === "row" && sel?.axis === "row") {
         setAdjacentHidden(
@@ -182,6 +231,73 @@ export function SheetContextMenu({
     }
   }, [spreadsheet, adjacentHidden, menuType]);
 
+  // The cell menu's structural edits run the same `Spreadsheet` operations
+  // the header menu reaches through `onInsertBefore` & co.; they only differ
+  // in where the span comes from — a cell range rather than whole headers.
+  const handleCellInsertRows = useCallback(
+    async (where: "above" | "below") => {
+      if (!spreadsheet || !cellSpan) return;
+      await spreadsheet.insertRows(
+        where === "above" ? cellSpan.top : cellSpan.bottom + 1,
+        cellSpan.bottom - cellSpan.top + 1,
+      );
+    },
+    [spreadsheet, cellSpan],
+  );
+
+  const handleCellInsertColumns = useCallback(
+    async (where: "left" | "right") => {
+      if (!spreadsheet || !cellSpan) return;
+      await spreadsheet.insertColumns(
+        where === "left" ? cellSpan.left : cellSpan.right + 1,
+        cellSpan.right - cellSpan.left + 1,
+      );
+    },
+    [spreadsheet, cellSpan],
+  );
+
+  const handleCellDeleteRows = useCallback(async () => {
+    if (!spreadsheet || !cellSpan) return;
+    await spreadsheet.deleteRows(
+      cellSpan.top,
+      cellSpan.bottom - cellSpan.top + 1,
+    );
+  }, [spreadsheet, cellSpan]);
+
+  const handleCellDeleteColumns = useCallback(async () => {
+    if (!spreadsheet || !cellSpan) return;
+    await spreadsheet.deleteColumns(
+      cellSpan.left,
+      cellSpan.right - cellSpan.left + 1,
+    );
+  }, [spreadsheet, cellSpan]);
+
+  // Freezing goes through `setFreezePane`, the same single store write the
+  // corner drag handle makes, so it is one undo step. Only the axis the menu
+  // was opened on changes; the other keeps its current boundary. That
+  // boundary is read at click time, not from the snapshot taken when the menu
+  // opened: `setFreezePane` writes both axes, so a stale value would revert a
+  // change a collaborator made to the other axis while the menu was open.
+  const handleFreeze = useCallback(
+    async (line: number) => {
+      if (!spreadsheet) return;
+      const current = spreadsheet.getFreezePane();
+      if (menuType === "row") {
+        await spreadsheet.setFreezePane(line, current.frozenCols);
+      } else if (menuType === "column") {
+        await spreadsheet.setFreezePane(current.frozenRows, line);
+      }
+    },
+    [spreadsheet, menuType],
+  );
+
+  const structuralDisabled = readOnly || structureLocked;
+
+  const cellRows = cellSpan ? cellSpan.bottom - cellSpan.top + 1 : 1;
+  const cellCols = cellSpan ? cellSpan.right - cellSpan.left + 1 : 1;
+  const cellRowLabel = cellRows > 1 ? `${cellRows} rows` : "row";
+  const cellColLabel = cellCols > 1 ? `${cellCols} columns` : "column";
+
   const count =
     selectionInfo && menuType === selectionInfo.axis
       ? selectionInfo.to - selectionInfo.from + 1
@@ -189,6 +305,18 @@ export function SheetContextMenu({
 
   const rowLabel = count > 1 ? `${count} rows` : "row";
   const colLabel = count > 1 ? `${count} columns` : "column";
+
+  // "Freeze up to row N" freezes through the last header of the selection.
+  // Past `MaxSnappedFreeze` the model refuses the boundary (see `merging.ts`),
+  // so the item is withheld rather than offered and then undone.
+  const freezeLine =
+    selectionInfo && menuType === selectionInfo.axis ? selectionInfo.to : 0;
+  const currentFreeze =
+    menuType === "row" ? freeze.frozenRows : freeze.frozenCols;
+  const canFreeze =
+    freezeLine > 0 &&
+    freezeLine <= MaxSnappedFreeze &&
+    freezeLine !== currentFreeze;
 
   const showLabel = (() => {
     if (adjacentHidden.length === 0) return "";
@@ -226,7 +354,45 @@ export function SheetContextMenu({
               <IconClipboard size={16} /> Paste
             </ContextMenuItem>
             <ContextMenuItem disabled={readOnly} onSelect={onDeleteCellData}>
-              <IconTrash size={16} /> Delete
+              <IconTrash size={16} /> Delete values
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={() => handleCellInsertRows("above")}
+            >
+              <IconRowInsertTop size={16} /> Insert {cellRowLabel} above
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={() => handleCellInsertRows("below")}
+            >
+              <IconRowInsertBottom size={16} /> Insert {cellRowLabel} below
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={() => handleCellInsertColumns("left")}
+            >
+              <IconColumnInsertLeft size={16} /> Insert {cellColLabel} left
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={() => handleCellInsertColumns("right")}
+            >
+              <IconColumnInsertRight size={16} /> Insert {cellColLabel} right
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={handleCellDeleteRows}
+            >
+              <IconTrash size={16} /> Delete {cellRowLabel}
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={structuralDisabled}
+              onSelect={handleCellDeleteColumns}
+            >
+              <IconTrash size={16} /> Delete {cellColLabel}
             </ContextMenuItem>
             {onInsertComment && (
               <>
@@ -270,13 +436,13 @@ export function SheetContextMenu({
         )}
         {menuType === "row" && (
           <>
-            <ContextMenuItem disabled={readOnly} onSelect={onInsertBefore}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onInsertBefore}>
               <IconRowInsertTop size={16} /> Insert {rowLabel} above
             </ContextMenuItem>
-            <ContextMenuItem disabled={readOnly} onSelect={onInsertAfter}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onInsertAfter}>
               <IconRowInsertBottom size={16} /> Insert {rowLabel} below
             </ContextMenuItem>
-            <ContextMenuItem disabled={readOnly} onSelect={onDeleteRowCol}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onDeleteRowCol}>
               <IconTrash size={16} /> Delete {rowLabel}
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -291,17 +457,34 @@ export function SheetContextMenu({
                 <IconEye size={16} /> {showLabel}
               </ContextMenuItem>
             )}
+            {(canFreeze || currentFreeze > 0) && <ContextMenuSeparator />}
+            {canFreeze && (
+              <ContextMenuItem
+                disabled={readOnly}
+                onSelect={() => handleFreeze(freezeLine)}
+              >
+                <IconSnowflake size={16} /> Freeze up to row {freezeLine}
+              </ContextMenuItem>
+            )}
+            {currentFreeze > 0 && (
+              <ContextMenuItem
+                disabled={readOnly}
+                onSelect={() => handleFreeze(0)}
+              >
+                <IconSnowflakeOff size={16} /> Unfreeze rows
+              </ContextMenuItem>
+            )}
           </>
         )}
         {menuType === "column" && (
           <>
-            <ContextMenuItem disabled={readOnly} onSelect={onInsertBefore}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onInsertBefore}>
               <IconColumnInsertLeft size={16} /> Insert {colLabel} left
             </ContextMenuItem>
-            <ContextMenuItem disabled={readOnly} onSelect={onInsertAfter}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onInsertAfter}>
               <IconColumnInsertRight size={16} /> Insert {colLabel} right
             </ContextMenuItem>
-            <ContextMenuItem disabled={readOnly} onSelect={onDeleteRowCol}>
+            <ContextMenuItem disabled={structuralDisabled} onSelect={onDeleteRowCol}>
               <IconTrash size={16} /> Delete {colLabel}
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -314,6 +497,23 @@ export function SheetContextMenu({
                 onSelect={handleShowRowCol}
               >
                 <IconEye size={16} /> {showLabel}
+              </ContextMenuItem>
+            )}
+            {(canFreeze || currentFreeze > 0) && <ContextMenuSeparator />}
+            {canFreeze && (
+              <ContextMenuItem
+                disabled={readOnly}
+                onSelect={() => handleFreeze(freezeLine)}
+              >
+                <IconSnowflake size={16} /> Freeze up to column {toColumnLabel(freezeLine)}
+              </ContextMenuItem>
+            )}
+            {currentFreeze > 0 && (
+              <ContextMenuItem
+                disabled={readOnly}
+                onSelect={() => handleFreeze(0)}
+              >
+                <IconSnowflakeOff size={16} /> Unfreeze columns
               </ContextMenuItem>
             )}
           </>

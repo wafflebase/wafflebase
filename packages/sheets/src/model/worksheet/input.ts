@@ -386,7 +386,7 @@ export function defaultAlign(rawValue: string, nf?: NumberFormat): TextAlign {
   if (rawValue === 'TRUE' || rawValue === 'FALSE') {
     return 'center';
   }
-  if (nf === 'date') {
+  if (nf === 'date' || nf === 'time' || nf === 'datetime') {
     return 'right';
   }
   const inferred = inferInput(rawValue);

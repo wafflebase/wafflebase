@@ -213,7 +213,7 @@ describe('Worksheet.initialize', () => {
     ).call(
       {
         ...ctx,
-        formulaBar: { initialize: () => {} },
+        formulaBar: { initialize: () => {}, setNameBoxHandlers: () => {} },
         addEventListeners: () => {},
         resizeObserver: { observe: () => {} },
         render: () => {},

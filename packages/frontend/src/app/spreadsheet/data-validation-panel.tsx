@@ -6,8 +6,6 @@ import {
   validationOperandCount,
   Range,
   Spreadsheet,
-  parseRef,
-  toSref,
   normalizeListOptions,
 } from "@wafflebase/sheets";
 import { toast } from "sonner";
@@ -26,6 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  formatA1Ranges,
+  panelOpeningFor,
+  parseA1Ranges,
+} from "./rule-panel-utils";
 
 type DataValidationPanelProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -33,44 +36,6 @@ type DataValidationPanelProps = {
   onClose: () => void;
   getSelectionRange: () => string | null;
 };
-
-// A1-range parsing/formatting — same shape as ConditionalFormatPanel.
-function parseA1Ranges(input: string): Range[] | null {
-  const segments = input
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (segments.length === 0) {
-    return null;
-  }
-  const ranges: Range[] = [];
-  for (const segment of segments) {
-    const tokens = segment
-      .toUpperCase()
-      .replace(/\$/g, "")
-      .split(":")
-      .map((token) => token.trim())
-      .filter(Boolean);
-    if (tokens.length !== 2) {
-      return null;
-    }
-    try {
-      const a = parseRef(tokens[0]);
-      const b = parseRef(tokens[1]);
-      ranges.push([
-        { r: Math.min(a.r, b.r), c: Math.min(a.c, b.c) },
-        { r: Math.max(a.r, b.r), c: Math.max(a.c, b.c) },
-      ]);
-    } catch {
-      return null;
-    }
-  }
-  return ranges;
-}
-
-function formatA1Ranges(ranges: Range[]): string {
-  return ranges.map((r) => `${toSref(r[0])}:${toSref(r[1])}`).join(", ");
-}
 
 const DATE_OPERATORS: { value: DataValidationOperator; label: string }[] = [
   { value: "dateValid", label: "is a valid date" },
@@ -141,6 +106,15 @@ function isComparisonKind(
   return kind === "date" || kind === "number" || kind === "text";
 }
 
+function newRule(kind: DataValidationKind, ranges: Range[]): DataValidationRule {
+  const id = `dv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  return kind === "list"
+    ? { id, kind: "list", ranges, list: [], showArrow: true, onInvalid: "warning" }
+    : kind === "date"
+      ? { id, kind: "date", ranges, operator: "dateValid", onInvalid: "warning" }
+      : { id, kind: "checkbox", ranges };
+}
+
 function kindLabel(rule: DataValidationRule): string {
   if (rule.kind === "checkbox") return "Checkbox";
   if (isComparisonKind(rule.kind)) {
@@ -171,6 +145,10 @@ export function DataValidationPanel({
 }: DataValidationPanelProps) {
   const [rules, setRules] = useState<DataValidationRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
+  // A rule started for the selection when the panel opened. It lives in
+  // `rules` so the editor treats it like any other, but is not written to the
+  // sheet until Done — closing the panel or Cancel discards it.
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [rangeInput, setRangeInput] = useState("");
   const [optionsText, setOptionsText] = useState("");
 
@@ -180,7 +158,7 @@ export function DataValidationPanel({
   );
 
   const commitRules = useCallback(
-    (nextRules: DataValidationRule[]) => {
+    (nextRules: DataValidationRule[], persistDraft = false) => {
       setRules(nextRules);
       if (!spreadsheet) return;
       // A list rule with no usable options is normalized away on write, which
@@ -193,6 +171,7 @@ export function DataValidationPanel({
         spreadsheet.getDataValidations().map((r) => [r.id, r]),
       );
       const toPersist = nextRules.flatMap((r) => {
+        if (r.id === draftId && !persistDraft) return [];
         const incomplete =
           r.kind === "list" && !(r.list ?? []).some((o) => o.trim());
         if (!incomplete) return [r];
@@ -201,7 +180,7 @@ export function DataValidationPanel({
       });
       void spreadsheet.setDataValidations(toPersist);
     },
-    [spreadsheet],
+    [draftId, spreadsheet],
   );
 
   const updateRule = useCallback(
@@ -224,31 +203,37 @@ export function DataValidationPanel({
           { r: 1, c: 1 },
         ],
       ];
-      const id = `dv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const rule: DataValidationRule =
-        kind === "list"
-          ? { id, kind: "list", ranges, list: [], showArrow: true, onInvalid: "warning" }
-          : kind === "date"
-            ? { id, kind: "date", ranges, operator: "dateValid", onInvalid: "warning" }
-            : { id, kind: "checkbox", ranges };
+      const rule = newRule(kind, ranges);
       commitRules([...rules, rule]);
-      setSelectedRuleId(id);
-      return id;
+      setSelectedRuleId(rule.id);
+      return rule.id;
     },
     [commitRules, getSelectionRange, rules],
   );
 
-  // Load rules whenever the panel opens; select the rule (any kind) at the
-  // active cell if there is one, else keep/pick the first rule.
+  // Load rules whenever the panel opens. A rule covering the selection (or the
+  // active cell) is selected; a selection no rule covers starts an unsaved
+  // dropdown rule for it, as Google Sheets does; otherwise keep/pick the first.
   useEffect(() => {
     if (!open || !spreadsheet) {
       return;
     }
     const loaded = spreadsheet.getDataValidations();
-    setRules(loaded);
     const existing = spreadsheet.getDataValidationAt();
-    if (existing) {
-      setSelectedRuleId(existing.id);
+    const opening = existing
+      ? ({ kind: "existing", ruleId: existing.id } as const)
+      : panelOpeningFor(loaded, getSelectionRange());
+    if (opening.kind === "draft") {
+      const draft = newRule("list", opening.ranges);
+      setRules([...loaded, draft]);
+      setDraftId(draft.id);
+      setSelectedRuleId(draft.id);
+      return;
+    }
+    setRules(loaded);
+    setDraftId(null);
+    if (opening.kind === "existing") {
+      setSelectedRuleId(opening.ruleId);
     } else {
       setSelectedRuleId((current) =>
         current && loaded.some((r) => r.id === current)
@@ -256,6 +241,9 @@ export function DataValidationPanel({
           : loaded[0]?.id ?? null,
       );
     }
+    // Runs once per opening: the selection is read at the moment the panel
+    // opens, not tracked while it stays open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spreadsheet]);
 
   // Sync editor fields when the selected rule changes. Keyed on selectedRuleId
@@ -336,27 +324,64 @@ export function DataValidationPanel({
 
   const handleDeleteRule = (ruleId: string) => {
     const next = rules.filter((r) => r.id !== ruleId);
-    commitRules(next);
+    if (ruleId === draftId) {
+      // The draft was never written, so dropping it changes nothing stored.
+      setRules(next);
+      setDraftId(null);
+    } else {
+      commitRules(next);
+    }
     if (selectedRuleId === ruleId) {
       setSelectedRuleId(next[0]?.id ?? null);
     }
   };
 
+  const handleSaveDraft = () => {
+    // Pick up dropdown options still being typed: they are committed on blur,
+    // and clicking Done may be what blurs the textarea.
+    const nextRules =
+      selectedRule?.id === draftId && selectedRule?.kind === "list"
+        ? rules.map((r) =>
+            r.id === draftId
+              ? { ...r, list: normalizeListOptions(optionsText.split("\n")) }
+              : r,
+          )
+        : rules;
+    commitRules(nextRules, true);
+    setDraftId(null);
+  };
+
+  // A dropdown with no option is not a rule, and commitRules drops it; a Done
+  // that could be pressed would mark the draft saved while storing nothing.
+  const draftRule = draftId ? rules.find((r) => r.id === draftId) : undefined;
+  const draftOptions =
+    selectedRule?.id === draftId
+      ? normalizeListOptions(optionsText.split("\n"))
+      : (draftRule?.list ?? []);
+  const draftIncomplete =
+    draftRule?.kind === "list" && draftOptions.length === 0;
+
+  const handleCancelDraft = () => {
+    if (draftId) {
+      handleDeleteRule(draftId);
+    }
+  };
+
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(26rem,100%)] flex-col overflow-hidden border-l bg-background shadow-lg">
-      <div className="flex items-center justify-between border-b px-4 py-3">
+      <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <IconListCheck size={16} className="text-primary" />
             <p className="text-sm font-semibold">Data validation</p>
           </div>
-          <p className="truncate pt-1 text-xs text-muted-foreground">
+          <p className="pt-1 text-xs text-pretty text-muted-foreground">
             Checkbox, dropdown, date, number, and text rules for this sheet.
           </p>
         </div>
         <button
           type="button"
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onClose}
           aria-label="Close data validation panel"
         >
@@ -400,7 +425,14 @@ export function DataValidationPanel({
                   className="w-full cursor-pointer text-left"
                   onClick={() => setSelectedRuleId(rule.id)}
                 >
-                  <p className="truncate text-sm font-medium">{kindLabel(rule)}</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate text-sm font-medium">{kindLabel(rule)}</p>
+                    {rule.id === draftId && (
+                      <span className="shrink-0 rounded bg-muted px-1.5 text-2xs text-muted-foreground">
+                        Unsaved
+                      </span>
+                    )}
+                  </div>
                   <p className="truncate pt-1 text-xs text-muted-foreground">
                     {formatA1Ranges(rule.ranges)}
                   </p>
@@ -636,6 +668,28 @@ export function DataValidationPanel({
           </>
         )}
       </div>
+
+      {draftId && (
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCancelDraft}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSaveDraft}
+            disabled={draftIncomplete}
+            title={draftIncomplete ? "Add at least one option" : undefined}
+          >
+            Done
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }

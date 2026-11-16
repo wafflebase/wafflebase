@@ -153,6 +153,14 @@ export class Spreadsheet {
   }
 
   /**
+   * `getFreezePane` returns how many rows and columns are frozen, so a host
+   * menu can offer "Unfreeze" only when there is something to unfreeze.
+   */
+  public getFreezePane(): { frozenRows: number; frozenCols: number } {
+    return this.sheet?.getFreezePane() ?? { frozenRows: 0, frozenCols: 0 };
+  }
+
+  /**
    * `setFreezePane` sets the freeze pane position and re-renders.
    */
   public async setFreezePane(frozenRows: number, frozenCols: number) {
@@ -252,6 +260,18 @@ export class Spreadsheet {
     if (!this.sheet) return;
     await this.worksheet.focusCell(ref);
     this.notifySelectionChange();
+  }
+
+  /**
+   * `returnFocusToGrid` hands the keyboard back to the grid on the current
+   * selection without moving it — for hosts closing a dialog or panel over
+   * the sheet, which would otherwise leave focus on `<body>` (a dialog with
+   * no trigger has nowhere to restore focus to). An edit in progress is left
+   * alone.
+   */
+  public returnFocusToGrid(): void {
+    if (!this.sheet) return;
+    this.worksheet.returnFocusToGrid();
   }
 
   /**

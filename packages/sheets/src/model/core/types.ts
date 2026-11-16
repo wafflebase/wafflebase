@@ -64,8 +64,39 @@ export type VerticalAlign = 'top' | 'middle' | 'bottom';
 
 /**
  * NumberFormat represents the number format of a cell.
+ *
+ * `accounting` and `currency` read the currency code from `CellStyle.cu`
+ * (falling back to the viewer's locale currency when absent). `date`, `time`
+ * and `datetime` read the model's `YYYY-MM-DD[ HH:MM:SS]` date strings.
  */
-export type NumberFormat = 'plain' | 'number' | 'currency' | 'percent' | 'date';
+export type NumberFormat =
+  | 'plain'
+  | 'number'
+  | 'currency'
+  | 'percent'
+  | 'date'
+  | 'scientific'
+  | 'accounting'
+  | 'financial'
+  | 'time'
+  | 'datetime';
+
+/**
+ * `NumberFormats` lists every `NumberFormat`, for validators that have to
+ * accept exactly the formats the formatter renders.
+ */
+export const NumberFormats: readonly NumberFormat[] = [
+  'plain',
+  'number',
+  'currency',
+  'percent',
+  'date',
+  'scientific',
+  'accounting',
+  'financial',
+  'time',
+  'datetime',
+];
 
 /**
  * BorderPreset represents a border application preset for a selected range.
@@ -97,7 +128,7 @@ export type CellStyle = {
   al?: TextAlign; // horizontal alignment
   va?: VerticalAlign; // vertical alignment
   nf?: NumberFormat; // number format
-  cu?: string; // currency code (e.g. KRW, USD) when nf is currency
+  cu?: string; // currency code (e.g. KRW, USD) when nf is currency/accounting
   dp?: number; // decimal places (for number/currency/percent formats)
 };
 

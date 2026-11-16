@@ -36,10 +36,15 @@ import {
 } from "@/components/ui/dialog";
 import { TabBar } from "@/components/tab-bar";
 import {
+  SHEET_TAB_PANEL_ID,
+  sheetTabElementId,
+} from "@/components/tab-bar-ids";
+import {
   SpreadsheetDocument,
   createWorksheet,
   TabType,
   TabMeta,
+  Worksheet,
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
@@ -64,7 +69,7 @@ import type {
   CommentAnchor,
   UndoSelection,
 } from "@wafflebase/sheets";
-import { cellAnchorToSref } from "@wafflebase/sheets";
+import { cellAnchorToSref, duplicateTab } from "@wafflebase/sheets";
 import {
   isJumpableSheetTab,
   type UndoJumpTarget,
@@ -624,6 +629,35 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
+  // The same copy the v1 `.../tabs/:tabId/duplicate` route makes, via the
+  // shared `duplicateTab`. The worksheet is detached from the CRDT proxy
+  // first: assigning a proxy into another key would store Yorkie's `toJSON`
+  // string rather than a grid.
+  const handleDuplicateTab = useCallback(
+    (tabId: string) => {
+      if (!doc) return;
+      const worksheet = doc.getRoot().sheets?.[tabId];
+      if (!worksheet) return;
+      let snapshot: Worksheet;
+      try {
+        const toJS = (worksheet as { toJS?: () => Worksheet }).toJS;
+        snapshot =
+          typeof toJS === "function"
+            ? toJS.call(worksheet)
+            : structuredClone(worksheet);
+      } catch {
+        toast.error("Could not duplicate this sheet.");
+        return;
+      }
+      let newTabId: string | undefined;
+      doc.update((r) => {
+        newTabId = duplicateTab(r, tabId, snapshot).id;
+      });
+      if (newTabId) setActiveTabId(newTabId);
+    },
+    [doc],
+  );
+
   const handleSelectPeer = useCallback(
     (clientID: string) => {
       if (!doc) return;
@@ -783,7 +817,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             }
           >
             <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="relative flex flex-col h-full">
+              <div
+                className="relative flex flex-col h-full"
+                role="tabpanel"
+                id={SHEET_TAB_PANEL_ID}
+                aria-labelledby={
+                  activeTabId ? sheetTabElementId(activeTabId) : undefined
+                }
+              >
                 <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />
@@ -827,6 +868,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 onRenameTab={handleRenameTab}
                 onDeleteTab={handleDeleteTab}
                 onMoveTab={handleMoveTab}
+                onDuplicateTab={handleDuplicateTab}
               />
             )}
           </PreviewSurface>

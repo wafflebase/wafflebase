@@ -38,6 +38,7 @@ import {
   type Axis,
   type SelectionType,
   type GridResolver,
+  NumberFormats,
 } from './model/core/types';
 import {
   toColumnLabel,
@@ -165,6 +166,12 @@ import {
 } from './model/core/locale';
 import { formatValue, type FormatValueOptions } from './model/worksheet/format';
 import {
+  buildNumberFormatPresets,
+  activeNumberFormatPreset,
+  type NumberFormatPreset,
+  type NumberFormatPresetId,
+} from './model/worksheet/format-presets';
+import {
   inferInput,
   cellFromInput,
   defaultAlign,
@@ -242,6 +249,7 @@ export {
   buildTabNameNormalizationPatches,
   type TabNamePatch,
 } from './model/workbook/tab-name';
+export { duplicateTab } from './model/workbook/tab-duplicate';
 import {
   type Comment,
   type CommentAnchor,
@@ -392,6 +400,9 @@ export {
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
   formatValue,
+  buildNumberFormatPresets,
+  activeNumberFormatPreset,
+  NumberFormats,
   inferInput,
   cellFromInput,
   defaultAlign,
@@ -455,6 +466,8 @@ export {
 };
 
 export type {
+  NumberFormatPreset,
+  NumberFormatPresetId,
   LayoutRect,
   LinkHoverInfo,
   Store,

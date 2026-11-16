@@ -32,7 +32,9 @@ through `rangeStyles` to avoid writing one style-only cell per coordinate.
 ```typescript
 type TextAlign = 'left' | 'center' | 'right';
 type VerticalAlign = 'top' | 'middle' | 'bottom';
-type NumberFormat = 'plain' | 'number' | 'currency' | 'percent' | 'date';
+type NumberFormat =
+  | 'plain' | 'number' | 'currency' | 'percent' | 'date'
+  | 'scientific' | 'accounting' | 'financial' | 'time' | 'datetime';
 
 type CellStyle = {
   b?: boolean;         // bold
@@ -48,7 +50,7 @@ type CellStyle = {
   al?: TextAlign;      // horizontal alignment
   va?: VerticalAlign;  // vertical alignment
   nf?: NumberFormat;   // number format
-  cu?: string;         // explicit currency code for nf='currency'
+  cu?: string;         // explicit currency code for nf='currency'/'accounting'
   dp?: number;         // decimal places
 };
 ```
@@ -210,6 +212,25 @@ multi-select-via-Ctrl+click UI.
 
 `CellInput.applyStyle` mirrors active-cell effective style in inline editor.
 
+### Text ink
+
+Once the effective style is resolved, `getCellTextColor` (`view/theme.ts`)
+picks the text ink, and both `GridCanvas` and `CellInput` call it so editing a
+cell never flips its color:
+
+1. An explicit `tc` (static or conditional) always wins.
+2. An unfilled cell takes the theme's ink.
+3. A filled cell in **light** mode keeps the theme's ink, which is the ink
+   the fill was authored against (Google Sheets parity: a dark fill keeps black
+   text unless `tc` says otherwise).
+4. A filled cell in **dark** mode takes whichever of the dark ink and the
+   authored ink contrasts better with the fill. Fills are painted as authored,
+   not themed, so white ink on a pale fill (the conditional-format default
+   `#B7E1CD`) would read at about 1.2:1; dark fills keep white.
+
+This is a render-time choice only: nothing is written to `tc`, and an export
+or a light-mode viewer sees exactly the authored style.
+
 Custom borders are rendered above default gridlines. Text overflow into empty
 neighbor cells is bounded by explicit custom borders.
 
@@ -217,10 +238,52 @@ neighbor cells is bounded by explicit custom borders.
 
 `formatValue(value, format)` renders display text using locale-aware formatting:
 
-- `'number'`, `'currency'`, `'percent'` use locale separators
-- `'currency'` uses `CellStyle.cu` when present, otherwise locale-derived code
+- `'number'`, `'currency'`, `'percent'`, `'accounting'`, `'financial'` use
+  locale separators
+- `'currency'` and `'accounting'` use `CellStyle.cu` when present, otherwise
+  the viewer's locale-derived code
 - `'percent'` expects normalized fractional values (`0.1234 -> 12.34%`)
-- `'date'` formats parseable date values with locale date style
+- `'scientific'` renders `1.23E+03` (`dp` mantissa digits, two-digit signed
+  exponent)
+- `'accounting'` is a currency with negatives in parentheses and zero as a
+  dash (`($1,234.50)`, `$ -`); `'financial'` has no symbol, shows negatives
+  in parentheses and zero as `0.00`, not a dash (`(1,234.50)`, `0.00`) —
+  Google Sheets' Financial format `#,##0.00;(#,##0.00);0.00`. A negative that
+  rounds to zero at the shown precision drops its parentheses
+- `'date'` renders `YYYY-MM-DD`, keeping the time when the value carries one;
+  `'time'` renders `HH:mm:ss` and `'datetime'` `YYYY-MM-DD HH:mm:ss` (midnight
+  for a date-only value). Dates are strings in this model, not serials, so a
+  bare number under `'time'`/`'datetime'` renders unchanged
+
+### Toolbar presets
+
+`buildNumberFormatPresets(locale)` (`format-presets.ts`) is the toolbar's
+"More formats" menu, modelled on Google Sheets: Plain text, Number, Percent,
+Scientific, Accounting, Financial, Currency, Currency rounded, Date, Time,
+Date time. Each preset's preview is rendered by `formatValue`, so the menu
+cannot show a format the grid would not paint.
+
+Two rules make the currency entries honest:
+
+- **The currency code is pinned at apply time.** A `nf: 'currency'` with no
+  `cu` renders in each *viewer's* locale currency, so one amount would read
+  `$1,000` to one collaborator and `₩1,000` to another. Every currency preset
+  (and the `$` toolbar button, which applies the "Currency" preset) stores
+  `cu`. Legacy cells with no `cu` keep rendering as before and read as the
+  locale "Currency" entry in the menu.
+- **The US dollar and the locale currency are distinct entries.** When the
+  locale currency is not USD the menu offers "Currency (KRW)" and
+  "Currency (USD)" side by side; with a USD locale they are one entry.
+  `activeNumberFormatPreset(style, presets)` checks exactly one of them.
+
+Each preset writes its `dp` too, since the style model has no "explicit
+none" to unset a range's decimals: re-applying "Currency" after "Currency
+rounded" has to write the decimals back. `activeNumberFormatPreset` ignores
+`dp` except for the rounded/non-rounded split, so a format stays checked after
+Increase/Decrease decimal places.
+
+`.xlsx` import mappings are unchanged: built-in time formats (18–21) still
+import as `'date'` and accounting built-ins (42/44) as `'currency'`.
 
 `setData` inference updates formatting conservatively:
 
