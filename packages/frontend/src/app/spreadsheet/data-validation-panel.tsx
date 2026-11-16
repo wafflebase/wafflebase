@@ -351,6 +351,16 @@ export function DataValidationPanel({
     setDraftId(null);
   };
 
+  // A dropdown with no option is not a rule, and commitRules drops it; a Done
+  // that could be pressed would mark the draft saved while storing nothing.
+  const draftRule = draftId ? rules.find((r) => r.id === draftId) : undefined;
+  const draftOptions =
+    selectedRule?.id === draftId
+      ? normalizeListOptions(optionsText.split("\n"))
+      : (draftRule?.list ?? []);
+  const draftIncomplete =
+    draftRule?.kind === "list" && draftOptions.length === 0;
+
   const handleCancelDraft = () => {
     if (draftId) {
       handleDeleteRule(draftId);
@@ -669,7 +679,13 @@ export function DataValidationPanel({
           >
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={handleSaveDraft}>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSaveDraft}
+            disabled={draftIncomplete}
+            title={draftIncomplete ? "Add at least one option" : undefined}
+          >
             Done
           </Button>
         </div>

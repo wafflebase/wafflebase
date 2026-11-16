@@ -21,7 +21,16 @@ const mocks = vi.hoisted(() => ({
   fetchDocument: vi.fn(),
   fetchWorkspaces: vi.fn(),
   fetchLakehouseSources: vi.fn(),
+  toastError: vi.fn(),
 }));
+
+vi.mock('sonner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sonner')>();
+  return {
+    ...actual,
+    toast: Object.assign(actual.toast, { error: mocks.toastError }),
+  };
+});
 
 vi.mock('@yorkie-js/react', () => ({
   DocumentProvider: ({ children }: { children: ReactNode }) => children,
@@ -251,5 +260,68 @@ describe('DocumentDetail tab bar', () => {
         'aria-selected',
       ),
     ).toBe('true');
+  });
+
+  function renderDetail() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/documents/document-1']}>
+          <Routes>
+            <Route path="/documents/:id" element={<DocumentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('detaches a live worksheet through toJS before copying it', async () => {
+    const root = mocks.doc!.getRoot();
+    const source = root.sheets['tab-1'];
+    // A live Yorkie proxy carries a toJS method. The detached snapshot holds a
+    // value the source does not, so the copy proves toJS fed it rather than
+    // the structuredClone fallback.
+    const detached = {
+      ...structuredClone(source),
+      cells: { '1:1': { v: 'from-toJS' } },
+    };
+    const toJS = vi.fn(() => detached);
+    Object.defineProperty(source, 'toJS', { value: toJS, enumerable: false });
+
+    renderDetail();
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: 'Sheet1' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+
+    await waitFor(() => {
+      expect(root.tabOrder).toHaveLength(2);
+    });
+    expect(toJS).toHaveBeenCalledTimes(1);
+    expect(root.sheets[root.tabOrder[1]].cells['1:1']).toEqual({
+      v: 'from-toJS',
+    });
+  });
+
+  it('reports a worksheet that cannot be detached and writes nothing', async () => {
+    const root = mocks.doc!.getRoot();
+    Object.defineProperty(root.sheets['tab-1'], 'toJS', {
+      value: () => {
+        throw new Error('detached proxy');
+      },
+      enumerable: false,
+    });
+
+    renderDetail();
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: 'Sheet1' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        'Could not duplicate this sheet.',
+      );
+    });
+    expect(root.tabOrder).toHaveLength(1);
+    expect(mocks.doc!.update).not.toHaveBeenCalledWith(expect.anything());
   });
 });

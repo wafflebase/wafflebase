@@ -129,6 +129,45 @@ describe("DataValidationPanel", () => {
     expect(setDataValidations).not.toHaveBeenCalled();
   });
 
+  it("keeps Done disabled until the dropdown has an option", () => {
+    const { spreadsheet } = fakeSheet();
+    render(
+      <DataValidationPanel
+        spreadsheet={spreadsheet}
+        open
+        onClose={() => {}}
+        getSelectionRange={() => "B2:E4"}
+      />,
+    );
+    const done = screen.getByRole("button", { name: "Done" });
+    expect((done as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("saves the options still being typed when Done is clicked", async () => {
+    const { spreadsheet, setDataValidations } = fakeSheet();
+    render(
+      <DataValidationPanel
+        spreadsheet={spreadsheet}
+        open
+        onClose={() => {}}
+        getSelectionRange={() => "B2:E4"}
+      />,
+    );
+    // No blur before Done: clicking Done is what would blur the textarea.
+    await userEvent.type(
+      screen.getByLabelText("Options (one per line)"),
+      "Red{enter}Green",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.queryByText("Unsaved")).toBeNull();
+    const saved = setDataValidations.mock.calls.at(-1)?.[0] as
+      | DataValidationRule[]
+      | undefined;
+    expect(saved).toHaveLength(1);
+    expect(saved?.[0]).toMatchObject({ kind: "list", list: ["Red", "Green"] });
+  });
+
   it("opens on the list when nothing is selected", () => {
     const { spreadsheet } = fakeSheet();
     render(
