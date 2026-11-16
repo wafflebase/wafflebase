@@ -19,7 +19,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
-| notes pane contrast (2026-11-16) | [20261116-notes-pane-contrast-todo.md](./active/20261116-notes-pane-contrast-todo.md) | [20261116-notes-pane-contrast-lessons.md](./active/20261116-notes-pane-contrast-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
 | sheets usability pass (2026-11-16) | [20261116-sheets-usability-pass-todo.md](./active/20261116-sheets-usability-pass-todo.md) | [20261116-sheets-usability-pass-lessons.md](./active/20261116-sheets-usability-pass-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
@@ -70,7 +69,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 638
+- Archived task count: 639
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: agent harness cleanup (2026-11-16)
