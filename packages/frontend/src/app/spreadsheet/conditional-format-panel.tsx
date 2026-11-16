@@ -4,8 +4,6 @@ import {
   ConditionalFormatRule,
   Range,
   Spreadsheet,
-  parseRef,
-  toSref,
 } from "@wafflebase/sheets";
 import { toast } from "sonner";
 import {
@@ -17,7 +15,7 @@ import {
   IconPlus,
   IconTypography,
   IconX,
-  IconBrush,
+  IconPalette,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +37,11 @@ import {
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
+import {
+  formatA1Ranges,
+  panelOpeningFor,
+  parseA1Ranges,
+} from "./rule-panel-utils";
 
 type ConditionalFormatPanelProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -65,42 +68,21 @@ const OPERATOR_OPTIONS: Array<{
   label,
 }));
 
-function parseA1Ranges(input: string): Range[] | null {
-  const segments = input
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (segments.length === 0) {
-    return null;
-  }
+/**
+ * `DEFAULT_RULE_STYLE` is Google Sheets' default for a new rule: a light green
+ * fill. The text color is set with it because the canvas paints a cell with no
+ * explicit text color in the theme's text color — white in dark mode — which
+ * reads at ~1.2:1 on a light fill. Black on `#B7E1CD` is ~15:1 in both themes.
+ */
+const DEFAULT_RULE_STYLE = { bg: "#B7E1CD", tc: "#000000" } as const;
 
-  const ranges: Range[] = [];
-  for (const segment of segments) {
-    const tokens = segment
-      .toUpperCase()
-      .replace(/\$/g, "")
-      .split(":")
-      .map((token) => token.trim())
-      .filter(Boolean);
-    if (tokens.length !== 2) {
-      return null;
-    }
-    try {
-      const a = parseRef(tokens[0]);
-      const b = parseRef(tokens[1]);
-      ranges.push([
-        { r: Math.min(a.r, b.r), c: Math.min(a.c, b.c) },
-        { r: Math.max(a.r, b.r), c: Math.max(a.c, b.c) },
-      ]);
-    } catch {
-      return null;
-    }
-  }
-  return ranges;
-}
-
-function formatA1Ranges(ranges: Range[]): string {
-  return ranges.map((r) => `${toSref(r[0])}:${toSref(r[1])}`).join(", ");
+function newRule(ranges: Range[]): ConditionalFormatRule {
+  return {
+    id: `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ranges,
+    op: "isNotEmpty",
+    style: { ...DEFAULT_RULE_STYLE },
+  };
 }
 
 function describeRule(rule: ConditionalFormatRule): string {
@@ -143,6 +125,10 @@ export function ConditionalFormatPanel({
 }: ConditionalFormatPanelProps) {
   const [rules, setRules] = useState<ConditionalFormatRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
+  // A rule started for the selection when the panel opened. It lives in
+  // `rules` so the editor treats it like any other, but is not written to the
+  // sheet until Done — closing the panel or Cancel discards it.
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [rangeInput, setRangeInput] = useState("");
   // Controlled so a swatch pick closes the palette — the swatches are plain
   // <button>s (not menu items), so Radix can't auto-close them.
@@ -155,13 +141,28 @@ export function ConditionalFormatPanel({
     }
 
     const loadedRules = spreadsheet.getConditionalFormats();
+    const opening = panelOpeningFor(loadedRules, getSelectionRange());
+    if (opening.kind === "draft") {
+      const draft = newRule(opening.ranges);
+      setRules([...loadedRules, draft]);
+      setDraftId(draft.id);
+      setSelectedRuleId(draft.id);
+      return;
+    }
     setRules(loadedRules);
+    setDraftId(null);
     setSelectedRuleId((current) => {
+      if (opening.kind === "existing") {
+        return opening.ruleId;
+      }
       if (current && loadedRules.some((rule) => rule.id === current)) {
         return current;
       }
       return loadedRules[0]?.id ?? null;
     });
+    // Runs once per opening: the selection is read at the moment the panel
+    // opens, not tracked while it stays open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spreadsheet]);
 
   const selectedRule = useMemo(
@@ -174,14 +175,18 @@ export function ConditionalFormatPanel({
   }, [selectedRuleId, selectedRule]);
 
   const commitRules = useCallback(
-    (nextRules: ConditionalFormatRule[]) => {
+    (nextRules: ConditionalFormatRule[], persistDraft = false) => {
       setRules(nextRules);
       if (!spreadsheet) {
         return;
       }
-      void spreadsheet.setConditionalFormats(nextRules);
+      void spreadsheet.setConditionalFormats(
+        persistDraft || !draftId
+          ? nextRules
+          : nextRules.filter((rule) => rule.id !== draftId),
+      );
     },
-    [spreadsheet],
+    [draftId, spreadsheet],
   );
 
   const updateRule = useCallback(
@@ -238,15 +243,7 @@ export function ConditionalFormatPanel({
       ] as Range,
     ];
 
-    const nextRule: ConditionalFormatRule = {
-      id: `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      ranges: defaultRanges,
-      op: "isNotEmpty",
-      style: {
-        bg: "#fff59d",
-      },
-    };
-
+    const nextRule = newRule(defaultRanges);
     const nextRules = [...rules, nextRule];
     commitRules(nextRules);
     setSelectedRuleId(nextRule.id);
@@ -254,9 +251,26 @@ export function ConditionalFormatPanel({
 
   const handleDeleteRule = (ruleId: string) => {
     const nextRules = rules.filter((rule) => rule.id !== ruleId);
-    commitRules(nextRules);
+    if (ruleId === draftId) {
+      // The draft was never written, so dropping it changes nothing stored.
+      setRules(nextRules);
+      setDraftId(null);
+    } else {
+      commitRules(nextRules);
+    }
     if (selectedRuleId === ruleId) {
       setSelectedRuleId(nextRules[0]?.id ?? null);
+    }
+  };
+
+  const handleSaveDraft = () => {
+    commitRules(rules, true);
+    setDraftId(null);
+  };
+
+  const handleCancelDraft = () => {
+    if (draftId) {
+      handleDeleteRule(draftId);
     }
   };
 
@@ -312,7 +326,7 @@ export function ConditionalFormatPanel({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <IconBrush size={16} className="text-primary" />
+            <IconPalette size={16} className="text-primary" />
             <p className="text-sm font-semibold">Conditional formatting</p>
           </div>
           <p className="truncate pt-1 text-xs text-muted-foreground">
@@ -369,6 +383,11 @@ export function ConditionalFormatPanel({
                         <p className="truncate text-sm font-medium">
                           {OPERATOR_LABELS[rule.op]}
                         </p>
+                        {rule.id === draftId && (
+                          <span className="shrink-0 rounded bg-muted px-1.5 text-2xs text-muted-foreground">
+                            Unsaved
+                          </span>
+                        )}
                       </div>
                       <p className="truncate pt-1 text-xs text-muted-foreground">
                         {describeRule(rule)}
@@ -647,6 +666,22 @@ export function ConditionalFormatPanel({
           </>
         )}
       </div>
+
+      {draftId && (
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCancelDraft}
+          >
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={handleSaveDraft}>
+            Done
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
