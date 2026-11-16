@@ -26,3 +26,6 @@
   cell drafts a rule; ChartEditorPanel X-axis picker tests.
 - Lesson: a fix for one rendering case (pale CF fill) must be scoped to that
   case's cause (theme ink vs authored fill), not widened to every fill.
+- Round 3: 1 blocking (test-adequacy: `commitEditForNameBox` untested).
+  Added `worksheet-namebox-commit.test.ts`. Loop stopped at its 3-round
+  bound; correctness, design-fit, security, docs and blast-radius were clean.
