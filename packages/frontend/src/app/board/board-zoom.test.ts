@@ -3,6 +3,7 @@ import type { Frame } from "@wafflebase/slides";
 import { DEFAULT_VIEWPORT } from "@wafflebase/board";
 import { FIT_ZOOM } from "../slides/zoom-controller";
 import {
+  stepZoomPreset,
   BOARD_MAX_ZOOM,
   BOARD_MIN_ZOOM,
   applyZoomValue,
@@ -232,5 +233,19 @@ describe("createBoardZoomBinding", () => {
     expect(h.commits).toHaveLength(0);
     expect(h.viewport).toBe(before);
     expect(h.frameReads).toBe(0);
+  });
+});
+
+describe("stepZoomPreset", () => {
+  it("steps to the next preset strictly past the current zoom", () => {
+    expect(stepZoomPreset(1, 1)).toBe(2);
+    expect(stepZoomPreset(1, -1)).toBe(0.5);
+    expect(stepZoomPreset(1.37, 1)).toBe(2);
+    expect(stepZoomPreset(1.37, -1)).toBe(1);
+  });
+
+  it("clamps at the ends of the range", () => {
+    expect(stepZoomPreset(8, 1)).toBe(8);
+    expect(stepZoomPreset(0.1, -1)).toBe(0.1);
   });
 });

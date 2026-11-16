@@ -16,9 +16,33 @@ export const BOARD_MAX_ZOOM = 8;
 /**
  * The board zoom dropdown's presets. An infinite canvas spends much of its
  * time zoomed out over a whole map, so the list reaches down to 10% (the
- * wheel's floor) instead of stopping at the slides list's 50%.
+ * wheel's floor) instead of stopping at the slides list's 50%, and up
+ * to the 8× ceiling the wheel can already reach.
  */
-export const BOARD_ZOOM_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4] as const;
+export const BOARD_ZOOM_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4, 8] as const;
+
+/**
+ * Ceiling for zoom-to-selection (Shift+2). Higher than the whole-board
+ * fit's 1:1 because the user asked to look closely at what they picked,
+ * but not the full 8×, where one small sticky reads as a blur.
+ */
+export const SELECTION_FIT_MAX_ZOOM = 2;
+
+/**
+ * The zoom `Mod+=` / `Mod+-` steps to: the next preset strictly past
+ * `current` in `direction`, so a wheel-zoomed 137% steps in to 200% and
+ * out to 100% instead of drifting by a fixed factor. Clamped at the ends.
+ */
+export function stepZoomPreset(current: number, direction: 1 | -1): number {
+  const eps = 1e-6;
+  if (direction > 0) {
+    return BOARD_ZOOM_PRESETS.find((z) => z > current + eps) ?? BOARD_MAX_ZOOM;
+  }
+  for (let i = BOARD_ZOOM_PRESETS.length - 1; i >= 0; i--) {
+    if (BOARD_ZOOM_PRESETS[i] < current - eps) return BOARD_ZOOM_PRESETS[i];
+  }
+  return BOARD_MIN_ZOOM;
+}
 
 function clamp(value: number): number {
   if (value === FIT_ZOOM) return FIT_ZOOM;

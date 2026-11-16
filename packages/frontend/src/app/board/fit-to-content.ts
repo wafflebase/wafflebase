@@ -30,7 +30,9 @@ export const MIN_FIT_ZOOM = 0.1;
 /**
  * Viewport that frames `bounds` in a `host`-sized window: the scene's centre
  * lands at the host centre, at the largest zoom that fits (clamped to
- * [{@link MIN_FIT_ZOOM}, {@link MAX_FIT_ZOOM}]).
+ * [{@link MIN_FIT_ZOOM}, `maxZoom`], {@link MAX_FIT_ZOOM} by default —
+ * zoom-to-selection passes a higher ceiling, since magnifying the thing
+ * the user picked is the point of it).
  *
  * Undefined when there is nothing to frame — an empty scene (`sceneBounds`
  * returned undefined) or a host with no area yet. The caller must treat that
@@ -41,6 +43,7 @@ export const MIN_FIT_ZOOM = 0.1;
 export function fitViewportToScene(
   bounds: MiniRect | undefined,
   host: { w: number; h: number },
+  maxZoom: number = MAX_FIT_ZOOM,
 ): Viewport | undefined {
   if (!bounds) return undefined;
   if (!(host.w > 0) || !(host.h > 0)) return undefined;
@@ -54,8 +57,8 @@ export function fitViewportToScene(
   // A zero-extent scene (one degenerate frame) makes `scale` Infinity; treat
   // that as "no reason to zoom out" rather than letting a non-finite zoom
   // reach the renderer.
-  const wanted = Number.isFinite(scale) ? scale : MAX_FIT_ZOOM;
-  const zoom = Math.min(MAX_FIT_ZOOM, Math.max(MIN_FIT_ZOOM, wanted));
+  const wanted = Number.isFinite(scale) ? scale : maxZoom;
+  const zoom = Math.min(maxZoom, Math.max(MIN_FIT_ZOOM, wanted));
 
   const centre = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
   return centerViewportOnWorld({ panX: 0, panY: 0, zoom }, centre, host);
