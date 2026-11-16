@@ -366,21 +366,12 @@ jobs:
           flags: sheets,cli,docs,backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Upload harness reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: harness-reports
-          path: .harness-reports/
-          include-hidden-files: true
-          retention-days: 14
-
-      # The same reports under the name the shared agent harness's CI-fix job
-      # (`agent-iterate-ci.yml` from yorkie's core) downloads when
-      # `.github/agent-harness/config.json` sets `ci.laneReports`, rendered by
-      # `scripts/ci/summarize-ci.mjs`. `harness-reports` above is for
-      # `ci-report.yml`.
-      - name: Upload the lane reports for the CI-fix agent
+      # One artifact, two readers: `ci-report.yml`, and the shared agent
+      # harness's CI-fix job (`agent-iterate-ci.yml` from yorkie's core), which
+      # downloads it by this name when `.github/agent-harness/config.json` sets
+      # `ci.laneReports` and renders it with `scripts/ci/summarize-ci.mjs`. The
+      # name is the core's, so it is the one kept.
+      - name: Upload the lane reports
         if: always()
         uses: actions/upload-artifact@v4
         with:

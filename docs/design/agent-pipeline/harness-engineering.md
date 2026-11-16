@@ -317,8 +317,9 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
-  retention).
+- Harness reports (`.harness-reports/`) are uploaded as one CI artifact,
+  `ci-lane-reports` (14-day retention), which `ci-report.yml` and the shared
+  CI-fix job both download.
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
   a pull request happens in `.github/workflows/ci-report.yml`; see
   [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
