@@ -315,6 +315,7 @@ brand layer swaps the zinc for warm-neutral ivory and ink.
 - **Berry** (berry / berry-bright): brand-surface error and emphasis (the homepage's ✕ marks and code-sample keywords), and a swatch in the formatting palette and the Wafflebase slide theme. It is the `type-pdf` hue too.
 - **Leaf** (leaf / leaf-bright): success signals, such as the homepage's ✓ marks. In the app it is the `success` token (`text-success`; 4.91:1 light, 9.76:1 dark) and the `type-sheet` hue.
 - **Terminal hues**: the homepage code sample sits on a charcoal panel in both themes, so its keywords and flags use the locked `--wb-terminal-keyword` (berry-bright, 6.25:1) and `--wb-terminal-flag` (leaf-bright, 8.80:1), never the theme-flipping `--wb-berry` / `--wb-leaf`, whose light stops are 3.69:1 / 3.65:1 there.
+- **Code hues**: markdown and code inside the notes editor take GitHub's highlight.js palette (the preview's code blocks and the source pane's markup alike), not app tokens, because code coloring is a convention readers already know. It never touches chrome, and the source pane's light red and green use GitHub's deeper shades to clear 4.5:1 on its tinted surface.
 
 ### Data and identity
 - **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. The analytics trend chart and sheet charts consume them; slides charts keep their own palette (they follow the deck theme).

@@ -235,10 +235,26 @@ code editor's conventions (product principle 2, *familiar before novel*):
   Xcode palette with an `EditorView.theme` over `--background` /
   `--foreground` / `--muted-foreground` / `--border` / `--ring` /
   `--selected` / `--link`, so light and dark follow the chrome and syrup is
-  the caret, never markup. Markdown punctuation recedes to the muted
-  foreground; headings read by weight, not size, so the monospace grid
-  holds. The parser is GFM (`markdownLanguage`), matching the preview, so
-  task boxes, tables and strikethrough highlight as such.
+  the caret, never markup. The parser is GFM (`markdownLanguage`), matching
+  the preview, so task boxes, tables and strikethrough highlight as such.
+- **Source and preview read as different things.** A first all-muted pass
+  made the split look like one page twice: both panes on paper, markup
+  faded to grey. Now the source pane (and the divider's leading half, so
+  the tint meets the hairline) sits on a work surface,
+  `NOTE_SOURCE_SURFACE` — `--muted` mixed 65% into `--background` — while
+  the preview stays on paper. Markup carries hues from the preview's own
+  GitHub highlight.js palette: headings blue, list/task marks red, quotes
+  green, inline code blue-ink; inline punctuation (`**`, `` ` ``, `[`)
+  stays muted so prose does not read as a listing. The block marks need
+  their own highlight tags for that — lezer tags `#`, `-` and `>` all as
+  `processingInstruction` — so `noteMarkdownTags` gives them sub-tags,
+  which still fall back to the parent anywhere the theme is not loaded.
+  Fenced and indented code is one full-width band (`code-block-band.ts`,
+  line decorations over the visible ranges), not a wash behind each span.
+  Every hue clears 4.5:1 on its mode's surface; the light red and green
+  are GitHub's deeper shades because the preview's measured 4.3:1 on the
+  tint. Headings still read by hue and weight, not size, so the monospace
+  grid holds.
 - **View modes are visible toggles** (Editor / Split / Preview), with the
   keyboard mode and the blame gutter in one "Editor settings" menu.
 - **Preview alone is a reading surface.** In `view` mode the preview steps
