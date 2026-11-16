@@ -93,9 +93,8 @@ so a "was I run directly" check that compares the two as written answers
 "imported" and exits 0 having done nothing. The toolchain action's
 `install-deps.mjs` takes both sides through `realpath` (`isDirectRun`), so a
 linked path still installs or refuses. #1152 fixed the same comparison in every
-tool under `scripts/agent/` with a shared helper; the switch to the shared core
-(which still compares as written) superseded that copy, and the fix is being
-carried upstream so that every repository on the core gets it.
+tool under `scripts/agent/`; yorkie-team/yorkie#2373 carried that fix into the
+shared core (`scripts/agent/direct-run.mjs`), so this copy has it again.
 
 | What decides how an install behaves | What the agent jobs do with it |
 | --- | --- |
