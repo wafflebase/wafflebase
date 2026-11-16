@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   Spreadsheet,
   BorderPreset,
   CellStyle,
-  NumberFormat,
   VerticalAlign,
-  LocaleFormatPreview,
+  NumberFormatPreset,
+  NumberFormatPresetId,
 } from "@wafflebase/sheets";
-import { buildLocaleFormatPreview } from "@wafflebase/sheets";
+import {
+  activeNumberFormatPreset,
+  buildNumberFormatPresets,
+} from "@wafflebase/sheets";
 import { Toggle } from "@/components/ui/toggle";
 import { Toolbar, ToolbarSeparator, ToolbarButton } from "@/components/ui/toolbar";
 import {
@@ -22,6 +32,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -49,13 +60,36 @@ import {
   IconDropletHalf2Filled,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconCurrency,
   IconCurrencyDollar,
+  IconCurrencyDollarAustralian,
+  IconCurrencyDollarCanadian,
+  IconCurrencyDollarSingapore,
+  IconCurrencyEuro,
+  IconCurrencyPound,
+  IconCurrencyYen,
+  IconCurrencyYuan,
+  IconCurrencyWon,
+  IconCurrencyRupee,
+  IconCurrencyReal,
+  IconCurrencyRubel,
+  IconCurrencyLira,
+  IconCurrencyShekel,
+  IconCurrencyFrank,
+  IconCurrencyZloty,
+  IconCurrencyBaht,
+  IconCurrencyDong,
+  IconCurrencyNaira,
+  IconCurrencyHryvnia,
+  IconCurrencyPeso,
   IconPercentage,
   IconDecimal,
   IconChevronDown,
   IconHash,
   IconAbc,
   IconCalendar,
+  IconNumber123,
+  IconUnderline,
   IconTableAlias,
   IconFilter,
   IconMathFunction,
@@ -70,7 +104,7 @@ import {
   IconBorderNone,
   IconDotsVertical,
   IconPaint,
-  IconBrush,
+  IconPalette,
   IconPhoto,
   IconListCheck,
 } from "@tabler/icons-react";
@@ -87,13 +121,53 @@ const VALIGN_ICONS = {
   bottom: IconAlignBoxBottomCenter,
 } as const;
 
-const FORMAT_ICONS = {
-  plain: IconAbc,
-  number: IconHash,
-  currency: IconCurrencyDollar,
-  percent: IconPercentage,
-  date: IconCalendar,
-} as const;
+/**
+ * The currency button draws the symbol of the currency it applies, so a
+ * button that writes ₩ never shows a $. Currencies without a drawn symbol in
+ * the icon set fall back to the generic currency sign (¤).
+ */
+const CURRENCY_ICONS: Record<string, typeof IconCurrency> = {
+  USD: IconCurrencyDollar,
+  HKD: IconCurrencyDollar,
+  NZD: IconCurrencyDollar,
+  TWD: IconCurrencyDollar,
+  AUD: IconCurrencyDollarAustralian,
+  CAD: IconCurrencyDollarCanadian,
+  SGD: IconCurrencyDollarSingapore,
+  EUR: IconCurrencyEuro,
+  GBP: IconCurrencyPound,
+  JPY: IconCurrencyYen,
+  CNY: IconCurrencyYuan,
+  KRW: IconCurrencyWon,
+  INR: IconCurrencyRupee,
+  PKR: IconCurrencyRupee,
+  BRL: IconCurrencyReal,
+  RUB: IconCurrencyRubel,
+  TRY: IconCurrencyLira,
+  ILS: IconCurrencyShekel,
+  CHF: IconCurrencyFrank,
+  PLN: IconCurrencyZloty,
+  THB: IconCurrencyBaht,
+  VND: IconCurrencyDong,
+  NGN: IconCurrencyNaira,
+  UAH: IconCurrencyHryvnia,
+  MXN: IconCurrencyPeso,
+  ARS: IconCurrencyPeso,
+  CLP: IconCurrencyPeso,
+  COP: IconCurrencyPeso,
+  PHP: IconCurrencyPeso,
+};
+
+function currencyIcon(code: string | undefined) {
+  return (code && CURRENCY_ICONS[code]) || IconCurrency;
+}
+
+/** "More formats" groups, separated the way Google Sheets separates them. */
+const FORMAT_GROUPS: NumberFormatPresetId[][] = [
+  ["plain", "number", "percent", "scientific"],
+  ["accounting", "financial", "currency", "currencyRounded", "currencyUSD"],
+  ["date", "time", "datetime"],
+];
 
 const isMac =
   typeof navigator !== "undefined" &&
@@ -136,14 +210,18 @@ export function FormattingToolbar({
   // <button>s (not DropdownMenuItem), so Radix can't auto-close them.
   const [textColorOpen, setTextColorOpen] = useState(false);
   const [bgColorOpen, setBgColorOpen] = useState(false);
-  const usPreview: LocaleFormatPreview = useMemo(
-    () => buildLocaleFormatPreview("en-US"),
+  const presets: NumberFormatPreset[] = useMemo(
+    () => buildNumberFormatPresets(),
     [],
   );
-  const localePreview: LocaleFormatPreview = useMemo(
-    () => buildLocaleFormatPreview(),
-    [],
+  const presetById = useMemo(
+    () => new Map(presets.map((preset) => [preset.id, preset])),
+    [presets],
   );
+  const activePreset = activeNumberFormatPreset(style, presets);
+  const localCurrency = presetById.get("currency")?.style.cu;
+  const CurrencyIcon = currencyIcon(localCurrency);
+  const currencyLabel = `Format as currency (${localCurrency})`;
 
   const refreshStyle = useCallback(async () => {
     if (!spreadsheet) return;
@@ -239,10 +317,11 @@ export function FormattingToolbar({
   }, [onTogglePaintFormat]);
 
   const handleNumberFormat = useCallback(
-    (format: string) => {
-      spreadsheet?.applyStyle({ nf: format as NumberFormat });
+    (id: NumberFormatPresetId) => {
+      const preset = presetById.get(id);
+      if (preset) spreadsheet?.applyStyle({ ...preset.style });
     },
-    [spreadsheet],
+    [presetById, spreadsheet],
   );
 
   const handleIncreaseDecimals = useCallback(() => {
@@ -278,8 +357,6 @@ export function FormattingToolbar({
   const CurrentAlignIcon = ALIGN_ICONS[currentAlign];
   const currentVAlign = style?.va || "top";
   const CurrentVAlignIcon = VALIGN_ICONS[currentVAlign];
-  const currentFormat = (style?.nf || "plain") as keyof typeof FORMAT_ICONS;
-  const CurrentFormatIcon = FORMAT_ICONS[currentFormat];
 
   return (
     <Toolbar>
@@ -339,14 +416,12 @@ export function FormattingToolbar({
             <TooltipTrigger asChild>
               <ToolbarButton
                 onClick={() => handleNumberFormat("currency")}
-                aria-label="Format as currency"
+                aria-label={currencyLabel}
               >
-                <IconCurrencyDollar size={16} />
+                <CurrencyIcon size={16} />
               </ToolbarButton>
             </TooltipTrigger>
-            <TooltipContent>
-              Format as currency ({localePreview.currency})
-            </TooltipContent>
+            <TooltipContent>{currencyLabel}</TooltipContent>
           </Tooltip>
 
           {/* Percent shortcut */}
@@ -400,73 +475,41 @@ export function FormattingToolbar({
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <ToolbarButton variant="menu" aria-label="More formats">
-                    <CurrentFormatIcon size={16} />
+                    <IconNumber123 size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                   </ToolbarButton>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>More formats</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent>
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                Common formats (US examples)
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "plain"}
-                onClick={() => handleNumberFormat("plain")}
-              >
-                <IconAbc size={16} className="mr-2" />
-                Plain text
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "number"}
-                onClick={() => handleNumberFormat("number")}
-              >
-                <IconHash size={16} className="mr-2" />
-                Number
-                <DropdownMenuShortcut>{usPreview.number}</DropdownMenuShortcut>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "currency"}
-                onClick={() => handleNumberFormat("currency")}
-              >
-                <IconCurrencyDollar size={16} className="mr-2" />
-                Currency
-                <DropdownMenuShortcut>{usPreview.currencyValue}</DropdownMenuShortcut>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "percent"}
-                onClick={() => handleNumberFormat("percent")}
-              >
-                <IconPercentage size={16} className="mr-2" />
-                Percent
-                <DropdownMenuShortcut>{usPreview.percent}</DropdownMenuShortcut>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                US date preview: {usPreview.date}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                Your locale ({localePreview.locale})
-              </DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "currency"}
-                onClick={() => handleNumberFormat("currency")}
-              >
-                <IconCurrencyDollar size={16} className="mr-2" />
-                Locale currency
-                <DropdownMenuShortcut>{localePreview.currencyValue}</DropdownMenuShortcut>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={currentFormat === "date"}
-                onClick={() => handleNumberFormat("date")}
-              >
-                <IconCalendar size={16} className="mr-2" />
-                Locale date
-                <DropdownMenuShortcut>{localePreview.date}</DropdownMenuShortcut>
-              </DropdownMenuCheckboxItem>
+            <DropdownMenuContent className="min-w-64">
+              {FORMAT_GROUPS.map((group, index) => {
+                const items = group.flatMap((id) => {
+                  const preset = presetById.get(id);
+                  return preset ? [preset] : [];
+                });
+                return (
+                  <Fragment key={group[0]}>
+                    {index > 0 && <DropdownMenuSeparator />}
+                    <DropdownMenuGroup>
+                      {items.map((preset) => (
+                        <DropdownMenuCheckboxItem
+                          key={preset.id}
+                          checked={activePreset === preset.id}
+                          onClick={() => handleNumberFormat(preset.id)}
+                        >
+                          {preset.label}
+                          {preset.preview && (
+                            <DropdownMenuShortcut className="tracking-normal tabular-nums">
+                              {preset.preview}
+                            </DropdownMenuShortcut>
+                          )}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </Fragment>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -504,6 +547,23 @@ export function FormattingToolbar({
         </TooltipTrigger>
         <TooltipContent>Italic ({modKey}+I)</TooltipContent>
       </Tooltip>
+
+      {!isMobile && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={style?.u || false}
+              onPressedChange={() => handleToggle("u")}
+              className="h-7 w-7 cursor-pointer"
+              aria-label="Underline"
+            >
+              <IconUnderline size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Underline ({modKey}+U)</TooltipContent>
+        </Tooltip>
+      )}
 
       {!isMobile && (
         <Tooltip>
@@ -795,13 +855,12 @@ export function FormattingToolbar({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 hover:bg-muted"
+              <ToolbarButton
                 onClick={handleOpenConditionalFormat}
                 aria-label="Conditional formatting"
               >
-                <IconBrush size={16} />
-              </button>
+                <IconPalette size={16} />
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Conditional formatting</TooltipContent>
           </Tooltip>
@@ -820,8 +879,8 @@ export function FormattingToolbar({
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Format</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
-                <IconCurrencyDollar size={16} className="mr-2" />
-                Currency
+                <CurrencyIcon size={16} className="mr-2" />
+                {currencyLabel}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
                 <IconPercentage size={16} className="mr-2" />
@@ -842,11 +901,11 @@ export function FormattingToolbar({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
                 <IconHash size={16} className="mr-2" />
-                Number ({usPreview.number})
+                Number ({presetById.get("number")?.preview})
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
                 <IconCalendar size={16} className="mr-2" />
-                Date ({localePreview.date})
+                Date ({presetById.get("date")?.preview})
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -918,6 +977,10 @@ export function FormattingToolbar({
                 Clear borders
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleToggle("u")}>
+                <IconUnderline size={16} className="mr-2" />
+                Underline
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleToggle("st")}>
                 <IconStrikethrough size={16} className="mr-2" />
                 Strikethrough
@@ -943,7 +1006,7 @@ export function FormattingToolbar({
                 {paintFormatActive ? "Cancel paint format" : "Paint format"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleOpenConditionalFormat}>
-                <IconBrush size={16} className="mr-2" />
+                <IconPalette size={16} className="mr-2" />
                 Conditional formatting
               </DropdownMenuItem>
             </DropdownMenuContent>
