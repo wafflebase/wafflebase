@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 639
+Total archived tasks: 640
 
-## 2026/11 (9 tasks)
+## 2026/11 (10 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -20,6 +20,7 @@ Total archived tasks: 639
 | ai slop cleanup (2026-11-14) | [20261114-ai-slop-cleanup-todo.md](./2026/11/20261114-ai-slop-cleanup-todo.md) | [20261114-ai-slop-cleanup-lessons.md](./2026/11/20261114-ai-slop-cleanup-lessons.md) |
 | impeccable swap (2026-11-13) | [20261113-impeccable-swap-todo.md](./2026/11/20261113-impeccable-swap-todo.md) | [20261113-impeccable-swap-lessons.md](./2026/11/20261113-impeccable-swap-lessons.md) |
 | codepair workspace claims (2026-11-08) | [20261108-codepair-workspace-claims-todo.md](./2026/11/20261108-codepair-workspace-claims-todo.md) | [20261108-codepair-workspace-claims-lessons.md](./2026/11/20261108-codepair-workspace-claims-lessons.md) |
+| release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./2026/11/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./2026/11/20261108-release-v0.6.14-lessons.md) |
 | title live sync (2026-11-01) | [20261101-title-live-sync-todo.md](./2026/11/20261101-title-live-sync-todo.md) | [20261101-title-live-sync-lessons.md](./2026/11/20261101-title-live-sync-lessons.md) |
 
 ## 2026/10 (7 tasks)
