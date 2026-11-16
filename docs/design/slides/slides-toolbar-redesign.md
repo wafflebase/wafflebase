@@ -75,7 +75,7 @@ The toolbar is one row organized into four zones:
 | Global L | Undo, Redo | Always visible |
 | Insert + Slide | `+ Slide ▾`, then `Select / Text / Image / Shape ▾ / Line ▾` (insert group) | Always visible *except* during text edit, where the insert group hides |
 | Contextual | Varies by `ToolbarState` (idle / object / text-edit) | Swaps wholesale |
-| Global R | Theme, Present | Always visible (Done button replaces Present hint when text-editing) |
+| Global R | Format · Motion · Background · Theme panel toggles (Present lives in the header as "Slideshow") | Always visible; text labels collapse to icons when the toolbar is narrow — see [Labelled chrome](#labelled-chrome-and-a-quiet-done) |
 
 **Rule:** the global zones never reflow. The contextual middle is the
 only area that changes shape. This keeps Undo/Redo/Slide/Theme/Present
@@ -279,7 +279,7 @@ Rotate      90° clockwise
 | Size | Shared `font-size-picker.tsx`. Value resolved via `getRangeStyleSummary()` with `DEFAULT_INLINE_STYLE.fontSize` as the fallback for unset runs. |
 | B / I / U, Color, Link | Shared `text-format-group.tsx`, rendered with `showStrikethrough={false}` and `showHighlight={false}`. |
 | Align / List / Indent | Shared `text-paragraph-group.tsx`. |
-| Done | New. Calls `editor.exitTextEditing()` (equivalent to Esc). |
+| Done | New. Calls `editor.exitTextEditing()` (equivalent to Esc). A quiet text `ToolbarButton`, not a syrup fill — see [Labelled chrome](#labelled-chrome-and-a-quiet-done). |
 
 The block-style dropdown (Normal / Title / Heading 1–3 — `text-style-group.tsx`) and the Font family picker are intentionally omitted on the slides text-edit surface. Block-level typography is owned by the deck's theme + layout tier (slide titles, body placeholders, headings), so promoting an arbitrary run inside a shape to "Heading 1" lacks the semantic anchor it has in a flowing document. The Font family picker is reachable from the object-level toolbar (`text-element-controls.tsx`) before entering text-edit. Strikethrough and Highlight are dropped to keep the in-edit row at the B/I/U/Color/Link essentials — Highlight backgrounds in particular rarely read against themed slide backgrounds.
 
@@ -456,6 +456,36 @@ The controls shipped as one PR in five independent commits. Full
 per-control component map, capture/paste matrices, and risk table are
 preserved in git history (this doc absorbed the former
 `slides-toolbar-tier1.md`).
+
+### Labelled chrome and a quiet Done
+
+A design critique found the editor chrome icon-only where Google Slides
+uses words, which fails the people the product targets ("familiar
+before novel"). No menu bar was added; the controls gained labels:
+
+- **Header.** The Present split button reads **Slideshow** (Google's
+  word) beside its play glyph; the options dropdown and shortcuts are
+  unchanged. The suite-wide `ShareDialog` trigger reads **Share** in
+  every editor, so the document types stay alike. Both labels are
+  `sr-only md:not-sr-only`: below 768px the header belongs to the
+  mobile shell and keeps its 32px icon buttons.
+- **Panel toggles** (`RightGlobals`) read **Format · Motion ·
+  Background · Theme**, text-only like Google's row, keeping their
+  `aria-label`s (each contains its visible word) and pressed state. The
+  words cost 287px against 134px of icons, so the toolbar is a
+  `@container/slides-toolbar` and each toggle shows its word only when
+  the strip is wide enough for the current state: 800px with nothing
+  selected, 1300px otherwise (text-edit, the widest state, measures
+  ~1290px with labels and ~1136px with icons). Below that it falls
+  back to its icon and the tooltip names it. Keying on the container,
+  not the viewport, accounts for the sidebar; the idle/non-idle split
+  matches Google, whose Background / Theme row is a no-selection
+  affordance.
+- **Done** (text edit) is a ghost `ToolbarButton`, not a `bg-primary`
+  fill. It was the loudest object on screen for the whole of the most
+  frequent task, and the One Accent Rule reserves syrup for the view's
+  primary action; Google has no such button (Esc exits). The board
+  toolbar reuses `TextEditSection` and follows.
 
 ### Out-of-scope items (explicit)
 
