@@ -107,7 +107,10 @@ export function SlidesToolbar({
   }
 
   return (
-    <Toolbar data-canvas-toolbar="">
+    // `@container/slides-toolbar`: the right-side panel toggles show
+    // their text labels only when the strip is wide enough (see
+    // `PanelToggle` in ./global-controls.tsx).
+    <Toolbar data-canvas-toolbar="" className="@container/slides-toolbar">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator />
       <FormatPainterButton editor={editor} />
@@ -150,6 +153,7 @@ export function SlidesToolbar({
         motionPanelOpen={motionPanelOpen}
         onToggleBackgroundPanel={onToggleBackgroundPanel}
         backgroundPanelOpen={backgroundPanelOpen}
+        contextWidth={state.kind === "idle" ? "compact" : "full"}
       />
     </Toolbar>
   );

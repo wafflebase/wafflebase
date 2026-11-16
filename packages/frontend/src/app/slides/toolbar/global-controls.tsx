@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
   IconAdjustmentsAlt,
   IconArrowBackUp,
@@ -93,6 +93,14 @@ export interface RightGlobalsProps {
   motionPanelOpen?: boolean;
   onToggleBackgroundPanel?: () => void;
   backgroundPanelOpen?: boolean;
+  /**
+   * How much room the toolbar's contextual middle takes: `"compact"`
+   * with nothing selected (Insert only), `"full"` when an object or a
+   * text box is being edited. Decides how wide the toolbar must be
+   * before the panel toggles show their text labels — see
+   * `PanelToggle`. Defaults to `"full"`, the conservative answer.
+   */
+  contextWidth?: "compact" | "full";
 }
 
 /**
@@ -124,72 +132,134 @@ export function RightGlobals({
   motionPanelOpen,
   onToggleBackgroundPanel,
   backgroundPanelOpen,
+  contextWidth = "full",
 }: RightGlobalsProps) {
+  const labelled = LABELLED_AT[contextWidth];
+  const toggles: PanelToggleProps[] = [
+    {
+      label: "Format",
+      ariaLabel: "Toggle format options",
+      tooltip: "Format options",
+      icon: IconAdjustmentsAlt,
+      pressed: formatPanelOpen,
+      onToggle: onToggleFormatPanel,
+    },
+    {
+      label: "Motion",
+      ariaLabel: "Toggle motion panel",
+      tooltip: "Motion",
+      icon: IconSparkles,
+      pressed: motionPanelOpen,
+      onToggle: onToggleMotionPanel,
+    },
+    {
+      label: "Background",
+      ariaLabel: "Toggle slide background",
+      tooltip: "Slide background",
+      icon: IconBackground,
+      pressed: backgroundPanelOpen,
+      onToggle: onToggleBackgroundPanel,
+    },
+    {
+      label: "Theme",
+      ariaLabel: "Toggle theme picker",
+      tooltip: "Theme",
+      icon: IconPalette,
+      pressed: themePanelOpen,
+      onToggle: onToggleThemePanel,
+    },
+  ];
   return (
-    <div
-      className="ml-auto flex items-center gap-1"
-      aria-label="Slide style"
-    >
-      {onToggleFormatPanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!formatPanelOpen}
-              onPressedChange={() => onToggleFormatPanel()}
-              aria-label="Toggle format options"
-            >
-              <IconAdjustmentsAlt size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Format options</TooltipContent>
-        </Tooltip>
-      )}
-      {onToggleMotionPanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!motionPanelOpen}
-              onPressedChange={() => onToggleMotionPanel()}
-              aria-label="Toggle motion panel"
-            >
-              <IconSparkles size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Motion</TooltipContent>
-        </Tooltip>
-      )}
-      {onToggleBackgroundPanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!backgroundPanelOpen}
-              onPressedChange={() => onToggleBackgroundPanel()}
-              aria-label="Toggle slide background"
-            >
-              <IconBackground size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Background</TooltipContent>
-        </Tooltip>
-      )}
-      {onToggleThemePanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!themePanelOpen}
-              onPressedChange={() => onToggleThemePanel()}
-              aria-label="Toggle theme picker"
-            >
-              <IconPalette size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Theme</TooltipContent>
-        </Tooltip>
+    <div className="ml-auto flex items-center gap-0.5" aria-label="Slide style">
+      {toggles.map((t) =>
+        t.onToggle ? (
+          <PanelToggle key={t.label} {...t} labelled={labelled} />
+        ) : null,
       )}
     </div>
+  );
+}
+
+interface PanelToggleProps {
+  /** Visible text: the word Google Slides uses for the panel. */
+  label: string;
+  /**
+   * The accessible name, unchanged from the icon-only toggles. It
+   * contains `label`, so what a voice-control user reads off the screen
+   * still names the control (WCAG 2.5.3, label in name).
+   */
+  ariaLabel: string;
+  tooltip: string;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  pressed?: boolean;
+  onToggle?: () => void;
+}
+
+/**
+ * Container-query classes per `contextWidth`, written out in full so
+ * Tailwind's scanner sees every literal. The widths are measured, not
+ * guessed (visual harness, Chromium, system UI font): the four labels
+ * cost 287px against 134px of icons. With nothing selected the whole
+ * strip needs ~760px, so labels show from 800px. Text-edit is the
+ * widest state at ~1290px with labels (~1136px with icons), and a
+ * selected table is of the same order, so every non-idle state shows
+ * labels from 1300px.
+ */
+const LABELLED_AT = {
+  compact: {
+    toggle: "@min-[800px]/slides-toolbar:px-2",
+    icon: "@min-[800px]/slides-toolbar:hidden",
+    label: "hidden @min-[800px]/slides-toolbar:inline",
+  },
+  full: {
+    toggle: "@min-[1300px]/slides-toolbar:px-2",
+    icon: "@min-[1300px]/slides-toolbar:hidden",
+    label: "hidden @min-[1300px]/slides-toolbar:inline",
+  },
+} as const;
+
+type LabelClasses = (typeof LABELLED_AT)[keyof typeof LABELLED_AT];
+
+/**
+ * One right-side panel toggle, text-labelled like Google Slides'
+ * "Background · Layout · Theme · Transition" row: four look-alike
+ * glyphs (sliders, sparkles, a layered square, a palette) were not
+ * recognisable to people arriving from there.
+ *
+ * The words cost ~150px over the icons, and the toolbar morphs. So
+ * the label shows only while the toolbar itself (the
+ * `@container/slides-toolbar` in `./index.tsx`) is wide enough for the
+ * current state (`LABELLED_AT`); below that each toggle falls back to
+ * its icon and the tooltip carries the name. It keys on the toolbar,
+ * not the viewport, because the sidebar takes a varying share of it.
+ * Between the two widths the labels give way to icons once something
+ * is selected, which is also what Google Slides does: its
+ * Background / Theme row is a no-selection affordance.
+ */
+function PanelToggle({
+  label,
+  ariaLabel,
+  tooltip,
+  icon: Icon,
+  pressed,
+  onToggle,
+  labelled,
+}: PanelToggleProps & { labelled: LabelClasses }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          pressed={!!pressed}
+          onPressedChange={() => onToggle?.()}
+          aria-label={ariaLabel}
+          className={labelled.toggle}
+        >
+          <Icon aria-hidden={true} className={labelled.icon} />
+          <span className={labelled.label}>{label}</span>
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
