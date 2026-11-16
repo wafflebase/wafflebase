@@ -147,6 +147,44 @@ const OpenLayerSelector = ['dialog', 'alertdialog', 'menu', 'listbox']
 const CellInputPinnedMargin = 8;
 
 /**
+ * `isClosingLayer` reports a page-covering layer on its way out: a fixed
+ * element Radix has already marked `data-state="closed"`.
+ */
+function isClosingLayer(el: Element): boolean {
+  return (
+    el.getAttribute('data-state') === 'closed' &&
+    getComputedStyle(el).position === 'fixed'
+  );
+}
+
+/**
+ * `isTopmostAt` reports whether, ignoring layers that are closing, the
+ * element under a viewport point belongs to `container` — that is, whether
+ * the click would have reached it had the page not been neutralized. Both a
+ * live sheet and a revision preview over it are mounted at once, and only the
+ * one actually on top may take the click.
+ */
+function isTopmostAt(container: Element, x: number, y: number): boolean {
+  if (typeof document.elementsFromPoint !== 'function') return false;
+  const body = document.body;
+  const neutralized = body.style.pointerEvents;
+  // Hit testing skips `pointer-events: none`, which the whole page has right
+  // now; lift it for this synchronous read only.
+  body.style.pointerEvents = '';
+  try {
+    const top = document.elementsFromPoint(x, y).find((el) => {
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        if (isClosingLayer(n)) return false;
+      }
+      return true;
+    });
+    return !!top && container.contains(top);
+  } finally {
+    body.style.pointerEvents = neutralized;
+  }
+}
+
+/**
  * How long the pointer must rest on a hyperlink before the card appears.
  *
  * Long enough that sweeping the mouse across a column of links does not strobe
@@ -2999,7 +3037,9 @@ export class Worksheet {
    * Only that window is rescued: the page must still be neutralized, no
    * layer may still be open (an open modal owns its outside clicks), the
    * target must be `<html>` or a page-covering fixed layer on its way out,
-   * and the point must lie on the grid itself rather than its scrollbars.
+   * the point must lie on the grid itself rather than its scrollbars, and
+   * nothing but closing layers may cover the grid there (a revision preview
+   * over a still-mounted live sheet keeps its clicks).
    */
   private handleNeutralizedMouseDown(e: MouseEvent): void {
     if (document.body.style.pointerEvents !== 'none') return;
@@ -3007,10 +3047,9 @@ export class Worksheet {
     if (!(target instanceof Element) || this.container.contains(target)) {
       return;
     }
-    const closingLayer =
-      target.getAttribute('data-state') === 'closed' &&
-      getComputedStyle(target).position === 'fixed';
-    if (target !== document.documentElement && !closingLayer) return;
+    if (target !== document.documentElement && !isClosingLayer(target)) {
+      return;
+    }
     if (document.querySelector(OpenLayerSelector)) return;
 
     const scrollContainer = this.gridContainer.getScrollContainer();
@@ -3025,6 +3064,7 @@ export class Worksheet {
     ) {
       return;
     }
+    if (!isTopmostAt(this.container, e.clientX, e.clientY)) return;
 
     // Keep the browser from treating the press as a text-selection start on
     // the layer; the grid takes it from here exactly as a direct hit.

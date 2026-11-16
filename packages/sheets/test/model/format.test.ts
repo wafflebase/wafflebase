@@ -85,9 +85,9 @@ describe('formatValue', () => {
   });
 
   it('should handle negative numbers', () => {
-    expect(
-      formatValue('-1234', 'number', undefined, { locale: 'en-US' }),
-    ).toBe('-1,234.00');
+    expect(formatValue('-1234', 'number', undefined, { locale: 'en-US' })).toBe(
+      '-1,234.00',
+    );
   });
 
   it('should handle empty string', () => {
@@ -95,49 +95,61 @@ describe('formatValue', () => {
   });
 
   it('should use locale-specific separators', () => {
-    expect(formatValue('1234.5', 'number', undefined, { locale: 'de-DE' })).toBe(
-      '1.234,50',
-    );
+    expect(
+      formatValue('1234.5', 'number', undefined, { locale: 'de-DE' }),
+    ).toBe('1.234,50');
   });
 
   it('should format dates as YYYY-MM-DD', () => {
-    expect(formatValue('2026-02-18', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2026-02-18',
-    );
-    expect(formatValue('2026-02-18', 'date', undefined, { locale: 'ko-KR' })).toBe(
-      '2026-02-18',
-    );
+    expect(
+      formatValue('2026-02-18', 'date', undefined, { locale: 'en-US' }),
+    ).toBe('2026-02-18');
+    expect(
+      formatValue('2026-02-18', 'date', undefined, { locale: 'ko-KR' }),
+    ).toBe('2026-02-18');
   });
 
   it('should return original value for invalid date input', () => {
-    expect(formatValue('not-a-date', 'date', undefined, { locale: 'en-US' })).toBe(
-      'not-a-date',
-    );
+    expect(
+      formatValue('not-a-date', 'date', undefined, { locale: 'en-US' }),
+    ).toBe('not-a-date');
   });
 
   it('should format datetime as YYYY-MM-DD HH:mm:ss', () => {
-    expect(formatValue('2026-03-09 14:30:45', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2026-03-09 14:30:45',
-    );
-    expect(formatValue('2025-12-31 23:59:59', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2025-12-31 23:59:59',
-    );
+    expect(
+      formatValue('2026-03-09 14:30:45', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2026-03-09 14:30:45');
+    expect(
+      formatValue('2025-12-31 23:59:59', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2025-12-31 23:59:59');
     // zero-padded time components
-    expect(formatValue('2025-01-01 00:00:00', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2025-01-01 00:00:00',
-    );
+    expect(
+      formatValue('2025-01-01 00:00:00', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2025-01-01 00:00:00');
   });
 
   it('should return original value for datetime with invalid time components', () => {
-    expect(formatValue('2025-01-01 24:00:00', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2025-01-01 24:00:00',
-    );
-    expect(formatValue('2025-01-01 00:60:00', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2025-01-01 00:60:00',
-    );
-    expect(formatValue('2025-01-01 00:00:60', 'date', undefined, { locale: 'en-US' })).toBe(
-      '2025-01-01 00:00:60',
-    );
+    expect(
+      formatValue('2025-01-01 24:00:00', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2025-01-01 24:00:00');
+    expect(
+      formatValue('2025-01-01 00:60:00', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2025-01-01 00:60:00');
+    expect(
+      formatValue('2025-01-01 00:00:60', 'date', undefined, {
+        locale: 'en-US',
+      }),
+    ).toBe('2025-01-01 00:00:60');
   });
 });
 
@@ -226,10 +238,14 @@ describe('renderedDecimals', () => {
 
     for (const currency of ['USD', 'KRW', 'KWD']) {
       expect(
-        renderedDecimals('1234.5678', { nf: 'currency' }, {
-          locale: 'en-US',
-          currency,
-        }),
+        renderedDecimals(
+          '1234.5678',
+          { nf: 'currency' },
+          {
+            locale: 'en-US',
+            currency,
+          },
+        ),
       ).toBe(
         digitsOf(
           formatValue('1234.5678', 'currency', undefined, {
@@ -241,16 +257,24 @@ describe('renderedDecimals', () => {
     }
 
     expect(
-      renderedDecimals('1234.5678', { nf: 'currency' }, {
-        locale: 'en-US',
-        currency: 'KRW',
-      }),
+      renderedDecimals(
+        '1234.5678',
+        { nf: 'currency' },
+        {
+          locale: 'en-US',
+          currency: 'KRW',
+        },
+      ),
     ).toBe(0);
     expect(
-      renderedDecimals('1234.5678', { nf: 'currency' }, {
-        locale: 'en-US',
-        currency: 'KWD',
-      }),
+      renderedDecimals(
+        '1234.5678',
+        { nf: 'currency' },
+        {
+          locale: 'en-US',
+          currency: 'KWD',
+        },
+      ),
     ).toBe(3);
   });
 });
@@ -287,14 +311,24 @@ describe('formatValue extended formats', () => {
   });
 
   it('should format financial with parentheses for negatives', () => {
-    expect(formatValue('1234.5', 'financial', undefined, us)).toBe(
-      '1,234.50',
-    );
+    expect(formatValue('1234.5', 'financial', undefined, us)).toBe('1,234.50');
     expect(formatValue('-1234.5', 'financial', undefined, us)).toBe(
       '(1,234.50)',
     );
     expect(formatValue('0', 'financial', undefined, us)).toBe('0.00');
     expect(formatValue('-1234.5', 'financial', 0, us)).toBe('(1,235)');
+    expect(formatValue('-0.001', 'financial', undefined, us)).toBe('0.00');
+  });
+
+  it('keeps financial parentheses in locales without ASCII digits', () => {
+    // ar-EG renders Arabic-Indic numerals, so the sign cannot be read back
+    // off the digit glyphs.
+    const negative = formatValue('-1234.5', 'financial', undefined, {
+      locale: 'ar-EG',
+      currency: 'EGP',
+    });
+    expect(negative.startsWith('(')).toBe(true);
+    expect(negative.endsWith(')')).toBe(true);
   });
 
   it('should format accounting with parentheses and a dash for zero', () => {
@@ -330,9 +364,9 @@ describe('formatValue extended formats', () => {
     expect(formatValue('2026-02-18', 'datetime', undefined, us)).toBe(
       '2026-02-18 00:00:00',
     );
-    expect(
-      formatValue('2026-02-18 15:59:00', 'datetime', undefined, us),
-    ).toBe('2026-02-18 15:59:00');
+    expect(formatValue('2026-02-18 15:59:00', 'datetime', undefined, us)).toBe(
+      '2026-02-18 15:59:00',
+    );
     expect(formatValue('42', 'datetime', undefined, us)).toBe('42');
   });
 
@@ -340,10 +374,14 @@ describe('formatValue extended formats', () => {
     expect(renderedDecimals('1234.5', { nf: 'scientific' })).toBe(2);
     expect(renderedDecimals('1234.5', { nf: 'financial', dp: 1 })).toBe(1);
     expect(
-      renderedDecimals('1234.5', { nf: 'accounting' }, {
-        locale: 'en-US',
-        currency: 'KRW',
-      }),
+      renderedDecimals(
+        '1234.5',
+        { nf: 'accounting' },
+        {
+          locale: 'en-US',
+          currency: 'KRW',
+        },
+      ),
     ).toBe(0);
     expect(renderedDecimals('2026-02-18 15:59:00', { nf: 'time' })).toBe(0);
   });

@@ -18,16 +18,32 @@ const handle = (
   }
 ).handleNeutralizedMouseDown;
 
+/**
+ * jsdom does no hit testing, so each case states what the page would put
+ * under the pointer once it is no longer neutralized: by default the grid.
+ */
+function stackAtPoint(...stack: Element[]) {
+  document.elementsFromPoint = () => stack;
+}
+
 function createContext() {
   const scroll = document.createElement('div');
   document.body.appendChild(scroll);
   scroll.getBoundingClientRect = () =>
-    ({ left: 100, top: 50, right: 900, bottom: 650, width: 800, height: 600 }) as DOMRect;
+    ({
+      left: 100,
+      top: 50,
+      right: 900,
+      bottom: 650,
+      width: 800,
+      height: 600,
+    }) as DOMRect;
   Object.defineProperty(scroll, 'clientWidth', { value: 785 });
   Object.defineProperty(scroll, 'clientHeight', { value: 585 });
   const container = document.createElement('div');
   container.appendChild(scroll);
   document.body.appendChild(container);
+  stackAtPoint(scroll);
   return {
     container,
     gridContainer: { getScrollContainer: () => scroll },
@@ -65,7 +81,9 @@ describe('Worksheet click through a closing modal layer', () => {
   it('selects the clicked cell through a dialog overlay that is animating out', () => {
     const ctx = createContext();
     document.body.style.pointerEvents = 'none';
-    const event = mousedown(closingOverlay(), 300, 200);
+    const overlay = closingOverlay();
+    stackAtPoint(overlay, ctx.gridContainer.getScrollContainer());
+    const event = mousedown(overlay, 300, 200);
 
     handle.call(ctx, event);
 
@@ -134,5 +152,21 @@ describe('Worksheet click through a closing modal layer', () => {
     handle.call(ctx, mousedown(trigger, 300, 200));
 
     expect(ctx.handleMouseDown).not.toHaveBeenCalled();
+  });
+
+  it('leaves the click alone when something else covers the grid', () => {
+    // A revision preview paints over the live sheet, which stays mounted:
+    // a click there belongs to the preview, never to the live document.
+    const ctx = createContext();
+    document.body.style.pointerEvents = 'none';
+    const preview = document.createElement('div');
+    document.body.appendChild(preview);
+    stackAtPoint(preview, ctx.gridContainer.getScrollContainer());
+
+    handle.call(ctx, mousedown(document.documentElement, 300, 200));
+
+    expect(ctx.handleMouseDown).not.toHaveBeenCalled();
+    // The hit test must not leave the page un-neutralized.
+    expect(document.body.style.pointerEvents).toBe('none');
   });
 });

@@ -343,8 +343,10 @@ export function formatValue(
         maximumFractionDigits: decimals,
       });
       // A value that rounds to zero shows no parentheses: `(0.00)` would
-      // claim a debit the digits do not show.
-      return num < 0 && /[1-9]/.test(digits) ? `(${digits})` : digits;
+      // claim a debit the digits do not show. Decided on the rounded number,
+      // not the glyphs, which are not ASCII digits in every locale.
+      const roundsToZero = Number(Math.abs(num).toFixed(decimals)) === 0;
+      return num < 0 && !roundsToZero ? `(${digits})` : digits;
     }
     case 'accounting': {
       const num = Number(value);
