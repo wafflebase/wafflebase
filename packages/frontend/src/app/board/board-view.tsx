@@ -52,12 +52,8 @@ import {
   defaultMinimapVisible,
   type BoardMinimap,
 } from "./board-minimap";
-import { centerViewportOnWorld, sceneBounds } from "./minimap-geometry";
-import {
-  createFitToContentOnce,
-  fitViewportToScene,
-  type FitLatch,
-} from "./fit-to-content";
+import { centerViewportOnWorld } from "./minimap-geometry";
+import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
   BOARD_PAN_CURSOR_CSS,
   createHandTool,
@@ -70,7 +66,7 @@ import {
 } from "@/lib/thumbnail-capture";
 import type { ZoomController } from "../slides/zoom-controller";
 import {
-  SELECTION_FIT_MAX_ZOOM,
+  selectionFitViewport,
   createBoardZoomBinding,
   createBoardZoomController,
   stepZoomPreset,
@@ -790,12 +786,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           zoom.controller.set(stepZoomPreset(vp.current.zoom, direction)),
         zoomTo: (z) => zoom.controller.set(z),
         fitSelection: () => {
-          const ids = new Set(editor.getSelection());
-          if (ids.size === 0) return;
-          const fitted = fitViewportToScene(
-            sceneBounds(readTopLevel().filter((e) => ids.has(e.id)).map((e) => e.frame)),
+          const fitted = selectionFitViewport(
+            readTopLevel(),
+            editor.getSelection(),
             { w: hostW, h: hostH },
-            SELECTION_FIT_MAX_ZOOM,
           );
           if (!fitted) return;
           commitViewport(fitted);
@@ -825,8 +819,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // The hand tool and a read-only mount (which binds no editor
       // pointer handlers, so a plain drag would otherwise do nothing)
       // pan on a plain left-drag, exactly like Space held.
+      // Scoped to the scene surface (unlike Space, which is an explicit
+      // gesture): the minimap is a child of `container` too, and a plain
+      // left-drag on it is its own drag-to-navigate, which this
+      // capture-phase claim would otherwise swallow.
+      const onScene = e.target === canvas || e.target === overlay;
       const isSpaceDrag =
-        (spaceDown || hand.get() || readOnly === true) &&
+        (spaceDown || ((hand.get() || readOnly === true) && onScene)) &&
         e.button === 0 &&
         e.pointerType !== "touch";
       if (!isMiddleButton && !isSpaceDrag) return;

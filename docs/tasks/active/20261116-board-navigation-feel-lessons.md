@@ -24,3 +24,11 @@ other handler honours `defaultPrevented`.
 editor's hover logic on the next `pointermove`. A container attribute with
 an `!important` rule is the robust way for a host to override a cursor
 that the engine owns.
+
+## Self-review log
+
+- Round 1: correctness, blast-radius and test-adequacy blocked. The hand /
+  read-only pan claim is a capture listener on `container`, so it also
+  swallowed the minimap's drag-to-navigate (a real viewer regression).
+  Fixed by scoping it to the scene surface. Shift+2's framing had no test,
+  so it was extracted as `selectionFitViewport` and given one.

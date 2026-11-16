@@ -219,3 +219,21 @@ export function createBoardZoomBinding(
     },
   };
 }
+
+/**
+ * The viewport Shift+2 commits: the selected top-level elements framed in
+ * the host, up to {@link SELECTION_FIT_MAX_ZOOM}. `undefined` when no
+ * selected id is a top-level element (nothing selected, or a member
+ * selected inside a drilled-into group, whose frame is group-local and
+ * would frame the wrong place) or when the host has no area yet.
+ */
+export function selectionFitViewport(
+  elements: ReadonlyArray<{ id: string; frame: Frame }>,
+  selectedIds: ReadonlyArray<string>,
+  host: { w: number; h: number },
+): Viewport | undefined {
+  const ids = new Set(selectedIds);
+  if (ids.size === 0) return undefined;
+  const frames = elements.filter((e) => ids.has(e.id)).map((e) => e.frame);
+  return fitViewportToScene(sceneBounds(frames), host, SELECTION_FIT_MAX_ZOOM);
+}
