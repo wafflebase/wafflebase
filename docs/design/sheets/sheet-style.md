@@ -32,7 +32,9 @@ through `rangeStyles` to avoid writing one style-only cell per coordinate.
 ```typescript
 type TextAlign = 'left' | 'center' | 'right';
 type VerticalAlign = 'top' | 'middle' | 'bottom';
-type NumberFormat = 'plain' | 'number' | 'currency' | 'percent' | 'date';
+type NumberFormat =
+  | 'plain' | 'number' | 'currency' | 'percent' | 'date'
+  | 'scientific' | 'accounting' | 'financial' | 'time' | 'datetime';
 
 type CellStyle = {
   b?: boolean;         // bold
@@ -48,7 +50,7 @@ type CellStyle = {
   al?: TextAlign;      // horizontal alignment
   va?: VerticalAlign;  // vertical alignment
   nf?: NumberFormat;   // number format
-  cu?: string;         // explicit currency code for nf='currency'
+  cu?: string;         // explicit currency code for nf='currency'/'accounting'
   dp?: number;         // decimal places
 };
 ```
@@ -217,10 +219,50 @@ neighbor cells is bounded by explicit custom borders.
 
 `formatValue(value, format)` renders display text using locale-aware formatting:
 
-- `'number'`, `'currency'`, `'percent'` use locale separators
-- `'currency'` uses `CellStyle.cu` when present, otherwise locale-derived code
+- `'number'`, `'currency'`, `'percent'`, `'accounting'`, `'financial'` use
+  locale separators
+- `'currency'` and `'accounting'` use `CellStyle.cu` when present, otherwise
+  the viewer's locale-derived code
 - `'percent'` expects normalized fractional values (`0.1234 -> 12.34%`)
-- `'date'` formats parseable date values with locale date style
+- `'scientific'` renders `1.23E+03` (`dp` mantissa digits, two-digit signed
+  exponent)
+- `'accounting'` is a currency with negatives in parentheses and zero as a
+  dash (`($1,234.50)`, `$ -`); `'financial'` is the same without a symbol
+  (`(1,234.50)`)
+- `'date'` renders `YYYY-MM-DD`, keeping the time when the value carries one;
+  `'time'` renders `HH:mm:ss` and `'datetime'` `YYYY-MM-DD HH:mm:ss` (midnight
+  for a date-only value). Dates are strings in this model, not serials, so a
+  bare number under `'time'`/`'datetime'` renders unchanged
+
+### Toolbar presets
+
+`buildNumberFormatPresets(locale)` (`format-presets.ts`) is the toolbar's
+"More formats" menu, modelled on Google Sheets: Plain text, Number, Percent,
+Scientific, Accounting, Financial, Currency, Currency rounded, Date, Time,
+Date time. Each preset's preview is rendered by `formatValue`, so the menu
+cannot show a format the grid would not paint.
+
+Two rules make the currency entries honest:
+
+- **The currency code is pinned at apply time.** A `nf: 'currency'` with no
+  `cu` renders in each *viewer's* locale currency, so one amount would read
+  `$1,000` to one collaborator and `₩1,000` to another. Every currency preset
+  (and the `$` toolbar button, which applies the "Currency" preset) stores
+  `cu`. Legacy cells with no `cu` keep rendering as before and read as the
+  locale "Currency" entry in the menu.
+- **The US dollar and the locale currency are distinct entries.** When the
+  locale currency is not USD the menu offers "Currency (KRW)" and
+  "Currency (USD)" side by side; with a USD locale they are one entry.
+  `activeNumberFormatPreset(style, presets)` checks exactly one of them.
+
+Each preset writes its `dp` too, since the style model has no "explicit
+none" to unset a range's decimals: re-applying "Currency" after "Currency
+rounded" has to write the decimals back. `activeNumberFormatPreset` ignores
+`dp` except for the rounded/non-rounded split, so a format stays checked after
+Increase/Decrease decimal places.
+
+`.xlsx` import mappings are unchanged: built-in time formats (18–21) still
+import as `'date'` and accounting built-ins (42/44) as `'currency'`.
 
 `setData` inference updates formatting conservatively:
 

@@ -267,3 +267,84 @@ describe('locale helpers', () => {
     expect(resolveSystemLocale()).not.toHaveLength(0);
   });
 });
+
+describe('formatValue extended formats', () => {
+  const us = { locale: 'en-US' };
+
+  it('should format scientific with two decimals by default', () => {
+    expect(formatValue('1234.56', 'scientific', undefined, us)).toBe(
+      '1.23E+03',
+    );
+    expect(formatValue('0', 'scientific', undefined, us)).toBe('0.00E+00');
+    expect(formatValue('-0.000123', 'scientific', undefined, us)).toBe(
+      '-1.23E-04',
+    );
+    expect(formatValue('1234.56', 'scientific', 0, us)).toBe('1E+03');
+    expect(formatValue('12345678901234', 'scientific', 3, us)).toBe(
+      '1.235E+13',
+    );
+    expect(formatValue('abc', 'scientific', undefined, us)).toBe('abc');
+  });
+
+  it('should format financial with parentheses for negatives', () => {
+    expect(formatValue('1234.5', 'financial', undefined, us)).toBe(
+      '1,234.50',
+    );
+    expect(formatValue('-1234.5', 'financial', undefined, us)).toBe(
+      '(1,234.50)',
+    );
+    expect(formatValue('0', 'financial', undefined, us)).toBe('0.00');
+    expect(formatValue('-1234.5', 'financial', 0, us)).toBe('(1,235)');
+  });
+
+  it('should format accounting with parentheses and a dash for zero', () => {
+    const usd = { ...us, currency: 'USD' };
+    expect(formatValue('1234.5', 'accounting', undefined, usd)).toBe(
+      '$1,234.50',
+    );
+    expect(formatValue('-1234.5', 'accounting', undefined, usd)).toBe(
+      '($1,234.50)',
+    );
+    expect(formatValue('0', 'accounting', undefined, usd)).toBe('$ -');
+    // A dp-less accounting cell follows the currency's own convention.
+    expect(
+      formatValue('-1234.5', 'accounting', undefined, {
+        ...us,
+        currency: 'KRW',
+      }),
+    ).toBe('(₩1,235)');
+  });
+
+  it('should format time as HH:mm:ss', () => {
+    expect(formatValue('2026-02-18 15:59:00', 'time', undefined, us)).toBe(
+      '15:59:00',
+    );
+    expect(formatValue('2026-02-18', 'time', undefined, us)).toBe('00:00:00');
+    expect(formatValue('hello', 'time', undefined, us)).toBe('hello');
+    // The model stores dates as strings, not serials, so a bare number is
+    // not a time.
+    expect(formatValue('0.5', 'time', undefined, us)).toBe('0.5');
+  });
+
+  it('should format date time as YYYY-MM-DD HH:mm:ss', () => {
+    expect(formatValue('2026-02-18', 'datetime', undefined, us)).toBe(
+      '2026-02-18 00:00:00',
+    );
+    expect(
+      formatValue('2026-02-18 15:59:00', 'datetime', undefined, us),
+    ).toBe('2026-02-18 15:59:00');
+    expect(formatValue('42', 'datetime', undefined, us)).toBe('42');
+  });
+
+  it('should report rendered decimals for the extended formats', () => {
+    expect(renderedDecimals('1234.5', { nf: 'scientific' })).toBe(2);
+    expect(renderedDecimals('1234.5', { nf: 'financial', dp: 1 })).toBe(1);
+    expect(
+      renderedDecimals('1234.5', { nf: 'accounting' }, {
+        locale: 'en-US',
+        currency: 'KRW',
+      }),
+    ).toBe(0);
+    expect(renderedDecimals('2026-02-18 15:59:00', { nf: 'time' })).toBe(0);
+  });
+});

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import type { CellStyle } from '@wafflebase/sheets';
+import { NumberFormats, type CellStyle } from '@wafflebase/sheets';
 
 // The known CellStyle fields, grouped by how they validate. Mirrors
 // `CellStyle` in `@wafflebase/sheets` (packages/sheets/src/model/core/types.ts).
@@ -8,7 +8,7 @@ const STRING_KEYS = ['tc', 'bg', 'cu'] as const;
 const ENUM_KEYS: Record<string, readonly string[]> = {
   al: ['left', 'center', 'right'],
   va: ['top', 'middle', 'bottom'],
-  nf: ['plain', 'number', 'currency', 'percent', 'date'],
+  nf: NumberFormats,
 };
 
 /**

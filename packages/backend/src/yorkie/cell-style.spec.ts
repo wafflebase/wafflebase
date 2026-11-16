@@ -40,6 +40,21 @@ describe('parseCellStyle', () => {
     expect(() => parseCellStyle({ al: 'middle' })).toThrow(BadRequestException);
   });
 
+  it('accepts every number format the sheets formatter renders', () => {
+    for (const nf of [
+      'scientific',
+      'accounting',
+      'financial',
+      'time',
+      'datetime',
+    ]) {
+      expect(parseCellStyle({ nf })).toEqual({ nf });
+    }
+    expect(() => parseCellStyle({ nf: 'duration' })).toThrow(
+      BadRequestException,
+    );
+  });
+
   it('rejects a non-numeric dp', () => {
     expect(() => parseCellStyle({ dp: '2' })).toThrow(BadRequestException);
   });

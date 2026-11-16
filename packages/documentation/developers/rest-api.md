@@ -480,7 +480,7 @@ Every field is optional and each is merged onto what is already stored, so a `PU
 | `tc` `bg` `cu` | string | Text color, background color, currency |
 | `al` | `left` \| `center` \| `right` | Horizontal alignment |
 | `va` | `top` \| `middle` \| `bottom` | Vertical alignment |
-| `nf` | `plain` \| `number` \| `currency` \| `percent` \| `date` | Number format |
+| `nf` | `plain` \| `number` \| `currency` \| `percent` \| `date` \| `scientific` \| `accounting` \| `financial` \| `time` \| `datetime` | Number format |
 | `dp` | number | Decimal places |
 
 ```bash

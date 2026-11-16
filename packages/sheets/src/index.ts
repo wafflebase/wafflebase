@@ -38,6 +38,7 @@ import {
   type Axis,
   type SelectionType,
   type GridResolver,
+  NumberFormats,
 } from './model/core/types';
 import {
   toColumnLabel,
@@ -164,6 +165,12 @@ import {
   type LocaleFormatPreview,
 } from './model/core/locale';
 import { formatValue, type FormatValueOptions } from './model/worksheet/format';
+import {
+  buildNumberFormatPresets,
+  activeNumberFormatPreset,
+  type NumberFormatPreset,
+  type NumberFormatPresetId,
+} from './model/worksheet/format-presets';
 import {
   inferInput,
   cellFromInput,
@@ -393,6 +400,9 @@ export {
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
   formatValue,
+  buildNumberFormatPresets,
+  activeNumberFormatPreset,
+  NumberFormats,
   inferInput,
   cellFromInput,
   defaultAlign,
@@ -456,6 +466,8 @@ export {
 };
 
 export type {
+  NumberFormatPreset,
+  NumberFormatPresetId,
   LayoutRect,
   LinkHoverInfo,
   Store,
