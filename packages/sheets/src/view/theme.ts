@@ -9,11 +9,14 @@ export const LightTheme = {
   cellTextColor: '#000000',
   cellLinkColor: palette.link,
   // Butter & Maple — active cell ring uses syrup, selection fill uses
-  // butter, header chip uses solid butter. Matches the homepage MiniSpreadsheet.
+  // butter. Every header a selection spans (Google lights them all, not only
+  // the active cell's) gets a butter wash laid over `headerBGColor` — a wash
+  // rather than solid butter, so a wide selection does not paint a loud band
+  // across the header strip.
   activeCellColor: palette.syrup,
   selectionBGColor: `rgba(${palette.butterRgb}, 0.18)`,
   headerBGColor: '#F0F0F0',
-  headerActiveBGColor: palette.butter,
+  headerActiveBGColor: `rgba(${palette.butterRgb}, 0.5)`,
   ['tokens.REFERENCE']: palette.syrup,
   ['tokens.NUM']: '#4DA6FF',
   // Peer cursor colors — yellow slots swapped to rose / lavender so they
@@ -58,12 +61,15 @@ export const DarkTheme = {
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
   cellLinkColor: palette.linkBright,
-  // Butter & Maple — dark variant. Syrup brightens to maple-amber, butter
-  // stays gold so the header chip reads against the dark grid.
+  // Butter & Maple — dark variant. Syrup brightens to maple-amber. Solid
+  // butter behind white header labels was the loudest thing on the dark grid,
+  // and would be a glaring band once a selection spans many headers, so
+  // spanned headers take a low butter wash; the syrup tint stays the
+  // stronger whole-row/column state.
   activeCellColor: palette.syrupBright,
   selectionBGColor: `rgba(${palette.butterRgb}, 0.16)`,
   headerBGColor: '#2D2D2D',
-  headerActiveBGColor: palette.butter,
+  headerActiveBGColor: `rgba(${palette.butterRgb}, 0.22)`,
   ['tokens.REFERENCE']: palette.syrupBright,
   ['tokens.NUM']: '#4DA6FF',
   // Peer cursor colors — yellow slots swapped to rose / lavender.

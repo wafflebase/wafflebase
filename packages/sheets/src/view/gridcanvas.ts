@@ -24,6 +24,7 @@ import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
 import { defaultAlign } from '../model/worksheet/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
+import { HeaderHighlight, headerHighlight } from './header-highlight';
 import { clipLinkBox, detectLinks, layoutLinkBoxes } from './cell-links';
 import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
 import {
@@ -261,8 +262,17 @@ export class GridCanvas {
     colOrder?: string[],
     commentCellKeys?: Set<string>,
     dataValidations?: DataValidationRule[],
+    selectionRanges?: readonly Range[],
   ): void {
     this.renderedLinks = [];
+    // Headers light up for every range of the selection. Callers that pass
+    // only the last range (`selectionRange`) still get that one.
+    const headerRanges: readonly Range[] =
+      selectionRanges && selectionRanges.length > 0
+        ? selectionRanges
+        : selectionRange
+          ? [selectionRange]
+          : [];
     this.canvas.width = 0;
     this.canvas.height = 0;
 
@@ -332,7 +342,7 @@ export class GridCanvas {
         viewport.width,
         activeCell,
         selectionType,
-        selectionRange,
+        headerRanges,
         rowDim,
         colDim,
       );
@@ -345,7 +355,7 @@ export class GridCanvas {
         viewport.height,
         activeCell,
         selectionType,
-        selectionRange,
+        headerRanges,
         rowDim,
         colDim,
       );
@@ -519,7 +529,7 @@ export class GridCanvas {
           RowHeaderWidth + fw,
           activeCell,
           selectionType,
-          selectionRange,
+          headerRanges,
           rowDim,
           colDim,
         );
@@ -534,7 +544,7 @@ export class GridCanvas {
         viewport.width,
         activeCell,
         selectionType,
-        selectionRange,
+        headerRanges,
         rowDim,
         colDim,
       );
@@ -550,7 +560,7 @@ export class GridCanvas {
           DefaultCellHeight + fh,
           activeCell,
           selectionType,
-          selectionRange,
+          headerRanges,
           rowDim,
           colDim,
         );
@@ -565,7 +575,7 @@ export class GridCanvas {
         viewport.height,
         activeCell,
         selectionType,
-        selectionRange,
+        headerRanges,
         rowDim,
         colDim,
       );
@@ -575,11 +585,12 @@ export class GridCanvas {
     }
 
     // Render corner button (top-left intersection of row/column headers)
-    const isAllSelected = selectionType === 'all';
-    ctx.fillStyle = isAllSelected
-      ? this.getThemeColor('headerSelectedBGColor')
-      : this.getThemeColor('headerBGColor');
+    ctx.fillStyle = this.getThemeColor('headerBGColor');
     ctx.fillRect(0, 0, RowHeaderWidth, DefaultCellHeight);
+    if (selectionType === 'all') {
+      ctx.fillStyle = this.getThemeColor('headerSelectedBGColor');
+      ctx.fillRect(0, 0, RowHeaderWidth, DefaultCellHeight);
+    }
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(0, 0, RowHeaderWidth, DefaultCellHeight);
@@ -997,8 +1008,8 @@ export class GridCanvas {
     clipLeft: number,
     clipRight: number,
     activeCell: Ref,
-    selectionType?: SelectionType,
-    selectionRange?: Range,
+    selectionType: SelectionType | undefined,
+    ranges: readonly Range[],
     _rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
   ): void {
@@ -1017,12 +1028,6 @@ export class GridCanvas {
       }
       const x = RowHeaderWidth + colOffset - scrollLeft;
       const y = 0;
-      const isColSelected =
-        selectionType === 'all' ||
-        (selectionType === 'column' &&
-          selectionRange &&
-          col >= selectionRange[0].c &&
-          col <= selectionRange[1].c);
       this.renderHeader(
         ctx,
         x,
@@ -1030,8 +1035,7 @@ export class GridCanvas {
         colWidth,
         DefaultCellHeight,
         toColumnLabel(col),
-        activeCell.c === col,
-        isColSelected || false,
+        headerHighlight('column', col, activeCell, selectionType, ranges),
       );
     }
 
@@ -1255,8 +1259,8 @@ export class GridCanvas {
     clipTop: number,
     clipBottom: number,
     activeCell: Ref,
-    selectionType?: SelectionType,
-    selectionRange?: Range,
+    selectionType: SelectionType | undefined,
+    ranges: readonly Range[],
     rowDim?: DimensionIndex,
     _colDim?: DimensionIndex,
   ): void {
@@ -1275,12 +1279,6 @@ export class GridCanvas {
       }
       const x = 0;
       const y = rowOffset + DefaultCellHeight - scrollTop;
-      const isRowSelected =
-        selectionType === 'all' ||
-        (selectionType === 'row' &&
-          selectionRange &&
-          row >= selectionRange[0].r &&
-          row <= selectionRange[1].r);
       this.renderHeader(
         ctx,
         x,
@@ -1288,8 +1286,7 @@ export class GridCanvas {
         RowHeaderWidth,
         rowHeight,
         String(row),
-        activeCell.r === row,
-        isRowSelected || false,
+        headerHighlight('row', row, activeCell, selectionType, ranges),
       );
     }
 
@@ -1561,24 +1558,28 @@ export class GridCanvas {
     width: number,
     height: number,
     label: string,
-    selected: boolean,
-    fullSelected: boolean = false,
+    highlight: HeaderHighlight,
   ): void {
     if (width <= 0 || height <= 0) {
       return;
     }
-    ctx.fillStyle = fullSelected
-      ? this.getThemeColor('headerSelectedBGColor')
-      : selected
-        ? this.getThemeColor('headerActiveBGColor')
-        : this.getThemeColor('headerBGColor');
+    // The highlight tokens are translucent washes, so lay the opaque header
+    // fill down first: scrolled cells are painted under the header strip and
+    // would otherwise show through.
+    ctx.fillStyle = this.getThemeColor('headerBGColor');
     ctx.fillRect(x, y, width, height);
+    if (highlight !== 'none') {
+      ctx.fillStyle = this.getThemeColor(
+        highlight === 'full' ? 'headerSelectedBGColor' : 'headerActiveBGColor',
+      );
+      ctx.fillRect(x, y, width, height);
+    }
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(x, y, width, height);
     ctx.fillStyle = this.getThemeColor('cellTextColor');
     ctx.textAlign = HeaderTextAlign;
-    ctx.font = selected || fullSelected ? 'bold 10px Arial' : '10px Arial';
+    ctx.font = highlight !== 'none' ? 'bold 10px Arial' : '10px Arial';
     ctx.fillText(label, x + width / 2, y + Math.min(15, height - 4));
   }
 
