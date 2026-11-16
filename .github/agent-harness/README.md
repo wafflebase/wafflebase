@@ -46,7 +46,9 @@ does differently. Each is known and accepted for now:
   too: an approval no longer survives a later push to the pull request.
 
 - **The issue classification step is gone.** The shared `agent-implement.yml`
-  has none.
+  has none, and `scripts/agent-arms/classify.mjs`, which only that step ran,
+  was removed with its `ANTHROPIC_API_KEY` use. Labels it applied
+  (`type:…`, `bugclass:…`) stay on the pull requests that have them.
 - **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so
   `scripts/hooks/require-ai-disclosure.sh` stops firing in agent jobs; the
   shared report jobs and the ready gate check disclosure.
