@@ -248,6 +248,8 @@ export function SheetView({
   const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
     useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
+  // Bumped per Cmd/Ctrl+F so an already-open find bar refocuses its query.
+  const [findFocusRequest, setFindFocusRequest] = useState(0);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileEditState, setMobileEditState] = useState<{
@@ -952,6 +954,7 @@ export function SheetView({
         // nothing will render.
         if (previewing) return;
         setFindBarOpen(true);
+        setFindFocusRequest((n) => n + 1);
       }
       // Open-only (Esc closes via Radix) matches the Slides binding;
       // `e.repeat` is filtered so auto-repeat on a held chord doesn't
@@ -993,6 +996,14 @@ export function SheetView({
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
+  }, []);
+
+  // The shortcut sheet opens from a keyboard chord, so it has no trigger for
+  // Radix to hand focus back to and the keyboard would land on <body>.
+  // Return it to the grid, on the cell that was selected.
+  const handleShortcutsHelpOpenChange = useCallback((open: boolean) => {
+    setShortcutsHelpOpen(open);
+    if (!open) sheetRef.current?.returnFocusToGrid();
   }, []);
 
   // Withholding the find bar unmounts it, and its query lives in its own
@@ -1927,12 +1938,13 @@ export function SheetView({
         {findBarOpen && !previewing && (
           <FindBar
             spreadsheet={sheetRef.current}
+            focusRequest={findFocusRequest}
             onClose={handleFindBarClose}
           />
         )}
         <SheetsShortcutsHelp
           open={shortcutsHelpOpen}
-          onOpenChange={setShortcutsHelpOpen}
+          onOpenChange={handleShortcutsHelpOpenChange}
         />
         {paintFormatSourceIndicator}
         {root && hasCharts && (

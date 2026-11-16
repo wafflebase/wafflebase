@@ -9,14 +9,29 @@ import {
 
 interface FindBarProps {
   spreadsheet: Spreadsheet | undefined;
+  /**
+   * Bumped by the host on every Cmd/Ctrl+F. The bar takes focus on mount,
+   * but a Find pressed while it is already open (focus back in the grid)
+   * mounts nothing — this is what brings the keyboard back to the query.
+   */
+  focusRequest?: number;
   onClose: () => void;
 }
 
-export function FindBar({ spreadsheet, onClose }: FindBarProps) {
+export function FindBar({
+  spreadsheet,
+  focusRequest = 0,
+  onClose,
+}: FindBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [total, setTotal] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  // The query the count was computed for. Between a keystroke and its scan
+  // returning, the count describes some other query (or none — `0/0`) while
+  // the grid still shows the previous search's highlight, so it is withheld.
+  const [countedQuery, setCountedQuery] = useState("");
+  const latestQueryRef = useRef("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // `find` / `findNext` / `findPrevious` are async scans of the grid, so one
   // can still be running when this bar is withheld — a revision preview
@@ -26,9 +41,14 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
   // its resolution from reporting counts or stealing focus back here.
   const disposedRef = useRef(false);
 
+  // Focus and select the query, as Google Sheets does on every Find: typing
+  // replaces the previous search instead of appending to it.
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [focusRequest]);
 
   const updateSearchState = useCallback(() => {
     if (!spreadsheet || disposedRef.current) return;
@@ -48,6 +68,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
   const handleSearch = useCallback(
     (value: string) => {
       setQuery(value);
+      latestQueryRef.current = value;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
@@ -55,6 +76,11 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         if (!spreadsheet) return;
         void spreadsheet.find(value).then(() => {
           updateSearchState();
+          // An older scan can resolve after a newer one; only the latest
+          // query's resolution may unveil the count.
+          if (!disposedRef.current && value === latestQueryRef.current) {
+            setCountedQuery(value);
+          }
           refocusInput();
         });
       }, 150);
@@ -81,6 +107,9 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
   const handleClose = useCallback(() => {
     spreadsheet?.clearFind();
     onClose();
+    // The input is about to unmount; without this the keyboard lands on
+    // <body> instead of the cell the search left selected.
+    spreadsheet?.returnFocusToGrid();
   }, [spreadsheet, onClose]);
 
   const handleKeyDown = useCallback(
@@ -129,7 +158,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         className="min-w-[3.5rem] text-center text-xs text-muted-foreground"
         aria-live="polite"
       >
-        {query ? `${displayIndex}/${total}` : ""}
+        {query && query === countedQuery ? `${displayIndex}/${total}` : ""}
       </span>
       <Tooltip>
         <TooltipTrigger asChild>
