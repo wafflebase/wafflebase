@@ -3815,11 +3815,43 @@ export class Sheet {
   }
 
   /**
-   * `expandFilterRangeForHeaderOnlySelection` extends a single-row selection
-   * downward to contiguous data rows in the selected columns.
+   * `expandToCurrentRegion` grows `range` while any of its four edges touches
+   * a populated cell — the "current region" Ctrl+A selects first.
+   */
+  private async expandToCurrentRegion(range: Range): Promise<Range> {
+    let curr = cloneRange(range);
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const border of toBorderRanges(curr, this.dimensionRange)) {
+        if (!(await this.hasContents(border))) {
+          continue;
+        }
+
+        curr = mergeRanges(curr, border);
+        expanded = true;
+      }
+    }
+    return curr;
+  }
+
+  /**
+   * `expandFilterRangeForHeaderOnlySelection` decides the filter range when
+   * the selection alone does not describe a table:
+   *
+   * - a single cell expands to its contiguous data region in all four
+   *   directions, as Google Sheets does (a filter made from A1 of a table
+   *   covers the table, not column A);
+   * - a single row of headers extends downward through contiguous data rows
+   *   in the selected columns.
+   *
+   * Any other explicit selection is the range the user meant.
    */
   private async expandFilterRangeForHeaderOnlySelection(range: Range): Promise<Range> {
     const normalized = toRange(range[0], range[1]);
+    if (isSameRef(normalized[0], normalized[1])) {
+      return this.expandToCurrentRegion(normalized);
+    }
     if (normalized[0].r !== normalized[1].r) {
       return normalized;
     }
@@ -4235,21 +4267,8 @@ export class Sheet {
    * `selectAll` selects all the cells in the sheet.
    */
   async selectAll(): Promise<void> {
-    let prev = this.getRangeOrActiveCell();
-    let curr = cloneRange(prev);
-
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const border of toBorderRanges(curr, this.dimensionRange)) {
-        if (!(await this.hasContents(border))) {
-          continue;
-        }
-
-        curr = mergeRanges(curr, border);
-        expanded = true;
-      }
-    }
+    const prev = this.getRangeOrActiveCell();
+    const curr = await this.expandToCurrentRegion(prev);
 
     if (isSameRange(prev, curr)) {
       this.ranges = [cloneRange(this.dimensionRange)];

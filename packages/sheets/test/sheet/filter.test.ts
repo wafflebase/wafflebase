@@ -63,6 +63,67 @@ describe('Sheet.Filter', () => {
     ]);
   });
 
+  it('expands a single selected cell to the whole contiguous data region', async () => {
+    // Google Sheets: a filter created from one cell of a table covers the
+    // table (Ctrl+A's current region), not just that cell's column.
+    const sheet = new Sheet(new MemStore());
+    for (let c = 1; c <= 5; c++) {
+      for (let r = 1; r <= 4; r++) {
+        await sheet.setData({ r, c }, r === 1 ? `H${c}` : String(r * c));
+      }
+    }
+    // Outside the region, separated by an empty row and column.
+    await sheet.setData({ r: 6, c: 1 }, 'note');
+    await sheet.setData({ r: 1, c: 7 }, 'aside');
+
+    sheet.selectStart({ r: 1, c: 1 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(true);
+    expect(sheet.getFilterState()?.range).toEqual([
+      { r: 1, c: 1 },
+      { r: 4, c: 5 },
+    ]);
+    expect(sheet.getRange()).toEqual([
+      { r: 1, c: 1 },
+      { r: 4, c: 5 },
+    ]);
+  });
+
+  it('expands a single cell inside a table in every direction', async () => {
+    const sheet = new Sheet(new MemStore());
+    for (let c = 2; c <= 4; c++) {
+      for (let r = 2; r <= 5; r++) {
+        await sheet.setData({ r, c }, r === 2 ? `H${c}` : String(r + c));
+      }
+    }
+
+    sheet.selectStart({ r: 4, c: 3 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(true);
+    expect(sheet.getFilterState()?.range).toEqual([
+      { r: 2, c: 2 },
+      { r: 5, c: 4 },
+    ]);
+  });
+
+  it('keeps an explicit multi-cell selection as the filter range', async () => {
+    const sheet = new Sheet(new MemStore());
+    for (let c = 1; c <= 3; c++) {
+      for (let r = 1; r <= 4; r++) {
+        await sheet.setData({ r, c }, `${r}-${c}`);
+      }
+    }
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(true);
+    expect(sheet.getFilterState()?.range).toEqual([
+      { r: 1, c: 1 },
+      { r: 3, c: 2 },
+    ]);
+  });
+
   it('does not create a filter from header-only selection without data rows', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, 'Name');
