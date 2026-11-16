@@ -212,6 +212,25 @@ multi-select-via-Ctrl+click UI.
 
 `CellInput.applyStyle` mirrors active-cell effective style in inline editor.
 
+### Text ink
+
+Once the effective style is resolved, `getCellTextColor` (`view/theme.ts`)
+picks the text ink, and both `GridCanvas` and `CellInput` call it so editing a
+cell never flips its color:
+
+1. An explicit `tc` (static or conditional) always wins.
+2. An unfilled cell takes the theme's ink.
+3. A filled cell in **light** mode keeps the theme's ink, which is the ink
+   the fill was authored against (Google Sheets parity: a dark fill keeps black
+   text unless `tc` says otherwise).
+4. A filled cell in **dark** mode takes whichever of the dark ink and the
+   authored ink contrasts better with the fill. Fills are painted as authored,
+   not themed, so white ink on a pale fill (the conditional-format default
+   `#B7E1CD`) would read at about 1.2:1; dark fills keep white.
+
+This is a render-time choice only: nothing is written to `tc`, and an export
+or a light-mode viewer sees exactly the authored style.
+
 Custom borders are rendered above default gridlines. Text overflow into empty
 neighbor cells is bounded by explicit custom borders.
 

@@ -112,19 +112,66 @@ export function getThemeColor(theme: Theme, key: ThemeKey): string {
 }
 
 /**
- * Returns the ink for a cell's text. An explicit `tc` wins. Otherwise an
- * explicitly filled cell keeps the light theme's ink, because its fill is
- * painted as authored rather than themed: the dark theme's white ink would
- * otherwise land on pale fills (a conditional-format `#B7E1CD`) unreadably.
+ * `relativeLuminance` reads a `#RGB`, `#RRGGBB` or `rgb()/rgba()` fill into
+ * WCAG relative luminance, or `undefined` for anything else.
+ */
+function relativeLuminance(color: string): number | undefined {
+  const c = color.trim();
+  let rgb: number[] | undefined;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].replace(/./g, (d) => d + d) : hex[1];
+    rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  } else {
+    const fn = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(c);
+    if (fn) rgb = [fn[1], fn[2], fn[3]].map(Number);
+  }
+  if (!rgb || rgb.some((v) => Number.isNaN(v))) return undefined;
+  const [r, g, b] = rgb.map((v) => {
+    const s = Math.min(255, v) / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: number, b: number): number {
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * Returns the ink for a cell's text. An explicit `tc` always wins, and an
+ * unfilled cell takes the theme's ink.
+ *
+ * A filled cell is the one case the theme cannot decide alone: its fill is
+ * painted as authored, not themed. The light theme's ink *is* the authored
+ * ink, so light mode keeps it, as Google Sheets does. In dark mode the theme's
+ * white ink would land on pale fills (a conditional-format `#B7E1CD`) at about
+ * 1.2:1, so the dark theme takes whichever of its own ink and the authored ink
+ * reads better on that fill: dark fills keep white, pale fills get black.
  */
 export function getCellTextColor(
+  theme: Theme | undefined,
   themeInk: string,
   bg: string | undefined,
   tc?: string,
 ): string {
   if (tc) return tc;
-  if (bg) return LightTheme.cellTextColor;
-  return themeInk;
+  if (!bg || theme !== 'dark') return themeInk;
+  const fill = relativeLuminance(bg);
+  const themeLum = relativeLuminance(themeInk);
+  const authoredInk = LightTheme.cellTextColor;
+  const authoredLum = relativeLuminance(authoredInk);
+  if (
+    fill === undefined ||
+    themeLum === undefined ||
+    authoredLum === undefined
+  ) {
+    return themeInk;
+  }
+  return contrast(authoredLum, fill) > contrast(themeLum, fill)
+    ? authoredInk
+    : themeInk;
 }
 
 const formulaRangeColorKeys: ThemeKey[] = [

@@ -369,6 +369,11 @@ export class Worksheet {
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
+  /**
+   * Whether a modal layer was still open when the current press began. That
+   * press is the one dismissing it, so the click rescue must leave it alone.
+   */
+  private pressStartedOverOpenLayer = false;
   private filterButtonHoverCol: number | null = null;
   private hiddenIndicatorHover: {
     axis: 'row' | 'column';
@@ -3004,6 +3009,14 @@ export class Worksheet {
     });
     this.addEventListener(
       document,
+      'pointerdown',
+      () => {
+        this.handleLayerPointerDown();
+      },
+      true,
+    );
+    this.addEventListener(
+      document,
       'mousedown',
       (e) => {
         this.handleNeutralizedMouseDown(e);
@@ -3022,6 +3035,13 @@ export class Worksheet {
     });
   }
 
+  private handleLayerPointerDown(): void {
+    // Capture phase on the document, so this runs before a layer's own
+    // outside-pointerdown handler flips it to `closed`.
+    this.pressStartedOverOpenLayer =
+      !!document.querySelector(OpenLayerSelector);
+  }
+
   /**
    * `handleNeutralizedMouseDown` rescues a grid click that a closing modal
    * layer would otherwise swallow.
@@ -3037,12 +3057,14 @@ export class Worksheet {
    * Only that window is rescued: the page must still be neutralized, no
    * layer may still be open (an open modal owns its outside clicks), the
    * target must be `<html>` or a page-covering fixed layer on its way out,
-   * the point must lie on the grid itself rather than its scrollbars, and
+   * the press must not be the one dismissing a layer (it began while one was
+   * open), the point must lie on the grid itself rather than its scrollbars, and
    * nothing but closing layers may cover the grid there (a revision preview
    * over a still-mounted live sheet keeps its clicks).
    */
   private handleNeutralizedMouseDown(e: MouseEvent): void {
     if (document.body.style.pointerEvents !== 'none') return;
+    if (this.pressStartedOverOpenLayer) return;
     const target = e.target;
     if (!(target instanceof Element) || this.container.contains(target)) {
       return;

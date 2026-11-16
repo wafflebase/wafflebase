@@ -1741,6 +1741,7 @@ export class GridCanvas {
       // An explicit text color still wins over the link color: the user asked
       // for that color, and a link is not a reason to overrule them.
       const textColor = getCellTextColor(
+        this.theme,
         this.getThemeColor('cellTextColor'),
         style?.bg,
         style?.tc,

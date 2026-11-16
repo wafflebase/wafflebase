@@ -17,6 +17,11 @@ const handle = (
     handleNeutralizedMouseDown: (e: MouseEvent) => void;
   }
 ).handleNeutralizedMouseDown;
+const notePointerDown = (
+  Worksheet.prototype as unknown as {
+    handleLayerPointerDown: () => void;
+  }
+).handleLayerPointerDown;
 
 /**
  * jsdom does no hit testing, so each case states what the page would put
@@ -168,5 +173,23 @@ describe('Worksheet click through a closing modal layer', () => {
     expect(ctx.handleMouseDown).not.toHaveBeenCalled();
     // The hit test must not leave the page un-neutralized.
     expect(document.body.style.pointerEvents).toBe('none');
+  });
+
+  it('does not act on the grid with the click that dismisses a layer', () => {
+    // An open menu is dismissed by an outside pointerdown, which flips it to
+    // `closed` before the mousedown arrives. That click closes the menu; it
+    // must not also select, toggle a checkbox or follow a link on the grid.
+    const ctx = createContext();
+    document.body.style.pointerEvents = 'none';
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('data-state', 'open');
+    document.body.appendChild(menu);
+
+    notePointerDown.call(ctx);
+    menu.setAttribute('data-state', 'closed');
+    handle.call(ctx, mousedown(document.documentElement, 300, 200));
+
+    expect(ctx.handleMouseDown).not.toHaveBeenCalled();
   });
 });
