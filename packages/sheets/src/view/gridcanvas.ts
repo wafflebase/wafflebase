@@ -23,7 +23,7 @@ import {
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
 import { defaultAlign } from '../model/worksheet/input';
-import { Theme, ThemeKey, getThemeColor } from './theme';
+import { Theme, ThemeKey, getCellTextColor, getThemeColor } from './theme';
 import { HeaderHighlight, headerHighlight } from './header-highlight';
 import { clipLinkBox, detectLinks, layoutLinkBoxes } from './cell-links';
 import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
@@ -1740,7 +1740,11 @@ export class GridCanvas {
       ctx.clip();
       // An explicit text color still wins over the link color: the user asked
       // for that color, and a link is not a reason to overrule them.
-      const textColor = style?.tc || this.getThemeColor('cellTextColor');
+      const textColor = getCellTextColor(
+        this.getThemeColor('cellTextColor'),
+        style?.bg,
+        style?.tc,
+      );
       const linkColor = style?.tc || this.getThemeColor('cellLinkColor');
       ctx.fillStyle = textColor;
 

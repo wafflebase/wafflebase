@@ -111,6 +111,22 @@ export function getThemeColor(theme: Theme, key: ThemeKey): string {
   return DarkTheme[key];
 }
 
+/**
+ * Returns the ink for a cell's text. An explicit `tc` wins. Otherwise an
+ * explicitly filled cell keeps the light theme's ink, because its fill is
+ * painted as authored rather than themed: the dark theme's white ink would
+ * otherwise land on pale fills (a conditional-format `#B7E1CD`) unreadably.
+ */
+export function getCellTextColor(
+  themeInk: string,
+  bg: string | undefined,
+  tc?: string,
+): string {
+  if (tc) return tc;
+  if (bg) return LightTheme.cellTextColor;
+  return themeInk;
+}
+
 const formulaRangeColorKeys: ThemeKey[] = [
   'formulaRange1',
   'formulaRange2',

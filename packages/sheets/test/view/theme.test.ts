@@ -4,7 +4,11 @@ import {
   palette,
   readableTextColor,
 } from '@wafflebase/core/tokens';
-import { DarkTheme, LightTheme } from '../../src/view/theme';
+import {
+  DarkTheme,
+  LightTheme,
+  getCellTextColor,
+} from '../../src/view/theme';
 
 /**
  * Chrome colors come from the core palette (DESIGN.md, the Canvas Hex Rule).
@@ -36,5 +40,30 @@ describe('sheets theme', () => {
         expect(ratio, `${name}.${key} ${bg}`).toBeGreaterThanOrEqual(4.5);
       }
     }
+  });
+});
+
+describe('getCellTextColor', () => {
+  it('follows the theme for an unfilled cell', () => {
+    expect(getCellTextColor(LightTheme.cellTextColor, undefined)).toBe(
+      LightTheme.cellTextColor,
+    );
+    expect(getCellTextColor(DarkTheme.cellTextColor, undefined)).toBe(
+      DarkTheme.cellTextColor,
+    );
+  });
+
+  it('keeps the authored ink on an explicit fill in dark mode', () => {
+    // A fill is painted as authored, so the text over it must be too: the
+    // dark theme's white ink on a pale fill like #B7E1CD is unreadable.
+    expect(getCellTextColor(DarkTheme.cellTextColor, '#B7E1CD')).toBe(
+      LightTheme.cellTextColor,
+    );
+  });
+
+  it('lets an explicit text color win', () => {
+    expect(
+      getCellTextColor(DarkTheme.cellTextColor, '#B7E1CD', '#FF0000'),
+    ).toBe('#FF0000');
   });
 });
