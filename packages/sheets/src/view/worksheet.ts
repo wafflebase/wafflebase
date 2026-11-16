@@ -10,6 +10,7 @@ import {
   toColumnLabel,
   toSref,
   inRange,
+  isSameRef,
   parseRef,
 } from '../model/core/coordinates';
 import {
@@ -21,7 +22,7 @@ import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { RangeOpRefusal, Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
-import { FormulaBar } from './formulabar';
+import { FormulaBar, parseNameBoxInput } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
 import { GridContainer } from './gridcontainer';
@@ -136,6 +137,13 @@ const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
 const CellEdgeHitThreshold = 2;
 const FilterPanelMaxVisibleValues = 200;
+/**
+ * Layers a host may hold open over the sheet that own the page's outside
+ * clicks while open (see `handleNeutralizedMouseDown`).
+ */
+const OpenLayerSelector = ['dialog', 'alertdialog', 'menu', 'listbox']
+  .map((role) => `[role="${role}"][data-state="open"]`)
+  .join(', ');
 const CellInputPinnedMargin = 8;
 
 /**
@@ -313,6 +321,13 @@ export class Worksheet {
     dropIndex: number;
   } | null = null;
   private editMode: boolean = false;
+  /**
+   * The Tab run in progress (Google Sheets): Enter after a run of Tabs
+   * returns to the column the run started in, one row down. `at` is the cell
+   * the last Tab landed on — a selection anywhere else means the user moved
+   * on, and the run no longer applies.
+   */
+  private tabRun: { anchorCol: number; at: Ref } | null = null;
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -535,6 +550,11 @@ export class Worksheet {
     this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
     this.formulaBar.initialize(sheet);
+    this.formulaBar.setNameBoxHandlers({
+      onSubmit: (text) => this.navigateFromNameBox(text),
+      onCancel: () => this.returnFocusToGrid(),
+      onFocus: () => void this.commitEditForNameBox(),
+    });
     this.addEventListeners();
     this.resizeObserver.observe(this.container);
     this.render();
@@ -637,6 +657,7 @@ export class Worksheet {
   public async focusCell(ref: Ref): Promise<void> {
     await this.finishEditing();
     this.focusGrid();
+    this.tabRun = null;
     this.sheet!.selectStart(ref);
     this.render();
     this.scrollIntoView();
@@ -1155,6 +1176,11 @@ export class Worksheet {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    // The name box owns its keys; typing a reference there must never reach
+    // the active cell.
+    if (this.formulaBar.isNameBoxTarget(e.target)) {
+      return;
+    }
     if (this.functionBrowser.isVisible()) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -1191,7 +1217,10 @@ export class Worksheet {
     if (this.functionBrowser.isVisible()) {
       return;
     }
-    if (this.isExternalInput(e.target)) {
+    if (
+      this.isExternalInput(e.target) ||
+      this.formulaBar.isNameBoxTarget(e.target)
+    ) {
       return;
     }
     if (this.formulaBar.isFocused() || this.cellInput.isFocused()) {
@@ -1204,6 +1233,9 @@ export class Worksheet {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
+    if (this.formulaBar.isNameBoxTarget(e.target)) {
+      return;
+    }
     if (this.functionBrowser.isVisible()) {
       return;
     }
@@ -2932,6 +2964,14 @@ export class Worksheet {
     this.addEventListener(scrollContainer, 'dblclick', (e) => {
       this.handleDblClick(e);
     });
+    this.addEventListener(
+      document,
+      'mousedown',
+      (e) => {
+        this.handleNeutralizedMouseDown(e);
+      },
+      true,
+    );
 
     this.addEventListener(document, 'keydown', (e) => {
       this.handleKeyDown(e);
@@ -2942,6 +2982,62 @@ export class Worksheet {
     this.addEventListener(document, 'compositionstart', (e) => {
       this.handleDocumentCompositionStart(e);
     });
+  }
+
+  /**
+   * `handleNeutralizedMouseDown` rescues a grid click that a closing modal
+   * layer would otherwise swallow.
+   *
+   * A modal Radix layer (dialog, alert dialog, context or dropdown menu)
+   * sets `body { pointer-events: none }` while it is mounted — and it stays
+   * mounted through its exit animation, a Dialog's overlay still on top. So
+   * Esc followed straight by a click on a cell hit the fading overlay (or
+   * `<html>`, where a neutralized page sends its clicks) instead of the grid,
+   * the selection never moved, and the next keystrokes were typed into the
+   * cell selected before the dialog opened.
+   *
+   * Only that window is rescued: the page must still be neutralized, no
+   * layer may still be open (an open modal owns its outside clicks), the
+   * target must be `<html>` or a page-covering fixed layer on its way out,
+   * and the point must lie on the grid itself rather than its scrollbars.
+   */
+  private handleNeutralizedMouseDown(e: MouseEvent): void {
+    if (document.body.style.pointerEvents !== 'none') return;
+    const target = e.target;
+    if (!(target instanceof Element) || this.container.contains(target)) {
+      return;
+    }
+    const closingLayer =
+      target.getAttribute('data-state') === 'closed' &&
+      getComputedStyle(target).position === 'fixed';
+    if (target !== document.documentElement && !closingLayer) return;
+    if (document.querySelector(OpenLayerSelector)) return;
+
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    const rect = scrollContainer.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left - scrollContainer.clientLeft;
+    const offsetY = e.clientY - rect.top - scrollContainer.clientTop;
+    if (
+      offsetX < 0 ||
+      offsetY < 0 ||
+      offsetX >= scrollContainer.clientWidth ||
+      offsetY >= scrollContainer.clientHeight
+    ) {
+      return;
+    }
+
+    // Keep the browser from treating the press as a text-selection start on
+    // the layer; the grid takes it from here exactly as a direct hit.
+    e.preventDefault();
+    const forwarded = new Proxy(e, {
+      get(event, prop) {
+        if (prop === 'offsetX') return offsetX;
+        if (prop === 'offsetY') return offsetY;
+        const value = Reflect.get(event, prop, event);
+        return typeof value === 'function' ? value.bind(event) : value;
+      },
+    });
+    void this.handleMouseDown(forwarded);
   }
 
   /**
@@ -3802,6 +3898,9 @@ export class Worksheet {
   }
 
   private async handleMouseDown(e: MouseEvent) {
+    // A click ends any Tab run, wherever it lands.
+    this.tabRun = null;
+
     // Check for freeze handle first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
     if (freezeHandle && !this.readOnly) {
@@ -5213,12 +5312,17 @@ export class Worksheet {
           // A validation reject keeps the caret on the cell so the user can
           // correct it, rather than advancing off a discarded entry.
           if (committed) {
-            if (source === 'formulaBar') {
+            const tabReturn = event.shiftKey ? null : this.takeTabReturn();
+            if (tabReturn) {
+              this.sheet!.selectStart(tabReturn);
+              this.sheet!.move('down');
+            } else if (source === 'formulaBar') {
               this.sheet!.move('down');
             } else {
               this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
             }
           }
+          this.tabRun = null;
           this.render();
           this.scrollIntoView();
           this.primeCellInputForSelection();
@@ -5234,7 +5338,9 @@ export class Worksheet {
             this.focusGrid();
           }
           if (committed) {
+            const from = this.sheet!.getActiveCell();
             this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+            this.recordTabMove(from);
           }
           this.render();
           this.scrollIntoView();
@@ -5264,6 +5370,7 @@ export class Worksheet {
           const committed = await this.finishEditing();
           if (committed) {
             moveByArrow(event);
+            this.tabRun = null;
           }
           this.render();
           this.scrollIntoView();
@@ -5420,6 +5527,7 @@ export class Worksheet {
   private async handleGridKeydown(e: KeyboardEvent) {
     const move = async (event: KeyboardEvent, direction: Direction) => {
       event.preventDefault();
+      this.tabRun = null;
 
       const changed = event.shiftKey
         ? this.sheet!.resizeRange(direction)
@@ -5485,7 +5593,9 @@ export class Worksheet {
         match: (event) => keyEquals(event, 'Tab'),
         run: (event) => {
           event.preventDefault();
+          const from = this.sheet!.getActiveCell();
           this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+          this.recordTabMove(from);
           this.render();
           this.scrollIntoView();
           this.primeCellInputForSelection();
@@ -5497,6 +5607,7 @@ export class Worksheet {
           event.preventDefault();
 
           if (this.sheet!.hasRange()) {
+            this.tabRun = null;
             this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
             this.render();
             this.scrollIntoView();
@@ -5516,6 +5627,76 @@ export class Worksheet {
           if (await this.sheet!.removeData()) {
             this.render();
           }
+        },
+      },
+      {
+        // Fill down (Google Sheets Cmd/Ctrl+D). Also keeps the browser's
+        // bookmark dialog from opening over the sheet.
+        match: (event) =>
+          matchesKeyCombo(event, {
+            key: 'd',
+            mod: true,
+            shift: false,
+            alt: false,
+          }),
+        run: async (event) => {
+          event.preventDefault();
+          await this.fillSelection('down');
+        },
+      },
+      {
+        // Fill right (Cmd/Ctrl+R) — and not a page reload mid-edit.
+        match: (event) =>
+          matchesKeyCombo(event, {
+            key: 'r',
+            mod: true,
+            shift: false,
+            alt: false,
+          }),
+        run: async (event) => {
+          event.preventDefault();
+          await this.fillSelection('right');
+        },
+      },
+      {
+        // F2 edits the active cell in place, keeping its value, caret at the
+        // end — unlike Enter, which walks a multi-cell selection.
+        match: (event) =>
+          keyEquals(event, 'F2') && !isModPressed(event) && !event.shiftKey,
+        run: (event) => {
+          event.preventDefault();
+          if (this.readOnly) return;
+          void this.showCellInput();
+        },
+      },
+      {
+        // Shift+Space selects the selection's rows. Must precede the
+        // printable-key rule, which would read the space as the start of an
+        // edit. (While editing, this keymap is not consulted at all, so
+        // Shift+Space still types a space.)
+        match: (event) =>
+          keyEquals(event, ' ') &&
+          event.shiftKey &&
+          !isModPressed(event) &&
+          !event.altKey &&
+          !isImeComposingKeyEvent(event),
+        run: (event) => {
+          event.preventDefault();
+          this.selectEntireAxis('row');
+        },
+      },
+      {
+        // Ctrl+Space selects the selection's columns — Ctrl on every
+        // platform, as Google binds it (Cmd+Space belongs to the OS).
+        match: (event) =>
+          keyEquals(event, ' ') &&
+          event.ctrlKey &&
+          !event.metaKey &&
+          !event.shiftKey &&
+          !event.altKey,
+        run: (event) => {
+          event.preventDefault();
+          this.selectEntireAxis('column');
         },
       },
       {
@@ -5674,6 +5855,128 @@ export class Worksheet {
         },
       },
     ]);
+  }
+
+  /**
+   * `recordTabMove` extends (or starts) the Tab run after a Tab moved the
+   * selection off `from`. A Tab inside a multi-cell selection walks the
+   * selection instead and is not a run.
+   */
+  private recordTabMove(from: Ref): void {
+    if (this.sheet!.hasRange()) {
+      this.tabRun = null;
+      return;
+    }
+    const continues = this.tabRun !== null && isSameRef(this.tabRun.at, from);
+    this.tabRun = {
+      anchorCol: continues ? this.tabRun!.anchorCol : from.c,
+      at: this.sheet!.getActiveCell(),
+    };
+  }
+
+  /**
+   * `takeTabReturn` consumes the Tab run: the cell in the run's starting
+   * column on the active row, from which Enter steps down — or `null` when
+   * there is no run, or the selection has since moved somewhere a Tab did
+   * not put it.
+   */
+  private takeTabReturn(): Ref | null {
+    const run = this.tabRun;
+    this.tabRun = null;
+    if (!run || this.sheet!.hasRange()) return null;
+    const active = this.sheet!.getActiveCell();
+    if (!isSameRef(active, run.at)) return null;
+    return { r: active.r, c: run.anchorCol };
+  }
+
+  /**
+   * `fillSelection` runs fill down / fill right over the selection as one
+   * undoable change.
+   */
+  private async fillSelection(direction: 'down' | 'right'): Promise<void> {
+    if (this.readOnly || this.sheet!.isPivotSheet()) return;
+    if (await this.sheet!.fill(direction)) {
+      this.render();
+    }
+  }
+
+  /**
+   * `selectEntireAxis` widens the selection to whole rows (Shift+Space) or
+   * whole columns (Ctrl+Space), keeping the active cell.
+   */
+  private selectEntireAxis(axis: 'row' | 'column'): void {
+    const range = this.sheet!.getRangeOrActiveCell();
+    this.tabRun = null;
+    if (axis === 'row') {
+      this.sheet!.selectRowRange(range[0].r, range[1].r);
+    } else {
+      this.sheet!.selectColumnRange(range[0].c, range[1].c);
+    }
+    this.render();
+  }
+
+  /**
+   * `navigateFromNameBox` moves the selection to what was typed into the
+   * name box and hands the keyboard back to the grid. Returns `false`, having
+   * touched nothing, when the text is not a reference on this sheet.
+   */
+  private navigateFromNameBox(text: string): boolean {
+    const target = parseNameBoxInput(text, this.sheet!.getDimension());
+    if (!target) return false;
+
+    this.tabRun = null;
+    this.focusGrid();
+    switch (target.kind) {
+      case 'cell':
+        this.sheet!.selectStart(target.ref);
+        break;
+      case 'range':
+        this.sheet!.selectStart(target.range[0]);
+        this.sheet!.selectEnd(target.range[1]);
+        break;
+      case 'columns':
+        this.sheet!.selectColumn(target.from);
+        this.sheet!.selectColumnRange(target.from, target.to);
+        break;
+      case 'rows':
+        this.sheet!.selectRow(target.from);
+        this.sheet!.selectRowRange(target.from, target.to);
+        break;
+    }
+    this.render();
+    this.scrollIntoView();
+    this.primeCellInputForSelection();
+    return true;
+  }
+
+  /**
+   * `commitEditForNameBox` saves an in-progress cell edit when the name box
+   * takes focus, as clicking anywhere else outside the cell does in Google
+   * Sheets — the navigation would otherwise drop it.
+   */
+  private async commitEditForNameBox(): Promise<void> {
+    if (!this.sheet || this.readOnly) return;
+    if (!this.cellInput.isShown() || this.cellInput.isPrimed()) return;
+    const value = this.cellInput.getValue();
+    this.cellInput.hide();
+    this.autocomplete.hide();
+    this.formulaRanges = [];
+    this.resetFormulaRangeState();
+    await this.commitCellValue(this.sheet.getActiveCell(), value);
+    this.render();
+  }
+
+  /**
+   * `returnFocusToGrid` gives the keyboard back to the grid on the current
+   * selection, e.g. after the name box or a dialog over the sheet closes.
+   * An edit in progress is left alone.
+   */
+  public returnFocusToGrid(): void {
+    if (!this.sheet) return;
+    if (this.cellInput.isShown() && !this.cellInput.isPrimed()) return;
+    if (this.formulaBar.isFocused()) return;
+    this.formulaBar.getNameBox().blur();
+    this.primeCellInputForSelection();
   }
 
   /**

@@ -3320,6 +3320,88 @@ export class Sheet {
   }
 
   /**
+   * `fill` is Google Sheets' Cmd/Ctrl+D (`down`) and Cmd/Ctrl+R (`right`):
+   * the first row (or column) of the selection is copied verbatim over the
+   * rest of it, formulas relocated by the offset. A selection one row (or
+   * column) deep copies from the row above (column to the left) instead.
+   * Unlike `autofill` it never extrapolates a series. One batch, so one undo
+   * step; the selection is left as it was.
+   */
+  public async fill(direction: 'down' | 'right'): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const range = this.getRangeOrActiveCell();
+    const down = direction === 'down';
+    const first = down ? range[0].r : range[0].c;
+    const last = down ? range[1].r : range[1].c;
+    const sourceLine = first === last ? first - 1 : first;
+    if (sourceLine < 1) {
+      return false;
+    }
+    const targets: Range = down
+      ? [{ r: sourceLine + 1, c: range[0].c }, range[1]]
+      : [{ r: range[0].r, c: sourceLine + 1 }, range[1]];
+    const source: Range = down
+      ? [{ r: sourceLine, c: range[0].c }, { r: sourceLine, c: range[1].c }]
+      : [{ r: range[0].r, c: sourceLine }, { r: range[1].r, c: sourceLine }];
+
+    if (this.getMergesIntersecting(targets).length > 0) {
+      this.refuse('merge-autofill');
+      return false;
+    }
+
+    const sourceGrid = await this.store.getGrid(source);
+    const changedSrefs = new Set<Sref>();
+
+    this.store.beginBatch();
+    try {
+      for (let r = targets[0].r; r <= targets[1].r; r++) {
+        for (let c = targets[0].c; c <= targets[1].c; c++) {
+          const dest = { r, c };
+          const existing = await this.store.get(dest);
+          // Ghost cells are read-only — never write into a spill position.
+          if (existing?.spillAnchor) continue;
+
+          const sourceRef = down ? { r: sourceLine, c } : { r, c: sourceLine };
+          const sourceCell = sourceGrid.get(toSref(sourceRef));
+          const nextCell = sourceCell
+            ? cloneCellForAutofill(
+                sourceCell,
+                dest.r - sourceRef.r,
+                dest.c - sourceRef.c,
+              )
+            : undefined;
+
+          if (!nextCell || isEmptyCell(nextCell)) {
+            if (!existing) continue;
+            await this.store.delete(dest);
+          } else {
+            await this.store.set(dest, nextCell);
+          }
+          changedSrefs.add(toSref(dest));
+        }
+      }
+
+      if (changedSrefs.size > 0) {
+        this.invalidateCrossSheetCache();
+        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+        const dependantsMap = await this.store.buildDependantsMap(expanded);
+        await calculate(this, dependantsMap, expanded);
+      }
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    return changedSrefs.size > 0;
+  }
+
+  /**
    * `hasContents` checks if the given range has cell contents.
    * Style-only cells are ignored.
    */

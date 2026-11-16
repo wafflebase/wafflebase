@@ -16,6 +16,8 @@ type EditorContext = {
   toggleAbsoluteReference: ReturnType<typeof vi.fn>;
   showCellInput: ReturnType<typeof vi.fn>;
   editMode: boolean;
+  takeTabReturn: ReturnType<typeof vi.fn>;
+  recordTabMove: ReturnType<typeof vi.fn>;
   sheet: {
     move: ReturnType<typeof vi.fn>;
     moveInRange: ReturnType<typeof vi.fn>;
@@ -57,6 +59,8 @@ const createContext = (): EditorContext => {
     toggleAbsoluteReference: vi.fn(),
     showCellInput: vi.fn(),
     editMode: false,
+    takeTabReturn: vi.fn().mockReturnValue(null),
+    recordTabMove: vi.fn(),
     sheet: {
       move: vi.fn(),
       moveInRange: vi.fn(),
