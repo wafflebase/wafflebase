@@ -29,3 +29,6 @@
 - Round 3: 1 blocking (test-adequacy: `commitEditForNameBox` untested).
   Added `worksheet-namebox-commit.test.ts`. Loop stopped at its 3-round
   bound; correctness, design-fit, security, docs and blast-radius were clean.
+- `pnpm tasks:archive` sweeps every finished task in `active/`, not only this
+  one; review its move list before committing, and never restore with a
+  directory-wide `git checkout` (it reverted this task's own todo edit too).
