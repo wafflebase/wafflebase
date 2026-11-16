@@ -10,6 +10,7 @@ import type {
   NoteViewMode,
   NoteInlineFormats,
   NoteKeymap,
+  NoteHeadingLevel,
 } from "@wafflebase/notes";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -33,6 +34,8 @@ import {
 } from "@/components/ui/toolbar";
 import { TableGridPicker } from "@/components/table-grid-picker";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { isMac, modKey } from "@/components/text-formatting/platform";
+import { cn } from "@/lib/utils";
 import {
   IconPencil,
   IconLayoutColumns,
@@ -47,7 +50,7 @@ import {
   IconFold,
   IconTable,
   IconPhoto,
-  IconKeyboard,
+  IconAdjustmentsHorizontal,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconUserCode,
@@ -78,17 +81,87 @@ const EMPTY_FORMATS: NoteInlineFormats = {
   list: null,
   canIndent: false,
   canOutdent: false,
+  heading: 0,
 };
+
+/**
+ * A formatting shortcut as `packages/notes` binds it (`formattingBindings` in
+ * `editor.ts`): always the platform modifier, plus optional Shift / Alt.
+ */
+interface Shortcut {
+  key: string;
+  shift?: boolean;
+  alt?: boolean;
+}
+
+/** `⌘+⇧X` on a Mac, `Ctrl+Shift+X` elsewhere — the app's tooltip style. */
+function shortcutLabel({ key, shift, alt }: Shortcut): string {
+  if (isMac) return `${modKey}+${shift ? "⇧" : ""}${alt ? "⌥" : ""}${key}`;
+  return [modKey, shift && "Shift", alt && "Alt", key]
+    .filter(Boolean)
+    .join("+");
+}
+
+/** The same chord in `aria-keyshortcuts` syntax. */
+function ariaShortcut({ key, shift, alt }: Shortcut): string {
+  return [isMac ? "Meta" : "Control", shift && "Shift", alt && "Alt", key]
+    .filter(Boolean)
+    .join("+");
+}
+
+const SHORTCUTS = {
+  bold: { key: "B" },
+  italic: { key: "I" },
+  strikethrough: { key: "X", shift: true },
+  link: { key: "K" },
+  ordered: { key: "7", shift: true },
+  bullet: { key: "8", shift: true },
+  task: { key: "9", shift: true },
+} satisfies Record<string, Shortcut>;
+
+/**
+ * Markdown has six heading levels and no Title / Subtitle, so this is the
+ * docs style picker's list minus those two, with the same Mod+Alt+<n> keys.
+ * Each item previews its level by weight and size, as that picker does.
+ */
+const HEADINGS: { level: NoteHeadingLevel; label: string; className: string }[] =
+  [
+    { level: 0, label: "Normal text", className: "text-sm" },
+    { level: 1, label: "Heading 1", className: "text-lg font-semibold" },
+    { level: 2, label: "Heading 2", className: "text-base font-semibold" },
+    { level: 3, label: "Heading 3", className: "text-sm font-semibold" },
+    { level: 4, label: "Heading 4", className: "text-sm font-medium" },
+    {
+      level: 5,
+      label: "Heading 5",
+      className: "text-xs font-medium text-muted-foreground",
+    },
+    {
+      level: 6,
+      label: "Heading 6",
+      className: "text-xs font-medium italic text-muted-foreground",
+    },
+  ];
+
+/**
+ * Tooltip text for a control: its name, plus its shortcut when the editor
+ * actually has one bound (see `NotesToolbar`'s `shortcutsBound`).
+ */
+function tooltipText(label: string, shortcut?: Shortcut): string {
+  return shortcut ? `${label} (${shortcutLabel(shortcut)})` : label;
+}
 
 function TooltipToggle({
   label,
   pressed,
   onToggle,
+  shortcut,
   children,
 }: {
   label: string;
   pressed: boolean;
   onToggle: () => void;
+  shortcut?: Shortcut;
   children: ReactNode;
 }) {
   return (
@@ -100,11 +173,12 @@ function TooltipToggle({
           onPressedChange={onToggle}
           className="h-7 w-7 cursor-pointer"
           aria-label={label}
+          aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
         >
           {children}
         </Toggle>
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>{tooltipText(label, shortcut)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -169,6 +243,77 @@ function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
             setOpen(false);
           }}
         />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Paragraph style picker: Normal text / Heading 1–6, labelled with the caret
+ * line's current level. On a phone the trigger shrinks to `Text` / `H1`…
+ * so the strip still fits. Picking hands focus back to the editor rather than
+ * to the trigger, so typing continues on the restyled line.
+ */
+function HeadingMenu({
+  editor,
+  level,
+  showShortcuts,
+  compact,
+}: {
+  editor: NoteEditorAPI;
+  level: NoteHeadingLevel;
+  showShortcuts: boolean;
+  compact: boolean;
+}) {
+  const current = HEADINGS.find((h) => h.level === level) ?? HEADINGS[0];
+  const triggerLabel = compact
+    ? level === 0
+      ? "Text"
+      : `H${level}`
+    : current.label;
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <ToolbarButton
+              variant="menu"
+              aria-label={`Text style: ${current.label}`}
+              className={cn(
+                "justify-between text-xs",
+                compact ? "min-w-11" : "min-w-[6.5rem]",
+              )}
+            >
+              <span className="truncate">{triggerLabel}</span>
+              <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
+            </ToolbarButton>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Text style</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="start"
+        className="w-56"
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          editor.focus();
+        }}
+      >
+        {HEADINGS.map((h) => (
+          <DropdownMenuCheckboxItem
+            key={h.level}
+            checked={h.level === level}
+            onCheckedChange={() => editor.setHeading(h.level)}
+            className="justify-between gap-4"
+          >
+            <span className={h.className}>{h.label}</span>
+            {showShortcuts && (
+              <span className="text-xs text-muted-foreground">
+                {shortcutLabel({ key: String(h.level), alt: true })}
+              </span>
+            )}
+          </DropdownMenuCheckboxItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -340,17 +485,19 @@ function MobileOverflowMenu({
 /**
  * Thin notes toolbar: a markdown-formatting group (bold / italic /
  * strikethrough toggles, link toggle, quote / code / foldout / table inserts)
- * on the left when editing,
- * and a view-mode dropdown pinned to the far right — following the Slides
- * toolbar's right-aligned dropdown pattern. Uses the same Toggle + tooltip +
- * tabler-icon look as the docs/sheets toolbars.
+ * on the left when editing, and on the right the view modes plus an
+ * "Editor settings" menu (keyboard mode, show authors). The view modes are
+ * visible toggles rather than a menu: switching between source, split and
+ * the rendered note is the most frequent layout change in a note. Uses the
+ * same Toggle + tooltip + tabler-icon look as the docs/sheets toolbars, and
+ * each tooltip names its Google-Docs shortcut where one is bound.
  *
  * Two layouts. Above the mobile breakpoint the formatting group is the full
- * inline row above and the view-mode dropdown offers Editor / Split /
- * Preview. Below it, only undo/redo and the inline text formats stay on the
- * strip — the rest moves into `MobileOverflowMenu`, and Split is dropped from
- * the dropdown because it is a fixed 50/50 pane split. See the comments at
- * `visibleModes` and at the `isMobile` branch for why each is the way it is.
+ * inline row and the modes are Editor / Split / Preview. Below it, only
+ * undo/redo, the text style and the inline text formats stay on the strip —
+ * the rest moves into `MobileOverflowMenu` — and the modes collapse to one
+ * Preview toggle, Split being a two-pane layout. See the `isMobile` branches
+ * for why each is the way it is.
  */
 export function NotesToolbar({
   mode,
@@ -396,15 +543,11 @@ export function NotesToolbar({
   }, [editor]);
 
   const canFormat = !readOnly && mode !== "view";
-  const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
-  // Split lays the two panes out at a fixed 50/50 (`packages/notes`
-  // `editor.ts`), which is ~187px each on a 375px screen. Below the mobile
-  // breakpoint the mode is not offered; both mounting routes (`notes-detail`
-  // and `shared-notes-layout`) demote a stored `both` to `edit` so nobody
-  // arrives in a layout they cannot leave.
-  const visibleModes = isMobile
-    ? MODES.filter((m) => m.mode !== "both")
-    : MODES;
+  // Vim mode binds the formatting keys on a Mac only (Ctrl-B / Ctrl-I are
+  // vim's own keys elsewhere — `formattingBindings` in `packages/notes`), so a
+  // tooltip only advertises a shortcut the editor will actually honour.
+  const shortcutsBound = keymap === "default" || isMac;
+  const sc = (shortcut: Shortcut) => (shortcutsBound ? shortcut : undefined);
 
   return (
     // `role` makes the label below reachable: `aria-label` on a generic
@@ -427,10 +570,18 @@ export function NotesToolbar({
             <IconArrowForwardUp size={16} />
           </TooltipButton>
           <ToolbarSeparator />
+          <HeadingMenu
+            editor={editor}
+            level={formats.heading}
+            showShortcuts={shortcutsBound}
+            compact={isMobile}
+          />
+          <ToolbarSeparator />
           <TooltipToggle
             label="Bold"
             pressed={formats.bold}
             onToggle={() => editor.toggleBold()}
+            shortcut={sc(SHORTCUTS.bold)}
           >
             <IconBold size={16} />
           </TooltipToggle>
@@ -438,6 +589,7 @@ export function NotesToolbar({
             label="Italic"
             pressed={formats.italic}
             onToggle={() => editor.toggleItalic()}
+            shortcut={sc(SHORTCUTS.italic)}
           >
             <IconItalic size={16} />
           </TooltipToggle>
@@ -445,6 +597,7 @@ export function NotesToolbar({
             label="Strikethrough"
             pressed={formats.strikethrough}
             onToggle={() => editor.toggleStrikethrough()}
+            shortcut={sc(SHORTCUTS.strikethrough)}
           >
             <IconStrikethrough size={16} />
           </TooltipToggle>
@@ -476,6 +629,7 @@ export function NotesToolbar({
                 label="Bullet list"
                 pressed={formats.list === "bullet"}
                 onToggle={() => editor.toggleBulletList()}
+                shortcut={sc(SHORTCUTS.bullet)}
               >
                 <IconList size={16} />
               </TooltipToggle>
@@ -483,6 +637,7 @@ export function NotesToolbar({
                 label="Numbered list"
                 pressed={formats.list === "ordered"}
                 onToggle={() => editor.toggleOrderedList()}
+                shortcut={sc(SHORTCUTS.ordered)}
               >
                 <IconListNumbers size={16} />
               </TooltipToggle>
@@ -490,6 +645,7 @@ export function NotesToolbar({
                 label="Checkbox"
                 pressed={formats.list === "task"}
                 onToggle={() => editor.toggleTaskList()}
+                shortcut={sc(SHORTCUTS.task)}
               >
                 <IconListCheck size={16} />
               </TooltipToggle>
@@ -512,6 +668,7 @@ export function NotesToolbar({
                 label="Link"
                 pressed={formats.link}
                 onToggle={() => editor.toggleLink()}
+                shortcut={sc(SHORTCUTS.link)}
               >
                 <IconLink size={16} />
               </TooltipToggle>
@@ -546,75 +703,74 @@ export function NotesToolbar({
       )}
 
       <div className="ml-auto flex items-center gap-0.5">
-        {!readOnly && (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <ToolbarButton
-                    variant="menu"
-                    aria-label={`Keyboard: ${
-                      KEYMAPS.find((k) => k.key === keymap)?.label ?? "Default"
-                    }`}
-                  >
-                    <IconKeyboard size={16} />
-                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </ToolbarButton>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Keyboard</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end">
-              {KEYMAPS.map(({ key, label }) => (
-                <DropdownMenuCheckboxItem
-                  key={key}
-                  checked={keymap === key}
-                  onCheckedChange={() => onKeymapChange(key)}
-                >
-                  {label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {isMobile ? (
+          // Split is not offered on a phone (a fixed two-pane split is ~187px
+          // a pane at 375px; both mounting routes demote a stored `both` to
+          // `edit`), which leaves two modes — so one toggle: pressed reads the
+          // rendered note, released edits the source.
+          <TooltipToggle
+            label="Preview"
+            pressed={mode === "view"}
+            onToggle={() => onModeChange(mode === "view" ? "edit" : "view")}
+          >
+            <IconEye size={16} />
+          </TooltipToggle>
+        ) : (
+          <div
+            role="group"
+            aria-label="View mode"
+            className="flex items-center gap-0.5"
+          >
+            {MODES.map(({ mode: m, label, Icon }) => (
+              <TooltipToggle
+                key={m}
+                label={label}
+                pressed={mode === m}
+                // A mode is always selected, so pressing the active one is not
+                // a request to turn it off — and must not be reported either:
+                // `mode` is the *effective* mode, and echoing it back would
+                // persist whatever the host demoted it to.
+                onToggle={() => {
+                  if (m !== mode) onModeChange(m);
+                }}
+              >
+                <Icon size={16} />
+              </TooltipToggle>
+            ))}
+          </div>
         )}
-
+        <ToolbarSeparator />
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <ToolbarButton
-                  variant="menu"
-                  aria-label={`View mode: ${current.label}`}
-                >
-                  <current.Icon size={16} />
-                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                <ToolbarButton aria-label="Editor settings">
+                  <IconAdjustmentsHorizontal size={16} />
                 </ToolbarButton>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>View mode</TooltipContent>
+            <TooltipContent>Editor settings</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end">
-            {visibleModes.map(({ mode: m, label, Icon }) => (
-              <DropdownMenuCheckboxItem
-                key={m}
-                checked={mode === m}
-                // Ignore the toggled-off case: a mode is always selected.
-                // This has to be an actual guard, not just an intent. Radix
-                // fires `onCheckedChange` when the already-checked item is
-                // picked too, and `mode` is the *effective* mode — on a phone
-                // a stored `both` shows up here as `edit`. Reporting that back
-                // would persist the demotion and quietly destroy the user's
-                // desktop Split preference on a tap that changed nothing.
-                onCheckedChange={() => {
-                  if (m !== mode) onModeChange(m);
-                }}
-                className="gap-2"
-              >
-                <Icon size={16} />
-                {label}
-              </DropdownMenuCheckboxItem>
-            ))}
-            <DropdownMenuSeparator />
+          <DropdownMenuContent align="end" className="w-52">
+            {!readOnly && (
+              <>
+                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                  Keyboard
+                </DropdownMenuLabel>
+                {KEYMAPS.map(({ key, label }) => (
+                  <DropdownMenuCheckboxItem
+                    key={key}
+                    checked={keymap === key}
+                    onCheckedChange={() => {
+                      if (key !== keymap) onKeymapChange(key);
+                    }}
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+              </>
+            )}
             {/*
               Display only: every client records authorship, so this decides
               what you see, not what you leave behind. The title still says

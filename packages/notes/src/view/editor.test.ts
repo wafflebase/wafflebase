@@ -45,6 +45,7 @@ describe('initialize', () => {
     // programmatic and would otherwise dispatch a document change that
     // `noteSync` forwards to the CRDT.
     api.toggleBold();
+    api.setHeading(2);
     api.toggleTaskList();
     api.insertTable(2, 2);
     api.insertCodeBlock();
@@ -233,6 +234,147 @@ describe('initialize', () => {
     );
     expect(store.getText()).toBe('hello!');
 
+    api.dispose();
+    container.remove();
+  });
+
+  // jsdom is not macOS, so `Mod` is Ctrl. CodeMirror recovers a shifted or
+  // Alt-modified key's base name from `keyCode`, so it is set for every press.
+  const pressKey = (
+    content: HTMLElement,
+    key: string,
+    mods: { shift?: boolean; alt?: boolean } = {},
+  ) =>
+    content.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        keyCode: key.toUpperCase().charCodeAt(0),
+        ctrlKey: true,
+        shiftKey: mods.shift ?? false,
+        altKey: mods.alt ?? false,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+  it('binds the Google Docs formatting shortcuts', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('word');
+    const api = initialize(container, store, 'light');
+    const content = container.querySelector('.cm-content') as HTMLElement;
+    const view = EditorView.findFromDOM(container)!;
+    const selectAll = () =>
+      view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+
+    selectAll();
+    pressKey(content, 'b');
+    expect(store.getText()).toBe('**word**');
+    pressKey(content, 'b');
+    // `Mod-i` would otherwise be basicSetup's "select parent syntax".
+    pressKey(content, 'i');
+    expect(store.getText()).toBe('*word*');
+    pressKey(content, 'i');
+    pressKey(content, 'X', { shift: true });
+    expect(store.getText()).toBe('~~word~~');
+    pressKey(content, 'X', { shift: true });
+
+    pressKey(content, '8', { shift: true });
+    expect(store.getText()).toBe('- word');
+    pressKey(content, '7', { shift: true });
+    expect(store.getText()).toBe('1. word');
+    pressKey(content, '9', { shift: true });
+    expect(store.getText()).toBe('- [ ] word');
+    pressKey(content, '9', { shift: true });
+
+    pressKey(content, '2', { alt: true });
+    expect(store.getText()).toBe('## word');
+    pressKey(content, '0', { alt: true });
+    expect(store.getText()).toBe('word');
+
+    selectAll();
+    pressKey(content, 'k');
+    expect(store.getText()).toBe('[word](url)');
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('writes a heading set through the API to the store', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('- item');
+    const api = initialize(container, store, 'light');
+    api.setHeading(3);
+    expect(store.getText()).toBe('- ### item');
+    expect(api.getActiveFormats().heading).toBe(3);
+    api.setHeading(0);
+    expect(store.getText()).toBe('- item');
+    api.dispose();
+    container.remove();
+  });
+
+  it('leaves the formatting shortcuts unbound on a read-only mount', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('word');
+    const api = initialize(container, store, 'light', true);
+    const content = container.querySelector('.cm-content') as HTMLElement;
+    pressKey(content, 'b');
+    pressKey(content, '1', { alt: true });
+    expect(store.getText()).toBe('word');
+    api.dispose();
+    container.remove();
+  });
+
+  // Ctrl-B / Ctrl-I are vim's own keys off the Mac, so vim mode binds the
+  // formatting shortcuts under `mac` only.
+  it('keeps Ctrl formatting keys for vim off the Mac', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('word');
+    const api = initialize(container, store, 'light');
+    api.setKeymap('vim');
+    const content = container.querySelector('.cm-content') as HTMLElement;
+    pressKey(content, '2', { alt: true });
+    expect(store.getText()).toBe('word');
+    api.dispose();
+    container.remove();
+  });
+
+  it('shows a placeholder in an empty writable note only', () => {
+    const writable = document.createElement('div');
+    document.body.appendChild(writable);
+    const api = initialize(writable, new MemNoteStore(''), 'light');
+    expect(writable.querySelector('.cm-placeholder')?.textContent).toContain(
+      'Start writing',
+    );
+    api.dispose();
+    writable.remove();
+
+    const viewer = document.createElement('div');
+    document.body.appendChild(viewer);
+    const ro = initialize(viewer, new MemNoteStore(''), 'light', true);
+    expect(viewer.querySelector('.cm-placeholder')).toBeNull();
+    ro.dispose();
+    viewer.remove();
+  });
+
+  it('turns the preview into a reading column only when it is alone', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+    const preview = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+    expect(preview.classList.contains('note-preview-reading')).toBe(false);
+    api.setViewMode('view');
+    // The centring padding is a `max()` jsdom does not parse; the browser
+    // check covers it.
+    expect(preview.classList.contains('note-preview-reading')).toBe(true);
+    api.setViewMode('both');
+    expect(preview.classList.contains('note-preview-reading')).toBe(false);
+    expect(preview.style.paddingInline).toBe('20px');
     api.dispose();
     container.remove();
   });

@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./active/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./active/20261115-docs-site-brand-neutrals-lessons.md) |
 | implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./active/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./active/20261115-implement-post-agent-job-lessons.md) |
@@ -68,4 +69,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 637
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: agent harness adopt prep (2026-11-15)
+Latest active task: notes usability (2026-11-16)

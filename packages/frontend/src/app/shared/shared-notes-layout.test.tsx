@@ -50,6 +50,7 @@ const FORMATS: NoteInlineFormats = {
   list: null,
   canIndent: true,
   canOutdent: true,
+  heading: 0,
 };
 
 /** Smallest editor that leaves every toolbar control enabled and clickable. */
@@ -213,8 +214,7 @@ describe("SharedNotesLayout for an editor-role visitor", () => {
     await renderLayout("editor");
     expect(viewProps.current.viewMode).toBe("both");
 
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(viewProps.current.viewMode).toBe("view");
     // An anonymous visitor must not overwrite a per-browser preference.
@@ -242,11 +242,11 @@ describe("SharedNotesLayout for an editor-role visitor", () => {
     expect(viewProps.current.keymap).toBe("default");
     expect(viewProps.current.showAuthors).toBe(false);
 
-    await user.click(screen.getByRole("button", { name: /^Keyboard:/ }));
+    await user.click(screen.getByRole("button", { name: "Editor settings" }));
     await user.click(screen.getByRole("menuitemcheckbox", { name: "Vim" }));
     expect(viewProps.current.keymap).toBe("vim");
 
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
+    await user.click(screen.getByRole("button", { name: "Editor settings" }));
     await user.click(
       screen.getByRole("menuitemcheckbox", { name: "Show authors" }),
     );
@@ -262,10 +262,10 @@ describe("SharedNotesLayout for an editor-role visitor", () => {
 });
 
 describe("SharedNotesLayout for a viewer-role visitor", () => {
-  it("keeps the view menu but drops the formatting group", async () => {
+  it("keeps the view modes but drops the formatting group", async () => {
     const strip = await renderLayout("viewer");
     expect(
-      within(strip).getByRole("button", { name: /^View mode:/ }),
+      within(strip).getByRole("group", { name: "View mode" }),
     ).toBeDefined();
     expect(within(strip).queryByRole("button", { name: "Bold" })).toBeNull();
     expect(within(strip).queryByRole("button", { name: "Undo" })).toBeNull();
@@ -278,11 +278,10 @@ describe("SharedNotesLayout for a viewer-role visitor", () => {
     expect(viewProps.current.uploadImage).toBeUndefined();
   });
 
-  it("can reach the markdown source through the view menu", async () => {
+  it("can reach the markdown source through the view modes", async () => {
     const user = userEvent.setup();
     await renderLayout("viewer");
-    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "Editor" }));
+    await user.click(screen.getByRole("button", { name: "Editor" }));
     expect(viewProps.current.viewMode).toBe("edit");
   });
 });
