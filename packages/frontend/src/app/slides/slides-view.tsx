@@ -28,7 +28,11 @@ import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
-import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
+import {
+  YorkieSlidesStore,
+  ensureSlidesRoot,
+  seedEmptyDeck,
+} from "./yorkie-slides-store";
 import { setupSlidesImagePaths } from "./slides-image-input";
 import { renderDeckThumbnail } from "./slides-thumbnail";
 import { registerThumbnailSource } from "@/lib/thumbnail-capture";
@@ -200,10 +204,10 @@ export function SlidesView({
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
   const readOnlyMount = readOnly === true;
 
-  // Capture the resolved (light|dark) theme into a ref so the mount
-  // effect — which doesn't track theme as a dependency — can read the
-  // current value when seeding a brand-new deck. Only the value at
-  // first-creation time matters; later toggles don't change the deck.
+  // Capture the resolved (light|dark) app theme into a ref so the mount
+  // effect — which doesn't track theme as a dependency — can colour peer
+  // cursors for the current mode. It never reaches deck content: a new
+  // deck is always seeded in the default theme (`ensureSlidesRoot`).
   const { resolvedTheme } = useTheme();
   const resolvedThemeRef = useRef(resolvedTheme);
   resolvedThemeRef.current = resolvedTheme;
@@ -293,10 +297,7 @@ export function SlidesView({
     // `frame` or no `data`, so a viewer skips that too — `readElement` and
     // the renderer carry their own fallbacks for exactly that reason.
     // Matches the empty-deck seed gate below and `mobile-slides-view`.
-    ensureSlidesRoot(doc, {
-      initialThemePreference: resolvedThemeRef.current,
-      readOnly: readOnlyMount,
-    });
+    ensureSlidesRoot(doc, { readOnly: readOnlyMount });
 
     // Build the canvas + overlay DOM into the container. The slides
     // editor is vanilla DOM, so we hand-build the scaffolding here
@@ -698,22 +699,13 @@ export function SlidesView({
 
     const store = new YorkieSlidesStore(doc);
     storeRef.current = store;
-    // Brand-new presentations land here with `slides: []`. The editor's
-    // `render()` bails out when no current slide exists, so without this
-    // seed the canvas would stay blank until the user clicked the
-    // "+ Slide" toolbar button. Seeding once on first mount matches
-    // Google Slides' "new deck always opens with one slide" UX.
-    //
-    // Skipped when this mount is read-only — share-link viewers must
-    // never write to the deck, and a viewer arriving before the owner
-    // has saved the first slide should see an empty canvas rather
-    // than mutating the doc on their behalf.
-    if (!readOnlyMount && store.read().slides.length === 0) {
-      store.batch(() => store.addSlide("blank"));
-      // Re-base the undo floor above the seed so the user can't Cmd+Z the
-      // deck's only slide away and land on a blank canvas.
-      store.markUndoBaseline();
-    }
+    // Brand-new presentations land here with `slides: []`; seed the
+    // Title slide Google Slides opens a new deck with (see
+    // `seedEmptyDeck`). Skipped when this mount is read-only —
+    // share-link viewers must never write to the deck, and a viewer
+    // arriving before the owner has saved the first slide should see an
+    // empty canvas rather than mutating the doc on their behalf.
+    if (!readOnlyMount) seedEmptyDeck(store);
     // Late-bound thumbnail handle. `mountThumbnailPanel` runs further
     // down (after the editor and the resize/notes wiring), but the
     // editor's `onFontsLoaded` callback fires from a document.fonts

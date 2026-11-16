@@ -203,7 +203,7 @@ The presenter's `setDocument` logic:
 
 `onStartPresentation` (the editor callback) is a no-op when
 `store.read().slides.length === 0`. `slides-view.tsx` already seeds a
-blank slide on first mount, so this is defensive only.
+Title slide on first mount (`seedEmptyDeck`), so this is defensive only.
 
 ### Entry-point UI
 
