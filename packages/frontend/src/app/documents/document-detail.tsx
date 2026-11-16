@@ -36,6 +36,10 @@ import {
 } from "@/components/ui/dialog";
 import { TabBar } from "@/components/tab-bar";
 import {
+  SHEET_TAB_PANEL_ID,
+  sheetTabElementId,
+} from "@/components/tab-bar-ids";
+import {
   SpreadsheetDocument,
   createWorksheet,
   TabType,
@@ -813,7 +817,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             }
           >
             <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="relative flex flex-col h-full">
+              <div
+                className="relative flex flex-col h-full"
+                role="tabpanel"
+                id={SHEET_TAB_PANEL_ID}
+                aria-labelledby={
+                  activeTabId ? sheetTabElementId(activeTabId) : undefined
+                }
+              >
                 <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />

@@ -13,8 +13,12 @@ function fakeSheet(options?: {
   conditionalFormats?: ConditionalFormatRule[];
   dataValidations?: DataValidationRule[];
 }) {
-  const setConditionalFormats = vi.fn(async () => {});
-  const setDataValidations = vi.fn(async () => {});
+  const setConditionalFormats = vi.fn<Spreadsheet["setConditionalFormats"]>(
+    async () => {},
+  );
+  const setDataValidations = vi.fn<Spreadsheet["setDataValidations"]>(
+    async () => {},
+  );
   const spreadsheet = {
     getConditionalFormats: () => options?.conditionalFormats ?? [],
     setConditionalFormats,

@@ -346,9 +346,12 @@ function getValueTickFormatter(
   valueFormat: ChartValueFormat | undefined,
 ): (value: number | string) => string {
   if (!valueFormat) return formatYAxisTick;
-  const compactCurrency = valueFormat.cu
-    ? safeCompactCurrency(valueFormat.cu)
-    : null;
+  // Gate on the format, not on `cu` alone: a stale `cu` can outlive a switch
+  // to percent, and percent ticks must not render as `$10K`.
+  const isCurrency =
+    valueFormat.nf === "currency" || valueFormat.nf === "accounting";
+  const compactCurrency =
+    isCurrency && valueFormat.cu ? safeCompactCurrency(valueFormat.cu) : null;
   return (value) => {
     const numeric = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(numeric)) return String(value);

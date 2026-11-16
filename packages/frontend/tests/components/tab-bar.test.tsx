@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TabBar } from '@/components/tab-bar';
+import {
+  SHEET_TAB_PANEL_ID,
+  sheetTabElementId,
+} from '@/components/tab-bar-ids';
 import type { TabMeta } from '@/types/worksheet';
 
 const THREE_TABS: TabMeta[] = [
@@ -74,6 +78,21 @@ describe('TabBar', () => {
     ]);
     // Roving focus: only the active tab is in the Tab order.
     expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it('gives each tab a stable id controlling the one sheet panel', () => {
+    renderTabBar();
+
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((tab) => tab.id)).toEqual([
+      sheetTabElementId('tab-1'),
+      sheetTabElementId('tab-2'),
+      sheetTabElementId('tab-3'),
+    ]);
+    expect(tabs[0].id).toBe('sheet-tab-tab-1');
+    for (const tab of tabs) {
+      expect(tab.getAttribute('aria-controls')).toBe(SHEET_TAB_PANEL_ID);
+    }
   });
 
   it('moves between tabs with the arrow keys', () => {

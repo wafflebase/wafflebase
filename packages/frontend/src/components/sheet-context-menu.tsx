@@ -274,17 +274,21 @@ export function SheetContextMenu({
 
   // Freezing goes through `setFreezePane`, the same single store write the
   // corner drag handle makes, so it is one undo step. Only the axis the menu
-  // was opened on changes; the other keeps its current boundary.
+  // was opened on changes; the other keeps its current boundary. That
+  // boundary is read at click time, not from the snapshot taken when the menu
+  // opened: `setFreezePane` writes both axes, so a stale value would revert a
+  // change a collaborator made to the other axis while the menu was open.
   const handleFreeze = useCallback(
     async (line: number) => {
       if (!spreadsheet) return;
+      const current = spreadsheet.getFreezePane();
       if (menuType === "row") {
-        await spreadsheet.setFreezePane(line, freeze.frozenCols);
+        await spreadsheet.setFreezePane(line, current.frozenCols);
       } else if (menuType === "column") {
-        await spreadsheet.setFreezePane(freeze.frozenRows, line);
+        await spreadsheet.setFreezePane(current.frozenRows, line);
       }
     },
-    [spreadsheet, menuType, freeze],
+    [spreadsheet, menuType],
   );
 
   const structuralDisabled = readOnly || structureLocked;

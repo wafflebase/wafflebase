@@ -255,10 +255,12 @@ export function placeNewChart({
   gap: number;
 }): { side: "right" | "below"; left: number; top: number } {
   // Beside the range, aligned with its top row — but never above the
-  // visible area, and pulled up when the bottom would run off screen.
+  // visible area, and pulled up when the bottom would run off screen. A
+  // range scrolled entirely out to the left still gets a chart that starts
+  // inside the viewport: past its right edge either way, so never over it.
   const right = {
     side: "right" as const,
-    left: source.right + gap,
+    left: Math.max(source.right + gap, visible.left + gap),
     top: Math.max(
       visible.top + gap,
       Math.min(source.top, visible.bottom - size.height - gap),
@@ -268,7 +270,8 @@ export function placeNewChart({
     return right;
   }
 
-  const belowTop = source.bottom + gap;
+  // Likewise a range scrolled entirely out above starts the chart inside.
+  const belowTop = Math.max(source.bottom + gap, visible.top + gap);
   if (belowTop + size.height <= visible.bottom) {
     const left = Math.max(
       visible.left + gap,
@@ -613,7 +616,12 @@ function getValueFormat(
     if (toNumeric(getCellRawValue(sheet, r, col)) === null) continue;
     const style = resolveWorksheetCellStyle(sheet, { r, c: col }, cell?.s);
     if (!style?.nf || !AXIS_FORMATS.has(style.nf)) return undefined;
-    return { nf: style.nf, dp: style.dp, cu: style.cu };
+    // A percent preset merges onto the style without clearing `cu`, so a
+    // column switched from currency to percent still carries one; only a
+    // currency format may hand its currency to the axis.
+    return style.nf === "currency" || style.nf === "accounting"
+      ? { nf: style.nf, dp: style.dp, cu: style.cu }
+      : { nf: style.nf, dp: style.dp };
   }
   return undefined;
 }

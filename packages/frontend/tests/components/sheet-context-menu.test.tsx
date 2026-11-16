@@ -163,6 +163,19 @@ describe('SheetContextMenu cell menu', () => {
   });
 });
 
+describe('SheetContextMenu scrolling', () => {
+  it('scrolls a menu taller than the space available instead of clipping it', async () => {
+    renderMenu(createSpreadsheet({}));
+
+    const menu = await screen.findByRole('menu');
+    expect(menu.className).toContain(
+      'max-h-(--radix-context-menu-content-available-height)',
+    );
+    expect(menu.className).toContain('overflow-y-auto');
+    expect(menu.className).not.toMatch(/(^|\s)overflow-hidden(\s|$)/);
+  });
+});
+
 describe('SheetContextMenu header freeze', () => {
   it('freezes up to the right-clicked row, keeping frozen columns', async () => {
     const spreadsheet = createSpreadsheet({
@@ -196,6 +209,26 @@ describe('SheetContextMenu header freeze', () => {
 
     await waitFor(() => {
       expect(spreadsheet.setFreezePane).toHaveBeenCalledWith(1, 3);
+    });
+  });
+
+  it('keeps the other axis as it is at click time, not at open time', async () => {
+    const spreadsheet = createSpreadsheet({
+      hit: { axis: 'row', index: 3 },
+      indices: { axis: 'row', from: 3, to: 3 },
+      freeze: { frozenRows: 0, frozenCols: 2 },
+    });
+    renderMenu(spreadsheet);
+    const item = await screen.findByRole('menuitem', {
+      name: 'Freeze up to row 3',
+    });
+
+    // A collaborator changes the frozen columns while the menu is open.
+    spreadsheet.getFreezePane.mockReturnValue({ frozenRows: 0, frozenCols: 4 });
+    fireEvent.click(item);
+
+    await waitFor(() => {
+      expect(spreadsheet.setFreezePane).toHaveBeenCalledWith(3, 4);
     });
   });
 

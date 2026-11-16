@@ -35,6 +35,7 @@ import {
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
+import { SHEET_TAB_PANEL_ID, sheetTabElementId } from "./tab-bar-ids";
 import type { TabMeta, TabType } from "@/types/worksheet";
 
 type TabBarProps = {
@@ -115,6 +116,8 @@ function SortableTab({
       // order. Reordering is pointer-only (no keyboard sensor) and the tab
       // menu's Move left / Move right is the keyboard path.
       role="tab"
+      id={sheetTabElementId(tab.id)}
+      aria-controls={SHEET_TAB_PANEL_ID}
       aria-roledescription={undefined}
       aria-selected={isActive}
       tabIndex={isActive ? 0 : -1}

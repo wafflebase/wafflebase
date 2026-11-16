@@ -217,6 +217,17 @@ describe("charts from a table with headers", () => {
     expect(dataset.valueFormat).toMatchObject({ nf: "currency", cu: "USD" });
   });
 
+  test("a percent column drops a currency left over from a currency format", () => {
+    const doc = makeDoc(table, { "2": { nf: "percent", cu: "USD" } });
+    const dataset = buildChartDataset(doc, {
+      sourceTabId: "tab-1",
+      sourceRange: "A1:C3",
+      xAxisColumn: "A",
+      seriesColumns: ["B"],
+    });
+    expect(dataset.valueFormat).toEqual({ nf: "percent", dp: undefined });
+  });
+
   test("a plain number column reports no value format", () => {
     const doc = makeDoc(table);
     const dataset = buildChartDataset(doc, {
@@ -286,6 +297,19 @@ describe("placeNewChart", () => {
     const source = { left: 100, top: -500, right: 400, bottom: 300 };
     const placed = placeNewChart({ source, visible, size, gap: 8 });
     expect(placed).toEqual({ side: "right", left: 408, top: 8 });
+  });
+
+  test("starts inside the viewport when the range is scrolled out left", () => {
+    const source = { left: -900, top: 40, right: -300, bottom: 120 };
+    const placed = placeNewChart({ source, visible, size, gap: 8 });
+    expect(placed).toEqual({ side: "right", left: 8, top: 40 });
+  });
+
+  test("starts below inside the viewport when the range is scrolled out above", () => {
+    // Too wide to sit beside, and entirely above the visible area.
+    const source = { left: 100, top: -600, right: 1000, bottom: -200 };
+    const placed = placeNewChart({ source, visible, size, gap: 8 });
+    expect(placed).toEqual({ side: "below", left: 100, top: 8 });
   });
 
   test("falls back to the right of the range when nothing fits", () => {
