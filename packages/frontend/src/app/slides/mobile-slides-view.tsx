@@ -25,6 +25,7 @@ import type { SlidesPresence } from "@/types/users";
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
+  seedEmptyDeck,
 } from "./yorkie-slides-store";
 
 // Default 16:9 aspect for the thumbnail box and as the fit fallback. The
@@ -134,6 +135,10 @@ export function MobileSlidesView({
     // twin and why skipping the write still renders an unmigrated deck.
     ensureSlidesRoot(doc, { readOnly: mode === "view" });
     const s = new YorkieSlidesStore(doc);
+    // A brand-new deck first opened on a phone gets the same Title slide
+    // the desktop mount seeds. Edit mode only: `view` is the share-link
+    // viewer, which must never write.
+    if (mode === "edit") seedEmptyDeck(s);
     setStore(s);
     onStoreReadyRef.current?.(s);
     return () => {

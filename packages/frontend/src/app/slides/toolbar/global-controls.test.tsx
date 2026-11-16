@@ -42,8 +42,12 @@ describe("RightGlobals panel toggles", () => {
       renderGlobals();
       const toggle = screen.getByRole("button", { name });
       expect(toggle).toHaveTextContent(label);
-      // WCAG 2.5.3 label-in-name: what is on screen is part of the name.
-      expect(name.toLowerCase()).toContain(label.toLowerCase());
+      // WCAG 2.5.3 label-in-name: the text the button renders must be part
+      // of the name it computes — both read from the DOM, so a dropped
+      // label or a renamed aria-label fails here.
+      const rendered = toggle.textContent?.trim() ?? "";
+      expect(rendered).not.toBe("");
+      expect(toggle).toHaveAccessibleName(new RegExp(rendered, "i"));
     },
   );
 
