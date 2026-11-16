@@ -41,9 +41,10 @@ does differently. Each is known and accepted for now:
   required review on `main` also requires approval of the most recent
   reviewable push: classic protection's "Require approval of the most recent
   reviewable push", or a ruleset with `require_last_push_approval: true`.
-  wafflebase's own gate asked only for one approval. Turn the setting on
-  before `AGENT_PIPELINE_ENABLED` goes back on. It applies to human merges
-  too: an approval no longer survives a later push to the pull request.
+  wafflebase's own gate asked only for one approval. The setting was turned
+  on for `main` when #1159 merged, before `AGENT_PIPELINE_ENABLED` went back
+  on. It applies to human merges too: an approval no longer survives a later
+  push to the pull request.
 
 - **The issue classification step is gone.** The shared `agent-implement.yml`
   has none, and `scripts/agent-arms/classify.mjs`, which only that step ran,

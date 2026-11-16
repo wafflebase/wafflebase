@@ -3623,8 +3623,9 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
 job, because the agent's shell can write `$GITHUB_ENV`, `~/.gitconfig` and
 `.git/config` for the rest of its own job: `report` in `agent-fix.yml` and
 `fix-report` in the panel, each on a fresh runner from trusted main, reading the
-branch head through the API. The infra page and the removal record are posted
-there with the rest of the report. wafflebase's own copy of the pipeline, before
+branch head through the API. The removal record is posted from both jobs with
+the rest of the report; the infra page exists only in the panel's `fix-report`.
+wafflebase's own copy of the pipeline, before
 the switch to yorkie's shared core (#1159), kept its reporting steps inside `fix`
 and ran only these two in a `fix-evidence` job.
 
