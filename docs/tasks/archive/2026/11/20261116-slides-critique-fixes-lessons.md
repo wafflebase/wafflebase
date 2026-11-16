@@ -24,3 +24,9 @@
   `/tmp/x`); give each agent a unique prefix.
 - Under heavy machine load `upload-queue-lazy-deps.test.ts` hits its 5s
   timeout; it is unrelated to this branch.
+- `pnpm tasks:archive` archives every fully-checked task in `active/`, not
+  just this branch's; archive only your own pair (`git mv`) and re-run
+  `pnpm tasks:index`, so the PR does not sweep other work.
+- The pre-push `verify:self` flaked on load-sensitive frontend tests while
+  another checkout ran its suite; a plain retry passed. `--no-verify` is
+  refused by the harness, so plan push time around shared-machine load.
