@@ -12,7 +12,9 @@ import {
 } from "@/components/ui/tooltip";
 
 /**
- * Split-button that enters present mode. Primary click starts from the
+ * Split-button that enters present mode, labelled "Slideshow" as in
+ * Google Slides (an icon-only play glyph read as "media", not "present",
+ * to people arriving from there). Primary click starts from the
  * editor's current slide; the chevron's dropdown offers "from beginning"
  * (mirroring Google Slides). The two menu items also surface the
  * keyboard shortcut hints — the corresponding bindings live in the
@@ -37,13 +39,19 @@ export function PresentButton({ disabled, onStart }: PresentButtonProps) {
             type="button"
             onClick={() => onStart("current")}
             disabled={disabled}
-            aria-label="Present from current slide"
-            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center gap-1.5 rounded-l-md px-2 text-sm font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50 md:pr-2.5"
           >
-            <IconPlayerPlay size={16} />
+            <IconPlayerPlay size={16} aria-hidden="true" />
+            {/* The visible label is the accessible name (no aria-label, so
+                the two cannot drift). Below md the header is the mobile
+                shell's, which has no room for it: it collapses to a
+                screen-reader-only name and the button back to 32px. */}
+            <span className="sr-only md:not-sr-only">Slideshow</span>
           </button>
         </TooltipTrigger>
-        <TooltipContent>Present</TooltipContent>
+        <TooltipContent>
+          Present from current slide ({modKey}↵)
+        </TooltipContent>
       </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

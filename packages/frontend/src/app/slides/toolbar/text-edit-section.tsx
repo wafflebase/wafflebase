@@ -30,6 +30,13 @@
  * (all required methods are present on the type — see
  * text-box-editor.ts). No explicit cast is needed.
  *
+ * Done is a quiet text `ToolbarButton`, not a syrup fill. It is the
+ * exit from the most frequent task, not the view's primary action
+ * (DESIGN.md's One Accent Rule), and Google Slides has no such button
+ * at all — Esc or a click off the box exits. A filled Done was the
+ * loudest object on screen for the whole of every text edit. The
+ * board toolbar renders this same section, so it follows.
+ *
  * Done lives here — at the trailing edge of the contextual region —
  * rather than in `RightGlobals` so the slide-style cluster
  * (Background / Layout / Theme) stays stable across state
@@ -39,7 +46,7 @@
 
 import type { SlidesEditor } from '@wafflebase/slides';
 import type { ToolbarState } from './state';
-import { ToolbarSeparator } from '@/components/ui/toolbar';
+import { ToolbarButton, ToolbarSeparator } from '@/components/ui/toolbar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
   TextFormatGroup,
@@ -97,15 +104,15 @@ export function TextEditSection({ state, editor }: TextEditSectionProps) {
       <ToolbarSeparator className="mx-1" />
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
+            variant="menu"
             onClick={() => editor?.exitTextEditing()}
             disabled={!editor}
             aria-label="Done editing text"
-            className="inline-flex cursor-pointer h-7 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50"
+            className="px-2 font-medium"
           >
             Done
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Exit text edit (Esc)</TooltipContent>
       </Tooltip>

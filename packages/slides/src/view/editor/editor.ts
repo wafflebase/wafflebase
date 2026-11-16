@@ -227,6 +227,11 @@ interface PaintSnapshot {
   stroke?: Stroke;
 }
 
+/**
+ * The editor keeps and mutates this object (host size, viewport, and an
+ * unset `showPlaceholderHints` defaulted to `!readOnly`), so pass a fresh
+ * object per `initialize()` rather than one shared between mounts.
+ */
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
   overlay: HTMLDivElement;
@@ -1102,6 +1107,13 @@ class SlidesEditorImpl implements SlidesEditor {
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.hitCtx = ctx;
+    // The editable canvas is the one slide surface that shows the "Click to
+    // add title" ghost on empty placeholders (the renderer defaults it off
+    // for presentation, thumbnails and export). A read-only mount shows the
+    // slide as its audience sees it. Written onto `options` rather than a
+    // copy because the renderer shares this object with the editor, which
+    // mutates host size / viewport on it later.
+    options.showPlaceholderHints ??= !options.readOnly;
     this.renderer = new SlideRenderer(ctx, options);
     if (
       options.hRulerCanvas !== undefined &&

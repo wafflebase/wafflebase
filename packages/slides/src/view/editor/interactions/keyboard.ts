@@ -868,11 +868,23 @@ function isPrintableKey(e: KeyboardEvent): boolean {
   return e.key.length === 1;
 }
 
+/**
+ * Marks the slide thumbnail filmstrip (`thumbnail-panel.ts`) so
+ * `isEditableTarget` can tell it from a foreign listbox.
+ */
+export const FILMSTRIP_ATTR = 'data-wfb-slides-filmstrip';
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if ((target as HTMLElement).isContentEditable) return true;
+  // The slide filmstrip is a listbox for assistive tech, but it is the
+  // editor's own surface, not a foreign widget: focus parks on it after
+  // a thumbnail click and stays there while the user works on the canvas
+  // (which is not focusable), so nudge / delete / clipboard / undo must
+  // still reach the slide rules. Checked before the role gate below.
+  if (target.closest(`[${FILMSTRIP_ATTR}]`)) return false;
   // Also gate against interactive widgets (dialogs, dropdowns, focused
   // buttons). Without this, Tab inside the shortcuts-help dialog would
   // be hijacked by the slides Tab-cycle rule, and Enter on a focused

@@ -182,16 +182,24 @@ export function ShareDialog({ documentId }: { documentId: string }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {/* Labelled from md up in every editor (one trigger, so every
+          document type matches): an icon-only share glyph is not what
+          Google suite users look for. Below md the label is
+          screen-reader-only and the 32px icon button stays, which keeps
+          the mobile headers' fit.
+          `aria-label` stays too: the template seed script clicks
+          `[aria-label="Share"]`. */}
       <Tooltip>
         <TooltipTrigger asChild>
           <DialogTrigger asChild>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 w-8 cursor-pointer p-0"
+              className="h-8 min-w-8 cursor-pointer has-[>svg]:px-2 md:has-[>svg]:px-2.5"
               aria-label="Share"
             >
-              <IconShare className="h-4 w-4" />
+              <IconShare className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only md:not-sr-only">Share</span>
             </Button>
           </DialogTrigger>
         </TooltipTrigger>

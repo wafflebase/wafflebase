@@ -317,9 +317,11 @@ interface Store {
 
 ### Peer Cursor Name Labels
 
-A small name tag (the peer's `username`, white text on the peer's cursor color,
-~10–11px, truncated with ellipsis at 120px logical width) renders on the overlay
-canvas just above a peer's active cell. The tag is **transient**: it auto-shows
+A small name tag (the peer's `username` on the peer's cursor color, in
+near-black or white by WCAG contrast via `readableTextColor()` from
+`@wafflebase/core/tokens`, ~10–11px, truncated with ellipsis at 120px
+logical width) renders on the overlay canvas just above a peer's active
+cell. The tag is **transient**: it auto-shows
 for ~4 seconds when a peer moves to a new cell, and shows while the local user
 hovers over a peer's active cell; otherwise it is hidden so cell content stays
 readable. The local user's own cursor never shows a label.

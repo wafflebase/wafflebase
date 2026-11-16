@@ -6,6 +6,7 @@ import { MemSlidesStore } from '../../../src/store/memory';
 import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
 import { initialize } from '../../../src/view/editor/editor';
 import { mountThumbnailPanel } from '../../../src/view/editor/thumbnail-panel';
+import type { Block } from '@wafflebase/docs';
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -188,6 +189,25 @@ describe('mountThumbnailPanel — arrow key navigation', () => {
     expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
   });
 
+  it('navigates past a slide whose collaborator-written id breaks a CSS selector', () => {
+    // Slide ids are CRDT content; nothing validates one arriving from a
+    // peer. The scroll-into-view lookup must not parse it as a selector.
+    const seed = new MemSlidesStore();
+    seed.batch(() => { seed.addSlide('blank'); seed.addSlide('blank'); });
+    const doc = seed.read();
+    doc.slides[1] = { ...doc.slides[1], id: 'x"] , [y' };
+    const { canvas, overlay, panel } = makeFixture();
+    const store = new MemSlidesStore(doc);
+    const editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    mountThumbnailPanel(panel, store, editor);
+    const scrolled = vi.fn();
+    const target = panel.querySelectorAll<HTMLElement>('[data-slide-id]')[1];
+    target.scrollIntoView = scrolled;
+    expect(() => keydown(panel, 'ArrowDown')).not.toThrow();
+    expect(editor.getCurrentSlideId()).toBe('x"] , [y');
+    expect(scrolled).toHaveBeenCalledTimes(1);
+  });
+
   it('ArrowUp on the first slide is a no-op', () => {
     const { panel, store, editor } = makeFixture();
     mountThumbnailPanel(panel, store, editor);
@@ -292,32 +312,45 @@ describe('mountThumbnailPanel — arrow key navigation', () => {
 });
 
 describe('mountThumbnailPanel — responsive sizing + DPR', () => {
+  // The bordered thumb box. Its row also holds the 28px slide-number
+  // gutter (22px column + 6px gap), which comes out of the panel width.
+  const frameOf = (panel: HTMLElement): HTMLDivElement =>
+    panel.querySelector<HTMLDivElement>('[data-slide-id] .wfb-slides-thumb-frame')!;
+
   it('thumbnail outer box scales to the container width with 16:9 inner', () => {
     const { panel, store, editor } = makeFixture();
     // jsdom does not compute layout, so we pin clientWidth directly.
     Object.defineProperty(panel, 'clientWidth', { value: 240, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
-    expect(item.style.width).toBe('240px');
-    // innerW = 240 - 2 = 238, innerH = round(238 / (16/9)) = 134,
-    // outerH = 134 + 2 = 136.
-    expect(item.style.height).toBe('136px');
+    const frame = frameOf(panel);
+    // outerW = 240 - 28 = 212; innerW = 210, innerH = round(210 / (16/9))
+    // = 118, outerH = 118 + 2 = 120.
+    expect(frame.style.width).toBe('212px');
+    expect(frame.style.height).toBe('120px');
   });
 
-  it('thumbnail outer box clamps to MIN_THUMB_W (80px) on a very narrow panel', () => {
+  it('row (gutter + thumb) clamps to MIN_ROW_W (80px) on a very narrow panel', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 40, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
-    expect(item.style.width).toBe('80px');
+    // 80 - 28 = 52: the floor bounds the row, not the thumb alone.
+    expect(frameOf(panel).style.width).toBe('52px');
+  });
+
+  it('the row never outgrows a panel narrower than gutter + 80px', () => {
+    // Regression: the floor used to apply to the thumb after the gutter
+    // came out, so a 100px panel got a 28 + 80 = 108px row.
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 100, configurable: true });
+    mountThumbnailPanel(panel, store, editor);
+    expect(frameOf(panel).style.width).toBe('72px');
   });
 
   it('thumbnail outer box clamps to MAX_THUMB_W (320px) on a very wide panel', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 800, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
-    expect(item.style.width).toBe('320px');
+    expect(frameOf(panel).style.width).toBe('320px');
   });
 
   it('inner canvas box is exactly 16:9 so the slide fills it (no letterbox gap)', () => {
@@ -328,8 +361,8 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     // innerW / innerH must round-trip to 16:9 within 1 pixel.
     const innerW = Number.parseInt(canvas.style.width, 10);
     const innerH = Number.parseInt(canvas.style.height, 10);
-    expect(innerW).toBe(238);
-    expect(innerH).toBe(Math.round(238 / (16 / 9)));
+    expect(innerW).toBe(210);
+    expect(innerH).toBe(Math.round(210 / (16 / 9)));
   });
 
   it('canvas backing store is sized at devicePixelRatio for crisp Retina paint', () => {
@@ -340,9 +373,9 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
       Object.defineProperty(panel, 'clientWidth', { value: 200, configurable: true });
       mountThumbnailPanel(panel, store, editor);
       const canvas = panel.querySelector<HTMLCanvasElement>('[data-slide-id] canvas')!;
-      // 1px border on each side → innerW = 200 - 2 = 198,
-      // innerH = round(198 / (16/9)) = 111. Backing store is innerW/H × dpr.
-      const innerW = 198;
+      // 28px number gutter + 1px border on each side → innerW = 200 - 28
+      // - 2 = 170. Backing store is innerW/H × dpr.
+      const innerW = 170;
       const innerH = Math.round(innerW / (16 / 9));
       expect(canvas.width).toBe(innerW * 2);
       expect(canvas.height).toBe(innerH * 2);
@@ -356,20 +389,21 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 160, configurable: true });
     const handle = mountThumbnailPanel(panel, store, editor);
-    expect(panel.querySelector<HTMLDivElement>('[data-slide-id]')!.style.width).toBe('160px');
+    expect(frameOf(panel).style.width).toBe('132px');
     Object.defineProperty(panel, 'clientWidth', { value: 280, configurable: true });
     handle.refresh();
-    expect(panel.querySelector<HTMLDivElement>('[data-slide-id]')!.style.width).toBe('280px');
+    expect(frameOf(panel).style.width).toBe('252px');
   });
 
   it('falls back to a sensible default size when the container has no measured width', () => {
-    // jsdom default: clientWidth === 0. Falls back to FALLBACK_THUMB_W (192).
+    // jsdom default: clientWidth === 0. Falls back to FALLBACK_THUMB_W (192)
+    // for the thumb itself — there is no measured width to take a gutter from.
     const { panel, store, editor } = makeFixture();
     mountThumbnailPanel(panel, store, editor);
-    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
-    expect(item.style.width).toBe('192px');
+    const frame = frameOf(panel);
+    expect(frame.style.width).toBe('192px');
     // innerW = 190, innerH = round(190 / (16/9)) = 107, outerH = 109.
-    expect(item.style.height).toBe('109px');
+    expect(frame.style.height).toBe('109px');
   });
 
   it('does not render an in-panel "+ Add slide" button (moved to toolbar)', () => {
@@ -893,6 +927,18 @@ describe('mountThumbnailPanel — chunked render for large decks', () => {
     expect(rafQueue).toHaveLength(0);
   });
 
+  it('points aria-activedescendant at a current slide built in a later chunk', () => {
+    const { panel, store, editor } = makeBigDeck(35);
+    const lateId = store.read().slides[30].id;
+    editor.setCurrentSlide(lateId);
+    mountThumbnailPanel(panel, store, editor);
+    expect(panel.hasAttribute('aria-activedescendant')).toBe(false);
+    flushOneRAF();
+    const late = panel.querySelector<HTMLElement>(`[data-slide-id="${lateId}"]`)!;
+    expect(late.getAttribute('aria-label')).toBe('Slide 31 of 35');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(late.id);
+  });
+
   it('a follow-up render() during chunking discards items the stale generation would have appended', () => {
     // Mount 60 slides → first chunk builds 20, 40 pending. Then remove
     // 20 slides from the deck and call refresh(). If the stale token's
@@ -938,5 +984,204 @@ describe('mountThumbnailPanel — chunked render for large decks', () => {
     // contract that says "DOM is left in place"), so the partial 20
     // items remain — but nothing further was appended.
     expect(panel.querySelectorAll('[data-slide-id]').length).toBe(20);
+  });
+});
+
+describe('mountThumbnailPanel — listbox semantics', () => {
+  const options = (panel: HTMLElement): HTMLElement[] =>
+    [...panel.querySelectorAll<HTMLElement>('[data-slide-id]')];
+  const titleBlocks = (text: string): Block[] => [{
+    id: 'b1',
+    type: 'paragraph',
+    inlines: [{ text, style: {} }],
+    style: {},
+  } as Block];
+  /** Append a 'title-slide' layout slide (seeds a title placeholder). */
+  const addTitleSlide = (store: MemSlidesStore): string => {
+    let id = '';
+    store.batch(() => { id = store.addSlide('title-slide'); });
+    return id;
+  };
+  /** Id of the title placeholder the 'title-slide' layout seeds. */
+  const titleElementId = (store: MemSlidesStore, slideIndex: number): string =>
+    store.read().slides[slideIndex].elements.find(
+      (el) => el.placeholderRef?.type === 'title',
+    )!.id;
+
+  it('is a labelled, multi-select listbox of options', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    expect(panel.getAttribute('role')).toBe('listbox');
+    expect(panel.getAttribute('aria-label')).toBe('Slides');
+    expect(panel.getAttribute('aria-multiselectable')).toBe('true');
+    for (const item of options(panel)) {
+      expect(item.getAttribute('role')).toBe('option');
+    }
+  });
+
+  it('a read-only panel is a single-select listbox (no shift-click set)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor, { readOnly: true });
+    expect(panel.getAttribute('role')).toBe('listbox');
+    expect(panel.hasAttribute('aria-multiselectable')).toBe(false);
+  });
+
+  it('names each option "Slide n of N" and shows the number beside the thumb', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const items = options(panel);
+    expect(items.map((i) => i.getAttribute('aria-label'))).toEqual([
+      'Slide 1 of 2',
+      'Slide 2 of 2',
+    ]);
+    const numbers = items.map(
+      (i) => i.querySelector('.wfb-slides-thumb-number')!,
+    );
+    expect(numbers.map((n) => n.textContent)).toEqual(['1', '2']);
+    // The visible number is decoration for sighted users; the name says it.
+    expect(numbers.every((n) => n.getAttribute('aria-hidden') === 'true')).toBe(true);
+  });
+
+  it('appends the title placeholder text to the name', () => {
+    const { panel, store, editor } = makeFixture();
+    const slideId = addTitleSlide(store);
+    store.batch(() =>
+      store.updateElementData(slideId, titleElementId(store, 2), {
+        blocks: titleBlocks('  Quarterly   results '),
+      }),
+    );
+    mountThumbnailPanel(panel, store, editor);
+    expect(options(panel)[2].getAttribute('aria-label')).toBe(
+      'Slide 3 of 3: Quarterly results',
+    );
+  });
+
+  it('renames an option when its title changes (refreshContent, e.g. remote edit)', () => {
+    const { panel, store, editor } = makeFixture();
+    const slideId = addTitleSlide(store);
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const before = options(panel)[2];
+    expect(before.getAttribute('aria-label')).toBe('Slide 3 of 3');
+    store.batch(() =>
+      store.updateElementData(slideId, titleElementId(store, 2), {
+        blocks: titleBlocks('Roadmap'),
+      }),
+    );
+    handle.refreshContent();
+    // Same element (no structural rebuild), new name.
+    expect(options(panel)[2]).toBe(before);
+    expect(before.getAttribute('aria-label')).toBe('Slide 3 of 3: Roadmap');
+  });
+
+  it('aria-selected and aria-activedescendant follow the current slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const [first, second] = options(panel);
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    expect(second.getAttribute('aria-selected')).toBe('false');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(first.id);
+
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(first.getAttribute('aria-selected')).toBe('false');
+    expect(second.getAttribute('aria-selected')).toBe('true');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(second.id);
+
+    panel.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(first.id);
+  });
+
+  it('keeps ARIA in sync when the host has no 2D canvas context', () => {
+    const { panel, store, editor } = makeFixture();
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    try {
+      mountThumbnailPanel(panel, store, editor);
+    } finally {
+      spy.mockRestore();
+    }
+    const [first, second] = options(panel);
+    // Nothing painted, but the options are still live listbox rows.
+    expect(first.querySelector('canvas')!.dataset.paintCount).toBeUndefined();
+    expect(panel.getAttribute('aria-activedescendant')).toBe(first.id);
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(first.getAttribute('aria-selected')).toBe('false');
+    expect(second.getAttribute('aria-selected')).toBe('true');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(second.id);
+  });
+
+  it('shift-click adds the slide to the selected set', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const [first, second] = options(panel);
+    second.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }),
+    );
+    // Current (first) stays selected; the shift-clicked one joins it.
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    expect(second.getAttribute('aria-selected')).toBe('true');
+    second.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }),
+    );
+    expect(second.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('renumbers names and visible numbers after a reorder', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const [firstId, secondId] = store.read().slides.map((s) => s.id);
+    store.batch(() => store.moveSlide(secondId, 0));
+    // Remote reorder path: order diverges → structural render.
+    handle.refreshContent();
+    const items = options(panel);
+    expect(items.map((i) => i.dataset.slideId)).toEqual([secondId, firstId]);
+    expect(items.map((i) => i.getAttribute('aria-label'))).toEqual([
+      'Slide 1 of 2',
+      'Slide 2 of 2',
+    ]);
+    expect(
+      items.map((i) => i.querySelector('.wfb-slides-thumb-number')!.textContent),
+    ).toEqual(['1', '2']);
+    // The current slide moved to position 2 and is still the selected one.
+    expect(items[1].getAttribute('aria-selected')).toBe('true');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(items[1].id);
+  });
+
+  it('updates N in every name when a slide is added', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    store.batch(() => store.addSlide('blank'));
+    handle.refresh();
+    expect(options(panel).map((i) => i.getAttribute('aria-label'))).toEqual([
+      'Slide 1 of 3',
+      'Slide 2 of 3',
+      'Slide 3 of 3',
+    ]);
+  });
+
+  it('keeps editor shortcuts live while the listbox holds focus', () => {
+    // isEditableTarget skips listbox targets; the filmstrip is exempt so
+    // Delete after a thumbnail click still removes the canvas selection.
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideId = store.read().slides[0].id;
+    let elementId = '';
+    store.batch(() => {
+      elementId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    editor.setSelection([elementId]);
+    panel.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }),
+    );
+    expect(
+      store.read().slides[0].elements.some((el) => el.id === elementId),
+    ).toBe(false);
   });
 });

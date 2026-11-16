@@ -8,6 +8,7 @@ import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
+  seedEmptyDeck,
 } from '../../../src/app/slides/yorkie-slides-store.ts';
 
 function makeDoc(): Document<YorkieSlidesRoot> {
@@ -29,8 +30,11 @@ describe('YorkieSlidesStore — read', () => {
   });
 });
 
-describe('ensureSlidesRoot — initial theme preference', () => {
-  it('seeds default-light when no preference is provided', () => {
+describe('ensureSlidesRoot — new-deck theme', () => {
+  // The seed theme is document content every collaborator sees, so it
+  // must not depend on whichever app theme (light/dark) the creator
+  // happened to be in. ensureSlidesRoot therefore takes no theme input.
+  it('seeds default-light on a brand-new deck', () => {
     const doc = new yorkie.Document<YorkieSlidesRoot>(
       `test-${Date.now()}-${Math.random()}`,
     );
@@ -40,21 +44,9 @@ describe('ensureSlidesRoot — initial theme preference', () => {
     expect(root.themes.map((t) => t.id)).toEqual(['default-light']);
   });
 
-  it('seeds default-dark when initialThemePreference is "dark"', () => {
-    const doc = new yorkie.Document<YorkieSlidesRoot>(
-      `test-${Date.now()}-${Math.random()}`,
-    );
-    ensureSlidesRoot(doc, { initialThemePreference: 'dark' });
-    const root = doc.getRoot();
-    expect(root.meta.themeId).toBe('default-dark');
-    expect(root.themes.map((t) => t.id)).toEqual(['default-dark']);
-  });
-
   it('does NOT change theme on a doc whose meta already exists', () => {
     // Migration safety: an existing deck that lacks a `themes` array
-    // (pre-v0.5 shape) but already has `meta` must keep its existing
-    // look. A current dark-mode viewer mounting that deck should NOT
-    // repaint it to default-dark.
+    // (pre-v0.5 shape) but already has `meta` keeps its existing look.
     const doc = new yorkie.Document<YorkieSlidesRoot>(
       `test-${Date.now()}-${Math.random()}`,
     );
@@ -72,10 +64,40 @@ describe('ensureSlidesRoot — initial theme preference', () => {
       rootAny.slides = [];
       rootAny.layouts = [];
     });
-    ensureSlidesRoot(doc, { initialThemePreference: 'dark' });
+    ensureSlidesRoot(doc);
     const root = doc.getRoot();
     expect(root.meta.themeId).toBe('default-light');
     expect(root.themes.map((t) => t.id)).toEqual(['default-light']);
+  });
+});
+
+describe('seedEmptyDeck', () => {
+  it('seeds one Title slide (title + subtitle) in the default theme', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    expect(seedEmptyDeck(store)).toBe(true);
+    const out = store.read();
+    expect(out.slides).toHaveLength(1);
+    expect(out.slides[0].layoutId).toBe('title-slide');
+    expect(
+      out.slides[0].elements.map((e) => e.placeholderRef?.type),
+    ).toEqual(['title', 'subtitle']);
+    expect(out.meta.themeId).toBe('default-light');
+  });
+
+  it('is a no-op on a deck that already has slides', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    store.batch(() => store.addSlide('blank'));
+    expect(seedEmptyDeck(store)).toBe(false);
+    expect(store.read().slides).toHaveLength(1);
+  });
+
+  it('puts the undo floor above the seed', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    seedEmptyDeck(store);
+    expect(store.canUndo()).toBe(false);
   });
 });
 

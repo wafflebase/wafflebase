@@ -46,7 +46,6 @@ import {
   computeConnectorFrame,
   deckSlideHeight,
   MAX_DECK_SLIDE_HEIGHT,
-  defaultDark,
   defaultLight,
   flattenElements,
   framesApproxEqual,
@@ -379,10 +378,9 @@ function recoverFrame(
  * `data.blocks` is an array (defaulting to `[]` if missing). No Tree
  * creation here.
  *
- * `initialThemePreference` only applies to brand-new decks (the
- * `needsRoot` branch). A pre-v0.5 doc being migrated keeps `defaultLight`
- * so we don't repaint an existing deck just because the current viewer
- * happens to be in dark mode.
+ * A brand-new deck is always seeded with `defaultLight` (Simple Light),
+ * whatever app theme its creator is in: the deck theme is shared document
+ * content, and a viewer's light/dark preference must not leak into it.
  *
  * `readOnly` makes the whole thing a no-op. Both branches below are
  * `doc.update()`s on the CRDT *root*, so on a share-link **viewer** mount
@@ -395,24 +393,17 @@ function recoverFrame(
  */
 export function ensureSlidesRoot(
   doc: YorkieDocument<YorkieSlidesRoot>,
-  options?: {
-    initialThemePreference?: 'light' | 'dark';
-    readOnly?: boolean;
-  },
+  options?: { readOnly?: boolean },
 ): void {
   if (options?.readOnly) return;
   const root = doc.getRoot();
   const needsRoot = root.meta == null || root.slides == null || root.layouts == null;
-  const seedTheme =
-    needsRoot && options?.initialThemePreference === 'dark'
-      ? defaultDark
-      : defaultLight;
   if (needsRoot) {
     doc.update((r) => {
       if (r.meta == null) {
         r.meta = {
           title: 'Untitled presentation',
-          themeId: seedTheme.id,
+          themeId: defaultLight.id,
           masterId: 'default',
         };
       }
@@ -432,7 +423,7 @@ export function ensureSlidesRoot(
       guides?: unknown[];
     };
     if (rootAny.themes == null || rootAny.themes.length === 0) {
-      rootAny.themes = [clone(seedTheme)];
+      rootAny.themes = [clone(defaultLight)];
     }
     if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];
@@ -529,6 +520,27 @@ export function ensureSlidesRoot(
       }
     }
   });
+}
+
+/**
+ * Give an empty deck its first slide: one Title slide (title + subtitle
+ * placeholders), matching what Google Slides opens a new presentation
+ * with. Without it the editor's `render()` has no current slide and the
+ * canvas stays blank until the user adds one.
+ *
+ * Runs only on a writable mount (a share-link viewer must never write).
+ * Two clients opening the same fresh deck at once can each see zero
+ * slides and both seed — the same race the previous blank-slide seed had;
+ * whoever loses it can delete the extra slide. The undo floor is re-based
+ * above the seed so Cmd+Z cannot remove the deck's only slide.
+ *
+ * Returns whether it seeded.
+ */
+export function seedEmptyDeck(store: YorkieSlidesStore): boolean {
+  if (store.read().slides.length > 0) return false;
+  store.batch(() => store.addSlide('title-slide'));
+  store.markUndoBaseline();
+  return true;
 }
 
 /**

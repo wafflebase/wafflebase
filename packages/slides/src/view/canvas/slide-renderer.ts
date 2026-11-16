@@ -9,7 +9,7 @@ import {
 import { buildElementWorldLookup } from '../../model/group';
 import { boundingBox } from '../../model/frame';
 import type { AnimState } from '../../anim/state';
-import { drawElement } from './element-renderer';
+import { drawElement, type ElementPaintOptions } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
 import { getActiveTheme, resolveFillStyle } from './render-context';
 import { screenToWorld, type Viewport } from './viewport';
@@ -72,6 +72,14 @@ export interface SlideRendererOptions {
    * from the dirty flag alone and can omit it.
    */
   onAssetLoad?: () => void;
+  /**
+   * Paint the "Click to add title" ghost inside empty layout placeholders.
+   * Off by default: the hint is an editing affordance, so presentation
+   * mode, filmstrip thumbnails, exports and read-only views never show it
+   * (Google Slides parity). The editable editor canvas and the layout
+   * picker opt in.
+   */
+  showPlaceholderHints?: boolean;
 }
 
 /**
@@ -337,6 +345,9 @@ export function drawSlide(
   // Iterate elements in array order = z-order, last is front. Built
   // once per slide-render so each connector doesn't rebuild it.
   const elementsLookup = buildElementWorldLookup(slide.elements);
+  const paintOpts: ElementPaintOptions = {
+    showPlaceholderHints: options.showPlaceholderHints,
+  };
   for (const element of slide.elements) {
     // The element under an active crop session is painted by the crop
     // preview below (dimmed full bitmap + bright window), not as a
@@ -345,7 +356,7 @@ export function drawSlide(
     if (visible && !frameIntersectsRect(element.frame, visible)) continue;
     drawElement(
       ctx, element, doc, theme, onAssetLoad, elementsLookup,
-      undefined, undefined, animStates?.get(element.id),
+      undefined, undefined, animStates?.get(element.id), paintOpts,
     );
   }
 
@@ -357,7 +368,10 @@ export function drawSlide(
     for (const ghost of ghosts) {
       ctx.save();
       ctx.globalAlpha = GHOST_ALPHA;
-      drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
+      drawElement(
+        ctx, ghost, doc, theme, onAssetLoad, elementsLookup,
+        undefined, undefined, undefined, paintOpts,
+      );
       ctx.restore();
     }
   }

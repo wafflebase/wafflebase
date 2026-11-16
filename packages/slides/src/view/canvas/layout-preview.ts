@@ -115,6 +115,9 @@ export function renderLayoutPreview(
     hostWidth: size.w,
     hostHeight: size.h,
     dpr,
+    // The picker previews a layout's slots, so it shows their hints the
+    // way Google Slides' layout menu does (the renderer defaults them off).
+    showPlaceholderHints: true,
   });
   cache.set(key, canvas);
   // Evict the oldest entry once past the cap (Map preserves insertion

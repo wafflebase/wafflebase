@@ -122,12 +122,13 @@ each callback. The exporter must close this gap deterministically.
    single broken asset URL can't hang the whole export; on timeout,
    render with whatever is available (placeholders for failures).
 
-The clone also **strips `placeholderRef`** from every element. Empty
-placeholders paint an editor-only "Click to add title" ghost hint via
-the same `drawSlide` path; without stripping, that hint would leak into
-the exported PDF. `placeholderRef` is the sole render-path consumer of
-the hint, and committed placeholder text bakes its own typography into
-the blocks, so dropping the ref only suppresses the hint.
+Empty placeholders need no special handling: `drawSlide` paints the
+editor-only "Click to add title" ghost hint only under
+`SlideRendererOptions.showPlaceholderHints`, which defaults to off and
+which the exporter never sets. (An earlier version stripped
+`placeholderRef` from the clone for the same effect; the opt-in flag
+replaced it so presentation mode and thumbnails get the fix too — see
+[slides-presentation-mode.md](slides-presentation-mode.md) § Render path.)
 
 Fonts are handled once up-front, not per slide — and font preparation is
 **caller-owned**, because the slides package can't reach the app's font

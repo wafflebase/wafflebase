@@ -22,6 +22,18 @@ import { applyShadow, clearShadow, paintReflection } from './effects-renderer';
 const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
 
 /**
+ * Per-surface paint switches, threaded unchanged through group recursion.
+ * `showPlaceholderHints` paints the "Click to add title" ghost inside an
+ * empty layout placeholder. It is an editing affordance, so it is off
+ * unless the surface asks: only the editable editor canvas and the layout
+ * picker opt in — never presentation, thumbnails, or export.
+ */
+export interface ElementPaintOptions {
+  showPlaceholderHints?: boolean;
+}
+const NO_PAINT_OPTIONS: ElementPaintOptions = {};
+
+/**
  * Accumulated flip from ancestor groups + this element. Threaded
  * through `drawElement` recursion so a text leaf inside a flipped
  * group can counter-flip against the total accumulated flip, not just
@@ -83,6 +95,8 @@ function withCounterFlip(
  * to the un-animated path. `anim.hidden` skips the paint entirely. The
  * static body lives in `drawElementBody`; this wrapper only layers the
  * animation transform so #387's effect rendering stays untouched.
+ *
+ * `paintOpts` carries the per-surface switches ({@link ElementPaintOptions}).
  */
 export function drawElement(
   ctx: CanvasRenderingContext2D,
@@ -94,6 +108,7 @@ export function drawElement(
   parentFlip: FlipState = NO_FLIP,
   parentTransform: GroupTransform = IDENTITY_GROUP_TRANSFORM,
   anim?: AnimState,
+  paintOpts: ElementPaintOptions = NO_PAINT_OPTIONS,
 ): void {
   if (anim?.hidden) return;
   // `Element.frame` and `Element.data` are both required by the model, but
@@ -124,7 +139,7 @@ export function drawElement(
   if (!hasAnim || !element.frame) {
     drawElementBody(
       ctx, element, doc, theme, onAssetLoad,
-      elementsLookup, parentFlip, parentTransform,
+      elementsLookup, parentFlip, parentTransform, paintOpts,
     );
     return;
   }
@@ -140,7 +155,7 @@ export function drawElement(
     ctx.translate(-cx, -cy);
     drawElementBody(
       ctx, element, doc, theme, onAssetLoad,
-      elementsLookup, parentFlip, parentTransform,
+      elementsLookup, parentFlip, parentTransform, paintOpts,
     );
   } finally {
     ctx.restore();
@@ -156,6 +171,7 @@ function drawElementBody(
   elementsLookup: ReadonlyMap<string, Element> = EMPTY_LOOKUP,
   parentFlip: FlipState = NO_FLIP,
   parentTransform: GroupTransform = IDENTITY_GROUP_TRANSFORM,
+  paintOpts: ElementPaintOptions = NO_PAINT_OPTIONS,
 ): void {
   // Connectors paint directly in world coordinates and need a lookup map
   // to resolve attached endpoints — skip the per-element frame transform.
@@ -259,7 +275,7 @@ function drawElementBody(
       for (const child of element.data.children) {
         drawElement(
           ctx, child, doc, theme, onAssetLoad,
-          elementsLookup, totalFlip, childTransform,
+          elementsLookup, totalFlip, childTransform, undefined, paintOpts,
         );
       }
     } else {
@@ -305,14 +321,15 @@ function drawElementBody(
           break;
         case 'text': {
           // Only ref-bearing elements get a ghost hint — user-added text
-          // boxes (no `placeholderRef`) must remain blank when empty.
+          // boxes (no `placeholderRef`) must remain blank when empty —
+          // and only on a surface that opted in (the editing canvas).
           // Slot typography (font role + size, color role, alignment)
           // comes from the active master so the hint matches what the
           // user will see when they start typing.
           let placeholderHint:
             | { text: string; style: PlaceholderStyle }
             | undefined;
-          if (element.placeholderRef) {
+          if (paintOpts.showPlaceholderHints && element.placeholderRef) {
             const master =
               doc.masters.find((m) => m.id === doc.meta.masterId)
               ?? doc.masters[0];

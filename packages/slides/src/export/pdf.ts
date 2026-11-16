@@ -301,13 +301,11 @@ async function resolveDeckImages(
  *   - every image src rewritten to its taint-free URL;
  *   - the deck master's background image (used when the slide has none
  *     of its own) resolved onto the clone so `drawSlide` never reaches
- *     the original cross-origin master src;
- *   - `placeholderRef` stripped from every element so empty placeholders
- *     do NOT paint their editor-only "Click to add title" ghost hint
- *     into the PDF. The hint is the sole render-path consumer of
- *     `placeholderRef` (element-renderer's `text` case), and real
- *     placeholder text bakes its typography into the blocks, so dropping
- *     the ref only suppresses the hint.
+ *     the original cross-origin master src.
+ *
+ * Empty placeholders need no treatment: `drawSlide` paints the editor-only
+ * "Click to add title" ghost only under `showPlaceholderHints`, which the
+ * exporter never sets.
  */
 function prepareExportSlide(
   slide: Slide,
@@ -316,7 +314,6 @@ function prepareExportSlide(
 ): Slide {
   const cloned = structuredClone(slide) as Slide;
   for (const el of flattenElements(cloned.elements)) {
-    delete el.placeholderRef;
     if (el.type === 'image' && el.data.src) {
       el.data.src = map.get(el.data.src) ?? el.data.src;
     }

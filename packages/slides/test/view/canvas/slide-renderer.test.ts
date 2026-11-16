@@ -618,3 +618,72 @@ describe('drawSlide — grouped connector', () => {
     expect(ctx.lineTo).not.toHaveBeenCalled();
   });
 });
+
+describe('drawSlide — placeholder hints', () => {
+  // An empty layout placeholder (carries `placeholderRef`): the element
+  // whose "Click to add title" ghost belongs to the editing canvas only.
+  const emptyTitle = (id: string): Element => ({
+    id,
+    type: 'text',
+    frame: { x: 0, y: 0, w: 800, h: 200, rotation: 0 },
+    placeholderRef: { type: 'title', index: 0 },
+    data: {
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          inlines: [{ text: '', style: {} }],
+          style: {
+            alignment: 'left', lineHeight: 1.2, marginTop: 0,
+            marginBottom: 0, textIndent: 0, marginLeft: 0,
+          },
+        },
+      ],
+    },
+  } as Element);
+
+  const slideWith = (elements: Element[]): Slide => ({ ...blankSlide(), elements });
+  const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+  const texts = (spy: ReturnType<typeof createCtxSpy>): string[] =>
+    spy.fillText.mock.calls.map((c) => String(c[0]));
+
+  it('paints no hint by default (presentation, thumbnails, export)', () => {
+    const spy = createCtxSpy();
+    drawSlide(asCtx(spy), slideWith([emptyTitle('p1')]), DOC, opts);
+    expect(texts(spy)).not.toContain('Click to add title');
+  });
+
+  it('paints the hint when showPlaceholderHints is set (editor canvas)', () => {
+    const spy = createCtxSpy();
+    drawSlide(
+      asCtx(spy), slideWith([emptyTitle('p1')]), DOC,
+      { ...opts, showPlaceholderHints: true },
+    );
+    expect(texts(spy)).toContain('Click to add title');
+  });
+
+  it('threads the option into group children', () => {
+    const group = {
+      id: 'g1',
+      type: 'group',
+      frame: { x: 0, y: 0, w: 800, h: 200, rotation: 0 },
+      data: { children: [emptyTitle('p1')] },
+    } as unknown as Element;
+    const off = createCtxSpy();
+    drawSlide(asCtx(off), slideWith([group]), DOC, opts);
+    expect(texts(off)).not.toContain('Click to add title');
+    const on = createCtxSpy();
+    drawSlide(
+      asCtx(on), slideWith([group]), DOC,
+      { ...opts, showPlaceholderHints: true },
+    );
+    expect(texts(on)).toContain('Click to add title');
+  });
+
+  it('SlideRenderer forwards the option', () => {
+    const spy = createCtxSpy();
+    const renderer = new SlideRenderer(asCtx(spy), { ...opts, showPlaceholderHints: true });
+    renderer.render(slideWith([emptyTitle('p1')]), DOC);
+    expect(texts(spy)).toContain('Click to add title');
+  });
+});

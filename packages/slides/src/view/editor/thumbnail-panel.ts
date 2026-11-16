@@ -6,6 +6,7 @@ import type { SlidesEditor } from './editor';
 import { renderThumbnail, ThumbnailScheduler } from '../canvas/thumbnail';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { showLayoutPicker } from './layout-picker';
+import { FILMSTRIP_ATTR } from './interactions/keyboard';
 
 // Debounce window for asset-load triggered repaints. Tight enough that
 // users perceive thumbnails filling in promptly, loose enough that a
@@ -36,9 +37,21 @@ const RENDER_CHUNK_SIZE = 20;
 // image load for a since-rebuilt panel paints the new canvas (or
 // no-ops if the slide is gone from the store).
 type ThumbState = {
+  /** The `role="option"` row: number gutter + bordered frame. */
   item: HTMLDivElement;
+  /** Bordered box around the canvas — carries the current-slide color. */
+  frame: HTMLDivElement;
+  /** Visible slide number left of the frame (aria-hidden; the row's
+   * accessible name already says "Slide n of N"). */
+  number: HTMLSpanElement;
+  /** 1-based position and deck size this row's name was built from. */
+  position: number;
+  total: number;
   canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
+  /** Null when the host has no 2D context. The row still exists — it
+   * is a listbox option — so it keeps its highlight and ARIA sync and
+   * only skips painting. */
+  ctx: CanvasRenderingContext2D | null;
   slide: Slide;
   doc: SlidesDocument;
   dims: ThumbDims;
@@ -51,13 +64,79 @@ type ThumbState = {
 // Floor/ceiling keep them legible on a very narrow panel and from
 // ballooning on a very wide one.
 const THUMB_ASPECT = 16 / 9;
-const MIN_THUMB_W = 80;
+// Floor for the whole row (number gutter + thumb), not the thumb alone:
+// the floor has to bound what the row occupies, or a narrow panel gets a
+// row wider than itself and the thumb pokes past the right edge.
+const MIN_ROW_W = 80;
 const MAX_THUMB_W = 320;
 const FALLBACK_THUMB_W = 192;
 // Border width is constant across selection states (only the color
 // changes) so the inner canvas size doesn't jump when the user
 // switches the current slide. 1px on each side = 2px reserved.
 const BORDER_PX = 1;
+// Column left of each thumb that holds its visible slide number, Google
+// Slides style. Wide enough for three tabular digits at 12px (~21px)
+// plus the gap to the frame; the thumb gets the rest of the width.
+const NUMBER_COL_PX = 22;
+const NUMBER_GAP_PX = 6;
+const NUMBER_GUTTER_PX = NUMBER_COL_PX + NUMBER_GAP_PX;
+// Accessible-name cap for the slide title suffix. A title is a heading,
+// but an imported deck can put a paragraph in the title slot.
+const MAX_TITLE_CHARS = 80;
+
+// Per-mount prefix for option ids (aria-activedescendant needs ids that
+// are unique in the document, and a page can mount more than one panel).
+let mountSeq = 0;
+
+/**
+ * Plain text of the slide's first title placeholder, or '' when it has
+ * none (or it is empty). Feeds the thumbnail's accessible name so a
+ * screen reader says "Slide 2 of 5: Quarterly results", not just a
+ * number. Top-level elements only — the layouts that create a title
+ * placeholder never group it.
+ */
+function slideTitleText(slide: Slide): string {
+  const title = slide.elements.find(
+    (el) => el.placeholderRef?.type === 'title',
+  );
+  if (!title) return '';
+  const blocks =
+    title.type === 'text'
+      ? title.data.blocks
+      : title.type === 'shape'
+        ? title.data.text?.blocks
+        : undefined;
+  if (!blocks) return '';
+  const text = blocks
+    .map((b) => (b.inlines ?? []).map((i) => i.text).join(''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > MAX_TITLE_CHARS
+    ? `${text.slice(0, MAX_TITLE_CHARS - 1).trimEnd()}\u2026`
+    : text;
+}
+
+/** "Slide n of N", plus ": <title>" when the slide has one. */
+function slideOptionLabel(slide: Slide, position: number, total: number): string {
+  const title = slideTitleText(slide);
+  const base = `Slide ${position} of ${total}`;
+  return title ? `${base}: ${title}` : base;
+}
+
+function frameBorderColor(isCurrent: boolean): string {
+  return isCurrent
+    ? `var(--primary, ${SELECTION_COLOR})`
+    : 'var(--border, #444)';
+}
+
+// Muted for every slide, full foreground for the current one — the
+// number restates the frame highlight without adding a second color.
+function numberColor(isCurrent: boolean): string {
+  return isCurrent
+    ? 'var(--foreground, #18181b)'
+    : 'var(--muted-foreground, #71717a)';
+}
 
 interface ThumbDims {
   /** Outer item box (border-box). */
@@ -74,11 +153,17 @@ function computeThumbDims(
   containerWidth: number,
   aspect: number = THUMB_ASPECT,
 ): ThumbDims {
-  const available = containerWidth > 0 ? containerWidth : FALLBACK_THUMB_W;
-  const outerW = Math.max(
-    MIN_THUMB_W,
-    Math.min(MAX_THUMB_W, Math.floor(available)),
-  );
+  // Clamp the measured width first, then take the number gutter out of
+  // it — clamping after the subtraction would let the gutter push the
+  // row past the panel. The fallback is already a thumb width, so it is
+  // used as-is.
+  const outerW =
+    containerWidth > 0
+      ? Math.min(
+          MAX_THUMB_W,
+          Math.max(MIN_ROW_W, Math.floor(containerWidth)) - NUMBER_GUTTER_PX,
+        )
+      : FALLBACK_THUMB_W;
   const innerW = outerW - BORDER_PX * 2;
   // Round innerH so the inner box stays as close to the deck aspect as
   // integer pixels allow. The outer height absorbs the rounding.
@@ -152,6 +237,7 @@ export function mountThumbnailPanel(
   const readOnly = options.readOnly === true;
   let selectedSlideIds: string[] = [];
   let disposed = false;
+  const idPrefix = `wfb-slides-thumb-${++mountSeq}-`;
 
   // Per-mount thumbnail state, rebuilt by render() but shared across
   // renders via this mutable ref. The scheduler closes over `state` so
@@ -213,14 +299,33 @@ export function mountThumbnailPanel(
     for (const [id, s] of state) {
       const isCurrent = id === currentId;
       s.item.classList.toggle('current', isCurrent);
-      s.item.style.borderColor = isCurrent
-        ? `var(--primary, ${SELECTION_COLOR})`
-        : 'var(--border, #444)';
+      s.frame.style.borderColor = frameBorderColor(isCurrent);
+      s.number.style.color = numberColor(isCurrent);
+    }
+    syncSelectionAria();
+  };
+
+  // Listbox selection state. `aria-selected` covers the current slide
+  // plus the shift-click set (the bulk context-menu targets), so what a
+  // screen reader reports selected is what a right-click would act on.
+  // `aria-activedescendant` names the current slide, which is where the
+  // arrow keys move from — the listbox container keeps DOM focus.
+  const syncSelectionAria = (): void => {
+    const currentId = editor.getCurrentSlideId();
+    for (const [id, s] of state) {
+      const selected = id === currentId || selectedSlideIds.includes(id);
+      s.item.setAttribute('aria-selected', String(selected));
+    }
+    const current = currentId ? state.get(currentId) : undefined;
+    if (current) {
+      container.setAttribute('aria-activedescendant', current.item.id);
+    } else {
+      container.removeAttribute('aria-activedescendant');
     }
   };
 
   const paintThumb = (id: string, s: ThumbState): void => {
-    if (disposed) return;
+    if (disposed || !s.ctx) return;
     renderThumbnail(
       s.ctx,
       s.slide,
@@ -443,15 +548,47 @@ export function mountThumbnailPanel(
     // chunk and the rAF-driven follow-ups without copy/paste. Captures
     // `dims`, `dpr`, `doc`, `currentId` from the render() closure so the
     // chunked tail sees the same snapshot the head started with.
-    const buildItem = (slide: Slide): void => {
+    const buildItem = (slide: Slide, index: number): void => {
       const item = document.createElement('div');
       item.dataset.slideId = slide.id;
       const isCurrent = slide.id === currentId;
       item.className = 'wfb-slides-thumb' + (isCurrent ? ' current' : '');
-      item.style.width = `${dims.outerW}px`;
-      item.style.height = `${dims.outerH}px`;
-      item.style.boxSizing = 'border-box';
+      item.id = idPrefix + slide.id;
+      item.setAttribute('role', 'option');
+      item.setAttribute(
+        'aria-label',
+        slideOptionLabel(slide, index + 1, slides.length),
+      );
+      item.setAttribute(
+        'aria-selected',
+        String(isCurrent || selectedSlideIds.includes(slide.id)),
+      );
+      item.style.display = 'flex';
+      item.style.alignItems = 'flex-start';
+      item.style.gap = `${NUMBER_GAP_PX}px`;
       item.style.cursor = 'pointer';
+      item.style.marginBottom = '8px';
+
+      // Visible slide number, muted, top-aligned with the frame like
+      // Google Slides. aria-hidden: the option's name already carries it.
+      const number = document.createElement('span');
+      number.className = 'wfb-slides-thumb-number';
+      number.setAttribute('aria-hidden', 'true');
+      number.textContent = String(index + 1);
+      number.style.flex = `0 0 ${NUMBER_COL_PX}px`;
+      number.style.textAlign = 'right';
+      number.style.font = '500 12px/16px system-ui, -apple-system, sans-serif';
+      number.style.fontVariantNumeric = 'tabular-nums';
+      number.style.color = numberColor(isCurrent);
+      number.style.userSelect = 'none';
+      item.appendChild(number);
+
+      const frame = document.createElement('div');
+      frame.className = 'wfb-slides-thumb-frame';
+      frame.style.width = `${dims.outerW}px`;
+      frame.style.height = `${dims.outerH}px`;
+      frame.style.boxSizing = 'border-box';
+      frame.style.flex = '0 0 auto';
       // Use border (inside the box) instead of outline (outside the
       // box). Outline pixels sit at the negative edge of the item and
       // get clipped by the panel's overflow box when a thumbnail is
@@ -461,17 +598,14 @@ export function mountThumbnailPanel(
       // the inner canvas size never jumps when the user switches the
       // current slide. Theme tokens follow the host frontend's
       // light/dark mode (fallbacks for theme-less hosts like jsdom).
-      const borderColor = isCurrent
-        ? `var(--primary, ${SELECTION_COLOR})`
-        : 'var(--border, #444)';
-      item.style.border = `${BORDER_PX}px solid ${borderColor}`;
-      item.style.marginBottom = '8px';
+      frame.style.border = `${BORDER_PX}px solid ${frameBorderColor(isCurrent)}`;
       // Read-only viewers keep the click-to-navigate affordance but
       // never see a drag cursor — drag-reorder handlers are skipped
       // below too.
       item.draggable = !readOnly;
 
       const canvas = document.createElement('canvas');
+      canvas.setAttribute('aria-hidden', 'true');
       // Backing store at device pixels; CSS box at logical pixels.
       // Without the dpr multiplier on width/height, Retina renders a
       // half-resolution bitmap that the browser stretches → blurry.
@@ -480,19 +614,20 @@ export function mountThumbnailPanel(
       canvas.style.width = `${dims.innerW}px`;
       canvas.style.height = `${dims.innerH}px`;
       canvas.style.display = 'block';
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Stash state but DON'T paint yet — the IntersectionObserver
-        // decides which thumbs warrant a paint right now. Off-screen
-        // thumbs paint lazily as the user scrolls. The fallback (jsdom
-        // or any host without IntersectionObserver) paints every state
-        // entry synchronously once chunk-building completes so the
-        // existing assertions still hold.
-        state.set(slide.id, {
-          item, canvas, ctx, slide, doc, dims, dpr, painted: false,
-        });
-      }
-      item.appendChild(canvas);
+      // Stash state but DON'T paint yet — the IntersectionObserver
+      // decides which thumbs warrant a paint right now. Off-screen
+      // thumbs paint lazily as the user scrolls. The fallback (jsdom
+      // or any host without IntersectionObserver) paints every state
+      // entry synchronously once chunk-building completes so the
+      // existing assertions still hold. Registered even without a 2D
+      // context: the highlight and listbox ARIA sync walk this map.
+      state.set(slide.id, {
+        item, frame, number, position: index + 1, total: slides.length,
+        canvas, ctx: canvas.getContext('2d'), slide, doc, dims, dpr,
+        painted: false,
+      });
+      frame.appendChild(canvas);
+      item.appendChild(frame);
 
       item.addEventListener('pointerdown', (e) => {
         if (e.shiftKey) {
@@ -504,6 +639,7 @@ export function mountThumbnailPanel(
           const idx = selectedSlideIds.indexOf(slide.id);
           if (idx === -1) selectedSlideIds.push(slide.id);
           else            selectedSlideIds.splice(idx, 1);
+          syncSelectionAria();
           return;
         }
         selectedSlideIds = [slide.id];
@@ -551,9 +687,10 @@ export function mountThumbnailPanel(
             : [slide.id];
           if (!selectedSlideIds.includes(slide.id)) {
             // Visual treatment for selectedSlideIds is not implemented
-            // (only `isCurrent` styles the border), so no DOM update is
-            // needed here either — the state mutation is purely logical.
+            // (only `isCurrent` styles the border); only the listbox's
+            // aria-selected state follows the new target set.
             selectedSlideIds = [slide.id];
+            syncSelectionAria();
           }
           const items = buildContextMenuItems(targetIds, slide.id, e);
           showContextMenu(document.body, items, e.clientX, e.clientY);
@@ -572,7 +709,10 @@ export function mountThumbnailPanel(
       if (disposed || activeRenderToken !== myToken) return;
       pendingChunkRAF = null;
       const end = Math.min(cursor + RENDER_CHUNK_SIZE, slides.length);
-      for (; cursor < end; cursor++) buildItem(slides[cursor]);
+      for (; cursor < end; cursor++) buildItem(slides[cursor], cursor);
+      // Point aria-activedescendant at the current slide once its row
+      // exists — on a long deck it can land in a later chunk.
+      syncSelectionAria();
       // Re-apply savedScrollTop only when the browser has clamped it
       // BELOW the target — i.e., scrollHeight was still smaller than
       // savedScrollTop when the previous chunk landed. If the user
@@ -628,6 +768,15 @@ export function mountThumbnailPanel(
   // shows where we are.
   if (!container.hasAttribute('tabindex')) container.tabIndex = 0;
   container.style.outline = 'none';
+  // Listbox semantics: each thumb is an option named "Slide n of N".
+  // Multi-select only where shift-click selection exists (editors).
+  // FILMSTRIP_ATTR keeps the editor's shortcuts live while focus parks
+  // here — the keyboard rules otherwise skip any listbox target.
+  container.setAttribute('role', 'listbox');
+  container.setAttribute('aria-label', 'Slides');
+  container.setAttribute(FILMSTRIP_ATTR, '');
+  if (readOnly) container.removeAttribute('aria-multiselectable');
+  else container.setAttribute('aria-multiselectable', 'true');
   container.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -651,13 +800,16 @@ export function mountThumbnailPanel(
     e.preventDefault();
     selectedSlideIds = [slides[nextIdx].id];
     editor.setCurrentSlide(slides[nextIdx].id);
-    // The onCurrentSlideChange listener has already re-rendered, so
-    // the new thumb element exists. Scroll it into view if off-screen.
-    // scrollIntoView is missing from jsdom; the optional-chain guard
-    // keeps unit tests happy.
-    const newItem = container.querySelector<HTMLDivElement>(
-      `[data-slide-id="${slides[nextIdx].id}"]`,
-    );
+    // The current-slide listener has synced the highlight; sync again
+    // in case the selection set changed without the current id moving.
+    syncSelectionAria();
+    // Scroll the new thumb into view if off-screen. It is looked up in
+    // the row map, not by an attribute selector: slide ids are CRDT
+    // content any collaborator can write, and a `"` or `]` in one
+    // would make the selector throw on every keypress. scrollIntoView
+    // is missing from jsdom; the optional-chain guard keeps unit tests
+    // happy.
+    const newItem = state.get(slides[nextIdx].id)?.item;
     newItem?.scrollIntoView?.({ block: 'nearest' });
   });
 
@@ -720,6 +872,12 @@ export function mountThumbnailPanel(
       if (!slide) continue;
       s.slide = slide;
       s.doc = doc;
+      // A title edit (local or remote) renames the option. Order and
+      // count are unchanged here, so position / total still hold.
+      const label = slideOptionLabel(slide, s.position, s.total);
+      if (s.item.getAttribute('aria-label') !== label) {
+        s.item.setAttribute('aria-label', label);
+      }
       if (s.painted) scheduler.schedule(id);
     }
   };

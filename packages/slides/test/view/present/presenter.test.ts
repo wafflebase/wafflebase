@@ -1301,3 +1301,51 @@ describe('startPresenter — setDocument remote changes', () => {
     }
   });
 });
+
+describe('startPresenter — placeholder hints', () => {
+  // The audience must never see the editor's "Click to add title" ghost on
+  // an empty layout placeholder; Google Slides shows it only while editing.
+  it('paints no placeholder hint text', () => {
+    const store = new MemSlidesStore();
+    let id = '';
+    store.batch(() => {
+      id = store.addSlide('title-slide');
+    });
+    const doc = store.read();
+
+    const painted: string[] = [];
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function patched(
+      this: HTMLCanvasElement,
+      contextId: string,
+      ...rest: unknown[]
+    ): unknown {
+      const ctx = (
+        originalGetContext as (this: HTMLCanvasElement, ...a: unknown[]) => unknown
+      ).call(this, contextId, ...rest) as Record<string, unknown> | null;
+      if (contextId === '2d' && ctx) {
+        const inner = ctx.fillText as (...a: unknown[]) => unknown;
+        ctx.fillText = (...args: unknown[]) => {
+          painted.push(String(args[0]));
+          return inner.apply(ctx, args);
+        };
+      }
+      return ctx;
+    } as HTMLCanvasElement['getContext'];
+
+    let presenter: Presenter | null = null;
+    try {
+      presenter = startPresenter({
+        container: makeContainer(),
+        doc,
+        startSlideId: id,
+        onExit: vi.fn(),
+      });
+      expect(testApi(presenter).getLastPaintKind()).toBe('slide');
+      expect(painted.some((t) => t.startsWith('Click to add'))).toBe(false);
+    } finally {
+      presenter?.dispose();
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+  });
+});

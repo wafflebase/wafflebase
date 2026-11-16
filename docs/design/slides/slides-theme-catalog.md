@@ -106,6 +106,17 @@ palette moved to the new `wafflebase` theme, which keeps the
 `@wafflebase/core/tokens` `palette.*` and `typography.*` bindings so the
 old default look is reproducible in one click.
 
+### New-deck default
+
+A brand-new deck is seeded by `ensureSlidesRoot` with `default-light`
+(Simple Light) and, on the first writable mount (desktop, or mobile in
+`edit` mode), one `title-slide` slide (`seedEmptyDeck`) — Google Slides'
+new-presentation shape. The seed theme is fixed: it used to follow the creator's app
+light/dark mode, which let a viewer preference become shared document
+content (a dark-mode creator silently made every collaborator's deck
+Simple Dark). The app theme still colours UI chrome such as peer
+cursors, never the deck.
+
 ### Catalog and order
 
 Groups below are the **ordering rationale only**; the picker renders one

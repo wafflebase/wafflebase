@@ -1,3 +1,4 @@
+import { readableTextColor } from '@wafflebase/core/tokens';
 import type { DocPosition, DocRange } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import { normalizeListLevel } from '../model/list-level.js';
@@ -420,22 +421,10 @@ export function drawPeerCaret(
 }
 
 /**
- * Returns black or white text color based on background luminance.
- */
-function getLabelTextColor(bgColor: string): string {
-  const hex = bgColor.replace('#', '');
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-  return luminance > 0.6 ? '#000000' : '#FFFFFF';
-}
-
-/**
  * Draw a username label tag near a peer cursor caret.
  *
  * The tag is a rounded rectangle filled with `color`, with text color
- * chosen automatically for contrast (white on dark, black on light).
+ * chosen by WCAG contrast (`readableTextColor`: white or near-black).
  * When the tag would overflow the top of the page it flips below the caret.
  * When it would overflow the right edge of the canvas it shifts left.
  * Long usernames are truncated with an ellipsis (U+2026).
@@ -503,7 +492,7 @@ export function drawPeerLabel(
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = getLabelTextColor(color);
+  ctx.fillStyle = readableTextColor(color);
   ctx.textBaseline = 'top';
   ctx.fillText(displayName, x + paddingX, y + paddingY);
 }
