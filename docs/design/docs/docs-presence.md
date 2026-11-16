@@ -219,7 +219,7 @@ Only rendered when `peerCursor.labelVisible` is `true`.
 | ------------- | ---------------------------------------------- |
 | Position      | Top of caret, offset upward                    |
 | Background    | Peer cursor color (opaque)                     |
-| Text color    | Dynamic — black or white via `getLabelTextColor()` based on background luminance |
+| Text color    | Near-black or white, whichever has the higher WCAG contrast — `readableTextColor()` from `@wafflebase/core/tokens`, shared with Sheets and Slides |
 | Font          | 11 px sans-serif                               |
 | Padding       | 4 px horizontal, 2 px vertical                 |
 | Content       | `username`, truncated with ellipsis at 120 px  |

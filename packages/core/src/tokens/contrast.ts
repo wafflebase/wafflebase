@@ -69,8 +69,9 @@ export function contrastRatio(foreground: string, background: string): number {
 export const LABEL_TEXT_LIGHT = '#FFFFFF';
 /**
  * Near-black label text — the dark half of {@link readableTextColor}. Not
- * pure black, which reads harsher than the rest of the chrome; still above
- * 4.5:1 on every background where it beats white.
+ * pure black, which reads harsher than the rest of the chrome. The price
+ * is a slightly lower contrast floor than pure black would give; see
+ * {@link readableTextColor}.
  */
 export const LABEL_TEXT_DARK = '#1A1A1A';
 
@@ -80,6 +81,13 @@ export const LABEL_TEXT_DARK = '#1A1A1A';
  * runtime, such as a collaborator's name tag on their peer color: the
  * peer palettes are mostly light pastels, where white text measures
  * 1.4–2.8:1.
+ *
+ * What this guarantees is the better of the two, not WCAG AA: the result
+ * measures at least ~4.17:1 on any background, and at least 4.5:1 except
+ * for mid-tones with relative luminance in ~0.18–0.22 (e.g. `#777777`,
+ * 4.48:1), where neither near-black nor white reaches AA. A caller that
+ * needs AA must keep its backgrounds out of that band — the peer palettes
+ * do, which their own tests assert.
  *
  * Accepts `#RRGGBB` and `oklch(...)`. Any other format returns white, the
  * color the call sites used before, rather than throwing mid-paint.
@@ -93,8 +101,10 @@ export function readableTextColor(background: string): string {
   }
   const lb = relativeLuminance(bg);
   const ld = relativeLuminance(hexToRgb(LABEL_TEXT_DARK));
-  // White's luminance is 1, so white-on-bg is (1 + .05) / (lb + .05).
-  const onWhite = 1.05 / (lb + 0.05);
-  const onDark = (lb + 0.05) / (ld + 0.05);
-  return onDark > onWhite ? LABEL_TEXT_DARK : LABEL_TEXT_LIGHT;
+  // Both are true WCAG ratios (lighter over darker). White's luminance is
+  // 1, so it is always the lighter side; near-black is the darker side
+  // except on a background darker than itself, where white wins anyway.
+  const whiteContrast = 1.05 / (lb + 0.05);
+  const darkContrast = (Math.max(lb, ld) + 0.05) / (Math.min(lb, ld) + 0.05);
+  return darkContrast > whiteContrast ? LABEL_TEXT_DARK : LABEL_TEXT_LIGHT;
 }

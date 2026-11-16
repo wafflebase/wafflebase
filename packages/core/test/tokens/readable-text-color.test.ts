@@ -6,9 +6,10 @@ import {
   LABEL_TEXT_LIGHT,
 } from '../../src/tokens';
 
-// The sheets peer palettes (light + dark) that slides, docs and sheets
-// paint collaborator name tags on. Copied rather than imported: core is a
-// leaf package and must not depend on sheets.
+// A snapshot of the sheets peer palettes (light + dark) that slides, docs
+// and sheets paint collaborator name tags on. Copied rather than imported:
+// core is a leaf package and must not depend on sheets. The live palette
+// has its own AA guard in packages/sheets/test/view/theme.test.ts.
 const PEER_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
   '#FB7185', '#DDA0DD', '#98D8C8', '#A78BFA',
@@ -49,6 +50,15 @@ describe('readableTextColor', () => {
       const picked = contrastRatio(readableTextColor(bg), bg);
       expect(picked).toBeGreaterThanOrEqual(contrastRatio(LABEL_TEXT_DARK, bg));
       expect(picked).toBeGreaterThanOrEqual(contrastRatio(LABEL_TEXT_LIGHT, bg));
+    }
+  });
+
+  it('never drops below the ~4.17:1 floor, even on mid-tones', () => {
+    // The crossover where near-black and white tie is the worst case.
+    for (let v = 0; v <= 255; v += 1) {
+      const hex = v.toString(16).padStart(2, '0');
+      const bg = `#${hex}${hex}${hex}`;
+      expect(contrastRatio(readableTextColor(bg), bg), bg).toBeGreaterThan(4.17);
     }
   });
 });
