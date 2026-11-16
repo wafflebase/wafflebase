@@ -27,3 +27,21 @@
 - **A dev page open while Vite re-optimizes new deps crashes in
   `hasChild`**: two `@lezer/common` copies. It is a stale page, not a bug;
   reload. A production build has one copy.
+- **Don't release a scroll-echo lock on rAF.** The echo of a `scrollTop`
+  write fires in the next frame's scroll steps; rAF callbacks queued from
+  a scroll handler run in the current frame. Recognize the echo by the
+  value written instead.
+- **The browser tool's scroll is a 300px jump**, so it hides per-frame
+  jank. Drive `scrollTop` from a rAF loop and record both panes per frame.
+- **noteSync forwards only `userEvent` transactions.** A test edit through
+  `view.dispatch` needs `userEvent: 'input.paste'` (or similar) or it
+  shows locally, never reaches Yorkie, and disappears on reload.
+- Self-review round 1 (correctness/test-adequacy weighting): no blocking
+  findings, loop stopped. Fixed from the non-blocking set anyway: fuzzy
+  fence matching (```graphql → SQL) → exact first-word match; `legacy-modes`
+  caret → `~6.4.3`; pack table keys typed against the alias table; an echo
+  pending when a pane was hidden could swallow a later genuine scroll →
+  cleared on mode change (test fails without it); every pack loads (test).
+  Deferred: palette duplicated between `theme.ts` and `notes-preview.css`;
+  16 source languages vs ~35 in the preview; `basicSetup` language data
+  (bracket closing, comment tokens) now active inside fenced code.

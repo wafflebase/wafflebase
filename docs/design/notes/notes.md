@@ -251,12 +251,25 @@ code editor's conventions (product principle 2, *familiar before novel*):
   which still fall back to the parent anywhere the theme is not loaded.
   Fenced and indented code is one full-width band (`code-block-band.ts`,
   line decorations over the visible ranges), not a wash behind each span.
+- **Split-view scroll sync ignores its own echo by value.** The panes
+  follow each other by scroll ratio. Echo suppression used to be a lock
+  released on `requestAnimationFrame`, but a programmatic `scrollTop` write
+  reaches the other pane's `scroll` listener a frame later, after the lock
+  had lifted: the echo dragged the pane being scrolled back one frame and
+  its lock swallowed the next real frame, so the source jerked and the
+  preview moved at half rate (measured: 39 of 80 frames overwritten). The
+  sync now records the `scrollTop` it wrote (read back after the browser
+  snaps it) and skips a `scroll` that lands there; anything else is a user
+  scroll and drives the other pane. Pending echoes are dropped on every
+  view-mode change, since a pane hidden before its echo fired never fires it.
 - **Fenced code is highlighted by language.** Until now only the preview
   coloured code (highlight.js); the source pane never passed
   `codeLanguages`. `code-languages.ts` now does, with a curated set —
   JS/TS/JSX/TSX, JSON, Python, CSS, HTML, SQL, YAML and, through
   `legacy-modes`, shell, Go, Rust, C, C++ and Java — under the aliases
-  highlight.js accepts. The descriptions are eager; every grammar lives in
+  highlight.js accepts, matched exactly on the info string's first word
+  (lang-markdown's default lookup is fuzzy — it parsed ```graphql as SQL).
+  The descriptions are eager; every grammar lives in
   one module (`code-language-packs.ts`) behind a dynamic `import()`, so
   the first known fence loads one ~105 kB lazy chunk. Not
   `@codemirror/language-data`: one chunk per language would break the

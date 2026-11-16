@@ -24,6 +24,16 @@ tell apart, and the source pane's syntax highlighting is too faint to read
       body colour; fails with `codeLanguages` removed
 - [x] Chunk gate: 241 / 244 chunks, packs chunk 105 kB
 
+## Follow-up: split-view scroll judder
+
+- [x] Measured: per-frame editor scroll, 39/80 frames pulled back 8px,
+      preview stepping every other frame
+- [x] Root cause: rAF-released lock lifts before the destination's echo
+      `scroll` (next frame) arrives
+- [x] Fix: value-based echo detection; failing test first
+      (`scroll-sync.test.ts`), then 0/80 overwritten, 0 stalled, both
+      directions
+
 ## Review
 
 Source pane on `NOTE_SOURCE_SURFACE`, preview on paper; markup coloured

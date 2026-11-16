@@ -582,8 +582,13 @@ export function initialize(
   // re-measure the editor defensively on show.
   let currentViewMode: NoteViewMode = viewMode;
   let splitRatio = 0.5; // editor's share of the width in split mode
+  // The scroll sync's pending echoes (see the scroll sync below). Cleared on
+  // every mode change: a pane hidden before its echo fired never fires it,
+  // and a stale entry would swallow a genuine scroll to that position later.
+  const written = new Map<HTMLElement, number>();
   const applyViewMode = (mode: NoteViewMode) => {
     currentViewMode = mode;
+    written.clear();
     const showEditor = mode !== 'view';
     const showPreview = mode !== 'edit';
     const split = showEditor && showPreview;
@@ -669,24 +674,38 @@ export function initialize(
   // Proportional scroll sync between the editor scroller and the preview,
   // active only in split ('both') mode. Mirrors CodePair's react-scroll-sync,
   // which syncs by scroll percentage (not source-line mapping) and is on by
-  // default. A lock flag suppresses the echo scroll event on the destination.
+  // default.
+  //
+  // The echo of our own write is recognized by VALUE, not by time. A
+  // programmatic `scrollTop` write reaches the destination's `scroll`
+  // listener in the NEXT frame, so a lock released on `requestAnimationFrame`
+  // (which runs in the same frame as the write) had already lifted when the
+  // echo arrived: the echo then wrote the source back to where it was a frame
+  // ago while the user kept scrolling it, and the lock it took swallowed the
+  // user's next frame. Every other frame was lost — the source pane jerked
+  // back and the preview moved at half rate. Remembering the position we
+  // wrote and ignoring a `scroll` that lands exactly there leaves every
+  // genuine scroll, in either pane, to drive the other.
   const editorScroller = view.scrollDOM;
-  let scrollLock = false;
   const scrollRatioOf = (el: HTMLElement) => {
     const range = el.scrollHeight - el.clientHeight;
     return range > 0 ? el.scrollTop / range : 0;
   };
   const applyScrollRatio = (el: HTMLElement, ratio: number) => {
     const range = el.scrollHeight - el.clientHeight;
+    const before = el.scrollTop;
     el.scrollTop = ratio * range;
+    // Read back: the browser snaps to device pixels. A write that changed
+    // nothing fires no `scroll`, so there is no echo to wait for.
+    if (el.scrollTop !== before) written.set(el, el.scrollTop);
+    else written.delete(el);
   };
   const linkScroll = (src: HTMLElement, dst: HTMLElement) => () => {
-    if (scrollLock || currentViewMode !== 'both') return;
-    scrollLock = true;
+    if (currentViewMode !== 'both') return;
+    const echo = written.get(src);
+    written.delete(src);
+    if (echo !== undefined && Math.abs(src.scrollTop - echo) < 1) return;
     applyScrollRatio(dst, scrollRatioOf(src));
-    requestAnimationFrame(() => {
-      scrollLock = false;
-    });
   };
   const onEditorScroll = linkScroll(editorScroller, preview.el);
   const onPreviewScroll = linkScroll(preview.el, editorScroller);
