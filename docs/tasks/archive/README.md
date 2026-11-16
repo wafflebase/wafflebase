@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 638
+Total archived tasks: 639
 
-## 2026/11 (8 tasks)
+## 2026/11 (9 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | board usability (2026-11-16) | [20261116-board-usability-todo.md](./2026/11/20261116-board-usability-todo.md) | [20261116-board-usability-lessons.md](./2026/11/20261116-board-usability-lessons.md) |
+| notes pane contrast (2026-11-16) | [20261116-notes-pane-contrast-todo.md](./2026/11/20261116-notes-pane-contrast-todo.md) | [20261116-notes-pane-contrast-lessons.md](./2026/11/20261116-notes-pane-contrast-lessons.md) |
 | slides critique fixes (2026-11-16) | [20261116-slides-critique-fixes-todo.md](./2026/11/20261116-slides-critique-fixes-todo.md) | [20261116-slides-critique-fixes-lessons.md](./2026/11/20261116-slides-critique-fixes-lessons.md) |
 | demo daily reset (2026-11-15) | [20261115-demo-daily-reset-todo.md](./2026/11/20261115-demo-daily-reset-todo.md) | [20261115-demo-daily-reset-lessons.md](./2026/11/20261115-demo-daily-reset-lessons.md) |
 | impeccable audit fixes (2026-11-15) | [20261115-impeccable-audit-fixes-todo.md](./2026/11/20261115-impeccable-audit-fixes-todo.md) | [20261115-impeccable-audit-fixes-lessons.md](./2026/11/20261115-impeccable-audit-fixes-lessons.md) |

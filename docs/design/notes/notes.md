@@ -235,10 +235,54 @@ code editor's conventions (product principle 2, *familiar before novel*):
   Xcode palette with an `EditorView.theme` over `--background` /
   `--foreground` / `--muted-foreground` / `--border` / `--ring` /
   `--selected` / `--link`, so light and dark follow the chrome and syrup is
-  the caret, never markup. Markdown punctuation recedes to the muted
-  foreground; headings read by weight, not size, so the monospace grid
-  holds. The parser is GFM (`markdownLanguage`), matching the preview, so
-  task boxes, tables and strikethrough highlight as such.
+  the caret, never markup. The parser is GFM (`markdownLanguage`), matching
+  the preview, so task boxes, tables and strikethrough highlight as such.
+- **Source and preview read as different things.** A first all-muted pass
+  made the split look like one page twice: both panes on paper, markup
+  faded to grey. Now the source pane (and the divider's leading half, so
+  the tint meets the hairline) sits on a work surface,
+  `NOTE_SOURCE_SURFACE` — `--muted` mixed 65% into `--background` — while
+  the preview stays on paper. Markup carries hues from the preview's own
+  GitHub highlight.js palette: headings blue, list/task marks red, quotes
+  green, inline code blue-ink; inline punctuation (`**`, `` ` ``, `[`)
+  stays muted so prose does not read as a listing. The block marks need
+  their own highlight tags for that — lezer tags `#`, `-` and `>` all as
+  `processingInstruction` — so `noteMarkdownTags` gives them sub-tags,
+  which still fall back to the parent anywhere the theme is not loaded.
+  Fenced and indented code is one full-width band (`code-block-band.ts`,
+  line decorations over the visible ranges), not a wash behind each span.
+- **Split-view scroll sync ignores its own echo by value.** The panes
+  follow each other by scroll ratio. Echo suppression used to be a lock
+  released on `requestAnimationFrame`, but a programmatic `scrollTop` write
+  reaches the other pane's `scroll` listener a frame later, after the lock
+  had lifted: the echo dragged the pane being scrolled back one frame and
+  its lock swallowed the next real frame, so the source jerked and the
+  preview moved at half rate (measured: 39 of 80 frames overwritten). The
+  sync now records the `scrollTop` it wrote (read back after the browser
+  snaps it) and skips a `scroll` that lands there; anything else is a user
+  scroll and drives the other pane. Pending echoes are dropped on every
+  view-mode change, since a pane hidden before its echo fired never fires it.
+- **Fenced code is highlighted by language.** Until now only the preview
+  coloured code (highlight.js); the source pane never passed
+  `codeLanguages`. `code-languages.ts` now does, with a curated set —
+  JS/TS/JSX/TSX, JSON, Python, CSS, HTML, SQL, YAML and, through
+  `legacy-modes`, shell, Go, Rust, C, C++ and Java — under the aliases
+  highlight.js accepts, matched exactly on the info string's first word
+  (lang-markdown's default lookup is fuzzy — it parsed ```graphql as SQL).
+  The descriptions are eager; every grammar lives in
+  one module (`code-language-packs.ts`) behind a dynamic `import()`, so
+  the first known fence loads one ~105 kB lazy chunk. Not
+  `@codemirror/language-data`: one chunk per language would break the
+  frontend chunk-count gate, and JS/CSS/HTML already ride in the editor
+  engine because `lang-markdown` depends on `lang-html`. `legacy-modes` is
+  pinned to 6.4.x — 6.5 types its parsers against
+  `@codemirror/streamparser`, which `@codemirror/language` 6.12 does not
+  use yet. Token colours take the preview's highlight.js roles (keyword,
+  title, number, string, built_in), each ≥4.5:1 on the band.
+  Every hue clears 4.5:1 on its mode's surface; the light red and green
+  are GitHub's deeper shades because the preview's measured 4.3:1 on the
+  tint. Headings still read by hue and weight, not size, so the monospace
+  grid holds.
 - **View modes are visible toggles** (Editor / Split / Preview), with the
   keyboard mode and the blame gutter in one "Editor settings" menu.
 - **Preview alone is a reading surface.** In `view` mode the preview steps

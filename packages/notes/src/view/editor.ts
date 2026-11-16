@@ -19,7 +19,12 @@ import {
   noteRemoteSelectionsTheme,
 } from './remote-selection.js';
 import { NotePreview } from './preview.js';
-import { noteEditorTheme } from './theme.js';
+import { noteCodeLanguage } from './code-languages.js';
+import {
+  NOTE_SOURCE_SURFACE,
+  noteEditorTheme,
+  noteMarkdownTags,
+} from './theme.js';
 import {
   computeActiveFormats,
   toggleBold,
@@ -336,8 +341,9 @@ export function initialize(
   const divider = document.createElement('div');
   divider.dataset.role = 'note-divider';
   divider.style.flex = '0 0 auto';
-  // The painted band is the *content* box (`background-clip: content-box`), so
-  // the padding is pure hit area: 25px total around a 1px hairline. It used to
+  // The painted hairline is the middle pixel of 25px, so the rest is pure hit
+  // area. Its leading 12px carry the source pane's work surface, so the tint
+  // runs up to the hairline instead of stopping short of it. It used to
   // be 7px, which is a fingernail on a phone — and combined with the missing
   // `touch-action` below made the split read as fixed there. `box-sizing` is
   // stated rather than inherited because the host app's CSS reset decides it
@@ -347,9 +353,7 @@ export function initialize(
   divider.style.width = '25px';
   divider.style.cursor = 'col-resize';
   divider.style.alignSelf = 'stretch';
-  divider.style.background = 'var(--border, rgba(0,0,0,0.08))';
-  divider.style.backgroundClip = 'content-box';
-  divider.style.padding = '0 12px';
+  divider.style.background = `linear-gradient(to right, ${NOTE_SOURCE_SURFACE} 12px, var(--border, rgba(0,0,0,0.08)) 12px 13px, transparent 13px)`;
   divider.style.userSelect = 'none';
   // Without this the browser claims a horizontal drag on the divider as a pan
   // /scroll gesture, so `pointermove` never reaches the resize handler on
@@ -494,7 +498,14 @@ export function initialize(
     }),
     // GFM, as the preview renders it: without it the source parses task
     // boxes as link references and has no strikethrough or table syntax.
-    markdown({ base: markdownLanguage }),
+    // `noteMarkdownTags` gives the block marks the theme colours their own
+    // highlight tags; `codeLanguages` parses a fence's body in the language
+    // its info string names, loaded lazily on first use.
+    markdown({
+      base: markdownLanguage,
+      extensions: noteMarkdownTags,
+      codeLanguages: noteCodeLanguage,
+    }),
     // Only where it can be acted on: a viewer cannot start writing.
     readOnly ? [] : placeholder(PLACEHOLDER),
     // `[ ]` at the start of a line becomes a task item as the user types.
@@ -571,8 +582,13 @@ export function initialize(
   // re-measure the editor defensively on show.
   let currentViewMode: NoteViewMode = viewMode;
   let splitRatio = 0.5; // editor's share of the width in split mode
+  // The scroll sync's pending echoes (see the scroll sync below). Cleared on
+  // every mode change: a pane hidden before its echo fired never fires it,
+  // and a stale entry would swallow a genuine scroll to that position later.
+  const written = new Map<HTMLElement, number>();
   const applyViewMode = (mode: NoteViewMode) => {
     currentViewMode = mode;
+    written.clear();
     const showEditor = mode !== 'view';
     const showPreview = mode !== 'edit';
     const split = showEditor && showPreview;
@@ -658,24 +674,38 @@ export function initialize(
   // Proportional scroll sync between the editor scroller and the preview,
   // active only in split ('both') mode. Mirrors CodePair's react-scroll-sync,
   // which syncs by scroll percentage (not source-line mapping) and is on by
-  // default. A lock flag suppresses the echo scroll event on the destination.
+  // default.
+  //
+  // The echo of our own write is recognized by VALUE, not by time. A
+  // programmatic `scrollTop` write reaches the destination's `scroll`
+  // listener in the NEXT frame, so a lock released on `requestAnimationFrame`
+  // (which runs in the same frame as the write) had already lifted when the
+  // echo arrived: the echo then wrote the source back to where it was a frame
+  // ago while the user kept scrolling it, and the lock it took swallowed the
+  // user's next frame. Every other frame was lost — the source pane jerked
+  // back and the preview moved at half rate. Remembering the position we
+  // wrote and ignoring a `scroll` that lands exactly there leaves every
+  // genuine scroll, in either pane, to drive the other.
   const editorScroller = view.scrollDOM;
-  let scrollLock = false;
   const scrollRatioOf = (el: HTMLElement) => {
     const range = el.scrollHeight - el.clientHeight;
     return range > 0 ? el.scrollTop / range : 0;
   };
   const applyScrollRatio = (el: HTMLElement, ratio: number) => {
     const range = el.scrollHeight - el.clientHeight;
+    const before = el.scrollTop;
     el.scrollTop = ratio * range;
+    // Read back: the browser snaps to device pixels. A write that changed
+    // nothing fires no `scroll`, so there is no echo to wait for.
+    if (el.scrollTop !== before) written.set(el, el.scrollTop);
+    else written.delete(el);
   };
   const linkScroll = (src: HTMLElement, dst: HTMLElement) => () => {
-    if (scrollLock || currentViewMode !== 'both') return;
-    scrollLock = true;
+    if (currentViewMode !== 'both') return;
+    const echo = written.get(src);
+    written.delete(src);
+    if (echo !== undefined && Math.abs(src.scrollTop - echo) < 1) return;
     applyScrollRatio(dst, scrollRatioOf(src));
-    requestAnimationFrame(() => {
-      scrollLock = false;
-    });
   };
   const onEditorScroll = linkScroll(editorScroller, preview.el);
   const onPreviewScroll = linkScroll(preview.el, editorScroller);
