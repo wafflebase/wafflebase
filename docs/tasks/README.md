@@ -21,6 +21,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
 | board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./active/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./active/20261116-board-navigation-feel-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
+| release v0.6.15 (2026-11-16) | [20261116-release-v0.6.15-todo.md](./active/20261116-release-v0.6.15-todo.md) | [20261116-release-v0.6.15-lessons.md](./active/20261116-release-v0.6.15-lessons.md) |
 | sheets usability pass (2026-11-16) | [20261116-sheets-usability-pass-todo.md](./active/20261116-sheets-usability-pass-todo.md) | [20261116-sheets-usability-pass-lessons.md](./active/20261116-sheets-usability-pass-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./active/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./active/20261115-agent-harness-switch-lessons.md) |
@@ -39,7 +40,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./active/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./active/20261111-sheets-auto-fit-reload-lessons.md) |
 | sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./active/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./active/20261111-sheets-link-card-close-lessons.md) |
 | sheet presence jumps (2026-11-09) | [20261109-sheet-presence-jumps-todo.md](./active/20261109-sheet-presence-jumps-todo.md) | [20261109-sheet-presence-jumps-lessons.md](./active/20261109-sheet-presence-jumps-lessons.md) |
-| release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./active/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./active/20261108-release-v0.6.14-lessons.md) |
 | sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./active/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./active/20261103-sheets-auto-fit-row-height-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
 | slides lint (2026-10-13) | [20261013-slides-lint-todo.md](./active/20261013-slides-lint-todo.md) | [20261013-slides-lint-lessons.md](./active/20261013-slides-lint-lessons.md) |
@@ -70,7 +70,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 639
+- Archived task count: 640
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: agent harness cleanup (2026-11-16)
