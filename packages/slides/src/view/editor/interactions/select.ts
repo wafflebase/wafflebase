@@ -61,18 +61,23 @@ function toggleId(ids: readonly string[], id: string): string[] {
 }
 
 /**
- * A text element acting as an empty layout placeholder — i.e. one
- * currently rendered with a ghost hint by `text-renderer.ts`. The
- * renderer paints the hint when (a) `placeholderRef` is set AND
- * (b) `isTextBodyEmpty(data)` returns true. This predicate combines
- * both conditions so the 1-click text-edit entry fires exactly on
- * elements the user sees as a ghost placeholder.
+ * A text element acting as an empty layout placeholder: (a)
+ * `placeholderRef` is set AND (b) `isTextBodyEmpty(data)` returns true.
+ * These are the element-side conditions for the ghost hint. The hint
+ * additionally needs the paint surface's `showPlaceholderHints`
+ * (`element-renderer.ts`), which the editor defaults on only for an
+ * editable mount (`!readOnly`); read-only mounts, thumbnails, presenter
+ * and PDF export leave it off. This predicate deliberately ignores that
+ * surface gate: its only caller is the editor's pointer edit-entry
+ * path, which is never attached on a read-only mount, so wherever it
+ * fires the hint is painted (unless a host opts out explicitly) and the
+ * 1-click text-edit entry lands on what the user sees as a ghost.
  *
  * "Empty" here mirrors the renderer's `isBlocksEmpty`: zero blocks, or
  * every block's inlines are the empty string — regardless of block
  * type or count. This is intentionally broader than the spec's literal
  * "zero blocks, or a single empty paragraph block" wording so the
- * predicate stays in lockstep with the rendered ghost hint.
+ * predicate agrees with the renderer on which elements are empty.
  * User-authored text boxes (no `placeholderRef`) deliberately stay
  * select-only even when empty.
  *

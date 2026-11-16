@@ -48,7 +48,10 @@ type ThumbState = {
   position: number;
   total: number;
   canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
+  /** Null when the host has no 2D context. The row still exists — it
+   * is a listbox option — so it keeps its highlight and ARIA sync and
+   * only skips painting. */
+  ctx: CanvasRenderingContext2D | null;
   slide: Slide;
   doc: SlidesDocument;
   dims: ThumbDims;
@@ -61,7 +64,10 @@ type ThumbState = {
 // Floor/ceiling keep them legible on a very narrow panel and from
 // ballooning on a very wide one.
 const THUMB_ASPECT = 16 / 9;
-const MIN_THUMB_W = 80;
+// Floor for the whole row (number gutter + thumb), not the thumb alone:
+// the floor has to bound what the row occupies, or a narrow panel gets a
+// row wider than itself and the thumb pokes past the right edge.
+const MIN_ROW_W = 80;
 const MAX_THUMB_W = 320;
 const FALLBACK_THUMB_W = 192;
 // Border width is constant across selection states (only the color
@@ -147,14 +153,17 @@ function computeThumbDims(
   containerWidth: number,
   aspect: number = THUMB_ASPECT,
 ): ThumbDims {
-  // The number gutter comes out of the measured width; the fallback is
-  // already a thumb width, so it is used as-is.
-  const available =
-    containerWidth > 0 ? containerWidth - NUMBER_GUTTER_PX : FALLBACK_THUMB_W;
-  const outerW = Math.max(
-    MIN_THUMB_W,
-    Math.min(MAX_THUMB_W, Math.floor(available)),
-  );
+  // Clamp the measured width first, then take the number gutter out of
+  // it — clamping after the subtraction would let the gutter push the
+  // row past the panel. The fallback is already a thumb width, so it is
+  // used as-is.
+  const outerW =
+    containerWidth > 0
+      ? Math.min(
+          MAX_THUMB_W,
+          Math.max(MIN_ROW_W, Math.floor(containerWidth)) - NUMBER_GUTTER_PX,
+        )
+      : FALLBACK_THUMB_W;
   const innerW = outerW - BORDER_PX * 2;
   // Round innerH so the inner box stays as close to the deck aspect as
   // integer pixels allow. The outer height absorbs the rounding.
@@ -316,7 +325,7 @@ export function mountThumbnailPanel(
   };
 
   const paintThumb = (id: string, s: ThumbState): void => {
-    if (disposed) return;
+    if (disposed || !s.ctx) return;
     renderThumbnail(
       s.ctx,
       s.slide,
@@ -605,19 +614,18 @@ export function mountThumbnailPanel(
       canvas.style.width = `${dims.innerW}px`;
       canvas.style.height = `${dims.innerH}px`;
       canvas.style.display = 'block';
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Stash state but DON'T paint yet — the IntersectionObserver
-        // decides which thumbs warrant a paint right now. Off-screen
-        // thumbs paint lazily as the user scrolls. The fallback (jsdom
-        // or any host without IntersectionObserver) paints every state
-        // entry synchronously once chunk-building completes so the
-        // existing assertions still hold.
-        state.set(slide.id, {
-          item, frame, number, position: index + 1, total: slides.length,
-          canvas, ctx, slide, doc, dims, dpr, painted: false,
-        });
-      }
+      // Stash state but DON'T paint yet — the IntersectionObserver
+      // decides which thumbs warrant a paint right now. Off-screen
+      // thumbs paint lazily as the user scrolls. The fallback (jsdom
+      // or any host without IntersectionObserver) paints every state
+      // entry synchronously once chunk-building completes so the
+      // existing assertions still hold. Registered even without a 2D
+      // context: the highlight and listbox ARIA sync walk this map.
+      state.set(slide.id, {
+        item, frame, number, position: index + 1, total: slides.length,
+        canvas, ctx: canvas.getContext('2d'), slide, doc, dims, dpr,
+        painted: false,
+      });
       frame.appendChild(canvas);
       item.appendChild(frame);
 
@@ -795,13 +803,13 @@ export function mountThumbnailPanel(
     // The current-slide listener has synced the highlight; sync again
     // in case the selection set changed without the current id moving.
     syncSelectionAria();
-    // The onCurrentSlideChange listener has already re-rendered, so
-    // the new thumb element exists. Scroll it into view if off-screen.
-    // scrollIntoView is missing from jsdom; the optional-chain guard
-    // keeps unit tests happy.
-    const newItem = container.querySelector<HTMLDivElement>(
-      `[data-slide-id="${slides[nextIdx].id}"]`,
-    );
+    // Scroll the new thumb into view if off-screen. It is looked up in
+    // the row map, not by an attribute selector: slide ids are CRDT
+    // content any collaborator can write, and a `"` or `]` in one
+    // would make the selector throw on every keypress. scrollIntoView
+    // is missing from jsdom; the optional-chain guard keeps unit tests
+    // happy.
+    const newItem = state.get(slides[nextIdx].id)?.item;
     newItem?.scrollIntoView?.({ block: 'nearest' });
   });
 

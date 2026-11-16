@@ -227,6 +227,11 @@ interface PaintSnapshot {
   stroke?: Stroke;
 }
 
+/**
+ * The editor keeps and mutates this object (host size, viewport, and an
+ * unset `showPlaceholderHints` defaulted to `!readOnly`), so pass a fresh
+ * object per `initialize()` rather than one shared between mounts.
+ */
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
   overlay: HTMLDivElement;

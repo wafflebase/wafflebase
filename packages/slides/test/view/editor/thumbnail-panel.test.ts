@@ -189,6 +189,25 @@ describe('mountThumbnailPanel — arrow key navigation', () => {
     expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
   });
 
+  it('navigates past a slide whose collaborator-written id breaks a CSS selector', () => {
+    // Slide ids are CRDT content; nothing validates one arriving from a
+    // peer. The scroll-into-view lookup must not parse it as a selector.
+    const seed = new MemSlidesStore();
+    seed.batch(() => { seed.addSlide('blank'); seed.addSlide('blank'); });
+    const doc = seed.read();
+    doc.slides[1] = { ...doc.slides[1], id: 'x"] , [y' };
+    const { canvas, overlay, panel } = makeFixture();
+    const store = new MemSlidesStore(doc);
+    const editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    mountThumbnailPanel(panel, store, editor);
+    const scrolled = vi.fn();
+    const target = panel.querySelectorAll<HTMLElement>('[data-slide-id]')[1];
+    target.scrollIntoView = scrolled;
+    expect(() => keydown(panel, 'ArrowDown')).not.toThrow();
+    expect(editor.getCurrentSlideId()).toBe('x"] , [y');
+    expect(scrolled).toHaveBeenCalledTimes(1);
+  });
+
   it('ArrowUp on the first slide is a no-op', () => {
     const { panel, store, editor } = makeFixture();
     mountThumbnailPanel(panel, store, editor);
@@ -310,11 +329,21 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     expect(frame.style.height).toBe('120px');
   });
 
-  it('thumbnail outer box clamps to MIN_THUMB_W (80px) on a very narrow panel', () => {
+  it('row (gutter + thumb) clamps to MIN_ROW_W (80px) on a very narrow panel', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 40, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    expect(frameOf(panel).style.width).toBe('80px');
+    // 80 - 28 = 52: the floor bounds the row, not the thumb alone.
+    expect(frameOf(panel).style.width).toBe('52px');
+  });
+
+  it('the row never outgrows a panel narrower than gutter + 80px', () => {
+    // Regression: the floor used to apply to the thumb after the gutter
+    // came out, so a 100px panel got a 28 + 80 = 108px row.
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 100, configurable: true });
+    mountThumbnailPanel(panel, store, editor);
+    expect(frameOf(panel).style.width).toBe('72px');
   });
 
   it('thumbnail outer box clamps to MAX_THUMB_W (320px) on a very wide panel', () => {
@@ -1062,6 +1091,26 @@ describe('mountThumbnailPanel — listbox semantics', () => {
     );
     expect(first.getAttribute('aria-selected')).toBe('true');
     expect(panel.getAttribute('aria-activedescendant')).toBe(first.id);
+  });
+
+  it('keeps ARIA in sync when the host has no 2D canvas context', () => {
+    const { panel, store, editor } = makeFixture();
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    try {
+      mountThumbnailPanel(panel, store, editor);
+    } finally {
+      spy.mockRestore();
+    }
+    const [first, second] = options(panel);
+    // Nothing painted, but the options are still live listbox rows.
+    expect(first.querySelector('canvas')!.dataset.paintCount).toBeUndefined();
+    expect(panel.getAttribute('aria-activedescendant')).toBe(first.id);
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(first.getAttribute('aria-selected')).toBe('false');
+    expect(second.getAttribute('aria-selected')).toBe('true');
+    expect(panel.getAttribute('aria-activedescendant')).toBe(second.id);
   });
 
   it('shift-click adds the slide to the selected set', () => {
