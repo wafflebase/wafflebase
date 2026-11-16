@@ -275,4 +275,16 @@ describe('headings and code blocks', () => {
     );
     view.destroy();
   });
+
+  it('parses past the viewport before touching a far fence', () => {
+    // Far beyond any initial parse: the fence sits after ~6000 lines.
+    const prose = Array.from({ length: 6000 }, (_, i) => `line ${i}`).join('\n');
+    const doc = `${prose}\n\`\`\`\n# code\n\`\`\`\nend`;
+    const view = mountMd(doc, 0, doc.length);
+    setHeading(view, 1);
+    const out = view.state.doc.toString();
+    expect(out).toContain('\n```\n# code\n```\n# end');
+    expect(out.startsWith('# line 0\n')).toBe(true);
+    view.destroy();
+  });
 });

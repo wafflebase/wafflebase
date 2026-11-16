@@ -1,4 +1,4 @@
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, language, syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { computeListState, type NoteListKind } from './list-commands.js';
@@ -47,8 +47,10 @@ const HEADING_PREFIX_RE =
  * parsed tree; a mount without the markdown language has none and treats
  * every line as prose.
  */
-function inCode(state: EditorState, pos: number): boolean {
-  const inner = syntaxTree(state).resolveInner(pos, 1);
+type Tree = ReturnType<typeof syntaxTree>;
+
+function inCode(tree: Tree, pos: number): boolean {
+  const inner = tree.resolveInner(pos, 1);
   for (let node: typeof inner | null = inner; node; node = node.parent) {
     if (node.name === 'FencedCode' || node.name === 'CodeBlock') return true;
   }
@@ -56,7 +58,8 @@ function inCode(state: EditorState, pos: number): boolean {
 }
 
 function headingOf(state: EditorState, pos: number): NoteHeadingLevel {
-  if (inCode(state, pos)) return 0;
+  // The caret line is in the viewport, which CodeMirror always parses.
+  if (inCode(syntaxTree(state), pos)) return 0;
   const text = state.doc.lineAt(pos).text;
   const marker = HEADING_PREFIX_RE.exec(text)?.[2] ?? '';
   return marker.replace(/[ \t]+$/, '').length as NoteHeadingLevel;
@@ -407,6 +410,14 @@ export function setHeading(view: EditorView, level: NoteHeadingLevel): void {
   const first = state.doc.lineAt(from).number;
   const last = state.doc.lineAt(to).number;
   const marker = level > 0 ? `${'#'.repeat(level)} ` : '';
+  // CodeMirror parses lazily, around the viewport, so a long selection can
+  // reach past the parsed tree. Parse up to its end (bounded, like every
+  // other on-demand parse in the editor); whatever is still unparsed is left
+  // alone below, since unparsed text cannot be told apart from code.
+  const lastTo = state.doc.line(last).to;
+  const tree = ensureSyntaxTree(state, lastTo, 100) ?? syntaxTree(state);
+  // Without a language (a bare EditorView) there is no tree to wait for.
+  const parsedTo = state.facet(language) ? tree.length : state.doc.length;
 
   const changes = [];
   for (let n = first; n <= last; n++) {
@@ -418,7 +429,8 @@ export function setHeading(view: EditorView, level: NoteHeadingLevel): void {
     if (current === marker) continue;
     // Code is not prose: a selection that crosses a fence restyles the text
     // around it and leaves the code exactly as it was.
-    if (inCode(state, line.from)) continue;
+    if (line.from > parsedTo) continue;
+    if (inCode(tree, line.from)) continue;
     // A blank line in a multi-line selection is left blank rather than turned
     // into an empty heading.
     if (first !== last && line.text.trim() === '') continue;
