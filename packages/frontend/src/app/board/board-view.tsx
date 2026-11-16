@@ -55,11 +55,23 @@ import {
 import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
+  BOARD_PAN_CURSOR_CSS,
+  claimsPanDrag,
+  createHandTool,
+  panCursor,
+  type HandTool,
+} from "./board-hand";
+import {
   captureFromContainer,
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
 import type { ZoomController } from "../slides/zoom-controller";
-import { createBoardZoomBinding, createBoardZoomController } from "./board-zoom";
+import {
+  selectionFitViewport,
+  createBoardZoomBinding,
+  createBoardZoomController,
+  stepZoomPreset,
+} from "./board-zoom";
 import {
   applyGridBackground,
   gridStep,
@@ -210,6 +222,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     zoomValueRef.current = createBoardZoomController();
   }
   const zoomValue = zoomValueRef.current;
+  // The hand tool, shared by the toolbar toggle and the `H` key. Ref-held
+  // and lazily created for the same reasons as `zoomValue`.
+  const handRef = useRef<HandTool | null>(null);
+  if (handRef.current === null) handRef.current = createHandTool();
+  const hand = handRef.current;
   // That value holder bound to the actions it drives (see
   // `createBoardZoomBinding`). Built inside the mount effect — it closes
   // over the live viewport, host size and minimap — and lifted into
@@ -283,7 +300,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // overlay itself uses pointer-events: none so empty-area clicks
     // pass through to the canvas; handle children opt back in.
     const style = document.createElement("style");
-    style.textContent = "[data-handle] { pointer-events: auto !important; }";
+    style.textContent =
+      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS;
     document.head.appendChild(style);
 
     const store = new YorkieBoardStore(doc);
@@ -406,11 +424,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     minimap.repaintViewport(vp.current);
 
     // Every element's frame — the scene bounds a fit is resolved from.
-    const readFrames = (): Frame[] => {
+    const readTopLevel = () => {
       const snapshot = store.read() as SlidesDocument;
       const slide = snapshot.slides[0] as Slide | undefined;
-      return slide ? slide.elements.map((e) => e.frame) : [];
+      return slide ? slide.elements : [];
     };
+    const readFrames = (): Frame[] => readTopLevel().map((e) => e.frame);
 
     // THE viewport chokepoint. Every pan/zoom path — minimap navigate,
     // fit-to-content, the zoom dropdown, wheel, space/middle-drag — goes
@@ -472,6 +491,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     setZoomController(zoom.controller);
 
     stickyInserterRef.current = (colorValue: string) => {
+      hand.set(false);
       dropStickyAtViewportCenter({
         store,
         editor,
@@ -678,6 +698,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           metaKey: e.metaKey,
           deltaX: e.deltaX,
           deltaY: e.deltaY,
+          deltaMode: e.deltaMode,
+          shiftKey: e.shiftKey,
+          pageWidth: hostW,
+          pageHeight: hostH,
           offsetX: e.clientX - canvasRect.left,
           offsetY: e.clientY - canvasRect.top,
         }),
@@ -699,6 +723,46 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     let panLastX = 0;
     let panLastY = 0;
 
+    // One writer for the pan cursor, so Space, the hand tool, a viewer's
+    // drag and a live pan cannot disagree about it (see `panCursor`).
+    const syncPanCursor = () => {
+      const next = panCursor({
+        panning,
+        spaceDown,
+        hand: hand.get(),
+        readOnly: readOnly === true,
+      });
+      for (const el of [canvas, overlay]) {
+        if (next) el.dataset.boardPan = next;
+        else delete el.dataset.boardPan;
+      }
+    };
+    syncPanCursor();
+    // Arming the hand drops any armed insert tool; arming an insert tool
+    // (toolbar or key) drops the hand, so exactly one tool is ever live.
+    // Arming it also drops the selection: its handles sit in the overlay,
+    // and a hand drag is a pan wherever it starts.
+    const offHand = hand.subscribe(() => {
+      if (hand.get()) {
+        editor.setInsertMode(null);
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      }
+      syncPanCursor();
+    });
+    // The pan claim above takes `pointerdown`, but the editor's `dblclick`
+    // (enter text edit / crop) is a separate event it never saw. While a
+    // left-drag pans, two quick grabs on a sticky must stay a pan.
+    const onDoubleClick = (e: MouseEvent) => {
+      if (!hand.get() && !spaceDown) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    container.addEventListener("dblclick", onDoubleClick, { capture: true });
+    const offInsertMode = editor.onInsertModeChange(() => {
+      if (editor.getInsertMode() !== null) hand.set(false);
+    });
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== "Space" || spaceDown) return;
       // Don't hijack Space when a regular editable field has focus (the
@@ -711,12 +775,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       if (editor.isTextEditing()) return;
       spaceDown = true;
       e.preventDefault();
-      canvas.style.cursor = "grab";
+      syncPanCursor();
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
       spaceDown = false;
-      if (!panning) canvas.style.cursor = "";
+      syncPanCursor();
     };
     // If Space is held and the window loses focus (tab away, switch
     // app) before `keyup` fires, `spaceDown` would otherwise latch
@@ -725,15 +789,31 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // signal here (no `keyup` is guaranteed to follow).
     const onWindowBlur = () => {
       spaceDown = false;
-      if (!panning) canvas.style.cursor = "";
+      syncPanCursor();
     };
-    // Single-key tools (FigJam's V / T / S / R / O / L / X) and Shift+1
-    // zoom-to-fit; the gates live in `handleBoardToolKey`.
+    // Single-key tools (FigJam's V / H / T / S / R / O / L / X) and the
+    // view keys (zoom chords, Shift+1 / Shift+2); the gates live in
+    // `handleBoardToolKey`. Capture phase, so the view keys win over the
+    // editor's type-to-edit on a selection — see that function.
     const onToolKey = (e: KeyboardEvent) => {
       handleBoardToolKey(e, {
         editor,
         readOnly: readOnly === true,
         fit: () => zoom.fit(),
+        zoomStep: (direction) =>
+          zoom.controller.set(stepZoomPreset(vp.current.zoom, direction)),
+        zoomTo: (z) => zoom.controller.set(z),
+        fitSelection: () => {
+          const fitted = selectionFitViewport(
+            readTopLevel(),
+            editor.getSelection(),
+            { w: hostW, h: hostH },
+          );
+          if (!fitted) return;
+          commitViewport(fitted);
+          zoom.reportViewportZoom(fitted.zoom);
+        },
+        setHand: (on) => hand.set(on),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
         isBoardTarget: (target) =>
           target === document.body ||
@@ -741,22 +821,25 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       });
     };
     document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("keydown", onToolKey);
+    document.addEventListener("keydown", onToolKey, true);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
     const onPointerDown = (e: PointerEvent) => {
-      const isMiddleButton = e.button === 1;
-      // `spaceDown` is keyboard state, not part of the pointer stream,
-      // and a touch `pointerdown` reports `button === 0` — so on a
-      // tablet with a keyboard folio, Space held plus a finger down
-      // would satisfy this branch AND the touch gesture below. Both
-      // would pan (its `stopPropagation` does not stop a listener on
-      // the same node), doubling the travel. Space-drag is a
-      // mouse gesture; scope it to one.
-      const isSpaceDrag =
-        spaceDown && e.button === 0 && e.pointerType !== "touch";
-      if (!isMiddleButton && !isSpaceDrag) return;
+      // Which drags pan is `claimsPanDrag`'s call. Touch never does here:
+      // on a tablet with a keyboard folio, Space held plus a finger down
+      // would otherwise satisfy this AND the touch gesture below, and both
+      // would pan (its `stopPropagation` does not stop a listener on the
+      // same node), doubling the travel.
+      const claimed = claimsPanDrag({
+        button: e.button,
+        pointerType: e.pointerType,
+        spaceDown,
+        hand: hand.get(),
+        readOnly: readOnly === true,
+        onScene: e.target instanceof Node && (e.target === canvas || overlay.contains(e.target)),
+      });
+      if (!claimed) return;
       e.preventDefault();
       // Registered on `container` (an ancestor of both the reused
       // editor's canvas and overlay) in the CAPTURE phase, and only
@@ -777,7 +860,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       panLastX = e.clientX;
       panLastY = e.clientY;
       canvas.setPointerCapture(e.pointerId);
-      canvas.style.cursor = "grabbing";
+      syncPanCursor();
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!panning || e.pointerId !== panPointerId) return;
@@ -796,7 +879,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       panning = false;
       panPointerId = null;
       canvas.releasePointerCapture(e.pointerId);
-      canvas.style.cursor = spaceDown ? "grab" : "";
+      syncPanCursor();
     };
     container.addEventListener("pointerdown", onPointerDown, { capture: true });
     canvas.addEventListener("pointermove", onPointerMove);
@@ -825,7 +908,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // pointer handlers at all, so conceding a press over an element
       // would hand it to nobody and leave a viewer unable to pan off
       // whatever their finger happened to land on.
-      hasContentAt: readOnly ? () => false : (x, y) => editor.hasContentAt(x, y),
+      // The hand tool answers the same way: a finger on content pans.
+      hasContentAt: readOnly
+        ? () => false
+        : (x, y) => !hand.get() && editor.hasContentAt(x, y),
       toCanvasPoint: (x, y) => ({
         x: x - canvasRect.left,
         y: y - canvasRect.top,
@@ -895,8 +981,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
       detachTouch();
+      offHand();
+      offInsertMode();
+      container.removeEventListener("dblclick", onDoubleClick, { capture: true });
+      delete canvas.dataset.boardPan;
+      delete overlay.dataset.boardPan;
       document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("keydown", onToolKey);
+      document.removeEventListener("keydown", onToolKey, true);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
@@ -922,7 +1013,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `zoomValue` is a ref-held singleton with a stable identity for the
     // component's lifetime, so listing it never re-runs this effect — it
     // is here only to satisfy exhaustive-deps.
-  }, [didMount, doc, readOnly, workspaceId, zoomValue]);
+  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand]);
 
   // Repaint the grid when the MODE changes — the one input that moves
   // without the viewport moving (the plane never follows the app theme,
@@ -986,6 +1077,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           editor={editor}
           store={store}
           zoomController={zoomController}
+          hand={hand}
           gridKind={gridKind}
           onGridKindChange={(kind) => {
             setGridKind(kind);

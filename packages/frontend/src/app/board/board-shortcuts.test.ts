@@ -5,6 +5,7 @@ import {
   isTextEntryTarget,
   BOARD_SHORTCUTS,
   BOARD_SHORTCUT_CATEGORIES,
+  zoomChordForKey,
 } from "./board-shortcuts";
 
 const key = (k: string, mods: Partial<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {}) => ({
@@ -14,6 +15,7 @@ const key = (k: string, mods: Partial<{ shiftKey: boolean; metaKey: boolean; ctr
 describe("boardToolForKey", () => {
   it("maps FigJam's single-key tools", () => {
     expect(boardToolForKey(key("v"))).toEqual({ kind: "select" });
+    expect(boardToolForKey(key("h"))).toEqual({ kind: "hand" });
     expect(boardToolForKey(key("t"))).toEqual({ kind: "insert", insert: "text" });
     expect(boardToolForKey(key("s"))).toEqual({ kind: "sticky" });
     expect(boardToolForKey(key("r"))).toEqual({ kind: "insert", insert: "rect" });
@@ -90,9 +92,10 @@ describe("BOARD_SHORTCUTS", () => {
 });
 
 describe("handleBoardToolKey", () => {
-  function setup(opts: { selection?: string[]; textEditing?: boolean; readOnly?: boolean } = {}) {
+  function setup(opts: { selection?: string[]; textEditing?: boolean; cropping?: boolean; readOnly?: boolean } = {}) {
     const editor = {
       isTextEditing: vi.fn(() => opts.textEditing ?? false),
+      isCropping: vi.fn(() => opts.cropping ?? false),
       getSelection: vi.fn(() => opts.selection ?? []),
       setInsertMode: vi.fn(),
     };
@@ -101,6 +104,10 @@ describe("handleBoardToolKey", () => {
       editor,
       readOnly: opts.readOnly ?? false,
       fit: vi.fn(),
+      zoomStep: vi.fn(),
+      zoomTo: vi.fn(),
+      fitSelection: vi.fn(),
+      setHand: vi.fn(),
       dropSticky: vi.fn(),
       isBoardTarget: (t: EventTarget | null) => t !== outside,
       outside,
@@ -173,5 +180,100 @@ describe("handleBoardToolKey", () => {
     expect(handleBoardToolKey(press("s"), ctx)).toBe(false);
     expect(handleBoardToolKey(press("!", { code: "Digit1", shiftKey: true }), ctx)).toBe(true);
     expect(ctx.fit).toHaveBeenCalledTimes(1);
+  });
+
+  it("arms the hand tool on H and drops it on any other tool", () => {
+    const ctx = setup();
+    expect(handleBoardToolKey(press("h"), ctx)).toBe(true);
+    expect(ctx.setHand).toHaveBeenLastCalledWith(true);
+    expect(handleBoardToolKey(press("t"), ctx)).toBe(true);
+    expect(ctx.setHand).toHaveBeenLastCalledWith(false);
+  });
+
+  it("disarms the hand on Esc without consuming it", () => {
+    const ctx = setup({ selection: ["a"] });
+    const e = press("Escape");
+    expect(handleBoardToolKey(e, ctx)).toBe(false);
+    expect(ctx.setHand).toHaveBeenCalledWith(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("gives a viewer no tools", () => {
+    const ctx = setup({ readOnly: true });
+    expect(handleBoardToolKey(press("h"), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("t"), ctx)).toBe(false);
+  });
+
+  it("steps the zoom on Mod+= / Mod+-, repeat included, and blocks page zoom", () => {
+    const ctx = setup({ selection: ["a"] });
+    const zin = press("=", { code: "Equal", metaKey: true });
+    expect(handleBoardToolKey(zin, ctx)).toBe(true);
+    expect(zin.defaultPrevented).toBe(true);
+    expect(ctx.zoomStep).toHaveBeenLastCalledWith(1);
+    expect(handleBoardToolKey(press("-", { code: "Minus", ctrlKey: true, repeat: true }), ctx)).toBe(true);
+    expect(ctx.zoomStep).toHaveBeenLastCalledWith(-1);
+  });
+
+  it("keeps a consumed view key from reaching type-to-edit", () => {
+    const ctx = setup({ selection: ["sticky-1"] });
+    const e = press("@", { code: "Digit2", shiftKey: true, bubbles: true });
+    const later = vi.fn();
+    document.body.addEventListener("keydown", later);
+    document.body.addEventListener("keydown", (ev) => handleBoardToolKey(ev, ctx), { capture: true, once: true });
+    document.body.dispatchEvent(e);
+    document.body.removeEventListener("keydown", later);
+    expect(ctx.fitSelection).toHaveBeenCalledTimes(1);
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("zooms to 100% on Mod+0 and to the selection on Shift+2", () => {
+    const ctx = setup({ readOnly: true });
+    expect(handleBoardToolKey(press("0", { code: "Digit0", metaKey: true }), ctx)).toBe(true);
+    expect(ctx.zoomTo).toHaveBeenCalledWith(1);
+    expect(handleBoardToolKey(press("@", { code: "Digit2", shiftKey: true }), ctx)).toBe(true);
+    expect(ctx.fitSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets every other Mod chord through untouched", () => {
+    const ctx = setup({ selection: ["a"] });
+    for (const [k, code] of [["a", "KeyA"], ["z", "KeyZ"], ["s", "KeyS"], ["c", "KeyC"], ["/", "Slash"]]) {
+      const e = press(k, { code, metaKey: true, bubbles: true });
+      const stop = vi.spyOn(e, "stopPropagation");
+      expect(handleBoardToolKey(e, ctx)).toBe(false);
+      expect(e.defaultPrevented).toBe(false);
+      expect(stop).not.toHaveBeenCalled();
+    }
+    expect(ctx.zoomStep).not.toHaveBeenCalled();
+    expect(ctx.zoomTo).not.toHaveBeenCalled();
+  });
+
+  it("leaves zoom chords to a text edit", () => {
+    const ctx = setup({ textEditing: true });
+    expect(handleBoardToolKey(press("=", { code: "Equal", metaKey: true }), ctx)).toBe(false);
+    expect(ctx.zoomStep).not.toHaveBeenCalled();
+  });
+
+  it("stands down during an image crop", () => {
+    const ctx = setup({ cropping: true, selection: ["img"] });
+    expect(handleBoardToolKey(press("=", { code: "Equal", metaKey: true }), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("@", { code: "Digit2", shiftKey: true }), ctx)).toBe(false);
+    expect(ctx.fitSelection).not.toHaveBeenCalled();
+  });
+});
+
+describe("zoomChordForKey", () => {
+  const chord = (k: string, code: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {}) =>
+    zoomChordForKey({ key: k, code, metaKey: false, ctrlKey: false, altKey: false, ...mods });
+
+  it("needs Mod and no Alt", () => {
+    expect(chord("=", "Equal")).toBeNull();
+    expect(chord("=", "Equal", { metaKey: true, altKey: true })).toBeNull();
+  });
+
+  it("matches shifted and numpad variants", () => {
+    expect(chord("+", "Equal", { ctrlKey: true })).toBe("in");
+    expect(chord("+", "NumpadAdd", { ctrlKey: true })).toBe("in");
+    expect(chord("_", "Minus", { metaKey: true })).toBe("out");
+    expect(chord("0", "Numpad0", { metaKey: true })).toBe("reset");
   });
 });

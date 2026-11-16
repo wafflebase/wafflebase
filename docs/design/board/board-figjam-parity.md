@@ -73,6 +73,79 @@ FigJam's tool keys would collide with it on a selection, so tool keys fire
 common case (a selected sticky receives the typing). The cost is that
 switching tools with a selection takes Esc first.
 
+### Second pass: navigation, presence, ink
+
+A code audit after the first pass (2026-11-16) found three gaps that the
+roadmap below does not cover, and that make every other board feature feel
+worse. They ship as three PRs, in this order.
+
+**A. Navigation feel (shipped)**
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Continuous wheel zoom**: `factor = exp(-Δ·0.01)`, \|Δ\| capped at 10 px per event, deltas normalised from line/page mode. | `board-wheel.ts` | Every ctrl+wheel event zoomed a fixed 10%. A trackpad pinch is a stream of small events, so a pinch was stepped and several times too fast. The cap keeps a mouse notch at the old ~10%. Firefox's line-mode wheel panned 3 px per notch. |
+| **Shift + wheel** pans sideways. | `board-wheel.ts` | A Windows mouse has no other horizontal pan. macOS already swaps the axes and is left alone. |
+| **Zoom keys**: Mod+= / Mod+- step through presets (auto-repeat allowed), Mod+0 is 100%, Shift+2 frames the selection (up to 200%). The browser's page zoom is suppressed on the board. | `board-shortcuts.ts`, `board-zoom.ts` `stepZoomPreset` | The only keyboard zoom was Shift+1. Mod+= zoomed the browser page and blurred the UI. Stepping to presets means a wheel-zoomed 137% goes to 200%, not to 151%. |
+| **800% preset.** | `BOARD_ZOOM_PRESETS` | The wheel already reached 8×. |
+| **Hand tool**: `H` and a toolbar toggle. A left-drag on the scene pans, a finger on content pans, and a double-click stays a pan. Arming it clears the selection. Any other tool disarms it, and so does Esc. On a read-only board a plain drag pans without the tool. The drag rule lives in `claimsPanDrag`, which leaves the minimap its own drag. | `board-hand.ts`, `board-view.tsx` | Panning needed Space, a middle button or a wheel. A read-only viewer's drag did nothing at all. |
+| **Pan cursor** is written as `data-board-pan` on the canvas and overlay, and enforced with an `!important` rule. | `board-hand.ts` `BOARD_PAN_CURSOR_CSS` | The editor rewrites `canvas.style.cursor` on every hover, so Space's `grab` was lost as soon as the pointer moved. |
+| **Toolbar focus release** (#882) through `useCanvasFocusRelease()`. | `board-toolbar.tsx` | After a toolbar click, selection shortcuts stayed dead until the canvas was clicked. The deferred trade-off (Space on a focused toggle) resolves itself: the hook leaves focus that the user reached by Tab, so a keyboard user's Space still activates the toggle, and a mouse user's Space pans. |
+
+**B. Peer cursors v2 (planned)**
+
+Today a cursor is a 10 px dot, sent on every animation frame. Each presence
+update re-creates the cursor DOM, so the dot teleports at whatever rate the
+network delivers. The Yorkie `simultaneous-cursors` example
+(`yorkie-js-sdk/examples/simultaneous-cursors`) solves the same problem
+with presence alone and no extra dependency. The board will adopt its
+techniques:
+
+- **Send** at most every 40 ms. Skip a move under a dead-band but keep
+  accumulating it, and send the exact final position once the pointer has
+  rested for 100 ms. That halves presence traffic, and the cursor still
+  stops where the peer stopped. Coordinates stay in world space: unlike the
+  example's viewport fractions, world coordinates are what lets two peers
+  with different pan and zoom agree.
+- **Render** with a critically damped spring (stiffness ≈ 480,
+  damping = 2√k, dt capped at 1/30 s) on rAF. It writes `transform` to
+  keyed, persistent DOM nodes, and the loop stops once every cursor has
+  settled. A CSS transition would restart a straight line on each update.
+  The spring keeps velocity, so a curve stays a curve.
+- **Shape**: an arrow plus a name tag in place of the dot, and a pen glyph
+  while the peer is drawing (C).
+- **Board-specific additions**, which the example does not need:
+  - an edge indicator for a peer who is off-screen;
+  - click a header avatar to jump to that peer;
+  - re-send the world position when the local viewport changes under a
+    still pointer (wheel pan/zoom fires no `pointermove`);
+  - show peers in the minimap.
+
+**C. Marker and ink (planned)**
+
+Drawing is Slides' Scribble. It is straight segments, it drops back to
+Select after each stroke, it has no colour or width, and it reads the whole
+document on every pointer move. From the example:
+
+- **Live stroke in presence, finished stroke in the document.** While
+  drawing, `presence.stroke = {tool, color, width, points}` carries the
+  whole current stroke, so a missed update self-heals. On pointerup, one
+  `doc.update` commits the element and clears the presence stroke. A long
+  stroke commits in chunks of about 64 points, so presence stays bounded.
+- **Points as one quantised string**, not a CRDT array of numbers.
+- **Two layers.** Committed strokes come from the renderer. The live
+  stroke, local and remote, goes on its own overlay canvas, which also
+  removes the per-move `store.read()`. The local stroke is drawn from
+  pointer events directly and never waits on the 40 ms send rate.
+- **Midpoint quadratic smoothing** (`quadraticCurveTo` through segment
+  midpoints).
+- **Tools**: marker (the tool stays armed), highlighter (α 0.3), an eraser
+  that hit-tests strokes against their segments, and a laser pen. The laser
+  is presence-only: points fade after 1.5 s and are never persisted.
+- **Model**: a stroke stays a `freeform` shape element, so selection, move,
+  group, undo, PDF and PPTX export keep working (FigJam treats marker
+  strokes as objects too). A separate ink layer is worth revisiting only if
+  boards accumulate thousands of strokes.
+
 ### Roadmap
 
 Ordered by how much each phase removes from the gap a FigJam user feels,

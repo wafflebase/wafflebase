@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
+import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   IconPointer,
+  IconHandStop,
   IconLetterT,
   IconNote,
   IconPhoto,
@@ -44,6 +46,7 @@ import { StickyControls } from "./sticky-controls";
 import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
+import type { HandTool } from "./board-hand";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -59,6 +62,8 @@ export interface BoardToolbarProps {
    */
   store?: SlidesStore | null;
   zoomController?: ZoomController | null;
+  /** The hand (drag-to-pan) tool, shared with the board's `H` key. */
+  hand?: HandTool | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -89,7 +94,7 @@ export interface BoardToolbarProps {
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Hand][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
  * ```
  *
  * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
@@ -113,6 +118,7 @@ export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
+  hand = null,
   gridKind,
   onGridKindChange,
   gridSnap,
@@ -132,15 +138,19 @@ export function BoardToolbar({
   // keeps focus instead of the dropdown trigger stealing it back.
   const pendingStickyColor = useRef<string | null>(null);
 
-  // NOTE: board deliberately does NOT opt into `useCanvasFocusRelease()`
-  // (`@/components/toolbar-focus-release`) yet, even though it drives the
-  // same `SlidesEditor` and inherits the same shortcut gate. Blurring a
-  // board toolbar button to the body changes what the *next* Space does:
-  // `isEditableTarget()` (`./is-editable-target.ts`) exists so Space on a
-  // focused toggle re-activates it rather than entering pan mode, and the
-  // release would flip that. Adopting the attribute is a board decision to
-  // make with that trade-off documented — see
-  // `docs/design/slides/slides-keyboard-shortcuts.md`.
+  // Hand focus back to the board after a pointer interaction with the
+  // toolbar (issue #882), as the slides toolbar does. The hook leaves a
+  // keyboard user's Tab focus alone, so Space on a toggle reached by Tab
+  // still activates it; after a mouse click, Space pans — FigJam's
+  // behaviour, and what a board user reaches for.
+  useCanvasFocusRelease();
+
+  const [handOn, setHandOn] = useState(() => hand?.get() ?? false);
+  useEffect(() => {
+    if (!hand) return;
+    setHandOn(hand.get());
+    return hand.subscribe(() => setHandOn(hand.get()));
+  }, [hand]);
 
   useEffect(() => {
     if (!editor) return;
@@ -203,7 +213,7 @@ export function BoardToolbar({
     (gridSnap ? ", snap on" : "");
 
   return (
-    <Toolbar>
+    <Toolbar data-canvas-toolbar="">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
@@ -276,8 +286,11 @@ export function BoardToolbar({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={insertMode === null}
-            onClick={() => editor?.setInsertMode(null)}
+            pressed={insertMode === null && !handOn}
+            onClick={() => {
+              hand?.set(false);
+              editor?.setInsertMode(null);
+            }}
             aria-label="Select"
             disabled={disabled || !editor}
           >
@@ -285,6 +298,23 @@ export function BoardToolbar({
           </Toggle>
         </TooltipTrigger>
         <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
+      </Tooltip>
+
+      {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
+          arming it disarms any insert tool, and vice versa. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={handOn}
+            onPressedChange={(pressed) => hand?.set(pressed)}
+            aria-label="Hand"
+            disabled={!hand || !editor}
+          >
+            <IconHandStop size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Hand ({TOOL_HINTS.hand})</TooltipContent>
       </Tooltip>
 
       {/* Text box */}

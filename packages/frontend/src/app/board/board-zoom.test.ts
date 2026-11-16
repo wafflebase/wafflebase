@@ -3,6 +3,8 @@ import type { Frame } from "@wafflebase/slides";
 import { DEFAULT_VIEWPORT } from "@wafflebase/board";
 import { FIT_ZOOM } from "../slides/zoom-controller";
 import {
+  selectionFitViewport,
+  stepZoomPreset,
   BOARD_MAX_ZOOM,
   BOARD_MIN_ZOOM,
   applyZoomValue,
@@ -232,5 +234,47 @@ describe("createBoardZoomBinding", () => {
     expect(h.commits).toHaveLength(0);
     expect(h.viewport).toBe(before);
     expect(h.frameReads).toBe(0);
+  });
+});
+
+describe("stepZoomPreset", () => {
+  it("steps to the next preset strictly past the current zoom", () => {
+    expect(stepZoomPreset(1, 1)).toBe(2);
+    expect(stepZoomPreset(1, -1)).toBe(0.5);
+    expect(stepZoomPreset(1.37, 1)).toBe(2);
+    expect(stepZoomPreset(1.37, -1)).toBe(1);
+  });
+
+  it("clamps at the ends of the range", () => {
+    expect(stepZoomPreset(8, 1)).toBe(8);
+    expect(stepZoomPreset(0.1, -1)).toBe(0.1);
+  });
+});
+
+describe("selectionFitViewport", () => {
+  const frame = (x: number, y: number, w: number, h: number) =>
+    ({ x, y, w, h, rotation: 0 }) as Frame;
+  const elements = [
+    { id: "a", frame: frame(0, 0, 100, 100) },
+    { id: "b", frame: frame(1000, 1000, 100, 100) },
+  ];
+  const host = { w: 800, h: 600 };
+
+  it("frames only the selected elements, centred, capped at 200%", () => {
+    const vp = selectionFitViewport(elements, ["b"], host)!;
+    expect(vp.zoom).toBe(2);
+    // The selection centre (1050, 1050) lands on the host centre.
+    expect(vp.panX + 1050 * vp.zoom).toBeCloseTo(400);
+    expect(vp.panY + 1050 * vp.zoom).toBeCloseTo(300);
+  });
+
+  it("zooms out to fit a spread selection", () => {
+    const vp = selectionFitViewport(elements, ["a", "b"], host)!;
+    expect(vp.zoom).toBeLessThan(1);
+  });
+
+  it("is a no-op with nothing selected or only a nested member", () => {
+    expect(selectionFitViewport(elements, [], host)).toBeUndefined();
+    expect(selectionFitViewport(elements, ["child-of-group"], host)).toBeUndefined();
   });
 });

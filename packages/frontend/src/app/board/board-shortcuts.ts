@@ -8,16 +8,18 @@ import type { ShortcutItem } from "@/components/shortcuts-help-dialog";
  */
 export type BoardTool =
   | { kind: "select" }
+  | { kind: "hand" }
   | { kind: "sticky" }
   | { kind: "insert"; insert: InsertKind };
 
 /**
  * FigJam's single-key tools, which is what a board user's hands already
- * know: V select, T text, S sticky, R rectangle, O ellipse, L line,
- * Shift+L arrow, X connector.
+ * know: V select, H hand, T text, S sticky, R rectangle, O ellipse,
+ * L line, Shift+L arrow, X connector.
  */
 const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   v: { kind: "select" },
+  h: { kind: "hand" },
   t: { kind: "insert", insert: "text" },
   s: { kind: "sticky" },
   r: { kind: "insert", insert: "rect" },
@@ -51,6 +53,7 @@ export function boardToolForKey(e: {
 /** Tool-key hints shown in the toolbar tooltips. */
 export const TOOL_HINTS = {
   select: "V",
+  hand: "H",
   text: "T",
   sticky: "S",
 } as const;
@@ -76,6 +79,7 @@ export const BOARD_SHORTCUT_CATEGORIES = [
  */
 export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["V", "Esc"], description: "Select" },
+  { category: "Tools", keys: ["H"], description: "Hand (drag to pan)" },
   { category: "Tools", keys: ["T"], description: "Text box" },
   { category: "Tools", keys: ["S"], description: "Sticky note" },
   { category: "Tools", keys: ["R"], description: "Rectangle" },
@@ -85,8 +89,12 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["X"], description: "Connector" },
 
   { category: "Canvas", keys: ["Space"], description: "Pan (hold, then drag)" },
-  { category: "Canvas", keys: ["Mod"], description: "Zoom (hold, then scroll)" },
+  { category: "Canvas", keys: ["Mod"], description: "Zoom (hold, then scroll or pinch)" },
+  { category: "Canvas", keys: ["Shift"], description: "Pan sideways (hold, then scroll)" },
+  { category: "Canvas", keys: ["Mod+=", "Mod+-"], description: "Zoom in / out" },
+  { category: "Canvas", keys: ["Mod+0"], description: "Zoom to 100%" },
   { category: "Canvas", keys: ["Shift+1"], description: "Zoom to fit" },
+  { category: "Canvas", keys: ["Shift+2"], description: "Zoom to selection" },
 
   { category: "Selection", keys: ["Mod+A"], description: "Select everything" },
   { category: "Selection", keys: ["Esc"], description: "Finish editing text; clear selection" },
@@ -140,9 +148,20 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
 
 /** What {@link handleBoardToolKey} needs from the board. */
 export interface BoardToolKeyContext {
-  editor: Pick<SlidesEditor, "isTextEditing" | "getSelection" | "setInsertMode">;
+  editor: Pick<
+    SlidesEditor,
+    "isTextEditing" | "isCropping" | "getSelection" | "setInsertMode"
+  >;
   readOnly: boolean;
   fit: () => void;
+  /** Step the zoom to the next preset in `direction`, about the host centre. */
+  zoomStep: (direction: 1 | -1) => void;
+  /** Zoom to an absolute scale (Mod+0 → 1), about the host centre. */
+  zoomTo: (zoom: number) => void;
+  /** Frame the current selection (Shift+2); a no-op with nothing selected. */
+  fitSelection: () => void;
+  /** Arm or disarm the hand (drag-to-pan) tool. */
+  setHand: (on: boolean) => void;
   dropSticky: () => void;
   /**
    * Whether the keystroke's target belongs to the board: its canvas,
@@ -155,31 +174,112 @@ export interface BoardToolKeyContext {
 }
 
 /**
- * The board's document-level keydown for single-key tools and Shift+1
- * zoom-to-fit. Returns whether it handled the key.
- *
- * The gates, in order: a key someone else already took, a held key's
- * auto-repeat, a keystroke aimed outside the board, one meant for a field
- * / menu / dialog
- * ({@link isTextEntryTarget}), and a live text edit all pass through.
- * Shift+1 is a view action, so it works read-only and with a selection.
- * Tools need an editable board with nothing selected: with a selection, a
- * printable key is the slides editor's type-to-edit (Google Slides
- * parity), which must keep winning on a selected sticky.
+ * The view action a zoom chord (`Mod+=`, `Mod++`, `Mod+-`, `Mod+0`) asks
+ * for, or `null`. Matched on `code` as well as `key` so a layout that
+ * puts `=` / `-` on a different shift level (or the numpad) still works.
  */
+export function zoomChordForKey(e: {
+  key: string;
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): "in" | "out" | "reset" | null {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
+  if (e.key === "=" || e.key === "+" || e.code === "Equal" || e.code === "NumpadAdd") return "in";
+  if (e.key === "-" || e.key === "_" || e.code === "Minus" || e.code === "NumpadSubtract") return "out";
+  if (e.key === "0" || e.code === "Digit0" || e.code === "Numpad0") return "reset";
+  return null;
+}
+
+/**
+ * Whether a keystroke is the bare Shift+digit view shortcut `digit`.
+ * Matched on `code`: the produced `key` is `!` / `@` on US layouts and
+ * something else elsewhere.
+ */
+function isShiftDigit(e: KeyboardEvent, digit: 1 | 2): boolean {
+  return (
+    e.shiftKey && e.code === `Digit${digit}` && !e.metaKey && !e.ctrlKey && !e.altKey
+  );
+}
+
+/**
+ * The board's document-level keydown for single-key tools and view
+ * shortcuts (zoom chords, Shift+1 fit, Shift+2 zoom to selection).
+ * Returns whether it handled the key.
+ *
+ * Registered in the CAPTURE phase by `BoardView`, ahead of the slides
+ * editor's bubble-phase key rules: otherwise type-to-edit claims Shift+1 /
+ * Shift+2 on a selected sticky and types `!` / `@` into it instead of
+ * zooming. Letters still reach type-to-edit, because tools stand down
+ * whenever something is selected.
+ *
+ * The gates, in order: a key someone else already took, a keystroke
+ * aimed outside the board, one meant for a field / menu / dialog
+ * ({@link isTextEntryTarget}), and a live text edit all pass through.
+ * View shortcuts work read-only and with a selection; the zoom chords
+ * also honour auto-repeat (hold Mod+= to keep zooming) and suppress the
+ * browser's page zoom, which on a canvas app only blurs the UI. Tools
+ * ignore auto-repeat and need an editable board with nothing selected
+ * (a read-only board pans on a plain drag already):
+ * with a selection, a printable key is the slides editor's type-to-edit
+ * (Google Slides parity), which must keep winning on a selected sticky.
+ */
+/**
+ * Claim a key the board acted on. `stopPropagation` as well as
+ * `preventDefault`: the editor's bubble-phase type-to-edit rule does not
+ * check `defaultPrevented`, so without it a Shift+2 on a selected sticky
+ * would zoom AND start an edit seeded with `@`.
+ */
+function consume(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
 export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): boolean {
-  if (e.defaultPrevented || e.repeat) return false;
+  if (e.defaultPrevented) return false;
   if (!ctx.isBoardTarget(e.target)) return false;
   if (isTextEntryTarget(e.target) || ctx.editor.isTextEditing()) return false;
-  if (e.shiftKey && e.code === "Digit1" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault();
+  // An image crop owns the keyboard (Enter commits, Esc cancels); moving
+  // the viewport under it is not something it expects.
+  if (ctx.editor.isCropping()) return false;
+  const chord = zoomChordForKey(e);
+  if (chord) {
+    consume(e);
+    if (chord === "reset") {
+      if (!e.repeat) ctx.zoomTo(1);
+    } else {
+      ctx.zoomStep(chord === "in" ? 1 : -1);
+    }
+    return true;
+  }
+  if (e.repeat) return false;
+  if (isShiftDigit(e, 1)) {
+    consume(e);
     ctx.fit();
     return true;
+  }
+  if (isShiftDigit(e, 2)) {
+    consume(e);
+    ctx.fitSelection();
+    return true;
+  }
+  // Esc returns to Select (the shortcut sheet says so) from the hand
+  // as from any insert tool. Not consumed: the editor still runs its own
+  // Esc (clear the insert mode, deselect).
+  if (e.key === "Escape") {
+    ctx.setHand(false);
+    return false;
   }
   if (ctx.readOnly || ctx.editor.getSelection().length > 0) return false;
   const tool = boardToolForKey(e);
   if (!tool) return false;
-  e.preventDefault();
+  consume(e);
+  if (tool.kind === "hand") {
+    ctx.setHand(true);
+    return true;
+  }
+  ctx.setHand(false);
   if (tool.kind === "select") ctx.editor.setInsertMode(null);
   else if (tool.kind === "sticky") ctx.dropSticky();
   else ctx.editor.setInsertMode(tool.insert);
