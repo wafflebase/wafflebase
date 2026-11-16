@@ -150,13 +150,16 @@ Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
 
 #### Daily reset
 
-> **Blocked upstream (2026-11-15).** `RestoreRevision` fails on every real
-> wafflebase document with `[invalid_argument] unsupported element`, on both
-> the production Yorkie (0.7.27-rc) and 0.7.24: Yorkie's YSON parser reads
-> any plain object with a string `type` field (`{type: "sheet"}` tab meta,
-> slides elements) as a typed value. The service below is shipped but must
-> stay unset until a Yorkie release fixes that; the history panel's Restore
-> fails for the same reason.
+> **Needs Yorkie ≥ 0.7.28.** Before it, `RestoreRevision` failed on every
+> real wafflebase document with `[invalid_argument] unsupported element`:
+> Yorkie's YSON parser read any plain object with a string `type` field
+> (`{type: "sheet"}` tab meta, slides elements) as a typed value
+> (yorkie#2364, fixed in yorkie#2365). A MongoDB deployment that once ran
+> yorkie#1582 may also still hold its unique index
+> `revisions.doc_id_1_project_id_1_label_1`, which yorkie#1587 removed from
+> the code but MongoDB keeps: while it exists a document can hold one
+> revision per label, so the second "Before restore" safety revision fails
+> with `E11000` and the restore never runs. Drop it by hand.
 
 The three demo panes are **editor** share links to real documents, so every
 visitor edits the same copy. `packages/backend/src/demo-reset/` puts them back
