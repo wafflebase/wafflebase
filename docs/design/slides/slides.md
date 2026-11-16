@@ -532,6 +532,14 @@ field through on every read.
 The thumbnail panel is collapsible via the View menu and uses virtual
 scrolling to stay responsive at the v1 ceiling (~100 slides).
 
+**Peer name tags.** The selection and cursor name tags in `overlay.ts`
+take their text color from `readableTextColor(peerColor)`
+(`@wafflebase/core/tokens`), which picks white or near-black `#1A1A1A`
+by WCAG contrast. The peer palettes are mostly light pastels, where the
+old fixed white measured as low as 1.4:1; every palette entry now
+clears 4.5:1. Docs and Sheets peer labels use the same helper in place
+of their own YIQ-threshold copies (which put white on `#FF6B6B`, 2.8:1).
+
 #### Context menus
 
 Right-click (and long-press on touch) opens a context menu built on

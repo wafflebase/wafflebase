@@ -1,3 +1,4 @@
+import { readableTextColor } from '@wafflebase/core/tokens';
 import {
   CELL_RANGE_FILL,
   HOVER_OUTLINE,
@@ -955,7 +956,9 @@ function renderPeerOverlays(
     el.style.transform = 'translateY(-100%)';
     el.style.transformOrigin = 'left bottom';
     el.style.background = label.color;
-    el.style.color = '#fff';
+    // Peer palettes are mostly light pastels; white text on them measures
+    // as low as 1.4:1, so pick white or near-black by contrast.
+    el.style.color = readableTextColor(label.color);
     el.style.font = '11px/1.4 system-ui, -apple-system, sans-serif';
     el.style.padding = '1px 6px';
     el.style.borderRadius = '3px 3px 3px 0';
@@ -1017,7 +1020,7 @@ export function renderPeerCursors(
     tag.style.left = `${cursor.x * scale + px + 10}px`;
     tag.style.top = `${cursor.y * scale + py + 10}px`;
     tag.style.background = cursor.color;
-    tag.style.color = '#fff';
+    tag.style.color = readableTextColor(cursor.color);
     tag.style.font = '11px/1.4 system-ui, -apple-system, sans-serif';
     tag.style.padding = '1px 6px';
     tag.style.borderRadius = '3px';

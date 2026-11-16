@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { LABEL_TEXT_DARK, LABEL_TEXT_LIGHT } from '@wafflebase/core/tokens';
 import { drawPeerLabel } from '../overlay';
 
 function createMockCtx() {
@@ -66,8 +67,8 @@ describe('drawPeerLabel', () => {
       get() { return fillStyleCalls[fillStyleCalls.length - 1] ?? ''; },
     });
     drawPeerLabel(ctx, 'user1', '#FFEAA7', cellRect, port, 0);
-    // Last fillStyle before fillText should be black
-    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe('#000000');
+    // Last fillStyle before fillText should be near-black
+    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe(LABEL_TEXT_DARK);
   });
 
   it('uses white text on dark backgrounds', () => {
@@ -80,9 +81,25 @@ describe('drawPeerLabel', () => {
       set(v: string) { fillStyleCalls.push(v); },
       get() { return fillStyleCalls[fillStyleCalls.length - 1] ?? ''; },
     });
-    // Dark red background — should get white text
-    drawPeerLabel(ctx, 'user2', '#FF6B6B', cellRect, port, 0);
-    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe('#FFFFFF');
+    // Dark blue background — should get white text
+    drawPeerLabel(ctx, 'user2', '#1967D2', cellRect, port, 0);
+    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe(LABEL_TEXT_LIGHT);
+  });
+
+  it('picks by WCAG contrast, not a brightness threshold', () => {
+    // Peer coral #FF6B6B: white measures 2.8:1, near-black 6.2:1. The old
+    // YIQ threshold (0.6) put white on it.
+    const ctx = createMockCtx();
+    const cellRect = { left: 100, top: 50, width: 80, height: 25 };
+    const port = { left: 0, top: 0, width: 800, height: 600 };
+
+    const fillStyleCalls: string[] = [];
+    Object.defineProperty(ctx, 'fillStyle', {
+      set(v: string) { fillStyleCalls.push(v); },
+      get() { return fillStyleCalls[fillStyleCalls.length - 1] ?? ''; },
+    });
+    drawPeerLabel(ctx, 'user3', '#FF6B6B', cellRect, port, 0);
+    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe(LABEL_TEXT_DARK);
   });
 
   it('stacks labels for peers on the same cell', () => {

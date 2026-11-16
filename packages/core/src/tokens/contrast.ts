@@ -64,3 +64,37 @@ export function contrastRatio(foreground: string, background: string): number {
   const [lighter, darker] = lf > lb ? [lf, lb] : [lb, lf];
   return (lighter + 0.05) / (darker + 0.05);
 }
+
+/** White label text — the light half of {@link readableTextColor}. */
+export const LABEL_TEXT_LIGHT = '#FFFFFF';
+/**
+ * Near-black label text — the dark half of {@link readableTextColor}. Not
+ * pure black, which reads harsher than the rest of the chrome; still above
+ * 4.5:1 on every background where it beats white.
+ */
+export const LABEL_TEXT_DARK = '#1A1A1A';
+
+/**
+ * Pick the text color — near-black or white — with the higher WCAG
+ * contrast against `background`. For text set on a color chosen at
+ * runtime, such as a collaborator's name tag on their peer color: the
+ * peer palettes are mostly light pastels, where white text measures
+ * 1.4–2.8:1.
+ *
+ * Accepts `#RRGGBB` and `oklch(...)`. Any other format returns white, the
+ * color the call sites used before, rather than throwing mid-paint.
+ */
+export function readableTextColor(background: string): string {
+  let bg: RGB;
+  try {
+    bg = parseColor(background);
+  } catch {
+    return LABEL_TEXT_LIGHT;
+  }
+  const lb = relativeLuminance(bg);
+  const ld = relativeLuminance(hexToRgb(LABEL_TEXT_DARK));
+  // White's luminance is 1, so white-on-bg is (1 + .05) / (lb + .05).
+  const onWhite = 1.05 / (lb + 0.05);
+  const onDark = (lb + 0.05) / (ld + 0.05);
+  return onDark > onWhite ? LABEL_TEXT_DARK : LABEL_TEXT_LIGHT;
+}
