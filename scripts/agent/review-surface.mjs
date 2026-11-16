@@ -51,6 +51,7 @@ import { repoScopedEnv } from "./git-env.mjs";
 import { gh } from "./gh-checks.mjs";
 import { findingLocation } from "./novelty.mjs";
 import { collectFixDispatches } from "./rounds.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-fA-F]{40}$/;
@@ -330,7 +331,7 @@ async function dryRun(argv) {
   console.log(`demotes: ${DEMOTING_SCOPES.has(r.scope)}`);
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   const argv = process.argv.slice(2);
   if (argv[0] === "resolve") {
     cmdResolve(argv.slice(1));

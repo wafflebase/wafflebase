@@ -100,6 +100,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "./direct-run.mjs";
 import { Refusal, checkLockfile, checkProjects, readBranchFile } from "./install-deps-lockfile.mjs";
 
 /** The pnpm this install was audited against. Equal to the root `packageManager`. */
@@ -762,12 +763,34 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * Was this file run, or imported? `isEntryPoint` takes both sides through
+ * `realpath`: Node resolves the module's own URL through symbolic links but
+ * leaves `argv[1]` as typed, so a run through a linked path — the staged
+ * directory this file is started from passing through one — compared unequal
+ * and exited 0 having done nothing, neither installing nor refusing. (A linked
+ * *workspace* is a separate matter, and `installDeps` refuses it.)
+ *
+ * It throws on a path it cannot resolve rather than answering "imported", and
+ * that answer is turned into a refusal here: a quiet `exit 0` is credited by
+ * the workflow as a successful install, and nothing downstream checks that
+ * `node_modules` appeared. An entry path this process cannot resolve is an
+ * impossible state like every other one in this file — it refuses, loudly.
+ */
+function isDirectRun() {
   try {
-    process.exitCode = installDeps({ workspace: process.env.GITHUB_WORKSPACE || process.cwd() });
+    return isEntryPoint(import.meta.url);
   } catch (error) {
-    if (!(error instanceof Refusal)) throw error;
-    console.error(`::error::install-deps: ${error.message}`);
-    process.exitCode = 1;
+    refuse(error.message);
   }
+}
+
+try {
+  if (isDirectRun()) {
+    process.exitCode = installDeps({ workspace: process.env.GITHUB_WORKSPACE || process.cwd() });
+  }
+} catch (error) {
+  if (!(error instanceof Refusal)) throw error;
+  console.error(`::error::install-deps: ${error.message}`);
+  process.exitCode = 1;
 }

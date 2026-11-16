@@ -19,7 +19,8 @@
 // Usage (CLI): node ./scripts/agent/command.mjs "<comment body>" <issue|pr>
 //   Emits `command=<verb>` to $GITHUB_OUTPUT (when set) and stdout.
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, realpathSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // verb token in the comment -> canonical command. Order is irrelevant to
@@ -67,8 +68,53 @@ export function parseCommand(body, { surface = "pr" } = {}) {
 }
 
 // --- CLI -------------------------------------------------------------------
+// THE ONE TOOL HERE THAT DOES NOT IMPORT `./direct-run.mjs`, and it must stay
+// that way. Every other tool in this directory is delivered as the whole
+// directory — a `scripts/agent` sparse-checkout, or the staged
+// `$RUNNER_TEMP/agent-tools` copy. This file is delivered ALONE: seven
+// workflows open a cheap `route` job whose checkout names
+// `scripts/agent/command.mjs` and nothing else
+// (`sparse-checkout-cone-mode: false`), then run it. A local import is not a
+// refactor there, it is an outage — the imported file is absent, node exits
+// with ERR_MODULE_NOT_FOUND before `parseCommand` is reached, and EVERY verb
+// (`review`, `loop`, `fix`, `rerun`, `summarize`, the review replies) stops
+// being routed. Unit tests cannot see it, because they import this module from
+// a full checkout.
+//
+// So the run-or-imported answer is computed here, in node builtins only, and
+// `direct-run.test.mjs` holds this copy to `isEntryPoint`'s behaviour rather
+// than to its text: the two are run against the same argv states, including an
+// entry path reached through a symbolic link. Read the long WHY in
+// `direct-run.mjs`; the rule is that both sides of the comparison go through
+// `realpath`, and a path that exists but cannot be resolved THROWS instead of
+// answering "imported" — for the router that is the difference between a failed
+// step and an empty `command=`, which routes nothing and reports success.
+function isEntryPoint(metaUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const self = fileURLToPath(metaUrl);
+  if (path.resolve(entry) === self) return true;
+  let realEntry;
+  try {
+    realEntry = realpathSync(entry);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw unresolvable(entry, error);
+  }
+  try {
+    return realEntry === realpathSync(self);
+  } catch (error) {
+    throw unresolvable(self, error);
+  }
+}
+
+const unresolvable = (target, cause) =>
+  new Error(`cannot tell whether this script was run or imported: ${target} does not resolve through symbolic links (${String(cause?.message ?? cause)})`, {
+    cause,
+  });
+
 // Only run when invoked directly (not when imported by the test file).
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isEntryPoint(import.meta.url)) {
   const surfaceArg = (process.argv[3] ?? "pr").toLowerCase();
   const surface = surfaceArg === "issue" ? "issue" : "pr";
   const { command } = parseCommand(process.argv[2] ?? "", { surface });

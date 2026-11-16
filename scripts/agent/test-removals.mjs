@@ -52,8 +52,7 @@
 // evidence", which is exactly the behaviour before this existed.
 
 import { execFileSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "./direct-run.mjs";
 
 export const TEST_REMOVALS_MARKER = "<!-- agent-fix-tests ";
 export const TEST_REMOVALS_VERSION = 1;
@@ -559,6 +558,6 @@ function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

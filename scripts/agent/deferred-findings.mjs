@@ -35,10 +35,10 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "./gh-checks.mjs";
 import { BLOCKING, normalizeSeverity } from "./severity.mjs";
 import { findingLocation } from "./novelty.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 /**
  * The check-run name, and it is load-bearing that it is OUTSIDE
@@ -455,6 +455,6 @@ function main(argv) {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+if (isEntryPoint(import.meta.url)) {
   main(process.argv);
 }

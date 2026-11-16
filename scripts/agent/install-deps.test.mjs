@@ -38,7 +38,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const SCRIPT = path.join(HERE, "install-deps.mjs");
 const ENTRY = path.join(HERE, "install-deps-container.cjs");
-const SHIPPED = ["install-deps.mjs", "install-deps-lockfile.mjs", "install-deps-container.cjs", "install-deps.workspace.yaml", "install-deps.npmrc"];
+const SHIPPED = ["install-deps.mjs", "install-deps-lockfile.mjs", "install-deps-container.cjs", "install-deps.workspace.yaml", "install-deps.npmrc", "direct-run.mjs"];
 const TRUSTED_WORKSPACE = readFileSync(path.join(HERE, "install-deps.workspace.yaml"), "utf8");
 const TMP = realpathSync(os.tmpdir());
 
@@ -824,6 +824,21 @@ test("without a runner temp directory outside the workspace there is no install"
     assert.notEqual(named.status, 0, name);
     assert.match(named.stderr, expected, name);
   }
+});
+
+test("run through a linked path, the script still runs: it refuses or installs, never exits 0 having done nothing", (t) => {
+  const base = mkdtempSync(path.join(TMP, "install-deps-link-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const linked = path.join(base, "agent-tools");
+  symlinkSync(HERE, linked);
+  // No workspace: the script itself refuses, which proves it ran.
+  const r = spawnSync(process.execPath, [path.join(linked, "install-deps.mjs")], {
+    cwd: base,
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, GITHUB_WORKSPACE: path.join(base, "no-such-workspace"), RUNNER_TEMP: base },
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /^::error::install-deps: the workspace is not an existing absolute path/m);
 });
 
 test("after the install, anything that left the workspace fails the step", (t) => {
