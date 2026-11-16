@@ -44,6 +44,7 @@ import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { uploadImageFile } from "./image-upload";
+import { selectionToA1 } from "./rule-panel-utils";
 import { YorkieStore } from "./yorkie-store";
 import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
@@ -781,14 +782,7 @@ export function SheetView({
 
   const getSelectionRange = useCallback(() => {
     const sheet = sheetRef.current;
-    if (!sheet) return null;
-    if (sheet.getSelectionType() !== "cell") return null;
-
-    const ranges = sheet.getSelectionRanges();
-    if (ranges.length === 0) return null;
-    return ranges
-      .map((r) => `${toSref(r[0])}:${toSref(r[1])}`)
-      .join(", ");
+    return sheet ? selectionToA1(sheet) : null;
   }, []);
 
   const handleGridPointerDown = useCallback(

@@ -52,6 +52,35 @@ export function formatA1Ranges(ranges: Range[]): string {
   return ranges.map((r) => `${toSref(r[0])}:${toSref(r[1])}`).join(", ");
 }
 
+/**
+ * The part of the `Spreadsheet` API `selectionToA1` reads.
+ */
+export type SelectionSource = {
+  getSelectionType(): string | undefined;
+  getSelectionRanges(): Range[];
+  getSelectionRangeOrActiveCell(): Range | undefined;
+};
+
+/**
+ * `selectionToA1` formats the current cell selection as the A1 text the
+ * range-scoped side panels (chart, conditional formatting, data validation)
+ * read. A plain click leaves no drag range — the selection is only the active
+ * cell — so this falls back to that cell (or the merge covering it) rather
+ * than reporting no selection; otherwise the most common case, one selected
+ * cell, could never seed a rule. Returns null for a row/column/all selection.
+ */
+export function selectionToA1(sheet: SelectionSource): string | null {
+  if (sheet.getSelectionType() !== "cell") {
+    return null;
+  }
+  const ranges = sheet.getSelectionRanges();
+  if (ranges.length > 0) {
+    return formatA1Ranges(ranges);
+  }
+  const active = sheet.getSelectionRangeOrActiveCell();
+  return active ? formatA1Ranges([active]) : null;
+}
+
 export type PanelOpening =
   | { kind: "existing"; ruleId: string }
   | { kind: "draft"; ranges: Range[] }

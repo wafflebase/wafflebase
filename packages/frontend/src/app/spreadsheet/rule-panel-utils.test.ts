@@ -4,6 +4,8 @@ import {
   formatA1Ranges,
   panelOpeningFor,
   parseA1Ranges,
+  selectionToA1,
+  type SelectionSource,
 } from "./rule-panel-utils";
 
 const B2E4: Range = [
@@ -54,5 +56,49 @@ describe("panelOpeningFor", () => {
 
   it("opens on the list without a cell selection", () => {
     expect(panelOpeningFor([], null)).toEqual({ kind: "none" });
+  });
+});
+
+describe("selectionToA1", () => {
+  // Mirrors the Spreadsheet API after a plain click on C3: no drag range,
+  // only an active cell.
+  const clickedC3 = (): SelectionSource => ({
+    getSelectionType: () => "cell",
+    getSelectionRanges: () => [],
+    getSelectionRangeOrActiveCell: () => [
+      { r: 3, c: 3 },
+      { r: 3, c: 3 },
+    ],
+  });
+
+  it("falls back to the active cell when no drag range exists", () => {
+    expect(selectionToA1(clickedC3())).toBe("C3:C3");
+  });
+
+  it("lets a panel draft a rule for a single selected cell", () => {
+    expect(panelOpeningFor([], selectionToA1(clickedC3()))).toEqual({
+      kind: "draft",
+      ranges: [
+        [
+          { r: 3, c: 3 },
+          { r: 3, c: 3 },
+        ],
+      ],
+    });
+  });
+
+  it("formats every drag range when there are some", () => {
+    expect(
+      selectionToA1({
+        ...clickedC3(),
+        getSelectionRanges: () => [B2E4, [{ r: 1, c: 1 }, { r: 1, c: 1 }]],
+      }),
+    ).toBe("B2:E4, A1:A1");
+  });
+
+  it("reports no selection for a row, column or all selection", () => {
+    expect(
+      selectionToA1({ ...clickedC3(), getSelectionType: () => "row" }),
+    ).toBeNull();
   });
 });
