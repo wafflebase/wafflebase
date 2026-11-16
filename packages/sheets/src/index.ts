@@ -242,6 +242,7 @@ export {
   buildTabNameNormalizationPatches,
   type TabNamePatch,
 } from './model/workbook/tab-name';
+export { duplicateTab } from './model/workbook/tab-duplicate';
 import {
   type Comment,
   type CommentAnchor,

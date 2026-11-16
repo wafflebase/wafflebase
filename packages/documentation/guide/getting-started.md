@@ -56,7 +56,7 @@ If the email column looks cramped, hover over the border between column headers 
 
 ### Add a Tab
 
-Your document starts with one tab called **Sheet1**. Click the **+** button next to the tab bar at the bottom to add a new tab. Double-click the tab name to rename it.
+Your document starts with one tab called **Sheet1**. Click the **+** button next to the tab bar at the bottom to add a new sheet. Double-click the tab name to rename it, or right-click it to rename, duplicate, move, or delete it.
 
 ## Try a Document
 

@@ -64,7 +64,8 @@ SheetContextMenu (new)
 
 TabContextMenu (modified tab-bar.tsx)
 ├── Wraps tab element as ContextMenuTrigger
-├── Rename
+├── Rename, Duplicate (sheet tabs)
+├── Move left / Move right
 └── Delete (if > 1 tab)
 
 components/ui/context-menu.tsx (new)
@@ -132,8 +133,32 @@ Same pattern as Row Menu with left/right instead of above/below, and
 #### Tab Menu
 
 - Rename
+- Duplicate (only for `sheet` tabs, and only when the host wires
+  `onDuplicateTab`) — the copy lands right after the source as
+  `<name> (copy)` and becomes active
+- ─── separator ───
+- Move left / Move right (only when the host wires `onMoveTab` and there are
+  multiple tabs; disabled at the ends) — the keyboard path for reordering,
+  since drag-to-reorder is pointer-only
 - ─── separator ───
 - Delete (destructive variant, only if multiple tabs)
+
+Duplicate runs `duplicateTab` from `@wafflebase/sheets`, the same function the
+v1 `POST .../tabs/:tabId/duplicate` route uses, so the editor and the API make
+the same copy (comments dropped, self-sourced charts repointed, a pivot output
+becomes a plain snapshot). The host detaches the source worksheet from the
+Yorkie proxy (`toJS()`) before writing it under the new key. A `datasource` /
+`lakehouse` tab has no worksheet to copy, so the item is hidden there.
+
+#### Tab Bar
+
+The tab strip is a `role="tablist"` (`aria-label="Sheets"`) of `role="tab"`
+buttons with `aria-selected` and a roving `tabIndex`; Left/Right/Home/End move
+focus and select (automatic activation). The add controls sit outside the
+tablist: **+** (`Add sheet`) adds a plain sheet in one click, as in Google
+Sheets, and the adjacent chevron (`More tab types`) opens **Connect data source
+(SQL)…** and **Connect lakehouse table…** — the tab kinds Google has no
+counterpart for, named for what they do.
 
 ### Position Detection
 
