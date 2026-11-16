@@ -508,7 +508,7 @@ describe('slides text-box editor wiring', () => {
     expect(editor.getEditingElementId()).not.toBeNull();
   });
 
-  it('Escape discards in-flight edits (cancel suppresses the subsequent commit write)', () => {
+  it('Escape keeps in-flight edits (the blur that follows commits them)', () => {
     const { canvas, overlay, store } = makeFixture();
     const { slideId, elementId } = addTextElement(store, [paragraph('hello')]);
     const { mount, current } = makeMockMount();
@@ -521,22 +521,18 @@ describe('slides text-box editor wiring', () => {
     const tb = current()!;
     // Real docs editor sequence on Escape: fires onCancel first, then
     // routes the subsequent blur through onCommit with whatever the
-    // user typed. Drive both, supplying *modified* blocks so we verify
-    // they are NOT persisted.
+    // user typed. Google Slides keeps that text, and so do we.
     tb.fireCancel();
-    tb.fireCommit([paragraph('typed-but-discarded')]);
+    tb.fireCommit([paragraph('typed-then-escaped')]);
     expect(editor.getEditingElementId()).toBeNull();
-    // Store still has the original blocks — edits were discarded.
     const slide = store.read().slides.find((s) => s.id === slideId)!;
     const element = slide.elements.find((e) => e.id === elementId)! as TextElement;
-    expect(element.data.blocks[0].inlines[0].text).toBe('hello');
-    // The previous (pre-Escape) batch is the addTextElement that ran in
-    // the test setup. One undo should remove the text element entirely;
-    // if the commit-suppression had failed and a write-batch had been
-    // pushed, undo would only roll the blocks back instead of removing
-    // the element.
+    expect(element.data.blocks[0].inlines[0].text).toBe('typed-then-escaped');
+    // The edit is its own undo unit: one undo restores the old text
+    // rather than removing the element.
     store.undo();
-    expect(store.read().slides[0].elements).toHaveLength(0);
+    const after = store.read().slides[0].elements[0] as TextElement;
+    expect(after.data.blocks[0].inlines[0].text).toBe('hello');
   });
 
   it('align/distribute are no-ops while a text box is in edit mode', () => {

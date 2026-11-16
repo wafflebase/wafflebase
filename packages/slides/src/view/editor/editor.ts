@@ -356,6 +356,13 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * editor option.
    */
   hostCanvasMenuItems?: () => ContextMenuItem[];
+  /**
+   * Extra insert entries, listed first in the empty-canvas menu's
+   * "Insert …" group so a host object (the board's sticky note) sits with
+   * the built-in inserts instead of in a group of its own. `at` is the
+   * right-clicked point in logical (world) coordinates.
+   */
+  hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
 }
 
 export interface SlidesEditor {
@@ -3796,6 +3803,7 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     items.push(
       { label: '---',   run: () => undefined },
+      ...(this.options.hostInsertMenuItems?.({ x, y }) ?? []),
       { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
       { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
       { label: 'Insert text',      run: () => this.insertAt('text', x, y) },
@@ -4357,12 +4365,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.lastHoverCursor = '';
     }
 
-    // Escape sets `cancelled` first, THEN the docs editor routes the
-    // blur cascade through the onCommit branch below. The flag tells
-    // onCommit to skip the store write so the user's in-flight edits
-    // are discarded — matching the Word / Google Docs convention. The
-    // editor's source of truth (Yorkie) is only ever touched on
-    // commit, so "discard" is just "don't write" — no rollback needed.
+    // Escape KEEPS the edit: the docs editor routes its blur cascade
+    // through onCommit below, exactly as clicking outside does. That is
+    // what Google Slides, FigJam and Miro do — Escape leaves text edit
+    // with the box selected, never throwing away what was typed. Only
+    // `editingCancel` (a teardown such as `exitEditMode('cancel')`) sets
+    // `cancelled`, which tells onCommit to skip the store write. The
+    // source of truth (Yorkie) is only ever touched on commit, so
+    // "discard" is just "don't write" — no rollback needed.
     let cancelled = false;
     const tb = this.mountTextBox({
       overlay: this.options.overlay,
@@ -4497,9 +4507,8 @@ class SlidesEditorImpl implements SlidesEditor {
         }
         this.finishEditMode();
       },
-      onCancel: () => {
-        cancelled = true;
-      },
+      // Escape: nothing to do here — the blur that follows commits.
+      onCancel: () => {},
     });
     this.editingTextBox = tb;
     // See the field's comment: `detach()` flushes a final commit for a

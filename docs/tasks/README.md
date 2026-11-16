@@ -18,10 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./active/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./active/20261115-agent-harness-switch-lessons.md) |
 | docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./active/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./active/20261115-docs-site-brand-neutrals-lessons.md) |
 | implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./active/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./active/20261115-implement-post-agent-job-lessons.md) |
+| install deps linked path (2026-11-15) | [20261115-install-deps-linked-path-todo.md](./active/20261115-install-deps-linked-path-todo.md) | [20261115-install-deps-linked-path-lessons.md](./active/20261115-install-deps-linked-path-lessons.md) |
 | move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./active/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./active/20261115-move-agent-arms-lessons.md) |
 | tighten agent guard (2026-11-15) | [20261115-tighten-agent-guard-todo.md](./active/20261115-tighten-agent-guard-todo.md) | [20261115-tighten-agent-guard-lessons.md](./active/20261115-tighten-agent-guard-lessons.md) |
 | harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
@@ -65,7 +67,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 636
+- Archived task count: 637
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: agent harness adopt prep (2026-11-15)
+Latest active task: notes usability (2026-11-16)

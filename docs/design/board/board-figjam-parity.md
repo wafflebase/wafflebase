@@ -1,0 +1,155 @@
+---
+title: board-figjam-parity
+target-version: 0.6.15
+---
+
+# Board: FigJam-Parity Usability
+
+## Summary
+
+PRODUCT.md makes Google parity the default for editor behaviour, but
+Google has no whiteboard any more (Jamboard is gone), so for the board the
+familiar product is FigJam, with Miro close behind. This document records
+the first usability pass toward it, which came out of an Impeccable
+critique of the board (2026-11-16, 19/40), and lays out the phased plan for
+the rest.
+
+The critique's diagnosis is the organizing idea: **the board is the Slides
+editor without slide edges.** That reuse is why the board shipped quickly,
+and it is also why the board's own object, the sticky note, had fewer
+affordances than a rectangle, why its menus speak OOXML ("Elbow
+connector", "Block arrows"), and why behaviour that suits a deck (a 70-shape
+picker, Escape discarding an edit) leaked onto a canvas. Every phase below
+moves one piece from "inherited from Slides" to "designed for a board",
+without forking the shared scene engine.
+
+### Goals
+
+- A newcomer can make, edit and arrange stickies without a lesson, and
+  nothing they type is lost.
+- Every viewer sees the same board in both app themes.
+- A FigJam user's hands work: tool keys, Esc, the canvas menu.
+- Each phase keeps the shared Slides engine shared: board behaviour comes
+  in through host options and board-local components, never a fork.
+
+### Non-Goals
+
+- Pixel-matching FigJam's visual design. The board keeps the Ruled Ledger
+  system (DESIGN.md): zinc chrome, one syrup accent, the grid.
+- FigJam's audio, video and widget/plugin platform.
+- A board theme switcher. The plane is a document surface pinned to the
+  deck theme (§ Board plane); a per-board background is a later option.
+
+## Proposal Details
+
+### Shipped in the first pass
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Esc keeps the text it leaves.** Slides and board both commit on Esc; `exitEditMode('cancel')`, crop and drag still cancel. | `slides/src/view/editor/editor.ts` (`enterEditMode`) | Esc discarded a typed sticky, under a comment calling that the Google convention. It is not: Google Slides, FigJam and Miro all keep it. |
+| **Board plane** stays light in dark mode; grid, minimap and peer cursors use the light variant. | `frontend/src/app/board/board-plane.ts` | Content resolves against the pinned `defaultLight` deck theme. A dark plane drew default text near-black on near-black, and invited fixes invisible to light-mode peers. |
+| **Sticky placement** steps right off an occupied centre. | `sticky.ts` `freeStickyCenter` | The second sticky covered the first exactly, and read as the first vanishing. |
+| **Sticky controls**: a sticky-only selection shows the six sticky colours inline; "Insert sticky note" leads the canvas menu's insert group at the clicked point. | `sticky-controls.tsx`, `isStickyElement`, `hostInsertMenuItems` | A sticky got the rectangle's border/dash/gradient controls; recolouring took two clicks into a 40-swatch picker. |
+| **Minimap frame** clipped to the panel; panel no longer crops its canvas. | `minimap-geometry.ts` `clipToMini`, `board-minimap.ts` | Zoomed out past the content, the frame was drawn off-canvas and showed as a stray line. |
+| **Tools and shortcuts**: V T S R O L Shift+L X, Shift+1 to fit, hints in tooltips, a board shortcut sheet on Mod+/, an empty-board hint. | `board-shortcuts.ts`, `board-empty-hint.tsx` | None of the board's shortcuts were findable; Mod+/ did nothing. |
+| **Zoom presets** down to 10%. | `BOARD_ZOOM_PRESETS` | The dropdown stopped at 50% while the wheel reaches 10%. |
+
+#### Board plane
+
+The board's synthetic deck pins `defaultLight` (`boardToSlidesDocument`),
+and themed colours resolve against it. The plane is therefore a document
+surface, not chrome: it takes `defaultLight.colors.background` in both app
+themes, and everything painted on it uses the light palette. Only the
+toolbar and the rest of the chrome follow the app theme. This is the
+FigJam/Miro arrangement, and it is what keeps two collaborators in
+different app themes looking at the same board.
+
+#### Tool keys vs type-to-edit
+
+Slides' type-to-edit (a printable key on a selected text or shape starts
+editing it, with the key as the first character) is Google-parity and stays.
+FigJam's tool keys would collide with it on a selection, so tool keys fire
+**only with nothing selected**. This matches what both products do in the
+common case (a selected sticky receives the typing). The cost is that
+switching tools with a selection takes Esc first.
+
+### Roadmap
+
+Ordered by how much each phase removes from the gap a FigJam user feels,
+weighed against its cost. Phases 1 to 3 are board-local or additive host
+options. Phases 4 and 5 change the CRDT schema and need their own design
+docs before they start.
+
+**Phase 1: Sticky-first flow** (board-local)
+
+- Add an adjacent sticky: Mod+Enter on a selected sticky, and a "+" handle
+  on each side of a selected sticky (FigJam), both via `dropStickyAt` +
+  `freeStickyCenter` in that direction.
+- Cascade image inserts the same way. `insertImageOnSlide` needs the
+  decoded size before placing, so the footprint test moves into it.
+- Optional author tag on a sticky (FigJam's "show author"): a presence
+  username written once at creation, rendered small at the bottom edge.
+
+**Phase 2: A board tool dock** (frontend; slides untouched)
+
+- Move the insert tools into a bottom-centre floating dock (FigJam, Miro),
+  leaving the top bar for the view (zoom, grid) and the contextual
+  controls. The dock is where a whiteboard user looks first. On a phone it
+  is already the right shape.
+- Curate the shape list to about 12 board shapes (rectangle, rounded
+  rectangle, ellipse, diamond, triangle, parallelogram, arrows, star,
+  speech bubble), with "More shapes" opening the full OOXML picker.
+- Rename slides jargon on the board: Scribble to Marker, Elbow connector to
+  Connector, Curved connector to Curved.
+
+**Phase 3: Connect quickly** (additive editor options)
+
+- Hover "+" arrows on a shape or sticky that create a connected copy in
+  that direction (FigJam's quick-create), placed with `freeStickyCenter`'s
+  stepping rule and glued with the existing connector sites.
+- Connector labels: a text body on a connector, reusing the shape-text
+  editor at the midpoint.
+
+**Phase 4: Sections** (CRDT schema; needs a design doc)
+
+- A titled container that moves and resizes with its children, and that
+  Fit and the minimap can target. The Miro importer's best-effort `frame`
+  becomes a real section. Open question: a new element type, or a group
+  with a title and a frame. A group already carries children in local
+  coordinates (`slides/slides-group.md`), but groups select as a unit and
+  sections must not.
+
+**Phase 5: Collaboration rituals** (CRDT + backend)
+
+- Comments on the board through the shared comments module, anchored to
+  an element or a world point. This is the PRODUCT.md promise "comments
+  work the same way across every document type", currently broken for
+  boards.
+- Cursor chat and emoji reactions over the existing presence channel.
+- Voting with stamps, and a shared timer: ephemeral presence state, not
+  document state.
+
+**Phase 6: Out of the board**
+
+- Export the board (or a section) as PNG and PDF, reusing the offscreen
+  `drawSlide` path the minimap and thumbnail already use.
+- Paste a sheet range as a board table, which needs board table support
+  (today `YorkieBoardStore` throws on table ops).
+- A mobile board shell, following `slides/slides-mobile.md`.
+
+### Risks and Mitigation
+
+- **The shared engine is Slides' engine too.** The Esc change is the one
+  deliberate behaviour change to Slides in this pass, and it moves Slides
+  toward Google parity rather than away. *Mitigation:* every other change
+  is a host option (`hostInsertMenuItems`, `presets`) that defaults to
+  current Slides behaviour, and the roadmap keeps that rule.
+- **Sticky identity is a heuristic.** `isStickyElement` reads the preset's
+  signature (a `roundRect` with a solid fill and shrink-autofit text). A
+  user who sets a plain rounded rectangle to shrink-autofit gets sticky
+  controls. *Mitigation:* acceptable until Phase 4's schema work. At that
+  point a real `role: 'sticky'` marker can be written at creation and on
+  Miro import.
+- **FigJam keys vs Google keys.** Where they collide, the Google behaviour
+  stays (type-to-edit, Mod shortcuts) and the FigJam key is narrowed (§ Tool
+  keys vs type-to-edit). Any new key needs the same check.

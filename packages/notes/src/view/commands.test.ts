@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   toggleBold,
   toggleItalic,
@@ -11,6 +12,7 @@ import {
   insertFoldout,
   insertTable,
   computeActiveFormats,
+  setHeading,
 } from './commands.js';
 
 function mount(doc: string, from: number, to = from): EditorView {
@@ -166,6 +168,123 @@ describe('markdown commands', () => {
     }
     // Separator row has one '---' per column.
     expect((lines[1].match(/---/g) ?? []).length).toBe(2);
+    view.destroy();
+  });
+});
+
+describe('setHeading', () => {
+  const apply = (doc: string, from: number, to: number, level: 0 | 1 | 2 | 3) => {
+    const view = mount(doc, from, to);
+    setHeading(view, level);
+    const out = { text: view.state.doc.toString(), sel: view.state.selection.main };
+    view.destroy();
+    return out;
+  };
+
+  it('turns a paragraph line into a heading and back', () => {
+    expect(apply('Title', 2, 2, 2).text).toBe('## Title');
+    expect(apply('## Title', 4, 4, 0).text).toBe('Title');
+  });
+
+  it('replaces one level with another instead of stacking markers', () => {
+    expect(apply('### Title', 5, 5, 1).text).toBe('# Title');
+  });
+
+  it('is a set, not a toggle: the same level changes nothing', () => {
+    const view = mount('## Title', 4);
+    const before = view.state;
+    setHeading(view, 2);
+    expect(view.state).toBe(before);
+    view.destroy();
+  });
+
+  it('keeps the line in its quote or list', () => {
+    expect(apply('> Quote', 3, 3, 2).text).toBe('> ## Quote');
+    expect(apply('- item', 3, 3, 3).text).toBe('- ### item');
+    expect(apply('  1. step', 6, 6, 1).text).toBe('  1. # step');
+    expect(apply('- [ ] task', 7, 7, 2).text).toBe('- [ ] ## task');
+    expect(apply('- ## item', 5, 5, 0).text).toBe('- item');
+  });
+
+  it('puts the caret after the marker on an empty line', () => {
+    const { text, sel } = apply('', 0, 0, 2);
+    expect(text).toBe('## ');
+    expect(sel.head).toBe(3);
+  });
+
+  it('applies to every selected line but leaves blank ones blank', () => {
+    expect(apply('one\n\ntwo', 0, 8, 2).text).toBe('## one\n\n## two');
+  });
+
+  it('does not read emphasis or a rule as a container', () => {
+    expect(apply('*em*', 1, 1, 1).text).toBe('# *em*');
+    expect(apply('#tag', 1, 1, 1).text).toBe('# #tag');
+  });
+});
+
+describe('heading state', () => {
+  const headingAt = (doc: string, pos: number) => {
+    const view = mount(doc, pos);
+    const level = computeActiveFormats(view.state).heading;
+    view.destroy();
+    return level;
+  };
+
+  it('reads the caret line', () => {
+    expect(headingAt('# One\ntext', 2)).toBe(1);
+    expect(headingAt('# One\ntext', 8)).toBe(0);
+    expect(headingAt('> ### Three', 8)).toBe(3);
+    expect(headingAt('###### Six', 3)).toBe(6);
+  });
+
+  it('does not count a hash without a space', () => {
+    expect(headingAt('#tag', 2)).toBe(0);
+    expect(headingAt('####### seven', 2)).toBe(0);
+  });
+});
+
+describe('headings and code blocks', () => {
+  const FENCE = 'Intro\n```bash\n# install deps\nnpm ci\n```\nOutro';
+  const mountMd = (doc: string, from: number, to = from) =>
+    new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.range(from, to),
+        extensions: [markdown({ base: markdownLanguage })],
+      }),
+    });
+
+  it('does not read a comment in a fence as a heading', () => {
+    const view = mountMd(FENCE, FENCE.indexOf('install'));
+    expect(computeActiveFormats(view.state).heading).toBe(0);
+    view.destroy();
+  });
+
+  it('leaves code lines untouched, even when Normal text is picked on one', () => {
+    const view = mountMd(FENCE, FENCE.indexOf('install'));
+    setHeading(view, 0);
+    expect(view.state.doc.toString()).toBe(FENCE);
+    view.destroy();
+  });
+
+  it('restyles prose around a fence a selection crosses, not the code', () => {
+    const view = mountMd(FENCE, 0, FENCE.length);
+    setHeading(view, 2);
+    expect(view.state.doc.toString()).toBe(
+      '## Intro\n```bash\n# install deps\nnpm ci\n```\n## Outro',
+    );
+    view.destroy();
+  });
+
+  it('parses past the viewport before touching a far fence', () => {
+    // Far beyond any initial parse: the fence sits after ~6000 lines.
+    const prose = Array.from({ length: 6000 }, (_, i) => `line ${i}`).join('\n');
+    const doc = `${prose}\n\`\`\`\n# code\n\`\`\`\nend`;
+    const view = mountMd(doc, 0, doc.length);
+    setHeading(view, 1);
+    const out = view.state.doc.toString();
+    expect(out).toContain('\n```\n# code\n```\n# end');
+    expect(out.startsWith('# line 0\n')).toBe(true);
     view.destroy();
   });
 });

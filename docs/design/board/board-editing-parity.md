@@ -455,7 +455,9 @@ packages/frontend/src/app/board/
   themed role behaves as a stable 12-color palette. The pre-existing
   oddity that themed colors stay light-derived on a dark-mode canvas is
   inherited from SP1 and explicitly **not** addressed here; introducing
-  a board theme is a separate design.
+  a board theme is a separate design. (Since resolved the other way:
+  the plane no longer follows the app theme — see
+  [board-figjam-parity.md](board-figjam-parity.md) § Board plane.)
 - **Slides is the high-blast-radius consumer of the shared toolbar and
   overlay.** *Mitigation:* every slides-side change is additive with a
   slides-preserving default (`minAlignSelection ?? 1`, absent

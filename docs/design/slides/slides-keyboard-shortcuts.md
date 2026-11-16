@@ -243,6 +243,14 @@ Existing behaviour: text-box editor binds Esc on its own textarea
 (calls `onCancel`, then blurs to commit). Context menu binds Esc to
 close.
 
+Esc **keeps** the text it leaves, as Google Slides, FigJam and Miro do:
+the editor's `onCancel` is a no-op and the blur that follows commits
+through the same path a click outside takes. Only a programmatic
+`exitEditMode('cancel')` discards. Crop and drag gestures still cancel
+on Esc, because those abandon a gesture rather than finish typing.
+(Esc used to discard the edit; see
+[board-figjam-parity.md](../board/board-figjam-parity.md).)
+
 New: add a selection-level keyRule for Esc that fires only when
 
 - no editable target is focused,

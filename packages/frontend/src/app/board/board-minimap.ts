@@ -8,12 +8,13 @@ import {
 } from '@wafflebase/slides';
 import { palette } from '@wafflebase/core/tokens';
 import {
-  sceneBounds, fitScene, miniToWorld, viewportRectInMini, type MiniFit,
+  sceneBounds, fitScene, miniToWorld, viewportRectInMini, clipToMini, type MiniFit,
 } from './minimap-geometry';
 
 const MINI_W = 200;
 const MINI_H = 150;
 const PAD = 80; // world-px breathing room around the scene bounds
+const VIEWPORT_STROKE = 1.5;
 
 /*
  * Surfaces come from the app tokens (index.css / @wafflebase/core tokens.css)
@@ -35,6 +36,10 @@ const TOGGLE_CSS = [
 
 const PANEL_CSS = [
   `width:${MINI_W}px`, `height:${MINI_H}px`,
+  // The app's reset makes everything border-box, which would fit the 1px
+  // border INSIDE the 200×150 box and crop the canvas's last 2px on each
+  // axis — and with them the bottom and right edges of the viewport frame.
+  'box-sizing:content-box',
   'border-radius:var(--radius, 4.8px)', 'overflow:hidden',
   'background:var(--card, oklch(1 0 0))',
   'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))',
@@ -95,6 +100,13 @@ export interface BoardMinimapDeps {
   coarsePointer?: boolean;
   /** Current resolved theme, read at each paint. Defaults to light. */
   getTheme?: () => 'light' | 'dark';
+  /**
+   * The plane colour the scene is drawn on. The panel is a miniature of
+   * the plane, so when the host pins its plane (board-plane.ts) the panel
+   * has to match it, or a light-themed scene sits on a dark card. Defaults
+   * to the theme's `--card`.
+   */
+  planeBackground?: string;
 }
 
 export interface BoardMinimap {
@@ -130,6 +142,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   const panel = document.createElement('div');
   panel.style.cssText = PANEL_CSS;
+  if (deps.planeBackground) panel.style.background = deps.planeBackground;
 
   const canvas = document.createElement('canvas');
   // Chrome, not content: it sits inside the board container, so without this
@@ -199,13 +212,22 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
     ctx.drawImage(snapshot, 0, 0);
     // viewport rectangle (device px)
     if (lastFit) {
-      const r = viewportRectInMini(lastVp, getHostSize(), lastFit);
-      ctx.save();
-      ctx.scale(dpr, dpr);
-      ctx.strokeStyle = viewportStrokeColor(getTheme());
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(r.x, r.y, r.w, r.h);
-      ctx.restore();
+      // Clipped to the panel (half the stroke width in), so a viewport
+      // larger than the scene frames the panel instead of drawing its
+      // edges off-canvas.
+      const r = clipToMini(
+        viewportRectInMini(lastVp, getHostSize(), lastFit),
+        { w: MINI_W, h: MINI_H },
+        VIEWPORT_STROKE / 2,
+      );
+      if (r) {
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.strokeStyle = viewportStrokeColor(getTheme());
+        ctx.lineWidth = VIEWPORT_STROKE;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        ctx.restore();
+      }
     }
   };
 

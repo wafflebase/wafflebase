@@ -1,5 +1,5 @@
 import { indentWithTab } from '@codemirror/commands';
-import { markdown } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   Compartment,
   EditorSelection,
@@ -8,10 +8,9 @@ import {
   Transaction,
   type Extension,
 } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, keymap, placeholder, type KeyBinding } from '@codemirror/view';
 import { CodeMirror, vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
-import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
 import type { NoteStore, NoteSelection } from '../store/store.js';
 import { readOnlyNoteStore } from '../store/read-only.js';
 import { noteStoreFacet, noteSync } from './note-sync.js';
@@ -20,6 +19,7 @@ import {
   noteRemoteSelectionsTheme,
 } from './remote-selection.js';
 import { NotePreview } from './preview.js';
+import { noteEditorTheme } from './theme.js';
 import {
   computeActiveFormats,
   toggleBold,
@@ -30,6 +30,8 @@ import {
   insertCodeBlock,
   insertFoldout,
   insertTable,
+  setHeading,
+  type NoteHeadingLevel,
   type NoteInlineFormats,
 } from './commands.js';
 import {
@@ -50,6 +52,47 @@ import {
 import { noteCheckboxInput } from './checkbox-input.js';
 
 export type ThemeMode = 'light' | 'dark';
+
+/** Shown in an empty, writable note's source pane. */
+const PLACEHOLDER = 'Start writing. Markdown works: # heading, - list, **bold**';
+
+/**
+ * The formatting shortcuts, mirroring Google Docs (the docs package's
+ * `shortcuts-catalog.ts`) so a key a writer already knows does the same thing
+ * here. Each runs the same command as its toolbar button.
+ *
+ * `macOnly` binds them under `mac` alone, which CodeMirror reads only on a Mac.
+ * That is the vim keymap's variant: there `Mod` is Ctrl off the Mac, and
+ * Ctrl-B / Ctrl-I / Ctrl-K are vim's own page-up, jump-forward and digraph
+ * keys, which a vim user expects to keep. On a Mac `Mod` is Cmd, which vim
+ * never uses.
+ */
+function formattingBindings(macOnly: boolean): KeyBinding[] {
+  const run =
+    (command: (view: EditorView) => void) =>
+    (view: EditorView): boolean => {
+      command(view);
+      return true;
+    };
+  const bindings: [string, (view: EditorView) => void][] = [
+    ['Mod-b', toggleBold],
+    ['Mod-i', toggleItalic],
+    ['Mod-Shift-x', toggleStrikethrough],
+    ['Mod-k', toggleLink],
+    ['Mod-Shift-7', toggleOrderedList],
+    ['Mod-Shift-8', toggleBulletList],
+    ['Mod-Shift-9', toggleTaskList],
+  ];
+  for (let level = 0; level <= 6; level++) {
+    bindings.push([
+      `Mod-Alt-${level}`,
+      (view) => setHeading(view, level as NoteHeadingLevel),
+    ]);
+  }
+  return bindings.map(([key, command]) =>
+    macOnly ? { mac: key, run: run(command) } : { key, run: run(command) },
+  );
+}
 
 /**
  * Restore the caret/selection returned by `store.undo()/redo()`. The reverted
@@ -149,6 +192,11 @@ export interface NoteEditorAPI {
   toggleStrikethrough(): void;
   /** Wrap the selection as a `[text](url)` link, or unwrap the link at cursor. */
   toggleLink(): void;
+  /**
+   * Set the selected lines to heading `level` (1–6), or back to a plain line
+   * with 0. Not a toggle — re-applying the current level changes nothing.
+   */
+  setHeading(level: NoteHeadingLevel): void;
   /** Prefix the selected lines with `> `, or strip it when all are quoted. */
   toggleQuote(): void;
   /** Fence the selection as a ``` code block, or open an empty fence. */
@@ -278,6 +326,8 @@ export function initialize(
   // (.note-preview > :first-child), so a first-line heading would otherwise
   // sit flush against the top edge.
   preview.el.style.padding = '16px 20px';
+  // Reading mode (`view`) centres the text in a ~75-character column; see
+  // `applyViewMode`.
   preview.el.style.minWidth = '0';
 
   // Draggable divider between the editor and preview (split mode only), so the
@@ -312,8 +362,7 @@ export function initialize(
   container.appendChild(divider);
   container.appendChild(preview.el);
 
-  const themeExt = (mode: ThemeMode) =>
-    mode === 'light' ? xcodeLight : xcodeDark;
+  const themeExt = (mode: ThemeMode) => noteEditorTheme(mode);
 
   const currentDoc = () => view.state.doc.toString();
   const renderPreview = () => preview.render(currentDoc());
@@ -397,10 +446,16 @@ export function initialize(
     // preventDefaults keys it actually handles), so indentWithTab drives Tab
     // indent in both modes; `vim()` sits ahead of it so vim still wins for every
     // key it does handle.
+    // Formatting keys are ahead of `basicSetup`'s keymaps (`Prec.high`), which
+    // bind `Mod-i` to "select parent syntax". A read-only mount gets none:
+    // every one of them is a write.
+    const formatting = (macOnly: boolean): Extension =>
+      readOnly ? [] : Prec.high(keymap.of(formattingBindings(macOnly)));
     if (currentKeymap === 'vim') {
-      return [vim(), keymap.of([indentWithTab])];
+      return [vim(), formatting(true), keymap.of([indentWithTab])];
     }
     return [
+      formatting(false),
       keymap.of([indentWithTab]),
       // Escape releases the Tab-indent focus trap (WCAG 2.1.2): with Tab bound
       // to indent it no longer moves focus out, so give keyboard users an
@@ -437,7 +492,11 @@ export function initialize(
       history: false,
       historyKeymap: false,
     }),
-    markdown(),
+    // GFM, as the preview renders it: without it the source parses task
+    // boxes as link references and has no strikethrough or table syntax.
+    markdown({ base: markdownLanguage }),
+    // Only where it can be acted on: a viewer cannot start writing.
+    readOnly ? [] : placeholder(PLACEHOLDER),
     // `[ ]` at the start of a line becomes a task item as the user types.
     noteCheckboxInput,
     themeCompartment.of(themeExt(mode)),
@@ -517,6 +576,16 @@ export function initialize(
     const showEditor = mode !== 'view';
     const showPreview = mode !== 'edit';
     const split = showEditor && showPreview;
+    // Alone in the pane, the preview is a reading surface: a larger type step
+    // (`note-preview-reading`, styled by the host) in a centred column of
+    // ~75 characters. Percentage padding resolves against the container's
+    // width, which is the preview's own width once it is the only pane, so
+    // this is a max-width that keeps the scrollbar at the pane's edge.
+    const reading = showPreview && !showEditor;
+    preview.el.classList.toggle('note-preview-reading', reading);
+    preview.el.style.paddingInline = reading
+      ? 'max(20px, calc((100% - 46rem) / 2))'
+      : '20px';
     editorEl.style.display = showEditor ? '' : 'none';
     preview.el.style.display = showPreview ? '' : 'none';
     divider.style.display = split ? '' : 'none';
@@ -659,6 +728,7 @@ export function initialize(
     toggleItalic: () => toggleItalic(view),
     toggleStrikethrough: () => toggleStrikethrough(view),
     toggleLink: () => toggleLink(view),
+    setHeading: (level) => setHeading(view, level),
     toggleQuote: () => toggleQuote(view),
     insertCodeBlock: () => insertCodeBlock(view),
     insertFoldout: () => insertFoldout(view),

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   sceneBounds, fitScene, worldToMini, miniToWorld,
   viewportRectInMini, centerViewportOnWorld,
+  clipToMini,
 } from './minimap-geometry';
 
 const frame = (x: number, y: number, w: number, h: number) => ({ x, y, w, h, rotation: 0 });
@@ -51,5 +52,25 @@ describe('centerViewportOnWorld', () => {
     // host center 400,300 == world*zoom + pan → pan = 400 - 100*2 = 200 ; 300 - 50*2 = 200
     expect(vp.panX).toBe(200);
     expect(vp.panY).toBe(200);
+  });
+});
+
+describe('clipToMini', () => {
+  const mini = { w: 200, h: 150 };
+
+  it('leaves a rect that already fits alone', () => {
+    expect(clipToMini({ x: 10, y: 10, w: 50, h: 40 }, mini, 1)).toEqual({ x: 10, y: 10, w: 50, h: 40 });
+  });
+
+  it('frames the whole panel when the viewport is larger than the scene', () => {
+    expect(clipToMini({ x: -300, y: -200, w: 900, h: 700 }, mini, 1)).toEqual({ x: 1, y: 1, w: 198, h: 148 });
+  });
+
+  it('clips a viewport hanging off one edge', () => {
+    expect(clipToMini({ x: 150, y: 20, w: 100, h: 50 }, mini, 0)).toEqual({ x: 150, y: 20, w: 50, h: 50 });
+  });
+
+  it('is null when the viewport is entirely off the scene', () => {
+    expect(clipToMini({ x: 400, y: 20, w: 100, h: 50 }, mini, 0)).toBeNull();
   });
 });

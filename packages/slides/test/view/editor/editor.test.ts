@@ -3337,6 +3337,41 @@ describe('Editor snap to grid (host-supplied step)', () => {
     item.click();
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  it('leads the insert group with host insert items, at the clicked point', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Insert sticky note', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostInsertMenuItems: items,
+    });
+    const openAt = (clientX: number, clientY: number) => {
+      canvas.dispatchEvent(new MouseEvent('contextmenu', {
+        clientX, clientY, bubbles: true, cancelable: true,
+      }));
+      return document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    };
+
+    const menu = openAt(50, 50);
+    const lis = [...menu.querySelectorAll('li')];
+    const labels = lis.map((li) => li.textContent?.trim());
+    const at = labels.indexOf('Insert sticky note');
+    expect(at).toBeGreaterThan(-1);
+    expect(labels[at + 1]).toBe('Insert rectangle');
+    lis[at].click();
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // `at` is the clicked point in logical coordinates: it tracks the
+    // pointer, and moving the pointer moves it by the same mapping the
+    // built-in inserts use.
+    openAt(150, 90);
+    const [p1] = items.mock.calls[0] as unknown as [{ x: number; y: number }];
+    const [p2] = items.mock.calls[1] as unknown as [{ x: number; y: number }];
+    expect(p2.x - p1.x).toBeGreaterThan(0);
+    expect(p2.y - p1.y).toBeGreaterThan(0);
+    expect((p2.x - p1.x) / (p2.y - p1.y)).toBeCloseTo(100 / 40);
+  });
 });
 
 describe('Editor snap to grid — gesture gating and multi-selection', () => {

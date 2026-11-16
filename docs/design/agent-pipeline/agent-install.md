@@ -87,6 +87,16 @@ One script, `.github/actions/agent-toolchain/install-deps.mjs` (with
 `install-deps-lockfile.mjs`), run by the toolchain action from main's copy of
 it, checked out to `.trusted-toolchain` beside the branch.
 
+That staged directory can itself pass through a symbolic link. Node resolves
+a module's own `import.meta.url` through links but leaves `argv[1]` as typed,
+so a "was I run directly" check that compares the two as written answers
+"imported" and exits 0 having done nothing. The toolchain action's
+`install-deps.mjs` takes both sides through `realpath` (`isDirectRun`), so a
+linked path still installs or refuses. #1152 fixed the same comparison in every
+tool under `scripts/agent/` with a shared helper; the switch to the shared core
+(which still compares as written) superseded that copy, and the fix is being
+carried upstream so that every repository on the core gets it.
+
 | What decides how an install behaves | What the agent jobs do with it |
 | --- | --- |
 | Which pnpm runs | Fetched by the toolchain action: one tarball from the npm registry, checked against a pinned sha512 before it is unpacked under `$RUNNER_TEMP`, nothing of the workspace read. The script reads the version of the package behind `pnpm` on `PATH` and refuses any other than `PNPM_VERSION`; `packageManager` and the action's `PNPM_VERSION` must name the same version; version switching is off for the install |

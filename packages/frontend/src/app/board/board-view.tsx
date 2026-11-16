@@ -1,4 +1,5 @@
 import {
+  formatCombo,
   initializeEditor,
   type Frame,
   type PeerView,
@@ -22,7 +23,6 @@ import {
   isCoarsePointer,
   TOUCH_HANDLE_TOLERANCE,
 } from "@/hooks/use-coarse-pointer";
-import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
@@ -30,10 +30,23 @@ import { attachBoardTouchGestures } from "./board-touch-gestures";
 import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
-import { dropStickyAtViewportCenter } from "./sticky";
+import {
+  STICKY_COLORS,
+  dropStickyAt,
+  dropStickyAtViewportCenter,
+  visibleWorldRect,
+} from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
+import { BOARD_PLANE_BACKGROUND, BOARD_PLANE_THEME } from "./board-plane";
+import {
+  BOARD_SHORTCUTS,
+  BOARD_SHORTCUT_CATEGORIES,
+  handleBoardToolKey,
+} from "./board-shortcuts";
+import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
+import { BoardEmptyHint } from "./board-empty-hint";
 import {
   createBoardMinimap,
   defaultMinimapVisible,
@@ -152,6 +165,8 @@ function mapBoardPeers(
  */
 export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Toolbar + canvas: what counts as "the board" for its tool keys.
+  const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   // Live pan/zoom state. A ref (not React state) because it updates on
   // every wheel tick / pointer-drag frame — routing that through
@@ -171,6 +186,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // funnel through the same insert call, centered on the live viewport.
   const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Drives the first-run hint; true only once the store says so, so a
+  // board that is still loading never flashes it.
+  const [isEmpty, setIsEmpty] = useState(false);
   // Lifted into React state (in addition to `editorRef`) purely so the
   // toolbar can re-render with a live `editor` reference once the mount
   // effect creates it — `editorRef` alone wouldn't trigger a re-render
@@ -201,14 +220,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   );
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
-  // Same ref-capture pattern as SlidesView: the mount effect's closures
-  // are built once and must read the *current* resolved theme (for peer
-  // cursor colour) without re-running the whole mount on every toggle.
-  const { resolvedTheme } = useTheme();
-  const resolvedThemeRef = useRef(resolvedTheme);
-  resolvedThemeRef.current = resolvedTheme;
-  // Held so the theme effect can repaint the minimap's viewport frame,
-  // whose stroke follows the theme but would otherwise wait for a pan.
+  // Held so the grid-mode effect can repaint the minimap's viewport frame
+  // without waiting for a pan.
   const minimapRef = useRef<BoardMinimap | null>(null);
 
   // Background grid mode. React state so the toolbar's dropdown reflects
@@ -324,12 +337,36 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // minimap) — the call only ever happens after mount, so the
       // declaration order stays readable without hoisting.
       onFitToContent: () => zoom.fit(),
+      // Mod+/ — the board's own sheet (`board-shortcuts.ts`), not the
+      // slides one, half of which speaks of slides.
+      onShowShortcutsHelp: () => setHelpOpen(true),
       // Snap move/resize onto the grid the user can see: the same
       // `gridStep(zoom)` ladder that paints it. Read per gesture frame,
       // so a zoom mid-drag changes the step under the cursor exactly as
       // it changes the painted lines.
       getSnapGrid: () =>
         gridSnapRef.current ? gridStep(vp.current.zoom) : null,
+      // The board's own object leads the menu's "Insert …" group, dropped
+      // where the user pointed — Miro and FigJam both offer it here.
+      // Nothing to insert on a read-only mount.
+      hostInsertMenuItems: (at) =>
+        readOnly
+          ? []
+          : [
+              {
+                label: "Insert sticky note",
+                run: () => {
+                  dropStickyAt({
+                    store,
+                    editor,
+                    at,
+                    colorValue: STICKY_COLORS[0].value,
+                    occupied: readFrames(),
+                    visible: visibleWorldRect(vp.current, hostW, hostH),
+                  });
+                },
+              },
+            ],
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
@@ -350,7 +387,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       dpr,
       initialVisible: defaultMinimapVisible(),
       coarsePointer: isCoarsePointer(),
-      getTheme: () => resolvedThemeRef.current,
+      getTheme: () => BOARD_PLANE_THEME,
+      planeBackground: BOARD_PLANE_BACKGROUND,
       getHostSize: () => ({ w: hostW, h: hostH }),
       // Forward reference to `commitViewport`, declared below: the
       // dependency is circular (it repaints this minimap), so one side has
@@ -389,7 +427,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         container,
         gridKindRef.current,
         vp.current,
-        resolvedThemeRef.current,
+        BOARD_PLANE_THEME,
       );
     };
 
@@ -403,7 +441,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       container,
       gridKindRef.current,
       vp.current,
-      resolvedThemeRef.current,
+      BOARD_PLANE_THEME,
     );
 
     // Open ON the board's content instead of at the world origin. Boards sit
@@ -441,6 +479,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         hostWidth: hostW,
         hostHeight: hostH,
         colorValue,
+        occupied: readFrames(),
       });
     };
 
@@ -563,7 +602,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
-      editor.setPeers(mapBoardPeers(peers, resolvedThemeRef.current));
+      editor.setPeers(mapBoardPeers(peers, BOARD_PLANE_THEME));
       // The audience just opened: hand over the cursor intent the gate
       // above swallowed while nobody was watching. Without this, a user
       // who was stationary when the peer joined stays invisible until
@@ -688,7 +727,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       spaceDown = false;
       if (!panning) canvas.style.cursor = "";
     };
+    // Single-key tools (FigJam's V / T / S / R / O / L / X) and Shift+1
+    // zoom-to-fit; the gates live in `handleBoardToolKey`.
+    const onToolKey = (e: KeyboardEvent) => {
+      handleBoardToolKey(e, {
+        editor,
+        readOnly: readOnly === true,
+        fit: () => zoom.fit(),
+        dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
+        isBoardTarget: (target) =>
+          target === document.body ||
+          (target instanceof Node && rootRef.current?.contains(target) === true),
+      });
+    };
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onToolKey);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
@@ -843,6 +896,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       canvas.removeEventListener("pointercancel", onPointerUp);
       detachTouch();
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onToolKey);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
@@ -870,17 +924,26 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // is here only to satisfy exhaustive-deps.
   }, [didMount, doc, readOnly, workspaceId, zoomValue]);
 
-  // Repaint the grid when the MODE or the theme changes — the two inputs
-  // that move without the viewport moving. Pan/zoom is covered by
+  // Repaint the grid when the MODE changes — the one input that moves
+  // without the viewport moving (the plane never follows the app theme,
+  // see `board-plane.ts`). Pan/zoom is covered by
   // `commitViewport`, and the initial paint by the mount effect.
   // Deliberately a separate effect: listing `gridKind` on the mount effect
   // would tear down and rebuild the whole editor on every toggle.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    applyGridBackground(container, gridKind, vp.current, resolvedTheme);
+    applyGridBackground(container, gridKind, vp.current, BOARD_PLANE_THEME);
     minimapRef.current?.repaintViewport(vp.current);
-  }, [gridKind, resolvedTheme]);
+  }, [gridKind]);
+
+  useEffect(() => {
+    if (!store) return;
+    const check = () =>
+      setIsEmpty((store.read().slides[0]?.elements.length ?? 0) === 0);
+    check();
+    return store.onChange(check);
+  }, [store]);
 
   // The board's picture for the template gallery
   // (docs/design/template-gallery.md): the canvas as it stands. A board is an
@@ -911,7 +974,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // with the default `min-width: auto` it grows to the toolbar's unwrapped
     // width, the row's `overflow-hidden` clips the strip at the right edge of
     // a phone, and the toolbar never becomes the scroller it is built to be.
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
+    <div ref={rootRef} className="flex h-full w-full min-h-0 min-w-0 flex-col">
       {/* Toolbar sits ABOVE the canvas host as a sibling, not a wrapper —
           the mount effect measures `containerRef.getBoundingClientRect()`
           for canvas sizing and `canvas.getBoundingClientRect()` for
@@ -935,10 +998,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           disabled={!workspaceId}
         />
       )}
-      <div
-        ref={containerRef}
-        data-document-id={documentId}
-        className="relative flex-1 w-full h-full min-h-0"
+      <div className="relative flex-1 w-full min-h-0">
+        <div
+          ref={containerRef}
+          data-document-id={documentId}
+          className="relative w-full h-full"
+          style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+        />
+        {isEmpty && !readOnly && <BoardEmptyHint />}
+      </div>
+      <ShortcutsHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        shortcuts={BOARD_SHORTCUTS}
+        categoryOrder={BOARD_SHORTCUT_CATEGORIES}
+        formatCombo={formatCombo}
       />
     </div>
   );

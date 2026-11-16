@@ -17,6 +17,12 @@ import {
 
 export interface ZoomControlProps {
   controller: ZoomController | null | undefined;
+  /**
+   * Absolute zooms listed below Fit. Defaults to the slides presets; the
+   * board passes its own, since an infinite canvas spends most of its
+   * time well below 50%.
+   */
+  presets?: readonly number[];
 }
 
 /**
@@ -36,7 +42,7 @@ export interface ZoomControlProps {
  * Picking Fit triggers `refitCanvas` with the column-fit path;
  * picking N% switches to the absolute-zoom path with scroll bars.
  */
-export function ZoomControl({ controller }: ZoomControlProps) {
+export function ZoomControl({ controller, presets = ZOOM_PRESETS }: ZoomControlProps) {
   const [value, setValue] = useState<number>(
     controller?.get() ?? FIT_ZOOM,
   );
@@ -75,7 +81,7 @@ export function ZoomControl({ controller }: ZoomControlProps) {
           Fit
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
-        {ZOOM_PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <DropdownMenuCheckboxItem
             key={preset}
             checked={value === preset}
