@@ -49,9 +49,12 @@ does differently. Each is known and accepted for now:
   has none, and `scripts/agent-arms/classify.mjs`, which only that step ran,
   was removed with its `ANTHROPIC_API_KEY` use. Labels it applied
   (`type:…`, `bugclass:…`) stay on the pull requests that have them.
-- **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so
-  `scripts/hooks/require-ai-disclosure.sh` stops firing in agent jobs; the
-  shared report jobs and the ready gate check disclosure.
+- **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set in CI**, so
+  `scripts/hooks/require-ai-disclosure.sh` is local-only: `/spec-to-pr`
+  exports the variable and the hook still enforces the commit trailer there.
+  In CI the shared report jobs write the PR-body disclosure
+  (`disclose-pr.mjs`) and the ready gate checks it; the commit trailer is
+  not checked.
 - **More READMEs are prose.** The shared rules make every `README.md` prose,
   which no code lens reads: `packages/README.md`, `scripts/README.md` and
   `plugins/wafflebase/README.md` move from `code`. The template catalogue's

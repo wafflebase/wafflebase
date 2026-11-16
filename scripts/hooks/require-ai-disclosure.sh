@@ -2,16 +2,20 @@
 # Claude Code hook: PreToolUse(Bash)
 # Enforces an AI-disclosure trailer on commits made during an AUTONOMOUS agent
 # run, so provenance is mechanical rather than prose. Gated on the
-# WAFFLEBASE_AGENT_AUTONOMOUS env var, which the local `/spec-to-pr` front half
-# exports; the shared agent workflows (yorkie's core) do not set it, and check
-# the disclosure in their report jobs and the ready gate instead. Human and
-# interactive-agent sessions (var unset) are unaffected, matching the "same
-# workflow as a human" contract while adding a disclosure gate on top.
+# WAFFLEBASE_AGENT_AUTONOMOUS env var, which only the local `/spec-to-pr` front
+# half exports, so this hook is LOCAL-ONLY. The shared agent workflows (yorkie's
+# core) do not set it: in CI the disclosure that counts is the PR body's, which
+# their report jobs write (`disclose-pr.mjs`) and the ready gate checks
+# (`mark-ready.mjs`). Human and interactive-agent sessions (var unset) are
+# unaffected, matching the "same workflow as a human" contract while adding a
+# disclosure gate on top.
 #
 # Only inline message commits (`-m`, `-am`, `--message`) are checked (the trailer
 # must appear on the command line). `-F`/`--file`, `--amend --no-edit`, interactive
 # rebases, etc. pass through — their message isn't on the command line to inspect,
-# and the PR-body disclosure gate in mark-ready.mjs is the authoritative backstop.
+# and `spec-to-pr.mjs handoff`, which refuses a branch with any commit missing
+# the trailer, is the backstop. This hook only moves that refusal to commit time,
+# before a history has to be rewritten to satisfy it.
 #
 # Exit 0 = allow, Exit 2 = block (STDERR fed to Claude as context)
 
