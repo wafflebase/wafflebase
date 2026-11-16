@@ -41,8 +41,27 @@ modes, light and dark. Findings, in order of how often they cost a writer:
       as a link reference under CommonMark)
 - [x] Browser check light/dark, split/preview, empty note, 390px phone
 - [x] `pnpm verify:fast`
-- [ ] Self review, PR
+- [x] Self review (3 rounds, bound reached)
+- [ ] PR
 
 ## Review
 
-(pending)
+All eight findings addressed. Verified in a browser on this branch (frontend
+5176 / backend 3001; 5173 serves a sibling checkout): split, preview-only
+reading column, light and dark, empty note, 390px phone, Mod-Alt-2 / undo,
+the heading menu, a mixed task/plain list, a `#` line inside a fence.
+
+Self-review: round 1 test-adequacy (setHeading in the read-only guard),
+round 2 design fit (mixed-list bullets, headings inside code) and
+test-adequacy (leaving Preview on a phone), round 3 correctness (lazy parse
+vs. the code check). All fixed; the round 3 fix had no further panel round.
+
+Known limitations (deferred):
+- The shortcut table lives in the engine keymap and again in the toolbar;
+  a shared catalog like docs' `shortcuts-catalog.ts` would keep them in step.
+- Editor / Split / Preview are a group of pressed toggles, not a radiogroup.
+- Setext headings (`Title` over `===`) read as Normal text in the picker.
+- The toolbar's `isMac` and CodeMirror's own Mac detection can disagree on
+  an unusual user agent (vim-mode tooltips only).
+- `pnpm install` also moved `lightningcss`'s `detect-libc` 2.0.3 → 2.1.2 in
+  the lockfile.
