@@ -41,15 +41,21 @@ does differently. Each is known and accepted for now:
   required review on `main` also requires approval of the most recent
   reviewable push: classic protection's "Require approval of the most recent
   reviewable push", or a ruleset with `require_last_push_approval: true`.
-  wafflebase's own gate asked only for one approval. Turn the setting on
-  before `AGENT_PIPELINE_ENABLED` goes back on. It applies to human merges
-  too: an approval no longer survives a later push to the pull request.
+  wafflebase's own gate asked only for one approval. The setting was turned
+  on for `main` when #1159 merged, before `AGENT_PIPELINE_ENABLED` went back
+  on. It applies to human merges too: an approval no longer survives a later
+  push to the pull request.
 
 - **The issue classification step is gone.** The shared `agent-implement.yml`
-  has none.
-- **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so
-  `scripts/hooks/require-ai-disclosure.sh` stops firing in agent jobs; the
-  shared report jobs and the ready gate check disclosure.
+  has none, and `scripts/agent-arms/classify.mjs`, which only that step ran,
+  was removed with its `ANTHROPIC_API_KEY` use. Labels it applied
+  (`type:…`, `bugclass:…`) stay on the pull requests that have them.
+- **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set in CI**, so
+  `scripts/hooks/require-ai-disclosure.sh` is local-only: `/spec-to-pr`
+  exports the variable and the hook still enforces the commit trailer there.
+  In CI the shared report jobs write the PR-body disclosure
+  (`disclose-pr.mjs`) and the ready gate checks it; the commit trailer is
+  not checked.
 - **More READMEs are prose.** The shared rules make every `README.md` prose,
   which no code lens reads: `packages/README.md`, `scripts/README.md` and
   `plugins/wafflebase/README.md` move from `code`. The template catalogue's
@@ -132,6 +138,16 @@ does differently. Each is known and accepted for now:
   a redundant escape in `config-wiring.test.mjs`, a control-character range
   in a `test-removals.mjs` regex. Harmless, but each is a
   rule wafflebase cannot apply to the copy until upstream fixes it.
+- **`disclosure.mjs`'s header is false here.** It says the commit-trailer
+  hook would never fire because no local autonomous arm sets its variable.
+  In wafflebase `/spec-to-pr` is that arm, exports
+  `WAFFLEBASE_AGENT_AUTONOMOUS`, and `scripts/hooks/require-ai-disclosure.sh`
+  fires on it. The paragraph would hold in every adopter if it said the CI
+  workflows set no such variable and left local arms to each repository.
+- **A stale comment in `checks.test.mjs`**: the `workflow_run` consumer test
+  says `agent-iterate-ci.yml` and `ci-report.yml` are not ported and filters
+  by presence; both are present here, so the comment no longer matches what
+  the test covers.
 - **`scripts/ci/summarize-ci.mjs` in yorkie** needs the four rendering fixes
   made here: a cut can leave a fence open; a fence indented by up to three
   spaces is not counted as one when closing it; the lane name and exit code

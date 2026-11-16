@@ -96,8 +96,8 @@ const LANES = [
     cmd: "cd scripts/agent && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error && node --test-timeout=180000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
-  // wafflebase's own agent arms (hunters, harvest, spec-to-pr, classify, …),
-  // which live beside the core rather than in it: `scripts/agent` is to become a
+  // wafflebase's own agent arms (hunters, harvest, spec-to-pr, …),
+  // which live beside the core rather than in it: `scripts/agent` is a
   // byte-identical copy of yorkie's shared harness core, whose sync deletes any
   // file the upstream lacks. The same invocation for the same reasons as above,
   // It runs AFTER `agent:tests`: the arms load the core's packages through

@@ -59,12 +59,14 @@ jobs:
       # `continue-on-error` on both: a CI run that died before `verify-self`
       # produced reports still deserves a comment saying so, and a missing
       # artifact must not turn this into a second red X on the PR.
+      # `ci-lane-reports` is the name the shared harness's CI-fix job reads;
+      # ci.yml uploads the reports once, under it.
       - name: Download the harness reports
         id: reports
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: harness-reports
+          name: ci-lane-reports
           path: harness-reports
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}

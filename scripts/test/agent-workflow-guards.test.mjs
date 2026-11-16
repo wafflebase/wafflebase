@@ -2153,21 +2153,21 @@ jobs:
         with:
           name: log
           path: \${{ runner.temp }}/agent-output
-      - name: Classify
+      - name: Record
         env:
           ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
-        run: node ./scripts/agent-arms/classify.mjs record --execution "$RUNNER_TEMP/agent-output/log.json"
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/agent-output/log.json"
 `;
 /** Appended after the last step of the agent's job, or of the job after it. */
 const AT_END = '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n';
-const AT_FINISH_END = '        run: node ./scripts/agent-arms/classify.mjs record --execution "$RUNNER_TEMP/agent-output/log.json"\n';
+const AT_FINISH_END = '        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/agent-output/log.json"\n';
 const after = (at, step) => [at, `${at}      - name: m\n${step}`];
 const AGENT_WITH = "          prompt: do the work\n";
 const WORK_PERMS = "    permissions:\n      contents: read\n    steps:\n      - id: pre\n";
 const POST_AGENT_MUTATIONS = {
   // After the agent, in its own job.
   workspace_node: after(AT_END, "        run: node ./scripts/agent/metrics.mjs record\n"),
-  workspace_node_bare_path: after(AT_END, "        run: node scripts/agent-arms/classify.mjs record\n"),
+  workspace_node_bare_path: after(AT_END, "        run: node scripts/agent-arms/harvest.mjs\n"),
   workspace_node_in_block: after(AT_END, "        run: |\n          [ -f x ] || exit 0\n          node ./scripts/agent/session-job-summary.mjs\n"),
   workspace_pnpm: after(AT_END, "        run: pnpm test\n"),
   workspace_script: after(AT_END, "        run: ./scripts/ci.sh\n"),

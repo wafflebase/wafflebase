@@ -192,6 +192,7 @@ Hook scripts live in `scripts/hooks/`.
 |---|---|---|
 | `scripts/hooks/guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing generated files: ANTLR output in `packages/sheets/antlr/` (`.g4` allowed) and the Claude Code plugin's mirror of `packages/cli` (`plugins/wafflebase/references/`, `hooks/command-safety.json`) |
 | `scripts/hooks/check-arch-boundary.sh` | PostToolUse(Write) | Runs arch lint after new files in frontend/backend (informational) |
+| `scripts/hooks/require-ai-disclosure.sh` | PreToolUse(Bash) | Local-only. When `WAFFLEBASE_AGENT_AUTONOMOUS=true`, which `/spec-to-pr` exports, blocks an inline-message `git commit` without the `Assisted-by: Claude Code (autonomous)` trailer. No CI workflow sets the variable |
 
 ### Adding New Hooks
 
@@ -317,8 +318,9 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
-  retention).
+- Harness reports (`.harness-reports/`) are uploaded as one CI artifact,
+  `ci-lane-reports` (14-day retention), which `ci-report.yml` and the shared
+  CI-fix job both download.
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
   a pull request happens in `.github/workflows/ci-report.yml`; see
   [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
@@ -2108,11 +2110,15 @@ Components:
   check runs / CI conclusion / job results / the paged-comment latch). `set-state
   reconcile` re-derives the state from those unforgeable signals and overwrites
   drift; it runs on the stalled path and can be invoked manually.
-- **Provenance** — the shared report jobs and the ready gate check the
-  `Assisted-by: Claude Code (autonomous)` disclosure on agent work. Locally,
-  `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash, gated on
-  `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces the commit trailer; the shared
-  workflows do not set that variable.
+- **Provenance** — once an agent has pushed to a pull request, the shared
+  report jobs write an AI-authorship disclosure into its body
+  (`scripts/agent/disclose-pr.mjs`), and the ready gate (`mark-ready.mjs`)
+  refuses a body without one. The `Assisted-by: Claude Code (autonomous)`
+  commit trailer is not checked in CI. Locally, `/spec-to-pr` exports
+  `WAFFLEBASE_AGENT_AUTONOMOUS=true`, so `scripts/hooks/require-ai-disclosure.sh`
+  (PreToolUse Bash) refuses an inline-message commit without the trailer, and
+  `spec-to-pr.mjs handoff` refuses a branch with any commit missing it. No
+  workflow sets the variable.
 
 - **Convergence detection (early exit from the fix loop).** `MAX_REVIEW_ROUNDS`
   is a blunt backstop — PR #521 burned all five rounds re-litigating overlapping
@@ -3613,15 +3619,15 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
 - **Both directions are observed.** The effort summary counts clean→blocking
   escalations beside blocking→clean flips.
 
-**Where the new post-fixer work runs.** yorkie-js-sdk runs every step after the
-agent in a separate job, because the agent's shell can write `$GITHUB_ENV`,
-`~/.gitconfig` and `.git/config` for the rest of its own job. This pipeline still
-runs its existing reporting steps inside `fix`, after the agent. The infra page and
-the removal record do not join them: they run in a new `fix-evidence` job (one in
-each fixer workflow) on a fresh runner, from trusted main, reading the branch head
-through the API. Moving the existing steps is a separate change. `fix-evidence`
-failing on its own does not page — it is evidence plus one page, and a failed
-fixer it did not page still reaches `stalled`.
+**Where the post-fixer work runs.** Every step after the agent runs in a separate
+job, because the agent's shell can write `$GITHUB_ENV`, `~/.gitconfig` and
+`.git/config` for the rest of its own job: `report` in `agent-fix.yml` and
+`fix-report` in the panel, each on a fresh runner from trusted main, reading the
+branch head through the API. The removal record is posted from both jobs with
+the rest of the report; the infra page exists only in the panel's `fix-report`.
+wafflebase's own copy of the pipeline, before
+the switch to yorkie's shared core (#1159), kept its reporting steps inside `fix`
+and ran only these two in a `fix-evidence` job.
 
 **Measured choices.** The carry key is `--verbatim`, not `--stable`: `--stable`
 discards whitespace, so an indentation-only change that alters behaviour carried
@@ -3652,7 +3658,7 @@ panel workflow starts on CI's `requested` event, and that run supersedes this on
 it reads fix reports after its gate, `deps`, checkout and the steps up to "Read
 fix-agent reports", about 1–3 minutes after the push. A record posted later is
 never used. Whether a `fix` job cancelled by that supersede still publishes the
-outputs `fix-evidence` reads is unverified here and in yorkie-js-sdk.
+outputs its report job reads is unverified.
 
 Not yet run on a real wafflebase PR: the structural tests (`carry-wiring`,
 `infra-wiring`, `evidence-wiring`) pin step order and conditions, and the probe was

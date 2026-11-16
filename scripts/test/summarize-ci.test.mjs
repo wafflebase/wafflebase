@@ -150,18 +150,27 @@ test("the command line is the shared workflow's: --dir <path>, --dir=<path>, --m
   assert.equal(r.stdout, "");
 });
 
-test("ci.yml uploads the lane reports under the name the shared CI-fix job downloads", () => {
+test("ci.yml uploads the lane reports once, under the name both of their readers download", () => {
   // `agent-iterate-ci.yml` (the shared core's) downloads `ci-lane-reports`
-  // when `ci.laneReports` is true; `ci-report.yml` and today's CI-fix job
-  // download `harness-reports`. Both names, the same directory.
-  const ci = readFileSync(path.join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
-  for (const name of ["harness-reports", "ci-lane-reports"]) {
-    const at = ci.indexOf(`name: ${name}\n`);
-    assert.ok(at > 0, `ci.yml uploads no artifact named ${name}`);
-    const step = ci.slice(ci.lastIndexOf("- name:", at), ci.indexOf("\n\n", at));
-    assert.match(step, /uses: actions\/upload-artifact@/, name);
-    assert.match(step, /path: \.harness-reports\/\n/, name);
-    assert.match(step, /include-hidden-files: true/, name);
-    assert.match(step, /if: always\(\)/, name);
-  }
+  // when `ci.laneReports` is true, and `ci-report.yml` downloads the same
+  // artifact. One upload of the directory, under that name.
+  const wf = (f) => readFileSync(path.join(ROOT, ".github", "workflows", f), "utf8");
+  const ci = wf("ci.yml");
+  const name = "ci-lane-reports";
+  const at = ci.indexOf(`name: ${name}\n`);
+  assert.ok(at > 0, `ci.yml uploads no artifact named ${name}`);
+  const step = ci.slice(ci.lastIndexOf("- name:", at), ci.indexOf("\n\n", at));
+  assert.match(step, /uses: actions\/upload-artifact@/);
+  assert.match(step, /path: \.harness-reports\/\n/);
+  assert.match(step, /include-hidden-files: true/);
+  assert.match(step, /if: always\(\)/);
+  assert.equal(ci.match(/^\s+path: \.harness-reports\/$/gm)?.length, 1, "ci.yml uploads .harness-reports/ more than once");
+
+  const report = wf("ci-report.yml");
+  const dl = report.indexOf("uses: actions/download-artifact@");
+  assert.ok(dl > 0, "ci-report.yml downloads no artifact");
+  const reports = report.slice(report.lastIndexOf("- name:", dl), report.indexOf("\n\n", dl));
+  assert.match(reports, /^\s+id: reports$/m, "the first download in ci-report.yml is not the reports");
+  assert.match(reports, new RegExp(`^\\s+name: ${name}$`, "m"), `ci-report.yml does not download ${name}`);
+  assert.match(reports, /^\s+path: harness-reports$/m, "ci-report.yml reads summary.json from harness-reports/");
 });

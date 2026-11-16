@@ -13,9 +13,10 @@
 // These are the suite of `scripts/agent/install-deps.mjs` (#1142), moved with
 // the code into the action, plus what the action adds: the pinned pnpm it
 // fetches, and the trusted checkouts the shared workflows put in the
-// workspace. `repo.test.mjs` imports this file, so `npm run test:repo` in
-// `scripts/agent` runs it once the shared core is there; until then, run it
-// with `node --test .github/agent-harness/toolchain.test.mjs`.
+// workspace. `npm run test:repo` in `scripts/agent` does not run it: that runs
+// `repo.test.mjs` alone, under a 60-second limit this suite would use most of.
+// The `scripts:tests` lane runs it through `scripts/test/agent-toolchain.test.mjs`;
+// by hand, `node --test .github/agent-harness/toolchain.test.mjs`.
 
 import test from "node:test";
 import assert from "node:assert/strict";

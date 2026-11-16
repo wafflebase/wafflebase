@@ -25,9 +25,8 @@
 // and its `--volume` paths would name another machine's filesystem than the
 // one the checks below read.
 //
-// It came from `scripts/agent/install-deps.mjs` (#1142), which today's
-// workflows still run from their staged copy of `scripts/agent`; that copy
-// goes when the shared core is synced over `scripts/agent`.
+// It came from `scripts/agent/install-deps.mjs` (#1142); that copy went when
+// the shared core was synced over `scripts/agent` (#1159).
 //
 // WHAT IT GUARANTEES
 //
