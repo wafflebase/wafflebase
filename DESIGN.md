@@ -317,7 +317,7 @@ brand layer swaps the zinc for warm-neutral ivory and ink.
 - **Terminal hues**: the homepage code sample sits on a charcoal panel in both themes, so its keywords and flags use the locked `--wb-terminal-keyword` (berry-bright, 6.25:1) and `--wb-terminal-flag` (leaf-bright, 8.80:1), never the theme-flipping `--wb-berry` / `--wb-leaf`, whose light stops are 3.69:1 / 3.65:1 there.
 
 ### Data and identity
-- **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. Only the analytics trend chart consumes them today; document charts inside sheets and slides keep their own palettes.
+- **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. The analytics trend chart and sheet charts consume them; slides charts keep their own palette (they follow the deck theme).
 - **Document types** (`type-sheet`, `type-doc`, `type-note`, `type-slides`, `type-pdf`, `type-image`, `type-board`, `type-file`): one identity hue per type for list icons and menus — leaf, denim, cocoa, teal, berry, rose, sticky-note gold, zinc. Nothing purple and nothing in syrup's orange band, each ≥3:1 on `background` in both modes.
 
 ### Links

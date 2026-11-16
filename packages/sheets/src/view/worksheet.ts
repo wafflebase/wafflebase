@@ -6895,6 +6895,8 @@ export class Worksheet {
       sheet.getStore().getColOrder(),
       commentCellKeys,
       sheet.getDataValidations(),
+      // Every range of a multi-range selection lights its headers.
+      sheet.getRanges(),
     );
 
     this.refreshLinkHoverAfterRender();
