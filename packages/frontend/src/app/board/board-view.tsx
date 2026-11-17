@@ -28,6 +28,7 @@ import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
 import { attachBoardTouchGestures } from "./board-touch-gestures";
 import { createCursorPublisher } from "./board-cursor-publish";
+import { allowClickThroughDismiss } from "./board-click-through";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import {
@@ -278,6 +279,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     container.style.position = "relative";
     container.style.overflow = "hidden";
     container.style.touchAction = "none";
+    // A press on the canvas closes an open toolbar popover AND acts, instead
+    // of being swallowed by the modal layer (see `board-click-through.ts`).
+    allowClickThroughDismiss(container);
 
     const dpr = window.devicePixelRatio || 1;
 
