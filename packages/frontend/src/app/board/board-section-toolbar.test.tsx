@@ -3,7 +3,11 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SECTION_COLORS, sectionOf } from "@wafflebase/board";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SectionControls, SectionToolItems } from "./board-section-toolbar";
+import {
+  SectionControls,
+  SectionToolToggle,
+  SectionsListMenu,
+} from "./board-section-toolbar";
 import {
   createSection,
   createSectionTool,
@@ -26,13 +30,12 @@ function fakeSections(): BoardSections & { goTo: ReturnType<typeof vi.fn>; renam
   };
 }
 
-describe("SectionToolItems", () => {
+describe("SectionToolToggle / SectionsListMenu", () => {
   it("arms the section tool and follows it when it changes elsewhere", async () => {
     const sections = fakeSections();
-    const store = new YorkieBoardStore(makeYorkieBoardDoc());
     render(
       <TooltipProvider>
-        <SectionToolItems sections={sections} store={store} />
+        <SectionToolToggle sections={sections} />
       </TooltipProvider>,
     );
     const toggle = screen.getByRole("button", { name: "Section" });
@@ -49,7 +52,7 @@ describe("SectionToolItems", () => {
     const id = createSection(store, { x: 0, y: 0, w: 100, h: 100 }, { title: "Retro" });
     render(
       <TooltipProvider>
-        <SectionToolItems sections={sections} store={store} />
+        <SectionsListMenu sections={sections} store={store} />
       </TooltipProvider>,
     );
     await userEvent.click(screen.getByRole("button", { name: "Sections" }));

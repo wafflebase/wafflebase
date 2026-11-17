@@ -45,6 +45,12 @@ export interface BoardInkControlsProps {
   ink: InkTool | null;
   insertMode: InsertKind | null;
   disabled?: boolean;
+  /**
+   * Whether the Eraser toggle follows the pen. Omitted: it does. The
+   * dock's compact (phone) layout sets it false and offers
+   * `BoardEraserToggle` under "More" instead.
+   */
+  withEraser?: boolean;
 }
 
 /**
@@ -60,6 +66,7 @@ export function BoardInkControls({
   ink,
   insertMode,
   disabled,
+  withEraser = true,
 }: BoardInkControlsProps) {
   const [state, setState] = useState(() => ink?.get() ?? null);
   useEffect(() => {
@@ -193,22 +200,35 @@ export function BoardInkControls({
         </Popover>
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === "eraser"}
-            onPressedChange={(pressed) =>
-              editor?.setInsertMode(pressed ? "eraser" : null)
-            }
-            aria-label="Eraser"
-            disabled={disabled || !editor}
-          >
-            <IconEraser size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Eraser ({INK_HINTS.eraser})</TooltipContent>
-      </Tooltip>
+      {withEraser && (
+        <BoardEraserToggle editor={editor} insertMode={insertMode} disabled={disabled} />
+      )}
     </>
+  );
+}
+
+/** The Eraser toggle (Shift+E): drag across strokes to remove them. */
+export function BoardEraserToggle({
+  editor,
+  insertMode,
+  disabled,
+}: Pick<BoardInkControlsProps, "editor" | "insertMode" | "disabled">) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          pressed={insertMode === "eraser"}
+          onPressedChange={(pressed) =>
+            editor?.setInsertMode(pressed ? "eraser" : null)
+          }
+          aria-label="Eraser"
+          disabled={disabled || !editor}
+        >
+          <IconEraser size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>Eraser ({INK_HINTS.eraser})</TooltipContent>
+    </Tooltip>
   );
 }

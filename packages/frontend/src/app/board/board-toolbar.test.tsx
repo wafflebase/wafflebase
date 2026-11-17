@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import type { SlidesEditor } from "@wafflebase/slides";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BoardToolbar } from "./board-toolbar";
-import { createHandTool } from "./board-hand";
 
 /** An idle editor: nothing selected, no text edit, no insert tool. */
 function fakeEditor() {
@@ -20,68 +18,27 @@ function fakeEditor() {
     getActiveTextEditor: () => null,
     getCellSelection: () => null,
     getCurrentSlideId: () => "board",
-  } as unknown as SlidesEditor & { setInsertMode: ReturnType<typeof vi.fn> };
+  } as unknown as SlidesEditor;
 }
 
-function renderToolbar(editor: SlidesEditor, hand = createHandTool()) {
-  render(
-    <TooltipProvider>
-      <BoardToolbar
-        editor={editor}
-        hand={hand}
-        gridKind="dot"
-        onGridKindChange={() => {}}
-        gridSnap={false}
-        onGridSnapChange={() => {}}
-      />
-    </TooltipProvider>,
-  );
-  return hand;
-}
-
-const pressed = (name: string) =>
-  screen.getByRole("button", { name }).getAttribute("aria-pressed");
-
-describe("BoardToolbar hand toggle", () => {
-  it("arms the hand and takes Select's pressed state", async () => {
-    const hand = renderToolbar(fakeEditor());
-    expect(pressed("Select")).toBe("true");
-    await userEvent.click(screen.getByRole("button", { name: "Hand" }));
-    expect(hand.get()).toBe(true);
-    expect(pressed("Hand")).toBe("true");
-    expect(pressed("Select")).toBe("false");
-  });
-
-  it("follows hand state changed elsewhere (the H key, Esc)", () => {
-    const hand = renderToolbar(fakeEditor());
-    act(() => hand.set(true));
-    expect(pressed("Hand")).toBe("true");
-    act(() => hand.set(false));
-    expect(pressed("Hand")).toBe("false");
-    expect(pressed("Select")).toBe("true");
-  });
-
-  it("disarms the hand when Select is clicked", async () => {
-    const editor = fakeEditor();
-    const hand = renderToolbar(editor);
-    act(() => hand.set(true));
-    await userEvent.click(screen.getByRole("button", { name: "Select" }));
-    expect(hand.get()).toBe(false);
-    expect(editor.setInsertMode).toHaveBeenCalledWith(null);
-  });
-});
-
-describe("BoardToolbar vocabulary", () => {
-  it("names the line tools in whiteboard words", async () => {
-    renderToolbar(fakeEditor());
-    await userEvent.click(screen.getByRole("button", { name: "Line" }));
-    for (const name of ["Line", "Arrow", "Connector", "Curved"]) {
-      expect(screen.getByRole("button", { name })).toBeTruthy();
-    }
-    // No freehand entry in the open Line menu: the dedicated Marker tool
-    // (M) is the board's one way to draw.
-    expect(screen.queryByRole("button", { name: "Marker" })).toBeNull();
-    for (const name of ["Scribble", "Elbow connector", "Curved connector"]) {
+describe("BoardToolbar", () => {
+  // The insert tools moved to the bottom tool dock (`board-tool-dock.tsx`);
+  // the top bar keeps the view controls and the contextual ones.
+  it("keeps the view controls and none of the insert tools", () => {
+    render(
+      <TooltipProvider>
+        <BoardToolbar
+          editor={fakeEditor()}
+          gridKind="dot"
+          onGridKindChange={() => {}}
+          gridSnap={false}
+          onGridSnapChange={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole("button", { name: /^Grid:/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sections" })).toBeTruthy();
+    for (const name of ["Select", "Hand", "Text box", "Sticky note", "Shape", "Line", "Eraser", "Section", "Insert image"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
