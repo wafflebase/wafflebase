@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides layout pass (2026-11-17) | [20261117-slides-layout-pass-todo.md](./active/20261117-slides-layout-pass-todo.md) | [20261117-slides-layout-pass-lessons.md](./active/20261117-slides-layout-pass-lessons.md) |
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
 | board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./active/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./active/20261116-board-navigation-feel-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
@@ -71,7 +70,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 640
+- Archived task count: 641
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides layout pass (2026-11-17)
+Latest active task: agent harness cleanup (2026-11-16)
