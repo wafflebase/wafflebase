@@ -20,7 +20,7 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../model/connector';
-import type { ObjectAnimation, Stroke } from '../model/element';
+import type { ObjectAnimation, Stroke, TextBody } from '../model/element';
 import type {
   Element,
   ElementInit,
@@ -901,6 +901,22 @@ export class MemSlidesStore implements SlidesStore {
       e.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
     }
     e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
+  }
+
+  updateConnectorLabel(
+    slideId: string, elementId: string, label: TextBody | undefined,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    if (label === undefined) {
+      delete e.label;
+    } else {
+      e.label = clone(label);
+    }
   }
 
   reorderElement(

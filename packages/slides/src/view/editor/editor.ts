@@ -83,6 +83,11 @@ import {
   endpointGlueOptions,
 } from './interactions/connector-endpoint-drag';
 import {
+  connectorLabelEditTarget,
+  labelFromEditedBlocks,
+} from './connector-label-edit';
+import { labelKnockoutColor } from '../canvas/connector-label';
+import {
   allowsSlowDoubleClick,
   commitsAsDrag,
   commitTranslate,
@@ -4228,6 +4233,21 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hitResult = this.hitTestAt(slide, x, y);
+    // Connector label: a double-click on the selected connector edits its
+    // label at the path midpoint (it used to fall through and deselect).
+    // Top-level only, like crop: grouped connectors keep group drill-in.
+    if (
+      hitResult !== null &&
+      hitResult.ancestorPath.length === 1 &&
+      hitResult.elementId !== this.editingElementId &&
+      slide.elements.find((el) => el.id === hitResult.elementId)?.type ===
+        'connector'
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterEditMode(slide.id, hitResult.elementId);
+      return;
+    }
     if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
@@ -4325,7 +4345,8 @@ class SlidesEditorImpl implements SlidesEditor {
       if (localElement.type !== 'table') return;
     } else if (
       localElement.type !== 'text' &&
-      localElement.type !== 'shape'
+      localElement.type !== 'shape' &&
+      localElement.type !== 'connector'
     ) {
       return;
     }
@@ -4361,6 +4382,15 @@ class SlidesEditorImpl implements SlidesEditor {
       // dblclick should silently fall through rather than mount on a
       // bogus rect.
       if (target === null) return;
+    } else if (worldElement.type === 'connector') {
+      target = {
+        kind: 'connector-label',
+        ...connectorLabelEditTarget(
+          worldElement,
+          worldLookup,
+          deckFontScale(doc.meta),
+        ),
+      };
     } else {
       target = buildEditTarget(
         worldElement as TextElement | ShapeElement,
@@ -4451,7 +4481,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // height on entry. Cell rows auto-grow only on commit via the
       // renderer, so the box must stay fixed while editing, just like a
       // shape. Only text elements keep the default auto-grow behavior.
-      growMode: target.kind === 'text' ? 'auto' : 'never',
+      growMode:
+        target.kind === 'text' || target.kind === 'connector-label'
+          ? 'auto'
+          : 'never',
       // Mirror the slide canvas offset so in-place editing keeps the
       // caret and text glyphs aligned with the committed render.
       verticalAnchor: target.verticalAnchor,
@@ -4475,7 +4508,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // auto-grow instead, so they never overflow and keep the frame-sized
       // canvas.
       overflowBounds:
-        target.kind === 'text'
+        target.kind === 'text' || target.kind === 'connector-label'
           ? undefined
           : {
               left: target.editFrame.x,
@@ -4547,6 +4580,13 @@ class SlidesEditorImpl implements SlidesEditor {
                   target!.cell.col,
                   () => next,
                 );
+              } else if (target!.kind === 'connector-label') {
+                // Whole-label write; an emptied label removes the field.
+                this.options.store.updateConnectorLabel(
+                  slideId,
+                  elementId,
+                  labelFromEditedBlocks(next),
+                );
               } else {
                 this.options.store.withShapeText(slideId, elementId, () => next);
               }
@@ -4562,6 +4602,10 @@ class SlidesEditorImpl implements SlidesEditor {
       onCancel: () => {},
     });
     this.editingTextBox = tb;
+    // The label knockout, live: the connector line passes under the box.
+    if (target.kind === 'connector-label') {
+      tb.container.style.background = labelKnockoutColor(getActiveTheme(doc));
+    }
     // See the field's comment: `detach()` flushes a final commit for a
     // focused box, so a teardown that is not an Escape needs a way to say
     // "discard" first.
@@ -7531,6 +7575,10 @@ export function maskEditingElement(
         out.push({ ...el, data: rest } as typeof el);
       } else if (el.type === 'table' && cellCoords !== null) {
         out.push(maskTableCellBody(el, cellCoords));
+      } else if (el.type === 'connector') {
+        // Keep the line; the label is being edited in the overlay.
+        const { label: _label, ...rest } = el;
+        out.push(rest);
       } else if (el.type === 'text') {
         // Keep the box fill + border painting under the overlay editor,
         // but clear the text body so it isn't double-painted (once from
@@ -7628,7 +7676,7 @@ function maskTableCellBody(
  *   Google Slides behavior.
  */
 type EditTarget = {
-  kind: 'text' | 'shape' | 'cell';
+  kind: 'text' | 'shape' | 'cell' | 'connector-label';
   blocks: Block[];
   autofit?: AutofitMode;
   verticalAnchor?: VerticalAnchorMode;

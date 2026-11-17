@@ -1,5 +1,10 @@
 import type { Document as YorkieDocument, Presence, TimeTicket } from '@yorkie-js/sdk';
 import {
+  withConnectorLabel,
+  writeConnectorLabel,
+} from './connector-label-yorkie';
+import type { TextBody } from '@wafflebase/slides';
+import {
   DEFAULT_MASTER,
   type ArrowheadStyle,
   type Background,
@@ -841,6 +846,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'connector',
+        ...withConnectorLabel(el),
         frame: this.readFrame(el.frame),
         routing: c.routing,
         start: yorkieToPlain<Endpoint>(c.start),
@@ -2070,6 +2076,25 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
+    });
+  }
+
+  updateConnectorLabel(
+    slideId: string,
+    elementId: string,
+    label: TextBody | undefined,
+  ): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      writeConnectorLabel(e, label);
     });
   }
 

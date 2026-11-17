@@ -38,6 +38,11 @@ import {
 import type { Block } from '@wafflebase/docs';
 import { bandBlockNumerics } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
+import type { TextBody } from '@wafflebase/slides';
+import {
+  withConnectorLabel,
+  writeConnectorLabel,
+} from '../slides/connector-label-yorkie';
 import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
 
@@ -420,6 +425,7 @@ export class YorkieBoardStore implements SlidesStore {
           : undefined,
         elbowBend: c.elbowBend,
         curveBend: c.curveBend,
+        ...withConnectorLabel(el),
       } as ModelElement;
     }
     if (el.type === 'group') {
@@ -1284,6 +1290,23 @@ export class YorkieBoardStore implements SlidesStore {
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       c.frame = computeConnectorFrame(plain, this.elementsLookup(r));
+    });
+  }
+
+  updateConnectorLabel(
+    _slideId: string,
+    elementId: string,
+    label: TextBody | undefined,
+  ): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const path = yorkieFindElementPath(r.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      writeConnectorLabel(e, label);
     });
   }
 

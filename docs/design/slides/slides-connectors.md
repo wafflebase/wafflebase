@@ -418,6 +418,41 @@ decided on the whole selection, so one shape plus a connector aligns
 the shape to itself (a no-op), never to the slide. A selection of only
 connectors keeps the old behaviour and arranges them by their frames.
 
+**Labels** (`label?: TextBody` on `ConnectorElement`). An optional text
+label, centred on the path midpoint by arc length (so an elbow's label
+sits on the line, not in the empty corner) over a knockout filled with
+the theme `background` role, as FigJam, Miro and Visio draw them.
+
+- **Model.** The same `TextBody` a shape's text uses, so the in-place
+  rich-text editor is reused unchanged; only `blocks` is read (the box
+  is sized to its content, so autofit / anchor / inset do not apply).
+  Additive and optional: a deck or board without labels reads as before.
+- **Geometry.** `layoutConnectorLabel` (`view/canvas/connector-label.ts`)
+  lays the text out at up to 320 px, then again at the widest line, and
+  centres the padded box on the midpoint. The renderer, hit-testing
+  (clicking the label selects the connector), the editor and the PPTX
+  exporter all call it, so they agree on where the label is.
+- **Editing.** Double-click a top-level connector, or F2 / Enter on a
+  selected one, to edit its label in a box at the midpoint (an
+  `EditTarget` of kind `connector-label`; the box gets the knockout
+  colour and the canvas masks only the label, so the line stays). A new
+  label starts as a centred 14 pt paragraph. Commit writes the whole
+  body through `store.updateConnectorLabel`; clearing the text removes
+  the field. Typing on a selected connector does not start a label.
+- **Collaboration.** Both Yorkie stores keep `label` as a plain JSON
+  field on the connector object (`app/slides/connector-label-yorkie.ts`),
+  written whole: last writer wins, the same on-blur granularity shape
+  text has. Paste / duplicate / group copy the element wholesale, so the
+  label travels with it.
+- **Export.** PDF rasterises through `drawSlide`, so labels appear. PPTX
+  has no connector text (`<p:cxnSp>` has no `<p:txBody>`), so a labelled
+  connector exports as the connector followed by a background-filled
+  text box at the label's place (`export/pptx/connector-label.ts`, laid
+  out with the Node-safe width estimate). PowerPoint shows the same
+  picture, but the round trip is lossy: re-importing gives a separate
+  text box that no longer follows the line. PPTX import never creates a
+  label.
+
 ### 6. Store Layer
 
 Connectors are inserted through the generic
