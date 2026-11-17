@@ -33,6 +33,12 @@ export interface ShapeControlsProps {
   theme?: Theme | null;
   /** IDs of all selected elements — may be a mix of shapes and connectors. */
   ids: readonly string[];
+  /**
+   * Zero-weight label when every selected element is a connector. Omitted
+   * (the slides default), the border picker keeps saying "No border"; the
+   * board passes "None", since a line has no border.
+   */
+  lineNoneLabel?: string;
 }
 
 /**
@@ -43,7 +49,19 @@ export interface ShapeControlsProps {
  * object-section.tsx. Multi-select shows the first element's values for
  * initial pre-population and writes to all selected shapes/connectors on change.
  */
-export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps) {
+/**
+ * A connector, or an unfilled freehand stroke: an element whose stroke is
+ * the whole of it, so its zero weight is "none" rather than "no border".
+ */
+function isLineLike(el: { type: string; data?: unknown } | undefined): boolean {
+  if (!el) return false;
+  if (el.type === 'connector') return true;
+  if (el.type !== 'shape') return false;
+  const data = el.data as ShapeElement['data'];
+  return data.kind === 'freeform' && !data.fill;
+}
+
+export function ShapeControls({ editor, store, theme, ids, lineNoneLabel }: ShapeControlsProps) {
   const slideId = editor?.getCurrentSlideId();
   const firstId = ids[0];
 
@@ -254,6 +272,13 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         </Popover>
       )}
       <BorderPicker
+        noneLabel={
+          lineNoneLabel !== undefined &&
+          ids.length > 0 &&
+          ids.every((id) => isLineLike(slide?.elements.find((e) => e.id === id)))
+            ? lineNoneLabel
+            : undefined
+        }
         value={firstStroke}
         theme={theme}
         onChange={onStrokeChange}

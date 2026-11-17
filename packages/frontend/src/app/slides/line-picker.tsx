@@ -170,6 +170,12 @@ export interface LinePickerProps {
    * (forwarded refs + event handlers); `ReactNode` would allow text
    * nodes or fragments that the slot can't bind to. */
   trigger?: React.ReactElement;
+  /**
+   * Per-kind label overrides, for a host whose users speak a different
+   * vocabulary (the board calls Scribble "Marker"). Kinds not listed keep
+   * the Google Slides label from `LINE_PICKER_ENTRIES`.
+   */
+  labels?: Partial<Record<LineToolKind, string>>;
 }
 
 /**
@@ -186,6 +192,7 @@ export function LinePicker({
   onSelect,
   disabled,
   trigger,
+  labels,
 }: LinePickerProps) {
   // Controlled open state so we can close the dropdown as soon as the
   // user picks an entry. Mirrors the pattern in `<ShapePicker />`.
@@ -225,7 +232,7 @@ export function LinePicker({
             <IconButton
               key={entry.kind}
               kind={entry.kind}
-              label={entry.label}
+              label={labels?.[entry.kind] ?? entry.label}
               active={entry.kind === activeKind}
               onSelect={(k) => {
                 onSelect(k);
