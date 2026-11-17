@@ -104,8 +104,9 @@ export function dashXml(dash: string | undefined): string {
  * Serialize a {@link ConnectorElement} to an OOXML `<p:cxnSp>` string.
  *
  * The caller (slide orchestrator) computes `frame` via `computeConnectorFrame`
- * and passes it in; connectors store `start`/`end` endpoints, not a bounding
- * frame directly.
+ * and passes it in, with `flipH`/`flipV` set when the start endpoint lies
+ * right of / below the end (see {@link connectorExportFrame}); connectors
+ * store `start`/`end` endpoints, not a bounding frame directly.
  *
  * Round-trip fidelity:
  * - `routing` → `<a:prstGeom prst>` via ROUTING_PRST
@@ -120,8 +121,15 @@ export function connectorToXml(el: ConnectorElement, frame: Frame): string {
   const prst = ROUTING_PRST.get(el.routing) ?? 'line';
   const name = escapeXmlAttr(el.id);
 
+  // `flipH`/`flipV` carry the drawing direction: OOXML routes a connector
+  // from its box's top-left to bottom-right, and the importer mirrors that
+  // corner pair by the flips. Without them a connector drawn right-to-left
+  // or bottom-to-top re-imports (and opens in PowerPoint) reversed, its
+  // arrowhead on the wrong end.
+  const fh = frame.flipH ? ' flipH="1"' : '';
+  const fv = frame.flipV ? ' flipV="1"' : '';
   const xfrm =
-    `<a:xfrm>` +
+    `<a:xfrm${fh}${fv}>` +
     `<a:off x="${pxToEmuX(frame.x)}" y="${pxToEmuY(frame.y)}"/>` +
     `<a:ext cx="${pxToEmuX(frame.w)}" cy="${pxToEmuY(frame.h)}"/>` +
     `</a:xfrm>`;
