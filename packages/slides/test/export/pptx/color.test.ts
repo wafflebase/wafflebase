@@ -18,7 +18,7 @@ describe('color', () => {
   });
 
   it('emits schemeClr with modifiers', () => {
-    const xml = colorChildXml({ kind: 'role', role: 'accent1', lumMod: 75000, alpha: 50000 });
+    const xml = colorChildXml({ kind: 'role', role: 'accent1', lumMod: 0.75, alpha: 0.5 });
     expect(xml).toContain('<a:schemeClr val="accent1">');
     expect(xml).toContain('<a:lumMod val="75000"/>');
     expect(xml).toContain('<a:alpha val="50000"/>');
@@ -41,7 +41,7 @@ describe('color', () => {
   });
 
   it('keeps the modifiers when an unknown role falls back', () => {
-    const xml = colorChildXml({ kind: 'role', role: 'constructor', alpha: 50000 } as never);
+    const xml = colorChildXml({ kind: 'role', role: 'constructor', alpha: 0.5 } as never);
     expect(xml).toBe('<a:srgbClr val="000000"><a:alpha val="50000"/></a:srgbClr>');
   });
 
@@ -135,7 +135,7 @@ describe('color', () => {
       kind: 'role',
       role: 'accent1',
       lumMod: '50000"/><a:alpha val="0' as unknown as number,
-      alpha: 25000,
+      alpha: 0.25,
     });
     expect(xml).not.toContain('lumMod');
     expect(xml).toBe('<a:schemeClr val="accent1"><a:alpha val="25000"/></a:schemeClr>');
