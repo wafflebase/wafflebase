@@ -92,6 +92,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["L"], description: "Line" },
   { category: "Tools", keys: ["Shift+L"], description: "Arrow" },
   { category: "Tools", keys: ["X"], description: "Connector" },
+  { category: "Tools", keys: ["Mod+Alt+M"], description: "Comment (on the selection, or click to place)" },
 
   { category: "Sticky notes", keys: ["Mod+Enter"], description: "Add a sticky next to the selected one" },
   { category: "Sticky notes", keys: ["Tab", "Mod+Enter"], description: "While typing: finish and start the next sticky" },

@@ -26,6 +26,11 @@ import { BoardView } from "./board-view";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { PreviewSurface } from "@/components/history/preview-surface";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
+import { BoardCollabProvider } from "./rituals/board-collab-context";
+import {
+  BoardCommentsPanel,
+  BoardCommentsToggle,
+} from "./rituals/board-comments-panel";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -141,6 +146,12 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const previewing = Boolean(previewRevisionId && currentUser);
 
   return (
+    <BoardCollabProvider
+      doc={doc}
+      documentId={documentId}
+      workspaceId={documentData?.workspaceId}
+      currentUser={currentUser}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -160,6 +171,9 @@ function BoardLayout({ documentId }: { documentId: string }) {
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
           actions={{
+            // Withheld during a revision preview, like the title: a
+            // comment written there would land on the LIVE board.
+            comments: previewing ? null : <BoardCommentsToggle />,
             history: (
               <HeaderPanelToggle
                 icon={IconHistory}
@@ -207,9 +221,11 @@ function BoardLayout({ documentId }: { documentId: string }) {
               refreshKey={historyResetToken}
             />
           )}
+          {!previewing && <BoardCommentsPanel />}
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </BoardCollabProvider>
   );
 }
 

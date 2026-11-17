@@ -279,8 +279,9 @@ describe("sections in the editor", () => {
     const id = createSection(store, { x: 0, y: 0, w: 1000, h: 800 }, { title: "Q1" });
     const { sections } = mount(store);
     const menu = sections.editorOptions.hostElementMenuItems!;
-    expect(menu([id]).map((i) => i.label)).toContain("Delete section and contents");
-    expect(menu([a]).map((i) => i.label)).toContain("Create section around selection");
+    const on = (sel: string) => menu({ at: { x: 0, y: 0 }, elementId: sel, selectedIds: [sel] });
+    expect(on(id).map((i) => i.label)).toContain("Delete section and contents");
+    expect(on(a).map((i) => i.label)).toContain("Create section around selection");
     expect(sections.canvasMenuItems({ x: 50, y: 50 })).toEqual([]);
     updateSectionMeta(store, id, { locked: true });
     const unlock = sections.canvasMenuItems({ x: 50, y: 50 }).find((i) =>

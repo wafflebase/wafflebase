@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
@@ -93,6 +93,12 @@ export interface BoardToolbarProps {
   onInsertImage?: (file: File) => void;
   /** Board sections: the section tool, the sections list, section controls. */
   sections?: BoardSections | null;
+  /** Board tools owned outside this file (stamps / voting / comments), after Line. */
+  extraTools?: ReactNode;
+  /** One of `extraTools` is armed, so Select is not the live tool. */
+  extraToolArmed?: boolean;
+  /** Called when Select is clicked, to disarm `extraTools`. */
+  onSelectTool?: () => void;
 }
 
 /**
@@ -132,6 +138,9 @@ export function BoardToolbar({
   onInsertSticky,
   onInsertImage,
   sections = null,
+  extraTools,
+  extraToolArmed = false,
+  onSelectTool,
 }: BoardToolbarProps) {
   const sectionArmed = useSectionToolArmed(sections);
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
@@ -311,11 +320,12 @@ export function BoardToolbar({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={insertMode === null && !handOn && !sectionArmed}
+            pressed={insertMode === null && !handOn && !sectionArmed && !extraToolArmed}
             onClick={() => {
               hand?.set(false);
               sections?.tool.set(false);
               editor?.setInsertMode(null);
+              onSelectTool?.();
             }}
             aria-label="Select"
             disabled={disabled || !editor}
@@ -476,6 +486,8 @@ export function BoardToolbar({
       />
 
       <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />
+
+      {extraTools}
 
       {state.kind === "object" && (
         <>

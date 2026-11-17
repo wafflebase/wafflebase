@@ -93,6 +93,10 @@ import {
   saveGridSnap,
   type BoardGridKind,
 } from "./board-grid";
+import { BoardRituals, type RitualMenus } from "./rituals/board-rituals";
+import { BoardRitualTools } from "./rituals/board-ritual-controls";
+import { useRitualToolState } from "./rituals/use-ritual-tool-state";
+import { useBoardCollab } from "./rituals/board-collab-hook";
 
 interface BoardViewProps {
   /**
@@ -210,6 +214,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // funnel through the same insert call, centered on the live viewport.
   const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
+  // Stamps / voting / comment pins (`rituals/`): their context-menu entries
+  // and a handle to centre the viewport on a world point, both filled by
+  // the mount effect / the ritual layer.
+  const ritualMenusRef = useRef<RitualMenus | null>(null);
+  const navigateRef = useRef<((world: { x: number; y: number }) => void) | null>(null);
+  const collab = useBoardCollab();
+  const ritualTool = useRitualToolState();
   const [helpOpen, setHelpOpen] = useState(false);
   // Drives the first-run hint; true only once the store says so, so a
   // board that is still loading never flashes it.
@@ -250,6 +261,23 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // Board sections (Shift+S); lifted for the toolbar like `editor`.
   const [sections, setSections] = useState<BoardSections | null>(null);
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
+  // The section tool and the ritual tools (stamp / comment) come from two
+  // features that each disarm the hand and insert modes; this makes them
+  // disarm each other too, so exactly one board tool is ever live.
+  const ritualToolHandle = collab?.tool ?? null;
+  useEffect(() => {
+    if (!ritualToolHandle || !sections) return;
+    const offRitual = ritualToolHandle.subscribe(() => {
+      if (ritualToolHandle.get().mode !== "none") sections.tool.set(false);
+    });
+    const offSection = sections.tool.subscribe(() => {
+      if (sections.tool.get()) ritualToolHandle.setMode("none");
+    });
+    return () => {
+      offRitual();
+      offSection();
+    };
+  }, [ritualToolHandle, sections]);
 
   // Held so the grid-mode effect can repaint the minimap's viewport frame
   // without waiting for a pan.
@@ -446,6 +474,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
               },
             ]),
         ...sections.canvasMenuItems(at),
+        ...(ritualMenusRef.current?.canvasItems(at) ?? []),
+      ],
+      // Element menu: section actions, then the rituals' "Comment". Spelled
+      // out because a key here would otherwise override the one
+      // `sections.editorOptions` spreads in above.
+      hostElementMenuItems: (ctx) => [
+        ...(sections.editorOptions.hostElementMenuItems?.(ctx) ?? []),
+        ...(ritualMenusRef.current?.elementItems(ctx.at) ?? []),
       ],
       // Sticky notes: the author tag at the bottom edge, square stickies
       // that stay square on a corner drag, and a paste or duplicate that
@@ -561,6 +597,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       commit: commitViewport,
     });
     setZoomController(zoom.controller);
+    navigateRef.current = (world) =>
+      commitViewport(centerViewportOnWorld(vp.current, world, { w: hostW, h: hostH }));
 
     // Bring an off-screen world box (a sticky placed past the screen
     // edge, which then enters text edit) into view, centred.
@@ -1147,6 +1185,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       setZoomController(null);
       stickyInserterRef.current = null;
       stickyFlow?.dispose();
+      navigateRef.current = null;
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
@@ -1230,6 +1269,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           sections={sections}
           disabled={!workspaceId}
+          extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
+          extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
+          onSelectTool={() => collab?.tool.setMode("none")}
         />
       )}
       <div className="relative flex-1 w-full min-h-0">
@@ -1238,6 +1280,16 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           data-document-id={documentId}
           className="relative w-full h-full"
           style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+        />
+        <BoardRituals
+          editor={editor}
+          store={store}
+          hand={hand}
+          containerRef={containerRef}
+          vpRef={vp}
+          readOnly={readOnly === true}
+          menuRef={ritualMenusRef}
+          navigateRef={navigateRef}
         />
         {isEmpty && !readOnly && <BoardEmptyHint />}
       </div>

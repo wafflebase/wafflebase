@@ -378,7 +378,7 @@ export function createBoardSections(deps: BoardSectionsDeps): BoardSections {
       rename(el.id, initialText);
       return true;
     },
-    hostElementMenuItems: (selectedIds) => {
+    hostElementMenuItems: ({ selectedIds }) => {
       if (readOnly || selectedIds.length === 0) return [];
       const elements = readElements(store);
       if (selectedIds.length === 1) {

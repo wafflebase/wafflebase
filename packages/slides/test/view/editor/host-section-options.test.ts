@@ -2,7 +2,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import { MemSlidesStore } from '../../../src/store/memory';
-import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import {
+  initialize,
+  type HostElementMenuContext,
+  type SlidesEditor,
+} from '../../../src/view/editor/editor';
 import { drawSlide, SlideRenderer } from '../../../src/view/canvas/slide-renderer';
 
 /**
@@ -235,7 +239,7 @@ describe('section host options', () => {
       const { canvas, overlay, store } = makeFixture();
       const id = addRect(store, 100, 100, 200, 200);
       const run = vi.fn();
-      const items = vi.fn((_ids: readonly string[]) => [{ label: 'Hide section', run }]);
+      const items = vi.fn((_ctx: HostElementMenuContext) => [{ label: 'Hide section', run }]);
       editor = initialize({
         canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
         hostElementMenuItems: items,
@@ -243,7 +247,11 @@ describe('section host options', () => {
       canvas.dispatchEvent(new MouseEvent('contextmenu', {
         clientX: 200, clientY: 200, bubbles: true, cancelable: true,
       }));
-      expect(items).toHaveBeenCalledWith([id]);
+      expect(items).toHaveBeenCalledWith({
+        at: expect.objectContaining({ x: expect.any(Number) }),
+        elementId: id,
+        selectedIds: [id],
+      });
       const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
       const li = [...menu.querySelectorAll('li')].find((l) =>
         l.textContent?.includes('Hide section'),

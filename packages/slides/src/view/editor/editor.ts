@@ -232,6 +232,16 @@ interface PaintSnapshot {
  * unset `showPlaceholderHints` defaulted to `!readOnly`), so pass a fresh
  * object per `initialize()` rather than one shared between mounts.
  */
+/** What `SlidesEditorOptions.hostElementMenuItems` is told about the menu. */
+export interface HostElementMenuContext {
+  /** The right-clicked point, in logical (world) coordinates. */
+  at: { x: number; y: number };
+  /** The element hit at `at`. */
+  elementId: string;
+  /** The selection the menu acts on (already resolved to the click). */
+  selectedIds: readonly string[];
+}
+
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
   overlay: HTMLDivElement;
@@ -385,10 +395,16 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
     kind: 'paste' | 'duplicate',
   ) => { dx: number; dy: number };
   /**
-   * Extra entries at the end of an element's context menu, for the
-   * current selection (the board's section actions). Omitted on slides.
+   * Extra items appended to an element's context menu (after the arrange
+   * group), read when the menu opens. The selection has already been
+   * resolved to the clicked element. `ctx.at` is the right-clicked point
+   * in logical (world) coordinates and `ctx.elementId` the element hit
+   * there (a group child when drilled in). The board's section actions
+   * and its "Comment" entry use it; a host that contributes from several
+   * features concatenates their items. A slides mount omits it and the
+   * element menu is unchanged.
    */
-  hostElementMenuItems?: (selectedIds: readonly string[]) => ContextMenuItem[];
+  hostElementMenuItems?: (ctx: HostElementMenuContext) => ContextMenuItem[];
   /**
    * Top-level elements that travel with a move of `movedIds` (drag or
    * arrow nudge) in the same batch, i.e. one undo step. The board's
@@ -786,6 +802,15 @@ export interface SlidesEditor {
    * of which the host holds.
    */
   hasContentAt(clientX: number, clientY: number): boolean;
+
+  /**
+   * The id of the TOP-LEVEL element under this viewport coordinate (the
+   * outermost group when the hit lands inside one), or `null` over empty
+   * canvas. Same hit-test as {@link hasContentAt}, minus selection
+   * handles. For hosts that annotate whole elements (the board's stamps,
+   * votes and comment pins) and so must not drill into a group.
+   */
+  topLevelElementAt(clientX: number, clientY: number): string | null;
 
   /**
    * Open the context menu for whatever is at this viewport coordinate,
@@ -3326,11 +3351,17 @@ class SlidesEditorImpl implements SlidesEditor {
       this.selection.click(hitResult, {});
       this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
-    const items = this.elementContextItems(slide.id);
+    const items = this.elementContextItems(slide.id, {
+      at: { x, y },
+      elementId: hitResult.elementId,
+    });
     showContextMenu(document.body, items, clientX, clientY);
   }
 
-  private elementContextItems(slideId: string): ContextMenuItem[] {
+  private elementContextItems(
+    slideId: string,
+    hit?: Omit<HostElementMenuContext, 'selectedIds'>,
+  ): ContextMenuItem[] {
     // Selection has already been resolved by `onContextMenu` (right-click)
     // through the drill-in state machine. We DO NOT set it here — calling
     // `selection.set([leafId])` would bypass drill-in rules and leave the
@@ -3416,7 +3447,9 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
-      ...(this.options.hostElementMenuItems?.(selectedIds) ?? []),
+      ...(hit && this.options.hostElementMenuItems
+        ? this.options.hostElementMenuItems({ ...hit, selectedIds })
+        : []),
     ];
   }
 
@@ -6195,6 +6228,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return false;
     const { x, y } = this.clientToLogical(clientX, clientY);
     return this.hitTestAt(slide, x, y) !== null;
+  }
+
+  topLevelElementAt(clientX: number, clientY: number): string | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const hit = this.hitTestAt(slide, x, y);
+    if (!hit) return null;
+    return hit.ancestorPath[0] ?? hit.elementId;
   }
 
   private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {

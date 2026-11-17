@@ -1,4 +1,6 @@
 import type { YorkieElement } from './slides-document';
+import type { BoardAnchor, Thread } from './comments';
+import type { BoardStamps, BoardVoting } from '@/app/board/rituals/types';
 
 export interface YorkieBoardRoot {
   meta: {
@@ -12,10 +14,27 @@ export interface YorkieBoardRoot {
     anonymous?: boolean;
   };
   elements: YorkieElement[];
+  /** Stamps on elements (additive; see `app/board/rituals/types.ts`). */
+  stamps?: BoardStamps;
+  /** The dot-voting session, when one is running or its results are shown. */
+  voting?: BoardVoting;
+  /** Comment threads, keyed by thread id (same shape as pdf/docs). */
+  comments?: { [threadId: string]: Thread<BoardAnchor> };
 }
 
+/**
+ * `stamps` and `comments` are seeded empty so two users' first writes
+ * merge into one shared container instead of racing to create it (Yorkie
+ * resolves a same-key object assignment by LWW). The SDK seeds absent
+ * keys on every editor attach, so existing boards gain them too.
+ */
 export function initialBoardRoot(): Partial<YorkieBoardRoot> {
-  return { meta: { title: 'Untitled board' }, elements: [] };
+  return {
+    meta: { title: 'Untitled board' },
+    elements: [],
+    stamps: {},
+    comments: {},
+  };
 }
 
 /**
