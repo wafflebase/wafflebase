@@ -47,7 +47,12 @@ function modifierXml(tag: string, value: number | undefined): string {
   if (value === undefined) return '';
   const n = Number(value);
   if (!Number.isFinite(n)) return '';
-  return `<a:${tag} val="${n}"/>`;
+  // The model holds modifiers as ratios (`0..1`; see `ThemeColor` and the
+  // importer's `applyModifiers`, which divides by 100 000). OOXML's
+  // `ST_Percentage` is thousandths of a percent, so scale back here —
+  // writing the ratio raw exported a 35%-alpha highlighter as
+  // `<a:alpha val="0.35"/>`, i.e. invisible.
+  return `<a:${tag} val="${Math.round(n * 100_000)}"/>`;
 }
 
 export function colorChildXml(c: ThemeColor): string {

@@ -50,8 +50,14 @@ import type { HandTool } from "./board-hand";
 import { isSectionElement } from "@wafflebase/board";
 import { useSectionToolArmed, type BoardSections } from "./board-sections";
 import { SectionControls, SectionToolItems } from "./board-section-toolbar";
-import { BOARD_LINE_LABELS, BOARD_LINE_NONE_LABEL } from "./board-vocabulary";
+import {
+  BOARD_LINE_EXCLUDE,
+  BOARD_LINE_LABELS,
+  BOARD_LINE_NONE_LABEL,
+} from "./board-vocabulary";
 import { TIDY_UP_SHORTCUT, tidyUpSelection } from "./board-tidy";
+import type { InkTool } from "./board-ink";
+import { BoardInkControls } from "./board-ink-controls";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -69,6 +75,8 @@ export interface BoardToolbarProps {
   zoomController?: ZoomController | null;
   /** The hand (drag-to-pan) tool, shared with the board's `H` key. */
   hand?: HandTool | null;
+  /** The marker / highlighter pen choice, shared with the M keys. */
+  ink?: InkTool | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -134,6 +142,7 @@ export function BoardToolbar({
   store = null,
   zoomController = null,
   hand = null,
+  ink = null,
   gridKind,
   onGridKindChange,
   gridSnap,
@@ -475,7 +484,10 @@ export function BoardToolbar({
           not a line-tool kind: connectors / scribble live in Line ▾) */}
       <ShapePicker
         activeKind={
-          insertMode && insertMode !== "text" && !isLineToolKind(insertMode)
+          insertMode &&
+          insertMode !== "text" &&
+          insertMode !== "eraser" &&
+          !isLineToolKind(insertMode)
             ? insertMode
             : null
         }
@@ -483,12 +495,24 @@ export function BoardToolbar({
         disabled={disabled || !editor}
       />
 
-      {/* Line ▾ — connectors + the freehand scribble */}
+      {/* Line ▾ — connectors only. Freehand belongs to the Marker tool
+          below, so a "freeform" insert mode lights Marker, not Line. */}
       <LinePicker
-        activeKind={isLineToolKind(insertMode) ? insertMode : null}
+        activeKind={
+          isLineToolKind(insertMode) && insertMode !== "freeform" ? insertMode : null
+        }
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
         labels={BOARD_LINE_LABELS}
+        exclude={BOARD_LINE_EXCLUDE}
+      />
+
+      {/* Marker ▾ + Eraser — see `board-ink-controls.tsx`. */}
+      <BoardInkControls
+        editor={editor}
+        ink={ink}
+        insertMode={insertMode}
+        disabled={disabled}
       />
 
       <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />

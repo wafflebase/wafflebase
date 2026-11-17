@@ -6,6 +6,8 @@ import { isActionButton } from '../canvas/shapes/action-buttons';
 import { EVENODD_KINDS, OPEN_PATH_KINDS } from '../canvas/shape-renderer';
 import { buildConnectorPath } from '../canvas/connector-frame';
 import { type BezierPath, isBezierPath } from '../canvas/routing';
+import { buildFreeformPath } from '../canvas/shapes/freeform';
+import { freeformDistance, isFreeformShape, type FreeformShape } from './freeform-hit';
 
 /** Default click tolerance, in slide-logical pixels. */
 export const DEFAULT_HIT_TOLERANCE = 6;
@@ -52,6 +54,7 @@ const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
  * drawn area of `el`. Used by selection and right-click hit-test.
  *
  * - text / image / action-button shapes → bbox (`containsPoint`).
+ * - freeform shapes → their painted body and stroke line (`hitFreeform`).
  * - shape with a registered path builder:
  *   - filled OR text-bearing, and not `OPEN_PATH_KINDS` → `isPointInPath`
  *     against the local `Path2D`, with rotation + `flipH/flipV`
@@ -97,6 +100,7 @@ function hitShape(
   if (isActionButton(el.data.kind)) return containsPoint(frame, px, py);
 
   const tol = opts.tolerance ?? DEFAULT_HIT_TOLERANCE;
+  if (isFreeformShape(el)) return hitFreeform(el, px, py, ctx, tol);
   // Fast bbox reject with a tolerance pad so clicks just outside the
   // bbox — but still within the stroke band — can reach the precise
   // tests below.
@@ -167,6 +171,40 @@ function hitShape(
   }
 
   return false;
+}
+
+/**
+ * Freeform (scribble / marker / imported custGeom). Has no
+ * `PATH_BUILDERS` entry, so it used to hit on its padded bbox — one
+ * diagonal stroke swallowed clicks on everything beneath its bounding
+ * box. Now:
+ *
+ * - a painted body (fill, or text on top of one) hits inside the path,
+ *   as the renderer fills it (nonzero, open subpaths auto-closed);
+ * - the stroke hits within half its width plus `tol` (screen-sized,
+ *   since the editor passes `hitTolerance / zoom`) of the line it paints.
+ */
+function hitFreeform(
+  el: FreeformShape,
+  px: number,
+  py: number,
+  ctx: HitTestCtx,
+  tol: number,
+): boolean {
+  const frame = el.frame;
+  const hasFill = el.data.fill !== undefined;
+  const hasText = el.data.text !== undefined;
+  const half = (el.data.stroke?.width ?? 0) / 2;
+  if (!containsPointPadded(frame, px, py, tol + half)) return false;
+  if (hasFill || hasText) {
+    const local = toLocal(frame, { x: px, y: py });
+    const lx = frame.flipH ? frame.w - local.x : local.x;
+    const ly = frame.flipV ? frame.h - local.y : local.y;
+    const path = buildFreeformPath({ w: frame.w, h: frame.h }, el.data.path);
+    if (ctx.isPointInPath(path, lx, ly, 'nonzero')) return true;
+  }
+  if (el.data.stroke === undefined && !hasFill && !hasText) return false;
+  return freeformDistance(el, px, py) <= half + tol;
 }
 
 /**

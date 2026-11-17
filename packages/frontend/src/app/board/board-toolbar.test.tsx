@@ -75,9 +75,12 @@ describe("BoardToolbar vocabulary", () => {
   it("names the line tools in whiteboard words", async () => {
     renderToolbar(fakeEditor());
     await userEvent.click(screen.getByRole("button", { name: "Line" }));
-    for (const name of ["Line", "Arrow", "Connector", "Curved", "Marker"]) {
+    for (const name of ["Line", "Arrow", "Connector", "Curved"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
+    // No freehand entry in the open Line menu: the dedicated Marker tool
+    // (M) is the board's one way to draw.
+    expect(screen.queryByRole("button", { name: "Marker" })).toBeNull();
     for (const name of ["Scribble", "Elbow connector", "Curved connector"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }

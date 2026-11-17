@@ -176,6 +176,12 @@ export interface LinePickerProps {
    * the Google Slides label from `LINE_PICKER_ENTRIES`.
    */
   labels?: Partial<Record<LineToolKind, string>>;
+  /**
+   * Kinds left out of the menu, for a host that offers them elsewhere
+   * (the board's dedicated Marker tool owns Scribble). Omitted: every
+   * entry in `LINE_PICKER_ENTRIES`.
+   */
+  exclude?: readonly LineToolKind[];
 }
 
 /**
@@ -193,6 +199,7 @@ export function LinePicker({
   disabled,
   trigger,
   labels,
+  exclude,
 }: LinePickerProps) {
   // Controlled open state so we can close the dropdown as soon as the
   // user picks an entry. Mirrors the pattern in `<ShapePicker />`.
@@ -228,7 +235,7 @@ export function LinePicker({
         className="z-50 w-[200px] p-1"
       >
         <div className="flex flex-col gap-0.5">
-          {LINE_PICKER_ENTRIES.map((entry) => (
+          {LINE_PICKER_ENTRIES.filter((entry) => !exclude?.includes(entry.kind)).map((entry) => (
             <IconButton
               key={entry.kind}
               kind={entry.kind}

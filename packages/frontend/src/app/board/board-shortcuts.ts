@@ -11,12 +11,14 @@ export type BoardTool =
   | { kind: "hand" }
   | { kind: "sticky" }
   | { kind: "section" }
+  | { kind: "ink"; pen: "marker" | "highlighter" }
   | { kind: "insert"; insert: InsertKind };
 
 /**
  * FigJam's single-key tools, which is what a board user's hands already
  * know: V select, H hand, T text, S sticky, R rectangle, O ellipse,
- * L line, Shift+L arrow, X connector, Shift+S section.
+ * L line, Shift+L arrow, X connector, Shift+S section, M marker,
+ * Shift+M highlighter, Shift+E eraser.
  */
 const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   v: { kind: "select" },
@@ -29,15 +31,21 @@ const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   L: { kind: "insert", insert: "connector:arrow" },
   x: { kind: "insert", insert: "connector:elbow" },
   S: { kind: "section" },
+  m: { kind: "ink", pen: "marker" },
+  M: { kind: "ink", pen: "highlighter" },
+  E: { kind: "insert", insert: "eraser" },
 };
+
+/** The shifted tool keys; any other Shift+letter is not a tool. */
+const SHIFTED_TOOL_KEYS = new Set(["L", "S", "M", "E"]);
 
 /**
  * The tool a keystroke selects, or `null` when it is not a tool key.
  *
  * Any modifier other than Shift disqualifies it, so `Mod+S` / `Mod+V`
- * keep their meaning, and only Shift+L is a shifted tool. The caller owns
- * the context gate (no text edit, no focused field, nothing selected) —
- * see `board-view.tsx`.
+ * keep their meaning, and only Shift+L / Shift+S / Shift+M / Shift+E
+ * are shifted tools. The caller owns the context gate (no text edit, no
+ * focused field, nothing selected) — see `board-view.tsx`.
  */
 export function boardToolForKey(e: {
   key: string;
@@ -48,7 +56,7 @@ export function boardToolForKey(e: {
 }): BoardTool | null {
   if (e.metaKey || e.ctrlKey || e.altKey) return null;
   const key = e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase();
-  if (e.shiftKey && key !== "L" && key !== "S") return null;
+  if (e.shiftKey && !SHIFTED_TOOL_KEYS.has(key)) return null;
   return TOOL_KEYS[key] ?? null;
 }
 
@@ -95,6 +103,10 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["Mod+Alt+M"], description: "Comment (on the selection, or click to place)" },
   { category: "Tools", keys: ["/"], description: "Cursor chat" },
   { category: "Tools", keys: ["E"], description: "Emotes (then 1–6 to send)" },
+  { category: "Tools", keys: ["M"], description: "Marker (stays on until Esc)" },
+  { category: "Tools", keys: ["Shift+M"], description: "Highlighter" },
+  { category: "Tools", keys: ["Shift+E"], description: "Eraser (drag across strokes)" },
+  { category: "Tools", keys: ["Shift"], description: "Straight line (hold while drawing)" },
 
   { category: "Sticky notes", keys: ["Mod+Enter"], description: "Add a sticky next to the selected one" },
   { category: "Sticky notes", keys: ["Tab", "Mod+Enter"], description: "While typing: finish and start the next sticky" },
@@ -179,6 +191,8 @@ export interface BoardToolKeyContext {
   dropSticky: () => void;
   /** Arm or disarm the section tool (Shift+S). Omitted: no section tool. */
   setSection?: (on: boolean) => void;
+  /** Pick a pen and arm freehand drawing (`board-ink.ts` `armInkPen`). */
+  armInk?: (pen: "marker" | "highlighter") => void;
   /**
    * Whether the keystroke's target belongs to the board: its canvas,
    * toolbar, or no focused element at all (`document.body`). The handler
@@ -301,6 +315,7 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
   if (tool.kind === "section") ctx.editor.setInsertMode(null);
   else if (tool.kind === "select") ctx.editor.setInsertMode(null);
   else if (tool.kind === "sticky") ctx.dropSticky();
+  else if (tool.kind === "ink") ctx.armInk?.(tool.pen);
   else ctx.editor.setInsertMode(tool.insert);
   return true;
 }
