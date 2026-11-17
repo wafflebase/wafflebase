@@ -47,6 +47,8 @@ import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
 import type { HandTool } from "./board-hand";
+import type { InkTool } from "./board-ink";
+import { BoardInkControls } from "./board-ink-controls";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -64,6 +66,8 @@ export interface BoardToolbarProps {
   zoomController?: ZoomController | null;
   /** The hand (drag-to-pan) tool, shared with the board's `H` key. */
   hand?: HandTool | null;
+  /** The marker / highlighter pen choice, shared with the M keys. */
+  ink?: InkTool | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -119,6 +123,7 @@ export function BoardToolbar({
   store = null,
   zoomController = null,
   hand = null,
+  ink = null,
   gridKind,
   onGridKindChange,
   gridSnap,
@@ -434,7 +439,10 @@ export function BoardToolbar({
           not a line-tool kind: connectors / scribble live in Line ▾) */}
       <ShapePicker
         activeKind={
-          insertMode && insertMode !== "text" && !isLineToolKind(insertMode)
+          insertMode &&
+          insertMode !== "text" &&
+          insertMode !== "eraser" &&
+          !isLineToolKind(insertMode)
             ? insertMode
             : null
         }
@@ -442,11 +450,22 @@ export function BoardToolbar({
         disabled={disabled || !editor}
       />
 
-      {/* Line ▾ — connectors + the freehand scribble */}
+      {/* Line ▾ — connectors + the freehand scribble. Scribble IS the
+          marker on a board, so the Marker toggle shows it, not Line. */}
       <LinePicker
-        activeKind={isLineToolKind(insertMode) ? insertMode : null}
+        activeKind={
+          isLineToolKind(insertMode) && insertMode !== "freeform" ? insertMode : null
+        }
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
+      />
+
+      {/* Marker ▾ + Eraser — see `board-ink-controls.tsx`. */}
+      <BoardInkControls
+        editor={editor}
+        ink={ink}
+        insertMode={insertMode}
+        disabled={disabled}
       />
 
       {state.kind === "object" && (

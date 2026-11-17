@@ -62,6 +62,14 @@ import {
   type HandTool,
 } from "./board-hand";
 import {
+  BOARD_STICKY_INSERT_KINDS,
+  armInkPen,
+  createInkTool,
+  inkStroke,
+  isInkArmed,
+  type InkTool,
+} from "./board-ink";
+import {
   captureFromContainer,
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
@@ -227,6 +235,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const handRef = useRef<HandTool | null>(null);
   if (handRef.current === null) handRef.current = createHandTool();
   const hand = handRef.current;
+  // The marker / highlighter pen choice, shared by the toolbar, the
+  // M / Shift+M keys and the editor's `getInkStroke` (`board-ink.ts`).
+  const inkRef = useRef<InkTool | null>(null);
+  if (inkRef.current === null) inkRef.current = createInkTool();
+  const ink = inkRef.current;
   // That value holder bound to the actions it drives (see
   // `createBoardZoomBinding`). Built inside the mount effect — it closes
   // over the live viewport, host size and minimap — and lifted into
@@ -388,6 +401,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
+      // Marker and eraser stay armed stroke after stroke (FigJam), and
+      // draw with the pen picked in the toolbar.
+      stickyInsertKinds: BOARD_STICKY_INSERT_KINDS,
+      getInkStroke: () => inkStroke(ink.get()),
       hostCanvasMenuItems: () => [
         { label: "---", run: () => undefined },
         {
@@ -815,6 +832,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         },
         setHand: (on) => hand.set(on),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
+        armInk: (pen) => armInkPen(editor, ink, pen),
         isBoardTarget: (target) =>
           target === document.body ||
           (target instanceof Node && rootRef.current?.contains(target) === true),
@@ -943,6 +961,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
             return true;
           },
       onZoomChange: (z) => zoom.reportViewportZoom(z),
+      // A finger on the canvas draws / erases while those tools are
+      // armed; a second finger takes the gesture back as a pinch.
+      isInkArmed: readOnly ? () => false : () => isInkArmed(editor.getInsertMode()),
+      onInkInterrupted: () => editor.cancelInkStroke(),
     }, {
       // The minimap is a child of `container` too, and its own
       // drag-to-navigate is a plain bubble-phase listener that a claim
@@ -1013,7 +1035,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `zoomValue` is a ref-held singleton with a stable identity for the
     // component's lifetime, so listing it never re-runs this effect — it
     // is here only to satisfy exhaustive-deps.
-  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand]);
+  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand, ink]);
 
   // Repaint the grid when the MODE changes — the one input that moves
   // without the viewport moving (the plane never follows the app theme,
@@ -1078,6 +1100,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           store={store}
           zoomController={zoomController}
           hand={hand}
+          ink={ink}
           gridKind={gridKind}
           onGridKindChange={(kind) => {
             setGridKind(kind);
