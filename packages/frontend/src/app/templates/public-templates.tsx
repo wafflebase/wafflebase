@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MarketingPage } from "@/app/home/marketing-page";
 import { SectionHead } from "@/app/home/primitives/section-head";
 import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
@@ -25,6 +25,7 @@ import { TemplateGallery } from "@/app/templates/template-gallery";
  */
 export function PublicTemplates() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
 
   return (
     // The nav's signed-out CTA carries `returnTo` so a visitor who signs in
@@ -46,6 +47,7 @@ export function PublicTemplates() {
             scope="public"
             skin="marketing"
             selectLabel="View"
+            initialType={params.get("type")}
             onSelect={(card) => navigate(`/t/${card.id}`)}
             emptyHint="No templates have been published to the public gallery yet."
           />

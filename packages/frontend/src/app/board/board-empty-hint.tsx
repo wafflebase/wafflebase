@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { formatCombo } from "@wafflebase/slides";
 import { semantic } from "@wafflebase/core/tokens";
 
@@ -9,6 +10,20 @@ import { semantic } from "@wafflebase/core/tokens";
 const MUTED = semantic.light.mutedForeground;
 const RULE = semantic.light.border;
 const WASH = semantic.light.muted;
+/** Strong syrup: the one accent where it carries words (5.53:1 on white). */
+const ACTION = semantic.light.primary;
+
+/**
+ * Where "Start from a template" goes: the workspace Templates page, on its
+ * public tab (where the seeded board templates are listed), filtered to
+ * boards. Without a workspace (a share-link editor), the public gallery,
+ * which takes the same `type` filter.
+ */
+function boardTemplatesHref(workspaceId?: string): string {
+  return workspaceId
+    ? `/w/${encodeURIComponent(workspaceId)}/templates?tab=public&type=board`
+    : "/templates?type=board";
+}
 
 function Key({ children }: { children: string }) {
   return (
@@ -28,9 +43,10 @@ function Key({ children }: { children: string }) {
  * single-key shortcuts lived nowhere a newcomer would find them. This
  * names the two most common first moves and the right-click menu, and
  * goes away with the first element. It takes no pointer events, so it
- * never stands between the user and the canvas.
+ * never stands between the user and the canvas — except its one link,
+ * which offers a board template instead of a blank plane.
  */
-export function BoardEmptyHint() {
+export function BoardEmptyHint({ workspaceId }: { workspaceId?: string }) {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   return (
@@ -39,6 +55,14 @@ export function BoardEmptyHint() {
         Press <Key>S</Key> for a sticky note or <Key>T</Key> for text, or
         right-click to add something. <Key>{formatCombo("Mod+/", isMac)}</Key>{" "}
         shows every shortcut.
+        <br />
+        <Link
+          to={boardTemplatesHref(workspaceId)}
+          className="focus-ring pointer-events-auto mt-2 inline-block rounded-sm font-medium underline-offset-4 hover:underline"
+          style={{ color: ACTION }}
+        >
+          Start from a template
+        </Link>
       </p>
     </div>
   );

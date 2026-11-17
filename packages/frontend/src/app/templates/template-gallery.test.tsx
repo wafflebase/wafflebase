@@ -78,3 +78,37 @@ describe("TemplateGallery skins", () => {
     expect(control.textContent).toContain("Weekly Report");
   });
 });
+
+describe("TemplateGallery initial type facet", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(browseTemplates).mockResolvedValue({ items: [], nextCursor: null });
+  });
+
+  function renderWithType(initialType: string | null) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <TemplateGallery
+          scope="public"
+          selectLabel="Use"
+          onSelect={() => {}}
+          initialType={initialType}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  // The empty board's "Start from a template" links here with `?type=board`.
+  it("opens filtered to a known type", async () => {
+    renderWithType("board");
+    await waitFor(() => expect(browseTemplates).toHaveBeenCalled());
+    expect(vi.mocked(browseTemplates).mock.calls[0][0]).toMatchObject({ type: "board" });
+  });
+
+  it("ignores a type it does not know", async () => {
+    renderWithType("spaceship");
+    await waitFor(() => expect(browseTemplates).toHaveBeenCalled());
+    expect(vi.mocked(browseTemplates).mock.calls[0][0]).not.toHaveProperty("type");
+  });
+});

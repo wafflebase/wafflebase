@@ -1376,7 +1376,7 @@ export function BoardView({
           menuRef={ritualMenusRef}
           navigateRef={navigateRef}
         />
-        {isEmpty && !readOnly && <BoardEmptyHint />}
+        {isEmpty && !readOnly && <BoardEmptyHint workspaceId={workspaceId} />}
         {/* The insert tools, floating bottom-centre (FigJam, Miro); hidden
             for viewers like the toolbar. See `board-tool-dock.tsx`. */}
         {!readOnly && (

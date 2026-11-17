@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TemplateGallery } from "@/app/templates/template-gallery";
 
@@ -20,6 +20,10 @@ import { TemplateGallery } from "@/app/templates/template-gallery";
 export default function WorkspaceTemplates() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
+  // `?tab=public&type=board` is how the empty board's "Start from a
+  // template" lands on board templates (`board-empty-hint.tsx`).
+  const [params] = useSearchParams();
+  const initialType = params.get("type");
 
   // No heading of its own: `Layout`'s `ROUTE_TITLES` already puts "Templates"
   // in the site header for this route, and no other workspace page (Documents,
@@ -29,7 +33,7 @@ export default function WorkspaceTemplates() {
   // someone already inside their own workspace.
   return (
     <div className="space-y-4 p-4 lg:p-6">
-      <Tabs defaultValue="workspace">
+      <Tabs defaultValue={params.get("tab") === "public" ? "public" : "workspace"}>
         <TabsList>
           <TabsTrigger value="workspace">This workspace</TabsTrigger>
           <TabsTrigger value="public">Public gallery</TabsTrigger>
@@ -45,6 +49,7 @@ export default function WorkspaceTemplates() {
             workspaceId={workspaceId}
             selectLabel="Open"
             onSelect={(card) => navigate(`/t/${card.id}`)}
+            initialType={initialType}
             emptyHint="Open a document, choose Share, and publish it as a template with Workspace visibility."
           />
         </TabsContent>
@@ -54,6 +59,7 @@ export default function WorkspaceTemplates() {
             scope="public"
             selectLabel="Open"
             onSelect={(card) => navigate(`/t/${card.id}`)}
+            initialType={initialType}
             emptyHint="No templates have been published to the public gallery yet."
           />
         </TabsContent>
