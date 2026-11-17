@@ -23,8 +23,11 @@ function matches(query: string): boolean {
  * panel) need that width more than they need navigation.
  *
  * The collapse is derived, never written: it does not go through the
- * provider's `setOpen`, so neither the user's preference nor the
- * `sidebar_state` cookie changes. A manual toggle while narrow is a
+ * provider's `setOpen`, so the auto-collapse changes neither the user's
+ * preference nor the `sidebar_state` cookie. (A manual toggle still goes
+ * through `setOpen` and writes the cookie, as in every editor; nothing
+ * reads it back, so the preference lives as long as this mount.) A
+ * manual toggle while narrow is a
  * temporary override that lasts until the viewport is wide again; at that
  * point the preference applies, and the next narrow entry collapses afresh.
  */

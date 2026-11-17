@@ -65,8 +65,10 @@ export interface ToolbarOverflowProps {
  * are pickers and toggles rather than menu actions. So the fold point is
  * measured, from the tail, and the menu is a popover that renders the
  * same section a second time with the controls still shown in the strip
- * hidden — the folded ones keep their own pickers, state and shortcuts
- * instead of being re-implemented as menu items.
+ * hidden — the folded ones keep their own picker UI and behaviour,
+ * re-mounted inside the menu, instead of being re-implemented as menu
+ * items. The menu copy is a separate instance: local draft state is not
+ * shared with the strip and does not survive closing the menu.
  *
  * Folding is written to the DOM (`data-toolbar-folded` on the strip's
  * top-level children) inside the measuring pass, so the strip never
@@ -186,16 +188,16 @@ export function ToolbarOverflow({
         {foldAt !== null && (
           <PopoverContent
             align="end"
-            // The canvas-toolbar marker lets a click in here hand the
-            // keyboard back to the canvas like the strip does (#882); the
-            // keepalive marker, when set, outranks it during a text edit.
-            data-canvas-toolbar=""
+            // Deliberately NOT a canvas toolbar: the focus release (#882)
+            // would move focus out of this popover on every click inside
+            // it and dismiss the menu. The keyboard still returns to the
+            // canvas when the menu closes — Radix hands focus back to the
+            // More trigger, which sits in the canvas toolbar.
             {...keepalive}
             onOpenAutoFocus={(e) => {
               // A click leaves focus on the trigger, as the strip's own
-              // pickers do — moving it into the menu would only have the
-              // canvas focus release take it away again. A keyboard open
-              // lands on the first folded control.
+              // pickers do; a keyboard open lands on the first folded
+              // control.
               if (pointerOpenRef.current) e.preventDefault();
             }}
             onInteractOutside={(e) => {

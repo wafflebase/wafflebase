@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToolbarOverflow } from "./toolbar-overflow";
 import { computeFoldIndex, isHiddenInMenu } from "./toolbar-overflow-layout";
@@ -196,6 +197,41 @@ describe("ToolbarOverflow", () => {
     expect(menu.closest("[data-slot='popover-content']")).toHaveAttribute(
       "data-text-edit-keepalive",
     );
+  });
+
+  it("keeps the menu open when a control inside it is clicked", async () => {
+    // The real toolbar row is a canvas toolbar with the focus-release hook
+    // mounted (#882). The menu must not count as part of it: releasing
+    // focus from a control in the menu would move focus out of the
+    // popover and dismiss it after a single click.
+    function FocusRelease() {
+      useCanvasFocusRelease();
+      return null;
+    }
+    stripWidth = 100;
+    render(
+      <TooltipProvider>
+        <FocusRelease />
+        <div data-canvas-toolbar="">
+          <ToolbarOverflow resetKey="idle">
+            <Section />
+          </ToolbarOverflow>
+        </div>
+      </TooltipProvider>,
+    );
+    await act(async () => {});
+    await userEvent.click(moreButton());
+    const menu = await screen.findByTestId("toolbar-overflow-menu");
+    const control = Array.from(menu.querySelectorAll("button")).find(
+      (b) => b.textContent === "C",
+    )!;
+    await userEvent.click(control);
+    // The release is deferred one task.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.queryByTestId("toolbar-overflow-menu")).not.toBeNull();
+    expect(document.activeElement).toBe(control);
   });
 
   it("does not mark the trigger or menu as keepalive outside a text edit", async () => {

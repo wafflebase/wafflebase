@@ -490,8 +490,9 @@ before novel"). No menu bar was added; the controls gained labels:
   reachable only by Shift+wheel. The fold point is measured on resize
   and content change (fold arithmetic in `toolbar-overflow-layout.ts`),
   and the popover re-renders the same section with the still-visible
-  children hidden, so a folded picker keeps its own state and focus
-  behavior rather than becoming a menu item. The `@container` the label
+  children hidden, so a folded picker keeps its own UI and focus
+  behavior — re-mounted inside the menu, not sharing local draft state
+  with the strip copy — rather than becoming a menu item. The `@container` the label
   thresholds read sits on the wrapper of both strips, so it still
   measures the whole toolbar. Coarse pointers keep horizontal scroll as
   a last resort.
