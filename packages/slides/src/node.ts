@@ -101,6 +101,17 @@ export {
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
+export {
+  FREEFORM_QUANTUM,
+  decodeFreeformCommands,
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformCommands,
+  encodeFreeformData,
+  encodeFreeformElement,
+  encodeFreeformElements,
+  isPackableFreeform,
+} from './model/freeform-codec';
 
 // Group geometry / transform math — pure functions over the data model
 // (no DOM). Re-exported for `YorkieSlidesStore` running under Node.

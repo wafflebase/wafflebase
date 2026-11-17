@@ -18,6 +18,7 @@
  */
 import type { SlidesElement } from './yorkie.types';
 import { unwrapJson } from './yorkie-json';
+import { decodeFreeformElements } from '@wafflebase/slides';
 
 export interface BoardMeta {
   title: string;
@@ -55,7 +56,12 @@ export function initialBoardRoot(): BoardYorkieRoot {
  */
 export function readBoardRoot(root: BoardYorkieRoot): BoardDocument {
   const meta = unwrapJson<BoardMeta>(root.meta);
-  const elements = unwrapJson<SlidesElement[]>(root.elements) ?? [];
+  // The board editor stores ink paths packed into one string (see
+  // `freeform-codec.ts`); hand callers the plain command arrays every
+  // other reader of the slides model expects.
+  const elements = decodeFreeformElements(
+    unwrapJson<SlidesElement[]>(root.elements) ?? [],
+  );
   const out: BoardDocument = {
     meta: { title: meta?.title ?? 'Untitled board' },
     elements,

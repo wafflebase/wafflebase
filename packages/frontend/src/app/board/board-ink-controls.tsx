@@ -28,6 +28,8 @@ import {
   type InkTool,
   type InkWidth,
 } from "./board-ink";
+import { BoardInkExtras } from "./board-drawing-controls";
+import type { ToggleTool } from "./board-drawing-extras";
 
 const PEN_LABEL: Record<InkPen, string> = {
   marker: "Marker",
@@ -45,6 +47,8 @@ export interface BoardInkControlsProps {
   ink: InkTool | null;
   insertMode: InsertKind | null;
   disabled?: boolean;
+  /** The laser pointer (Shift+K), toggled from the popover. */
+  laser?: ToggleTool | null;
 }
 
 /**
@@ -60,6 +64,7 @@ export function BoardInkControls({
   ink,
   insertMode,
   disabled,
+  laser = null,
 }: BoardInkControlsProps) {
   const [state, setState] = useState(() => ink?.get() ?? null);
   useEffect(() => {
@@ -187,6 +192,11 @@ export function BoardInkControls({
                     </Button>
                   ))}
                 </div>
+                <BoardInkExtras
+                  laser={laser}
+                  ink={ink}
+                  smartShapes={state.smartShapes === true}
+                />
               </div>
             )}
           </PopoverContent>

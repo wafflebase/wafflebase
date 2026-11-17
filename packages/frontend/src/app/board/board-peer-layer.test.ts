@@ -69,6 +69,18 @@ afterEach(() => {
 });
 
 describe("createBoardPeerLayer", () => {
+  it("swaps the arrow for a pen glyph while the peer draws", () => {
+    const { container, layer } = setup();
+    layer.setPeers([peer({ drawing: true })]);
+    const root = container.querySelector('[data-peer-cursor="p1"]')!;
+    const [arrow, pen] = Array.from(root.querySelectorAll("svg")) as SVGSVGElement[];
+    expect(arrow.style.display).toBe("none");
+    expect(pen.style.display).toBe("block");
+    layer.setPeers([peer({ drawing: false })]);
+    expect(arrow.style.display).toBe("block");
+    expect(pen.style.display).toBe("none");
+  });
+
   it("keeps one persistent DOM node per peer across updates", () => {
     const { container, layer } = setup();
     layer.setPeers([peer()]);

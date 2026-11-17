@@ -88,6 +88,12 @@ import {
   type InkTool,
 } from "./board-ink";
 import {
+  BOARD_LASER_CURSOR_CSS,
+  createBoardDrawingExtras,
+  createDrawingTools,
+  type DrawingTools,
+} from "./board-drawing-extras";
+import {
   captureFromContainer,
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
@@ -288,6 +294,13 @@ export function BoardView({
   const inkRef = useRef<InkTool | null>(null);
   if (inkRef.current === null) inkRef.current = createInkTool();
   const ink = inkRef.current;
+  // Laser pointer + lasso select toggles (`board-drawing-extras.ts`).
+  const drawingToolsRef = useRef<DrawingTools | null>(null);
+  if (drawingToolsRef.current === null) drawingToolsRef.current = createDrawingTools();
+  const drawingTools = drawingToolsRef.current;
+  // Read at mount by the drawing extras, which disarm the ritual tools.
+  const ritualToolRef = useRef(collab?.tool ?? null);
+  ritualToolRef.current = collab?.tool ?? null;
   // That value holder bound to the actions it drives (see
   // `createBoardZoomBinding`). Built inside the mount effect — it closes
   // over the live viewport, host size and minimap — and lifted into
@@ -391,7 +404,7 @@ export function BoardView({
     // pass through to the canvas; handle children opt back in.
     const style = document.createElement("style");
     style.textContent =
-      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS +
+      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS + BOARD_LASER_CURSOR_CSS +
       SECTION_TOOL_CURSOR_CSS;
     document.head.appendChild(style);
 
@@ -434,8 +447,19 @@ export function BoardView({
     });
     setSections(sections);
 
+    // Live ink, laser, lasso and smart shapes; attached once the editor exists.
+    const drawing = createBoardDrawingExtras({
+      doc,
+      store,
+      readOnly: readOnly === true,
+      ink,
+      tools: drawingTools,
+      getEditor: () => editor,
+    });
+
     const editor = initializeEditor({
       ...sections.editorOptions,
+      ...drawing.editorOptions,
       canvas,
       overlay,
       store,
@@ -558,6 +582,19 @@ export function BoardView({
     });
     editorRef.current = editor;
     setEditor(editor);
+    // Before the pan / touch claims below, so a laser drag wins over both.
+    const detachDrawing = drawing.attach({
+      container,
+      canvas,
+      overlay,
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getCanvasRect: () => canvasRect,
+      dpr,
+      hand,
+      sectionTool: sections.tool,
+      ritualTool: ritualToolRef.current,
+    });
 
     const minimap: BoardMinimap = createBoardMinimap({
       store,
@@ -1046,6 +1083,8 @@ export function BoardView({
         setSection: (on) => sections.tool.set(on),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
         armInk: (pen) => armInkPen(editor, ink, pen),
+        setLaser: readOnly ? undefined : (on) => drawingTools.laser.set(on),
+        setLasso: (on) => drawingTools.lasso.set(on),
         isBoardTarget: (target) =>
           target === document.body ||
           (target instanceof Node && rootRef.current?.contains(target) === true),
@@ -1238,6 +1277,7 @@ export function BoardView({
       offInsertMode();
       offSectionTool();
       detachSections();
+      detachDrawing();
       sections.tool.set(false);
       delete canvas.dataset.boardSectionTool;
       delete overlay.dataset.boardSectionTool;
@@ -1278,7 +1318,7 @@ export function BoardView({
     // `zoomValue` is a ref-held singleton with a stable identity for the
     // component's lifetime, so listing it never re-runs this effect — it
     // is here only to satisfy exhaustive-deps.
-  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand, followBridge, ink]);
+  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand, followBridge, ink, drawingTools]);
 
   // Repaint the grid when the MODE changes — the one input that moves
   // without the viewport moving (the plane never follows the app theme,
@@ -1344,6 +1384,7 @@ export function BoardView({
           zoomController={zoomController}
           hand={hand}
           ink={ink}
+          drawingTools={drawingTools}
           gridKind={gridKind}
           onGridKindChange={(kind) => {
             setGridKind(kind);

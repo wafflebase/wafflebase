@@ -51,6 +51,11 @@ export interface InkState {
   pen: InkPen;
   marker: InkPenStyle;
   highlighter: InkPenStyle;
+  /**
+   * Turn a recognised marker stroke into a clean shape, line or arrow
+   * (`board-smart-shapes.ts`). Opt-in; absent from old stored choices ⇒ off.
+   */
+  smartShapes?: boolean;
 }
 
 export const DEFAULT_INK_STATE: InkState = {
@@ -85,6 +90,7 @@ export function parseInkState(json: string | null): InkState {
       pen: raw.pen === "highlighter" ? "highlighter" : "marker",
       marker: readPenStyle(raw.marker, DEFAULT_INK_STATE.marker),
       highlighter: readPenStyle(raw.highlighter, DEFAULT_INK_STATE.highlighter),
+      smartShapes: raw.smartShapes === true,
     };
   } catch {
     return DEFAULT_INK_STATE;
@@ -130,6 +136,7 @@ export interface InkTool {
   get(): InkState;
   setPen(pen: InkPen): void;
   setStyle(pen: InkPen, patch: Partial<InkPenStyle>): void;
+  setSmartShapes(on: boolean): void;
   subscribe(cb: () => void): () => void;
 }
 
@@ -147,6 +154,9 @@ export function createInkTool(initial: InkState = loadInkState()): InkTool {
       if (pen !== state.pen) update({ ...state, pen });
     },
     setStyle: (pen, patch) => update({ ...state, [pen]: { ...state[pen], ...patch } }),
+    setSmartShapes: (on) => {
+      if (on !== (state.smartShapes === true)) update({ ...state, smartShapes: on });
+    },
     subscribe: (cb) => {
       listeners.add(cb);
       return () => listeners.delete(cb);

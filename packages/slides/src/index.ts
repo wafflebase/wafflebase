@@ -173,6 +173,17 @@ export {
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
+export {
+  FREEFORM_QUANTUM,
+  decodeFreeformCommands,
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformCommands,
+  encodeFreeformData,
+  encodeFreeformElement,
+  encodeFreeformElements,
+  isPackableFreeform,
+} from './model/freeform-codec';
 
 export {
   BUILT_IN_LAYOUTS,
@@ -254,6 +265,7 @@ export {
   type SlidesRulerViewport,
 } from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
+export type { LiveStroke } from './view/editor/live-ink-layer';
 export {
   SLIDES_DEFAULT_TEXT_SIZE,
   makeDefaultSlidesTextBlock,

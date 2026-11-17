@@ -150,6 +150,28 @@ describe("handleBoardToolKey", () => {
     expect(setSection).toHaveBeenCalledWith(false);
   });
 
+  it("arms the laser on Shift+K; V, another tool or Esc drops laser and lasso", () => {
+    const setLaser = vi.fn();
+    const setLasso = vi.fn();
+    const ctx = { ...setup(), setLaser, setLasso };
+    expect(handleBoardToolKey(press("K", { shiftKey: true }), ctx)).toBe(true);
+    expect(setLaser).toHaveBeenLastCalledWith(true);
+    expect(ctx.editor.setInsertMode).not.toHaveBeenCalled();
+    // Plain k is not a tool.
+    expect(handleBoardToolKey(press("k"), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("v"), ctx)).toBe(true);
+    expect(setLaser).toHaveBeenLastCalledWith(false);
+    expect(setLasso).toHaveBeenLastCalledWith(false);
+    setLasso.mockClear();
+    handleBoardToolKey(press("Escape"), ctx);
+    expect(setLasso).toHaveBeenCalledWith(false);
+    // With a selection Shift+K stays type-to-edit.
+    const busy = { ...setup({ selection: ["a"] }), setLaser };
+    setLaser.mockClear();
+    expect(handleBoardToolKey(press("K", { shiftKey: true }), busy)).toBe(false);
+    expect(setLaser).not.toHaveBeenCalled();
+  });
+
   it("leaves Shift+S to type-to-edit while something is selected", () => {
     const setSection = vi.fn();
     const ctx = { ...setup({ selection: ["sticky-1"] }), setSection };

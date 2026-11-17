@@ -50,6 +50,11 @@ import {
 } from '../slides/connector-label-yorkie';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
 import { pruneRitualsOnDelete } from './rituals/prune-on-delete';
+import {
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformElement,
+} from '@wafflebase/slides';
 
 /**
  * YorkieElements array as seen inside a doc.update callback. The Yorkie
@@ -462,7 +467,9 @@ export class YorkieBoardStore implements SlidesStore {
       type: el.type,
       frame: yorkieToPlain<Frame>(el.frame),
       placeholderRef,
-      data: yorkieToPlain<object>(el.data),
+      // Ink paths are stored packed (see `encodeFreeformElement` on the
+      // write side); old boards' array commands pass through unchanged.
+      data: decodeFreeformData(yorkieToPlain<object>(el.data)),
     } as ModelElement);
   }
 
@@ -696,7 +703,10 @@ export class YorkieBoardStore implements SlidesStore {
         (targetArray as unknown as YorkieElement[]).push(next as unknown as YorkieElement);
         return;
       }
-      (targetArray as unknown as YorkieElement[]).push({ ...clone(init), id } as YorkieElement);
+      // Ink is packed into one string per path, not a CRDT object per point.
+      (targetArray as unknown as YorkieElement[]).push(
+        encodeFreeformElement({ ...clone(init), id }) as YorkieElement,
+      );
     });
     return id;
   }
@@ -719,7 +729,7 @@ export class YorkieBoardStore implements SlidesStore {
       const at = Math.max(0, Math.min(index, rootElements.length));
       (rootElements as unknown as {
         splice(at: number, del: number, item: YorkieElement): void;
-      }).splice(at, 0, { ...clone(init), id } as YorkieElement);
+      }).splice(at, 0, encodeFreeformElement({ ...clone(init), id }) as YorkieElement);
     });
     return id;
   }
@@ -841,6 +851,13 @@ export class YorkieBoardStore implements SlidesStore {
         if (Object.keys(source).length === 0) return;
       }
       const data = (e as { data: Record<string, unknown> }).data;
+      // A new ink path is packed like an inserted one.
+      if (source.path !== undefined && data.kind === 'freeform') {
+        source.path = (encodeFreeformElement({
+          type: 'shape',
+          data: { kind: 'freeform', path: source.path },
+        }) as { data: { path: unknown } }).data.path;
+      }
       for (const [k, v] of Object.entries(source)) {
         if (v === undefined) {
           delete data[k];
@@ -1537,7 +1554,8 @@ export class YorkieBoardStore implements SlidesStore {
     const plainEls = r.elements.map(
       (e) => unwrapElement(e) as unknown as ModelElement,
     );
-    return buildElementWorldLookup(plainEls);
+    // Connector routing may read a freeform's path (body glue).
+    return buildElementWorldLookup(decodeFreeformElements(plainEls));
   }
 
   private detachConnectorsTargeting(r: YorkieBoardRoot, targetId: string): void {

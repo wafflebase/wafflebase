@@ -7,7 +7,7 @@ import {
 } from '@wafflebase/docs';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import type { Element, SlidesDocument } from '@wafflebase/slides';
-import { bandSlidesDocumentNumerics } from '@wafflebase/slides';
+import { bandSlidesDocumentNumerics, decodeFreeformElements } from '@wafflebase/slides';
 import { boardToSlidesDocument } from '@wafflebase/board';
 import type { YorkieBoardRoot } from '@/types/board-document';
 import { unwrapYsonScalars } from './unwrap-yson';
@@ -84,7 +84,9 @@ export function parseBoardSnapshot(snapshot: string): SlidesDocument {
     },
     // Unwrapped above, so these are already the plain `Element` objects the
     // model wants — every `frame` number a number, no proxy left to detach.
-    elements: (root.elements ?? []) as unknown as Element[],
+    // Ink paths are stored packed (`YorkieBoardStore`); decode them as the
+    // live store does, so a preview paints them.
+    elements: decodeFreeformElements((root.elements ?? []) as unknown as Element[]),
   }));
 }
 

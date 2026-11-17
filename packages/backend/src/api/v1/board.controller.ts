@@ -43,6 +43,7 @@ import {
   type Side,
 } from '@wafflebase/board';
 import {
+  decodeFreeformElements,
   generateId,
   type Element,
   type ElementInit,
@@ -423,7 +424,10 @@ export class ApiV1BoardController {
 function readState(root: BoardRoot): BoardState {
   const meta = unwrapJson<BoardRoot['meta']>(root.meta);
   return {
-    elements: unwrapJson<Element[]>(root.elements) ?? [],
+    // Board ink paths may be packed into one string (`freeform-codec.ts`).
+    elements: decodeFreeformElements(
+      unwrapJson<Element[]>(root.elements) ?? [],
+    ),
     rituals: {
       stamps: unwrapJson<BoardRitualsView['stamps']>(root.stamps),
       voting: unwrapJson<BoardRitualsView['voting']>(root.voting),
