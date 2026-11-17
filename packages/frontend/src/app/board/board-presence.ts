@@ -19,6 +19,7 @@ import { createCursorChat } from "./board-cursor-chat";
 import { BOARD_EMOTES, createEmotePicker } from "./board-emotes";
 import { isTextEntryTarget } from "./board-shortcuts";
 import { centerViewportOnWorld } from "./minimap-geometry";
+import { isLiveStroke } from "./board-live-ink";
 
 /**
  * The board's presence features, wired in one place so `BoardView` only
@@ -279,6 +280,8 @@ export function attachBoardPresence(deps: BoardPresenceDeps): BoardPresenceContr
       cursor: presence.cursor ?? null,
       chat: typeof presence.chat === "string" ? presence.chat : null,
       emote: presence.emote ?? null,
+      // A pen glyph replaces the arrow while the peer draws.
+      drawing: isLiveStroke(presence.stroke),
     }));
     layer.setPeers(inputs);
     deps.minimap?.setPeers(

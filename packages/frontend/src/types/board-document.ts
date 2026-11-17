@@ -93,4 +93,33 @@ export type BoardPresence = {
   chat?: string | null;
   /** The latest emote burst, at a world point. `at` (epoch ms) identifies it. */
   emote?: { emoji: string; x: number; y: number; at: number } | null;
+  /** The stroke being drawn right now; null when not drawing. See `board-live-ink.ts`. */
+  stroke?: BoardLiveStroke | null;
+  /** The laser pointer trail being drawn; null otherwise. See `board-laser.ts`. */
+  laser?: BoardLaserTrail | null;
+};
+
+/**
+ * A stroke in progress, carried in presence (never in the document). A
+ * bounded window: the last ≤64 points, starting at index `base` of the
+ * whole stroke, as delta-encoded world points (`board-live-ink.ts`).
+ */
+export type BoardLiveStroke = {
+  /** This client's stroke counter; a new id starts a new stroke. */
+  id: number;
+  tool: 'marker' | 'highlighter';
+  /** `#RRGGBB`. */
+  color: string;
+  /** World units. */
+  width: number;
+  alpha: number;
+  base: number;
+  points: string;
+};
+
+/** A laser pointer trail in presence: the same window as {@link BoardLiveStroke}. */
+export type BoardLaserTrail = {
+  id: number;
+  base: number;
+  points: string;
 };

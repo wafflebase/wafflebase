@@ -29,6 +29,8 @@ export interface BoardPeerInput {
   cursor: { x: number; y: number } | null;
   chat: string | null;
   emote: { emoji: string; x: number; y: number; at: number } | null;
+  /** The peer is drawing (a live stroke in presence): show a pen, not the arrow. */
+  drawing?: boolean;
 }
 
 export interface BoardPeerLayerDeps {
@@ -110,6 +112,25 @@ function arrowSvg(color: string): SVGSVGElement {
   return svg;
 }
 
+/** A pen nib whose tip sits at the pointer's hot spot, like the arrow's. */
+function penSvg(color: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", "20");
+  svg.setAttribute("height", "20");
+  svg.setAttribute("viewBox", "0 0 20 20");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.cssText = "display:none;overflow:visible;position:absolute;left:0;top:0";
+  const path = document.createElementNS(SVG_NS, "path");
+  // Tip at (1, 1), body running down-right.
+  path.setAttribute("d", "M1 1 L3.5 8.5 L14.5 19.5 L19.5 14.5 L8.5 3.5 Z");
+  path.setAttribute("fill", color);
+  path.setAttribute("stroke", "#fff");
+  path.setAttribute("stroke-width", "1.5");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(path);
+  return svg;
+}
+
 interface Entry {
   clientID: string;
   color: string;
@@ -118,6 +139,7 @@ interface Entry {
   target: { x: number; y: number } | null;
   root: HTMLDivElement;
   arrow: SVGSVGElement;
+  pen: SVGSVGElement;
   tag: HTMLDivElement;
   chat: HTMLDivElement;
   edge: HTMLButtonElement;
@@ -170,6 +192,7 @@ export function createBoardPeerLayer(deps: BoardPeerLayerDeps): BoardPeerLayer {
     root.style.cssText =
       "position:absolute;left:0;top:0;will-change:transform;display:none";
     const arrow = arrowSvg(peer.color);
+    const pen = penSvg(peer.color);
     const tag = document.createElement("div");
     tag.style.cssText = [
       "position:absolute", "left:14px", "top:18px", "padding:1px 6px",
@@ -183,7 +206,7 @@ export function createBoardPeerLayer(deps: BoardPeerLayerDeps): BoardPeerLayer {
       "max-width:240px", "width:max-content", "white-space:pre-wrap",
       "overflow-wrap:anywhere", "display:none", "box-shadow:0 1px 4px rgb(0 0 0 / 0.2)",
     ].join(";");
-    root.append(arrow, tag, chat);
+    root.append(arrow, pen, tag, chat);
 
     const edge = document.createElement("button");
     edge.type = "button";
@@ -215,7 +238,7 @@ export function createBoardPeerLayer(deps: BoardPeerLayerDeps): BoardPeerLayer {
     layer.insertBefore(edge, banner);
     const entry: Entry = {
       clientID: peer.clientID, color: "", label: "", spring: null, target: null,
-      root, arrow, tag, chat, edge, edgeArrow, edgeLabel, lastEmoteAt: null,
+      root, arrow, pen, tag, chat, edge, edgeArrow, edgeLabel, lastEmoteAt: null,
     };
     return entry;
   };
@@ -225,6 +248,7 @@ export function createBoardPeerLayer(deps: BoardPeerLayerDeps): BoardPeerLayer {
       entry.color = peer.color;
       const text = readableTextColor(peer.color);
       entry.arrow.querySelector("path")?.setAttribute("fill", peer.color);
+      entry.pen.querySelector("path")?.setAttribute("fill", peer.color);
       entry.tag.style.background = peer.color;
       entry.tag.style.color = text;
       entry.chat.style.background = peer.color;
@@ -240,6 +264,8 @@ export function createBoardPeerLayer(deps: BoardPeerLayerDeps): BoardPeerLayer {
       entry.edge.setAttribute("aria-label", `Jump to ${peer.label}`);
       entry.edge.title = `Jump to ${peer.label}`;
     }
+    entry.arrow.style.display = peer.drawing ? "none" : "block";
+    entry.pen.style.display = peer.drawing ? "block" : "none";
     const chat = peer.chat && peer.chat.trim() ? peer.chat : null;
     entry.chat.textContent = chat ?? "";
     entry.chat.style.display = chat ? "block" : "none";
