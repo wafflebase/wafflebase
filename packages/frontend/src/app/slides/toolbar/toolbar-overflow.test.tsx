@@ -108,20 +108,25 @@ function Section() {
   );
 }
 
-async function renderOverflow(width: number) {
+async function renderOverflow(width: number, keepTextEdit = false) {
   stripWidth = width;
   const utils = render(
     <TooltipProvider>
       <div>
-        <ToolbarOverflow resetKey="idle">
+        <ToolbarOverflow resetKey="idle" keepTextEdit={keepTextEdit}>
           <Section />
         </ToolbarOverflow>
       </div>
     </TooltipProvider>,
   );
-  // The first measurement is deferred to a microtask.
   await act(async () => {});
   return utils;
+}
+
+const MORE_IDLE = "data-toolbar-more-idle";
+
+function moreButton(): HTMLElement {
+  return screen.getByRole("button", { name: "More toolbar options", hidden: true });
 }
 
 function folded(container: Element): string[] {
@@ -134,9 +139,7 @@ describe("ToolbarOverflow", () => {
   it("shows every control and hides More when the strip fits", async () => {
     await renderOverflow(150);
     expect(folded(screen.getByTestId("toolbar-contextual"))).toEqual([]);
-    expect(
-      screen.getByRole("button", { name: "More toolbar options", hidden: true }),
-    ).toHaveClass("hidden");
+    expect(moreButton()).toHaveAttribute(MORE_IDLE);
   });
 
   it("folds the tail into a More menu that holds exactly the folded controls", async () => {
@@ -146,8 +149,8 @@ describe("ToolbarOverflow", () => {
       "C",
       "D",
     ]);
-    const more = screen.getByRole("button", { name: "More toolbar options" });
-    expect(more).not.toHaveClass("hidden");
+    const more = moreButton();
+    expect(more).not.toHaveAttribute(MORE_IDLE);
 
     await userEvent.click(more);
     const menu = await screen.findByTestId("toolbar-overflow-menu");
@@ -165,5 +168,44 @@ describe("ToolbarOverflow", () => {
       screen.getByText("D").append("");
     });
     expect(folded(screen.getByTestId("toolbar-contextual"))).toEqual([]);
+  });
+
+  it("shows More in the same DOM write that folds, without a React render", async () => {
+    await renderOverflow(150);
+    expect(moreButton()).toHaveAttribute(MORE_IDLE);
+    stripWidth = 100;
+    // Deliberately outside `act`: only the MutationObserver's measure pass
+    // runs before the assertions, so React has not re-rendered yet.
+    screen.getByText("D").append("");
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(folded(screen.getByTestId("toolbar-contextual"))).toEqual([
+      "separator",
+      "C",
+      "D",
+    ]);
+    expect(moreButton()).not.toHaveAttribute(MORE_IDLE);
+    await act(async () => {});
+  });
+
+  it("keeps a text edit alive through the More trigger and menu", async () => {
+    await renderOverflow(100, true);
+    const more = moreButton();
+    expect(more).toHaveAttribute("data-text-edit-keepalive");
+    await userEvent.click(more);
+    const menu = await screen.findByTestId("toolbar-overflow-menu");
+    expect(menu.closest("[data-slot='popover-content']")).toHaveAttribute(
+      "data-text-edit-keepalive",
+    );
+  });
+
+  it("does not mark the trigger or menu as keepalive outside a text edit", async () => {
+    await renderOverflow(100);
+    const more = moreButton();
+    expect(more).not.toHaveAttribute("data-text-edit-keepalive");
+    await userEvent.click(more);
+    const menu = await screen.findByTestId("toolbar-overflow-menu");
+    const content = menu.closest("[data-slot='popover-content']");
+    expect(content).not.toBeNull();
+    expect(content).not.toHaveAttribute("data-text-edit-keepalive");
   });
 });

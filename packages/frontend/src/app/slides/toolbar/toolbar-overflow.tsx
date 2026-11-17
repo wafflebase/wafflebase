@@ -6,7 +6,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import { IconDotsVertical } from "@tabler/icons-react";
 import { ToolbarButton } from "@/components/ui/toolbar";
 import {
@@ -20,6 +19,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { computeFoldIndex, isHiddenInMenu } from "./toolbar-overflow-layout";
+
+/** Marks the More button while nothing is folded (it is hidden then). */
+const MORE_IDLE_ATTR = "data-toolbar-more-idle";
 
 /** Marks a direct child of a strip (or of the More popover) as not shown there. */
 const FOLDED_ATTR = "data-toolbar-folded";
@@ -93,7 +95,7 @@ export function ToolbarOverflow({
     kids.forEach((el) => setFolded(el, false));
     // Measure with More shown, so `clientWidth` is the room left for the
     // strip if anything has to fold.
-    more.style.display = "inline-flex";
+    more.removeAttribute(MORE_IDLE_ATTR);
     const gap = parseFloat(getComputedStyle(strip.parentElement ?? strip).columnGap) || 0;
     const moreWidth = more.offsetWidth + gap;
     const items = kids.map((el) => ({
@@ -102,28 +104,29 @@ export function ToolbarOverflow({
       separator: isSeparator(el),
     }));
     const next = computeFoldIndex(items, strip.clientWidth, moreWidth);
-    more.style.display = "";
-    if (next !== null) kids.forEach((el, i) => setFolded(el, i >= next));
+    // The fold markers and More's visibility are one synchronous DOM
+    // write, so no frame shows controls folded away without a way to
+    // reach them. React state below only feeds the popover, which opens
+    // on a click — long after React has caught up.
+    if (next === null) more.setAttribute(MORE_IDLE_ATTR, "");
+    else kids.forEach((el, i) => setFolded(el, i >= next));
     const seps = items.map((item) => item.separator);
-    flushSync(() => {
-      setFoldAt(next);
-      setSeparators((prev) =>
-        prev.length === seps.length && prev.every((s, i) => s === seps[i])
-          ? prev
-          : seps,
-      );
-    });
+    setFoldAt(next);
+    setSeparators((prev) =>
+      prev.length === seps.length && prev.every((s, i) => s === seps[i])
+        ? prev
+        : seps,
+    );
   }, []);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
     // The strip's own box shrinks and grows with the toolbar row; the row
-    // is what resizes with the window and the sidebar.
+    // is what resizes with the window and the sidebar — including when
+    // the pinned right strip's labels appear or disappear.
     const row = strip?.parentElement;
     if (!strip || !row) return;
-    // Deferred to a microtask: `flushSync` may not run inside React's own
-    // commit, and the observers below fire outside it anyway.
-    queueMicrotask(measure);
+    measure();
     const resize =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     resize?.observe(row);
@@ -167,7 +170,9 @@ export function ToolbarOverflow({
               <ToolbarButton
                 ref={moreRef}
                 aria-label="More toolbar options"
-                className={foldAt === null ? "hidden" : "shrink-0"}
+                // Visibility is written by `measure()`, never by React: a
+                // className keyed on `foldAt` would lag the fold markers.
+                className="shrink-0 data-[toolbar-more-idle]:!hidden"
                 onPointerDown={() => (pointerOpenRef.current = true)}
                 onKeyDown={() => (pointerOpenRef.current = false)}
                 {...keepalive}

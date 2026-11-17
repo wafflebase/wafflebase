@@ -96,6 +96,6 @@ describe('SlidesToolbar layout', () => {
     const strip = screen.getByTestId('toolbar-contextual').parentElement!;
     const more = screen.getByRole('button', { name: 'More toolbar options', hidden: true });
     expect(strip.contains(more)).toBe(true);
-    expect(more).toHaveClass('hidden');
+    expect(more).toHaveAttribute('data-toolbar-more-idle');
   });
 });

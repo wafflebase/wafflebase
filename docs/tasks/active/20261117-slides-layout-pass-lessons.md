@@ -25,4 +25,9 @@ the package's own typecheck script, not a hand-picked tsconfig.
 
 ## Self-review log
 
-(rounds recorded here)
+- Round 1 (correctness / test adequacy): 2 blocking, both on
+  `toolbar-overflow.tsx` — `flushSync` called from observer callbacks
+  could be refused and leave folded DOM and the More button out of step;
+  `data-text-edit-keepalive` untested. Fixed both: More's visibility is
+  now written in the same DOM pass as the fold markers (no `flushSync`),
+  and keepalive gets tests.
