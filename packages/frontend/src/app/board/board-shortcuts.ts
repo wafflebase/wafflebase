@@ -95,6 +95,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Canvas", keys: ["Mod+0"], description: "Zoom to 100%" },
   { category: "Canvas", keys: ["Shift+1"], description: "Zoom to fit" },
   { category: "Canvas", keys: ["Shift+2"], description: "Zoom to selection" },
+  { category: "Canvas", keys: ["Mod+F"], description: "Find on board" },
 
   { category: "Selection", keys: ["Mod+A"], description: "Select everything" },
   { category: "Selection", keys: ["Esc"], description: "Finish editing text; clear selection" },
@@ -111,6 +112,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
 
   { category: "Arrange", keys: ["Mod+↑", "Mod+↓"], description: "Bring forward / send backward" },
   { category: "Arrange", keys: ["Mod+Shift+↑", "Mod+Shift+↓"], description: "Bring to front / send to back" },
+  { category: "Arrange", keys: ["Alt+Shift+T"], description: "Tidy up into a grid" },
 
   { category: "Text", keys: ["Mod+B"], description: "Bold" },
   { category: "Text", keys: ["Mod+I"], description: "Italic" },

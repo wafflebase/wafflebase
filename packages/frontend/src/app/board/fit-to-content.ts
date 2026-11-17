@@ -2,9 +2,9 @@ import type { Frame, Viewport } from "@wafflebase/slides";
 import {
   sceneBounds,
   fitScene,
-  centerViewportOnWorld,
   type MiniRect,
 } from "./minimap-geometry";
+import { NO_INSETS, type FitInsets } from "./fit-insets";
 
 /**
  * Fraction of the host the fitted content is allowed to occupy; the remainder
@@ -44,15 +44,26 @@ export function fitViewportToScene(
   bounds: MiniRect | undefined,
   host: { w: number; h: number },
   maxZoom: number = MAX_FIT_ZOOM,
+  insets: FitInsets = NO_INSETS,
 ): Viewport | undefined {
   if (!bounds) return undefined;
   if (!(host.w > 0) || !(host.h > 0)) return undefined;
 
-  // Fit into an inset box, then center in the FULL host: the inset is what
-  // produces the margin, and centering is unaffected by it.
+  // The box content may occupy: the host less the chrome floating over it
+  // (`insets`, e.g. the minimap's corner). Falls back to the whole host
+  // when the insets would leave nothing.
+  const boxW = host.w - insets.left - insets.right;
+  const boxH = host.h - insets.top - insets.bottom;
+  const box =
+    boxW > 0 && boxH > 0
+      ? { x: insets.left, y: insets.top, w: boxW, h: boxH }
+      : { x: 0, y: 0, w: host.w, h: host.h };
+
+  // Fit into a margin-shrunk box, then center in the FULL box: the margin
+  // is what produces the breathing room, and centering is unaffected by it.
   const { scale } = fitScene(bounds, {
-    w: host.w * FIT_CONTENT_FRACTION,
-    h: host.h * FIT_CONTENT_FRACTION,
+    w: box.w * FIT_CONTENT_FRACTION,
+    h: box.h * FIT_CONTENT_FRACTION,
   });
   // A zero-extent scene (one degenerate frame) makes `scale` Infinity; treat
   // that as "no reason to zoom out" rather than letting a non-finite zoom
@@ -61,7 +72,11 @@ export function fitViewportToScene(
   const zoom = Math.min(maxZoom, Math.max(MIN_FIT_ZOOM, wanted));
 
   const centre = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-  return centerViewportOnWorld({ panX: 0, panY: 0, zoom }, centre, host);
+  return {
+    zoom,
+    panX: box.x + box.w / 2 - centre.x * zoom,
+    panY: box.y + box.h / 2 - centre.y * zoom,
+  };
 }
 
 /**
@@ -80,6 +95,8 @@ export interface FitToContentDeps {
   /** Element frames of the (single) board plane, read fresh on every attempt. */
   getFrames: () => Frame[];
   getHostSize: () => { w: number; h: number };
+  /** Chrome floating over the host that the fit must keep content out of. */
+  getInsets?: () => FitInsets;
   /** Commit the framed viewport (assign the ref, push to editor + minimap). */
   apply: (vp: Viewport) => void;
 }
@@ -103,7 +120,12 @@ export interface FitToContentDeps {
 export function createFitToContentOnce(deps: FitToContentDeps): () => void {
   return () => {
     if (deps.latch.done) return;
-    const vp = fitViewportToScene(sceneBounds(deps.getFrames()), deps.getHostSize());
+    const vp = fitViewportToScene(
+      sceneBounds(deps.getFrames()),
+      deps.getHostSize(),
+      MAX_FIT_ZOOM,
+      deps.getInsets?.(),
+    );
     if (!vp) return;
     deps.latch.done = true;
     deps.apply(vp);

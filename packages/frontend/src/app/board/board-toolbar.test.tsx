@@ -70,3 +70,16 @@ describe("BoardToolbar hand toggle", () => {
     expect(editor.setInsertMode).toHaveBeenCalledWith(null);
   });
 });
+
+describe("BoardToolbar vocabulary", () => {
+  it("names the line tools in whiteboard words", async () => {
+    renderToolbar(fakeEditor());
+    await userEvent.click(screen.getByRole("button", { name: "Line" }));
+    for (const name of ["Line", "Arrow", "Connector", "Curved", "Marker"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    for (const name of ["Scribble", "Elbow connector", "Curved connector"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+  });
+});

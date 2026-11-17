@@ -10,6 +10,7 @@ import { palette } from '@wafflebase/core/tokens';
 import {
   sceneBounds, fitScene, miniToWorld, viewportRectInMini, clipToMini, type MiniFit,
 } from './minimap-geometry';
+import { BOARD_OVERLAY_ATTR } from './fit-insets';
 
 const MINI_W = 200;
 const MINI_H = 150;
@@ -132,6 +133,8 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
     'position:absolute', 'right:12px', 'bottom:12px', 'z-index:5',
     'display:flex', 'flex-direction:column', 'align-items:flex-end', 'gap:4px',
   ].join(';');
+  // A fit keeps content out from under it (see `fit-insets.ts`).
+  root.setAttribute(BOARD_OVERLAY_ATTR, '');
 
   const toggle = document.createElement('button');
   toggle.type = 'button';

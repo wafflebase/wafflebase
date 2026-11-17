@@ -196,6 +196,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
               key={historyResetToken}
               documentId={documentId}
               workspaceId={documentData?.workspaceId}
+              title={documentData?.title}
             />
           </PreviewSurface>
           {historyOpen && currentUser && (
