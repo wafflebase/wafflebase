@@ -391,6 +391,17 @@ function MobileOverflowMenu({
           editor.focus();
         }}
       >
+        {/* Strikethrough lives here on a phone so the strip keeps room for
+            undo/redo, heading, bold and italic beside the pinned controls. */}
+        <DropdownMenuCheckboxItem
+          checked={formats.strikethrough}
+          onCheckedChange={() => editor.toggleStrikethrough()}
+          className="gap-2"
+        >
+          <IconStrikethrough size={16} />
+          Strikethrough
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>Lists</DropdownMenuLabel>
         <DropdownMenuCheckboxItem
           checked={formats.list === "bullet"}
@@ -579,14 +590,14 @@ export function NotesToolbar({
           >
             <IconArrowForwardUp size={16} />
           </TooltipButton>
-          <ToolbarSeparator />
+          {!isMobile && <ToolbarSeparator />}
           <HeadingMenu
             editor={editor}
             level={formats.heading}
             showShortcuts={shortcutsBound}
             compact={isMobile}
           />
-          <ToolbarSeparator />
+          {!isMobile && <ToolbarSeparator />}
           <TooltipToggle
             label="Bold"
             pressed={formats.bold}
@@ -603,14 +614,16 @@ export function NotesToolbar({
           >
             <IconItalic size={16} />
           </TooltipToggle>
-          <TooltipToggle
-            label="Strikethrough"
-            pressed={formats.strikethrough}
-            onToggle={() => editor.toggleStrikethrough()}
-            shortcut={sc(SHORTCUTS.strikethrough)}
-          >
-            <IconStrikethrough size={16} />
-          </TooltipToggle>
+          {!isMobile && (
+            <TooltipToggle
+              label="Strikethrough"
+              pressed={formats.strikethrough}
+              onToggle={() => editor.toggleStrikethrough()}
+              shortcut={sc(SHORTCUTS.strikethrough)}
+            >
+              <IconStrikethrough size={16} />
+            </TooltipToggle>
+          )}
           {!isMobile && <ToolbarSeparator />}
 
           {/* One hidden input for both triggers (button / overflow item). */}
@@ -713,7 +726,6 @@ export function NotesToolbar({
               formats={formats}
               onPickImage={() => imageInputRef.current?.click()}
             />
-            <ToolbarSeparator />
           </>
         )}
         {isMobile ? (
@@ -752,7 +764,7 @@ export function NotesToolbar({
             ))}
           </div>
         )}
-        <ToolbarSeparator />
+        {!isMobile && <ToolbarSeparator />}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>

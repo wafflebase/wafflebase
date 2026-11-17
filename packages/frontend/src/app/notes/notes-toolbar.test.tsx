@@ -121,6 +121,9 @@ function strip() {
 
 // Controls that stay inline at every width, and the ones that move.
 const ALWAYS_INLINE = ["Undo", "Redo", "Bold", "Italic", "Strikethrough"];
+// On a phone Strikethrough moves into the overflow menu so the strip fits
+// beside the pinned More / Preview / Editor settings controls.
+const PHONE_INLINE = ALWAYS_INLINE.filter((l) => l !== "Strikethrough");
 const MOVES_TO_MENU = [
   "Bullet list",
   "Numbered list",
@@ -262,7 +265,7 @@ describe("NotesToolbar on a phone viewport", () => {
 
   it("keeps undo/redo and the inline text formats in the strip", () => {
     renderToolbar(stubEditor());
-    for (const label of ALWAYS_INLINE) {
+    for (const label of PHONE_INLINE) {
       expect(
         within(strip()).getByRole("button", { name: label }),
       ).toBeDefined();
@@ -271,7 +274,12 @@ describe("NotesToolbar on a phone viewport", () => {
 
   it("moves the list and insert controls out of the strip", () => {
     renderToolbar(stubEditor());
-    for (const label of [...MOVES_TO_MENU, "Insert table", "Insert image"]) {
+    for (const label of [
+      ...MOVES_TO_MENU,
+      "Strikethrough",
+      "Insert table",
+      "Insert image",
+    ]) {
       expect(within(strip()).queryByRole("button", { name: label })).toBeNull();
     }
   });
@@ -286,7 +294,13 @@ describe("NotesToolbar on a phone viewport", () => {
     );
 
     // The three list kinds are toggles, so they render as checkbox items.
-    for (const label of ["Bullet list", "Numbered list", "Checkbox", "Link"]) {
+    for (const label of [
+      "Strikethrough",
+      "Bullet list",
+      "Numbered list",
+      "Checkbox",
+      "Link",
+    ]) {
       expect(
         screen.getByRole("menuitemcheckbox", { name: label }),
       ).toBeDefined();
