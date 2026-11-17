@@ -56,6 +56,7 @@ import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-render
 import { screenToWorld, type Viewport } from '../canvas/viewport';
 import {
   alignFrames,
+  arrangeableFrames,
   distributeFrames,
   type AlignDirection,
   type AlignReference,
@@ -1977,12 +1978,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
-    if (framesMap.size === 0) return;
+    const selectedFrames = this.collectSelectedFrames(slide);
+    if (selectedFrames.size === 0) return;
+    const framesMap = this.arrangeableSelectedFrames(slide, selectedFrames);
     // Multi-select: align to the combined bbox of the selection.
     // Single-select: align to the slide canvas (SLIDE_WIDTH × deck height).
+    // Decided on the whole selection: one shape + a connector aligns the
+    // shape to itself (a no-op), never to the slide.
     let reference: AlignReference;
-    if (framesMap.size >= 2) {
+    if (selectedFrames.size >= 2) {
       reference = combinedBoundingBox(Array.from(framesMap.values()))!;
     } else {
       reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: this.slideHeight() };
@@ -1995,7 +1999,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
+    const framesMap = this.arrangeableSelectedFrames(
+      slide,
+      this.collectSelectedFrames(slide),
+    );
     if (framesMap.size < 3) return;
     const updates = distributeFrames(framesMap, axis);
     this.applyFrameUpdates(slide.id, updates);
@@ -2347,6 +2354,17 @@ class SlidesEditorImpl implements SlidesEditor {
    * the given slide. Defends against ids that were removed remotely
    * between selection and the toolbar action.
    */
+  /** Align / distribute targets: see `arrangeableFrames`. */
+  private arrangeableSelectedFrames(
+    slide: Slide,
+    frames: ReadonlyMap<string, Frame>,
+  ): Map<string, Frame> {
+    return arrangeableFrames(
+      frames,
+      (id) => findElement(slide.elements, id)?.type === 'connector',
+    );
+  }
+
   private collectSelectedFrames(slide: Slide): Map<string, Frame> {
     // Walk the element tree so this works at any drill-in depth — at
     // slide-root scope the elements are top-level; in drill-in, the

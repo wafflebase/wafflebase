@@ -407,6 +407,17 @@ prevent the derived cached frame from drifting out of sync with the
 endpoints; `commitTranslate` is the only sanctioned write path for
 "translate this element by `(dx, dy)`."
 
+**Align and distribute skip connectors** (`arrangeableFrames` in
+`view/editor/align.ts`). A connector's frame is derived from its
+endpoints, so treating it as an object box made distribute translate it
+(detaching a glued end) and count its bbox as a gap participant, which
+left the real objects unevenly spaced. In a mixed selection only the
+non-connector elements are arranged, and glued connectors re-route
+because their shapes moved. The single-vs-multi reference is still
+decided on the whole selection, so one shape plus a connector aligns
+the shape to itself (a no-op), never to the slide. A selection of only
+connectors keeps the old behaviour and arranges them by their frames.
+
 ### 6. Store Layer
 
 Connectors are inserted through the generic
