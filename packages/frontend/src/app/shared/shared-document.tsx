@@ -40,6 +40,7 @@ import {
 } from "@/types/board-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
+import { createBoardFollowBridge } from "@/app/board/board-follow-bridge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewAnalytics } from "@/hooks/use-view-analytics";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
@@ -434,6 +435,9 @@ function SharedDocsLayout({
  */
 function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
+  // Avatar click → follow that peer. Following is local, so a viewer can
+  // follow too.
+  const [followBridge] = useState(createBoardFollowBridge);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -442,11 +446,18 @@ function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
           <h1 className="text-base font-medium">{resolved.title}</h1>
           <SharedHeaderStatus readOnly={readOnly} />
         </div>
-        <UserPresence />
+        <UserPresence
+          onSelectPeer={followBridge.selectPeer}
+          getJumpHint={followBridge.jumpHint}
+        />
       </header>
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<Loader />}>
-          <BoardView documentId={resolved.documentId} readOnly={readOnly} />
+          <BoardView
+            documentId={resolved.documentId}
+            readOnly={readOnly}
+            followBridge={followBridge}
+          />
         </Suspense>
       </div>
     </div>

@@ -101,6 +101,8 @@ export interface BoardToolbarProps {
   extraToolArmed?: boolean;
   /** Called when Select is clicked, to disarm `extraTools`. */
   onSelectTool?: () => void;
+  /** Facilitation controls (timer, Spotlight), after the insert tools. */
+  collabControls?: React.ReactNode;
 }
 
 /**
@@ -143,6 +145,7 @@ export function BoardToolbar({
   extraTools,
   extraToolArmed = false,
   onSelectTool,
+  collabControls,
 }: BoardToolbarProps) {
   const sectionArmed = useSectionToolArmed(sections);
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
@@ -491,6 +494,13 @@ export function BoardToolbar({
       <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />
 
       {extraTools}
+
+      {collabControls && (
+        <>
+          <ToolbarSeparator className="mx-1" />
+          {collabControls}
+        </>
+      )}
 
       {state.kind === "object" && (
         <>
