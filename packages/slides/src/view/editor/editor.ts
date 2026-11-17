@@ -368,6 +368,22 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Whether a single-element corner resize of `element` keeps its aspect
+   * ratio without Shift held (the board's square sticky notes). Absent ⇒
+   * only Shift preserves aspect, as on every slides mount.
+   */
+  lockAspectRatio?: (element: Element) => boolean;
+  /**
+   * Where a Cmd+V / Cmd+D copy lands, given the world bounding box of
+   * what is being pasted. Absent ⇒ the slides `(10, 10)` offset. The
+   * board brings a copy whose source is off-screen to the viewport
+   * instead of pasting it somewhere the user cannot see.
+   */
+  pasteOffset?: (
+    bounds: Frame,
+    kind: 'paste' | 'duplicate',
+  ) => { dx: number; dy: number };
 }
 
 export interface SlidesEditor {
@@ -1722,6 +1738,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // `SlidesStore` methods (which `YorkieBoardStore` implements as
       // `notSupported()` throws) no-op instead of crashing.
       suppressSlideChrome: this.options.suppressSlideChrome,
+      pasteOffset: this.options.pasteOffset,
     });
   }
 
@@ -6926,6 +6943,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // touch" and lets a still tap on a handle commit a value-identical
     // frame, and with it a real undo entry.
     let devicePointerType: string | undefined = this.activePointerType;
+    const aspectLocked = this.options.lockAspectRatio?.(startEl) === true;
     const onMove = (ev: MouseEvent) => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
@@ -6934,16 +6952,19 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      // A host may lock an element's aspect (`lockAspectRatio`); that
+      // reads exactly as Shift held for every step below.
+      const keepAspect = ev.shiftKey || aspectLocked;
+      const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, keepAspect);
       // Skip equal-size snap while Shift is held — Shift means "preserve
       // aspect", which would fight with snapping to a peer's exact w/h.
-      const matched = ev.shiftKey || !isDrag
+      const matched = keepAspect || !isDrag
         ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h, guides: [] as SmartGuide[] }
         : matchSize({ x: raw.x, y: raw.y, w: raw.w, h: raw.h }, handle, otherFrames);
       live.worldFrame = this.gridSizedFrame(
         { ...raw, x: matched.x, y: matched.y, w: matched.w, h: matched.h },
         handle,
-        ev,
+        { altKey: ev.altKey, shiftKey: keepAspect },
         isDrag,
         matched.guides.map((g) => g.axis),
       );

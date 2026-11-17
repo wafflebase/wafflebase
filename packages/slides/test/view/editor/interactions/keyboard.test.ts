@@ -14,7 +14,13 @@ afterEach(() => {
   while (trackedEditors.length) trackedEditors.pop()!.detach();
 });
 
-function makeFixture(opts?: { suppressSlideChrome?: boolean }) {
+function makeFixture(opts?: {
+  suppressSlideChrome?: boolean;
+  pasteOffset?: (
+    bounds: { x: number; y: number; w: number; h: number },
+    kind: 'paste' | 'duplicate',
+  ) => { dx: number; dy: number };
+}) {
   document.body.innerHTML = '';
   const canvas = document.createElement('canvas');
   canvas.width = 960; canvas.height = 540;
@@ -34,6 +40,7 @@ function makeFixture(opts?: { suppressSlideChrome?: boolean }) {
   const editor = initialize({
     canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
     suppressSlideChrome: opts?.suppressSlideChrome,
+    pasteOffset: opts?.pasteOffset,
   });
   trackedEditors.push(editor);
   return { canvas, overlay, store, editor, elementId };
@@ -225,6 +232,19 @@ describe('keyboard — Cmd+D duplicate element', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
     expect(spy).not.toHaveBeenCalled();
     expect(store.read().slides).toHaveLength(1);
+  });
+
+  it('a host pasteOffset places the copy, given the source bounds', () => {
+    const pasteOffset = vi.fn(() => ({ dx: 500, dy: -50 }));
+    const { editor: e, store, elementId } = makeFixture({ pasteOffset });
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
+    expect(pasteOffset).toHaveBeenCalledWith(
+      { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+      'duplicate',
+    );
+    expect(store.read().slides[0].elements[1].frame).toMatchObject({ x: 600, y: 50 });
   });
 
   it('with suppressSlideChrome and a selection, still duplicates the selected element', () => {

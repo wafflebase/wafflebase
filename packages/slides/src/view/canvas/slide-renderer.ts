@@ -80,6 +80,14 @@ export interface SlideRendererOptions {
    * picker opt in.
    */
   showPlaceholderHints?: boolean;
+  /**
+   * Host paint hook, called right after each top-level element is drawn,
+   * with `ctx` in world (slide-logical) space. The board uses it to paint
+   * a sticky note's author tag; the hook owns any rotation and must leave
+   * `ctx` as it found it (save/restore). Not called for ghosts or for
+   * group children. Absent (every slides mount) ⇒ nothing extra painted.
+   */
+  decorateElement?: (ctx: CanvasRenderingContext2D, element: Element) => void;
 }
 
 /**
@@ -358,6 +366,7 @@ export function drawSlide(
       ctx, element, doc, theme, onAssetLoad, elementsLookup,
       undefined, undefined, animStates?.get(element.id), paintOpts,
     );
+    options.decorateElement?.(ctx, element);
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {
