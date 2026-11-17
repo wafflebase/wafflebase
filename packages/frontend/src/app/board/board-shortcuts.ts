@@ -10,12 +10,13 @@ export type BoardTool =
   | { kind: "select" }
   | { kind: "hand" }
   | { kind: "sticky" }
+  | { kind: "section" }
   | { kind: "insert"; insert: InsertKind };
 
 /**
  * FigJam's single-key tools, which is what a board user's hands already
  * know: V select, H hand, T text, S sticky, R rectangle, O ellipse,
- * L line, Shift+L arrow, X connector.
+ * L line, Shift+L arrow, X connector, Shift+S section.
  */
 const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   v: { kind: "select" },
@@ -27,6 +28,7 @@ const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   l: { kind: "insert", insert: "connector:line" },
   L: { kind: "insert", insert: "connector:arrow" },
   x: { kind: "insert", insert: "connector:elbow" },
+  S: { kind: "section" },
 };
 
 /**
@@ -46,7 +48,7 @@ export function boardToolForKey(e: {
 }): BoardTool | null {
   if (e.metaKey || e.ctrlKey || e.altKey) return null;
   const key = e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase();
-  if (e.shiftKey && key !== "L") return null;
+  if (e.shiftKey && key !== "L" && key !== "S") return null;
   return TOOL_KEYS[key] ?? null;
 }
 
@@ -56,6 +58,7 @@ export const TOOL_HINTS = {
   hand: "H",
   text: "T",
   sticky: "S",
+  section: "Shift+S",
 } as const;
 
 export const BOARD_SHORTCUT_CATEGORIES = [
@@ -82,6 +85,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["H"], description: "Hand (drag to pan)" },
   { category: "Tools", keys: ["T"], description: "Text box" },
   { category: "Tools", keys: ["S"], description: "Sticky note" },
+  { category: "Tools", keys: ["Shift+S"], description: "Section (drag, or click for a default size)" },
   { category: "Tools", keys: ["R"], description: "Rectangle" },
   { category: "Tools", keys: ["O"], description: "Ellipse" },
   { category: "Tools", keys: ["L"], description: "Line" },
@@ -163,6 +167,8 @@ export interface BoardToolKeyContext {
   /** Arm or disarm the hand (drag-to-pan) tool. */
   setHand: (on: boolean) => void;
   dropSticky: () => void;
+  /** Arm or disarm the section tool (Shift+S). Omitted: no section tool. */
+  setSection?: (on: boolean) => void;
   /**
    * Whether the keystroke's target belongs to the board: its canvas,
    * toolbar, or no focused element at all (`document.body`). The handler
@@ -269,6 +275,7 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
   // Esc (clear the insert mode, deselect).
   if (e.key === "Escape") {
     ctx.setHand(false);
+    ctx.setSection?.(false);
     return false;
   }
   if (ctx.readOnly || ctx.editor.getSelection().length > 0) return false;
@@ -280,7 +287,9 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
     return true;
   }
   ctx.setHand(false);
-  if (tool.kind === "select") ctx.editor.setInsertMode(null);
+  ctx.setSection?.(tool.kind === "section");
+  if (tool.kind === "section") ctx.editor.setInsertMode(null);
+  else if (tool.kind === "select") ctx.editor.setInsertMode(null);
   else if (tool.kind === "sticky") ctx.dropSticky();
   else ctx.editor.setInsertMode(tool.insert);
   return true;

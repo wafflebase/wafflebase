@@ -47,6 +47,9 @@ import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
 import type { HandTool } from "./board-hand";
+import { isSectionElement } from "@wafflebase/board";
+import { useSectionToolArmed, type BoardSections } from "./board-sections";
+import { SectionControls, SectionToolItems } from "./board-section-toolbar";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -88,6 +91,8 @@ export interface BoardToolbarProps {
   onInsertSticky?: (colorValue: string) => void;
   /** Upload + insert the picked/pasted/dropped file at the viewport center. */
   onInsertImage?: (file: File) => void;
+  /** Board sections: the section tool, the sections list, section controls. */
+  sections?: BoardSections | null;
 }
 
 /**
@@ -126,7 +131,9 @@ export function BoardToolbar({
   disabled,
   onInsertSticky,
   onInsertImage,
+  sections = null,
 }: BoardToolbarProps) {
+  const sectionArmed = useSectionToolArmed(sections);
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
@@ -202,6 +209,18 @@ export function BoardToolbar({
       const elements = store?.read().slides[0]?.elements ?? [];
       return state.ids.every((id) =>
         isStickyElement(elements.find((e) => e.id === id)),
+      );
+    })();
+
+  // Likewise a selection made only of sections gets the section controls.
+  const allSections =
+    state.kind === "object" &&
+    state.selectionType === "shape" &&
+    state.ids.length > 0 &&
+    (() => {
+      const elements = store?.read().slides[0]?.elements ?? [];
+      return state.ids.every((id) =>
+        isSectionElement(elements.find((e) => e.id === id)),
       );
     })();
 
@@ -286,9 +305,10 @@ export function BoardToolbar({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={insertMode === null && !handOn}
+            pressed={insertMode === null && !handOn && !sectionArmed}
             onClick={() => {
               hand?.set(false);
+              sections?.tool.set(false);
               editor?.setInsertMode(null);
             }}
             aria-label="Select"
@@ -449,13 +469,18 @@ export function BoardToolbar({
         disabled={disabled || !editor}
       />
 
+      <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />
+
       {state.kind === "object" && (
         <>
           <ToolbarSeparator className="mx-1" />
           {allStickies && (
             <StickyControls editor={editor} store={store} ids={state.ids} />
           )}
-          {!allStickies &&
+          {allSections && (
+            <SectionControls sections={sections} store={store} editor={editor} ids={state.ids} />
+          )}
+          {!allStickies && !allSections &&
             (state.selectionType === "shape" ||
             state.selectionType === "connector") && (
             <ShapeControls

@@ -53,6 +53,12 @@ import {
   type BoardMinimap,
 } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
+import {
+  SECTION_TOOL_CURSOR_CSS,
+  createBoardSections,
+  type BoardSections,
+} from "./board-sections";
+import { paintSections } from "./board-section-paint";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
   BOARD_PAN_CURSOR_CSS,
@@ -235,6 +241,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const [zoomController, setZoomController] = useState<ZoomController | null>(
     null,
   );
+  // Board sections (Shift+S); lifted for the toolbar like `editor`.
+  const [sections, setSections] = useState<BoardSections | null>(null);
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
   // Held so the grid-mode effect can repaint the minimap's viewport frame
@@ -301,7 +309,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // pass through to the canvas; handle children opt back in.
     const style = document.createElement("style");
     style.textContent =
-      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS;
+      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS +
+      SECTION_TOOL_CURSOR_CSS;
     document.head.appendChild(style);
 
     const store = new YorkieBoardStore(doc);
@@ -323,7 +332,22 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     };
     sizeCanvas(hostW, hostH);
 
+    // Sections: editor host options + the section tool. Its closures read
+    // `editor` and `fitElement`, declared below; they only run after mount.
+    const sections = createBoardSections({
+      store,
+      container,
+      readOnly: readOnly === true,
+      getEditor: () => editor,
+      getViewport: () => vp.current,
+      fitElement: (id) => fitElement(id),
+      isSceneTarget: (t) =>
+        t === canvas || (t instanceof Node && overlay.contains(t)),
+    });
+    setSections(sections);
+
     const editor = initializeEditor({
+      ...sections.editorOptions,
       canvas,
       overlay,
       store,
@@ -384,17 +408,19 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
                   });
                 },
               },
+              ...sections.insertMenuItems(at),
             ],
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
-      hostCanvasMenuItems: () => [
+      hostCanvasMenuItems: (at) => [
         { label: "---", run: () => undefined },
         {
           label: "Snap to grid",
           selected: gridSnapRef.current,
           run: () => setGridSnapRef.current(!gridSnapRef.current),
         },
+        ...sections.canvasMenuItems(at),
       ],
     });
     editorRef.current = editor;
@@ -407,6 +433,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       coarsePointer: isCoarsePointer(),
       getTheme: () => BOARD_PLANE_THEME,
       planeBackground: BOARD_PLANE_BACKGROUND,
+      // A hidden section is covered on the minimap too.
+      paintAfterElements: (ctx, slide, zoom) =>
+        paintSections(ctx, slide.elements, zoom, { titles: false }),
       getHostSize: () => ({ w: hostW, h: hostH }),
       // Forward reference to `commitViewport`, declared below: the
       // dependency is circular (it repaints this minimap), so one side has
@@ -490,8 +519,17 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     setZoomController(zoom.controller);
 
+    // Frame one element (the sections list's go-to), like Shift+2.
+    const fitElement = (id: string) => {
+      const fitted = selectionFitViewport(readTopLevel(), [id], { w: hostW, h: hostH });
+      if (!fitted) return;
+      commitViewport(fitted);
+      zoom.reportViewportZoom(fitted.zoom);
+    };
+
     stickyInserterRef.current = (colorValue: string) => {
       hand.set(false);
+      sections.tool.set(false);
       dropStickyAtViewportCenter({
         store,
         editor,
@@ -744,6 +782,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // and a hand drag is a pan wherever it starts.
     const offHand = hand.subscribe(() => {
       if (hand.get()) {
+        sections.tool.set(false);
         editor.setInsertMode(null);
         if (editor.isTextEditing()) editor.exitTextEditing();
         editor.clearSelectionAndScope();
@@ -760,7 +799,24 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     };
     container.addEventListener("dblclick", onDoubleClick, { capture: true });
     const offInsertMode = editor.onInsertModeChange(() => {
-      if (editor.getInsertMode() !== null) hand.set(false);
+      if (editor.getInsertMode() !== null) {
+        hand.set(false);
+        sections.tool.set(false);
+      }
+    });
+    // The section tool is one more exclusive tool, with its own cursor.
+    const offSectionTool = sections.tool.subscribe(() => {
+      const on = sections.tool.get();
+      if (on) {
+        hand.set(false);
+        editor.setInsertMode(null);
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      }
+      for (const el of [canvas, overlay]) {
+        if (on) el.dataset.boardSectionTool = "";
+        else delete el.dataset.boardSectionTool;
+      }
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -814,6 +870,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           zoom.reportViewportZoom(fitted.zoom);
         },
         setHand: (on) => hand.set(on),
+        setSection: (on) => sections.tool.set(on),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
         isBoardTarget: (target) =>
           target === document.body ||
@@ -882,6 +939,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       syncPanCursor();
     };
     container.addEventListener("pointerdown", onPointerDown, { capture: true });
+    // After the pan claim, so Space / middle-drag still pan with it armed.
+    const detachSections = sections.attach();
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
@@ -983,6 +1042,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       detachTouch();
       offHand();
       offInsertMode();
+      offSectionTool();
+      detachSections();
+      sections.tool.set(false);
+      delete canvas.dataset.boardSectionTool;
+      delete overlay.dataset.boardSectionTool;
+      setSections(null);
       container.removeEventListener("dblclick", onDoubleClick, { capture: true });
       delete canvas.dataset.boardPan;
       delete overlay.dataset.boardPan;
@@ -1087,6 +1152,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           onGridSnapChange={(next) => setGridSnapRef.current(next)}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
+          sections={sections}
           disabled={!workspaceId}
         />
       )}

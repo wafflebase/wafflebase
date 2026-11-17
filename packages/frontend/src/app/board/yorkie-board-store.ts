@@ -630,6 +630,29 @@ export class YorkieBoardStore implements SlidesStore {
     return id;
   }
 
+  /**
+   * Board-only: add a top-level shape/image element at z-index `index`
+   * (0 = back) with ONE array insert. `addElement` + `reorderElement` in
+   * the same batch is not equivalent: Yorkie's undo of that change (push,
+   * then a delete and re-insert for the move) leaves the moved element
+   * behind, so a section created that way survived its own undo.
+   */
+  addElementAt(init: ElementInit, index: number): string {
+    this.requireBatch();
+    if (init.type === 'text' || init.type === 'connector') {
+      throw new Error(`[board] addElementAt(): ${init.type} is not supported`);
+    }
+    const id = generateId();
+    this.withUpdate((r) => {
+      const rootElements = r.elements as unknown as ProxyArray;
+      const at = Math.max(0, Math.min(index, rootElements.length));
+      (rootElements as unknown as {
+        splice(at: number, del: number, item: YorkieElement): void;
+      }).splice(at, 0, { ...clone(init), id } as YorkieElement);
+    });
+    return id;
+  }
+
   removeElement(_slideId: string, elementId: string): void {
     this.requireBatch();
     this.withUpdate((r) => {

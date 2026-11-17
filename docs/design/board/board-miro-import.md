@@ -66,9 +66,10 @@ in Miro, with a summary of anything skipped, and `pnpm verify:self` green.
 - **Importing into an existing board.** SP3 always creates a new document.
 - **Faithful `document` / `embed` / `mindmap` / `tag` reproduction.** Skipped
   and reported.
-- **Miro-specific semantics that have no board equivalent:** frames as true
-  containers (a frame becomes a labelled rectangle, not a parent), sticky
-  "tags", comments, cursors/presence, board thumbnails.
+- **Miro-specific semantics that have no board equivalent:** sticky
+  "tags", comments, cursors/presence, board thumbnails. (Frames used to be
+  in this list; they now import as board sections, see
+  [board-sections.md](board-sections.md).)
 - **Preserving Miro image crop / filters.** The image is imported as-is.
 
 ## Proposal Details
@@ -285,7 +286,7 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 | `text` | `TextElement` with a docs `Block[]` body. Miro omits `geometry.height` here — the box auto-sizes to its content — so the height is **estimated from the parsed blocks** and the frame resized about its centre; the text is anchored `middle` so the estimate's unavoidable wrapping error stays symmetric about the point Miro placed |
 | `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; **both ends must resolve**, otherwise the connector is skipped + reported (Miro exposes no absolute coordinate for an unmapped end, so no honest fallback position exists — anchoring it anywhere would either strand the line at the world origin or invent geometry). The two ways that happens are counted **apart**: `connector-free-end` is an end with no item id at all — dangling in Miro itself, unrecoverable by anything on our side — while `connector` is an end naming an item we did not map, which is ours. Its two causes do NOT share a remedy: an end past the item ceiling comes back if the board is imported in smaller pieces, but an end whose target is an unsupported type stays unmappable however small the import is. Folded together with `connector-free-end`, a truncated import read as a Miro problem; `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap`, mapped by shape (filled/open triangle, diamond, circle) with Miro's ERD crow's-foot family degrading to a triangle under `approximated`. Stroke shares `miroStroke` with shapes. Each `captions[]` entry becomes a **free-standing text element** interpolated between the two resolved **connection sites** — not the frame centres, which are not on the line: a connector runs edge to edge, so a centre chord diverges by half the size difference of the two shapes. Its typography comes from the CONNECTOR's `style`, where Miro puts the caption's `fontSize` and `color` beside the stroke fields |
 | `image` | `ImageElement` whose `data.src` is the re-hosted URL passed through the **injected `resolveImageUrl`**. The backend's URL is root-relative (`/api/v1/workspaces/:wid/images/:id`) and the SPA and API sit on different origins in every environment, so a relative src persisted into the CRDT 404s forever. The resolver is injected (and required, not defaulted) to keep this package free of env concerns while making the omission a compile error — the native upload path applies the same function |
-| `frame` | `rect` shape (light fill, visible border) + the frame title as its text — a labelled region, not a container. **Emitted before every other element** so it sits behind them: it is an opaque rectangle and z-order is array order, so a frame arriving late in `/items` would paint over the items it delimits |
+| `frame` | A board **section** ([board-sections.md](board-sections.md)): a `rect` shape with `data.section.title` set to the decoded frame title (`Section` when untitled), so it moves its contents, renames from its title pill and shows in the sections list. **Emitted before every other element**, largest first, so it sits behind them and a nested frame sits in front of the one around it: z-order is array order, so a frame arriving late in `/items` would paint over the items it delimits |
 | `card` / `app_card` | `roundRect` shape whose text body is the title plus the description, each **HTML-escaped** before being wrapped in `<p>` (they arrive as plain text; interpolated raw, a `<` or a literal `</p><p>` reparses as markup and silently restructures the content) |
 | everything else | skipped, counted by type in `skipped` |
 
