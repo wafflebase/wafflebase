@@ -117,7 +117,7 @@ describe('FormatPanel W/H on a rotated element', () => {
     const start = { x: 100, y: 100, w: 384, h: 192 } as unknown as Frame;
     const { readFrame } = setup(start);
 
-    fireEvent.click(screen.getByLabelText(/rotate 90 clockwise/i));
+    fireEvent.click(screen.getByLabelText(/^rotate 90° clockwise$/i));
 
     const next = readFrame();
     expect(Number.isFinite(next.rotation)).toBe(true);

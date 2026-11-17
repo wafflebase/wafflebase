@@ -38,14 +38,18 @@ export interface SlideSizeSectionProps {
  * Changing it scales existing content proportionally (see the store's
  * `setSlideHeight`).
  */
-export function SlideSizeSection({ heightPx, unit, onCommit }: SlideSizeSectionProps) {
+export function SlideSizeSection({
+  heightPx,
+  unit,
+  onCommit,
+}: SlideSizeSectionProps) {
   const active = useMemo(
     () => PRESETS.find((p) => p.height === heightPx)?.id ?? 'custom',
     [heightPx],
   );
 
   return (
-    <section aria-labelledby="format-slide-size-label" className="p-3">
+    <section aria-labelledby="format-slide-size-label">
       <h3 id="format-slide-size-label" className="mb-3 text-xs font-semibold">
         Slide size
       </h3>

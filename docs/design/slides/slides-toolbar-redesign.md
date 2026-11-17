@@ -481,6 +481,21 @@ before novel"). No menu bar was added; the controls gained labels:
   not the viewport, accounts for the sidebar; the idle/non-idle split
   matches Google, whose Background / Theme row is a no-selection
   affordance.
+- **Overflow.** The toggles live in their own pinned, non-shrinking
+  strip; everything else sits in a left strip that folds its tail into
+  a ⋮ **More** popover (`toolbar/toolbar-overflow.tsx`) when it runs
+  out of room — at 1024px with the sidebar open, an object selection
+  needs ~850px in ~760px. Before this the whole row was one
+  `overflow-x-auto` strip, so the toggles scrolled off-screen and were
+  reachable only by Shift+wheel. The fold point is measured on resize
+  and content change (fold arithmetic in `toolbar-overflow-layout.ts`),
+  and the popover re-renders the same section with the still-visible
+  children hidden, so a folded picker keeps its own UI and focus
+  behavior — re-mounted inside the menu, not sharing local draft state
+  with the strip copy — rather than becoming a menu item. The `@container` the label
+  thresholds read sits on the wrapper of both strips, so it still
+  measures the whole toolbar. Coarse pointers keep horizontal scroll as
+  a last resort.
 - **Done** (text edit) is a ghost `ToolbarButton`, not a `bg-primary`
   fill. It was the loudest object on screen for the whole of the most
   frequent task, and the One Accent Rule reserves syrup for the view's

@@ -54,7 +54,12 @@ function stubStore(): SlidesStore {
 function renderToolbar() {
   return render(
     <TooltipProvider>
-      <SlidesToolbar editor={null} store={stubStore()} onImagePick={() => {}} />
+      <SlidesToolbar
+        editor={null}
+        store={stubStore()}
+        onImagePick={() => {}}
+        onToggleThemePanel={() => {}}
+      />
     </TooltipProvider>,
   );
 }
@@ -72,5 +77,25 @@ describe('SlidesToolbar canvas focus release', () => {
     // The hook is mounted by SlidesToolbar itself: focus must not stay on
     // the button, or every canvas shortcut stays gated (issue #882).
     await waitFor(() => expect(document.activeElement).toBe(document.body));
+  });
+});
+
+describe('SlidesToolbar layout', () => {
+  it('keeps the panel toggles outside the strip that folds and scrolls', () => {
+    renderToolbar();
+    // The contextual middle's parent is the strip that scrolls as a last
+    // resort; a toggle inside it could be pushed off-screen.
+    const strip = screen.getByTestId('toolbar-contextual').parentElement!;
+    const theme = screen.getByRole('button', { name: 'Toggle theme picker' });
+    expect(strip.contains(theme)).toBe(false);
+    expect(strip.contains(screen.getByRole('button', { name: 'Undo' }))).toBe(true);
+  });
+
+  it('offers the More menu inside the folding strip, hidden while everything fits', () => {
+    renderToolbar();
+    const strip = screen.getByTestId('toolbar-contextual').parentElement!;
+    const more = screen.getByRole('button', { name: 'More toolbar options', hidden: true });
+    expect(strip.contains(more)).toBe(true);
+    expect(more).toHaveAttribute('data-toolbar-more-idle');
   });
 });

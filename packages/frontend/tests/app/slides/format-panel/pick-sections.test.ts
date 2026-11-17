@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  groupSections,
   pickSections,
   type PanelSelection,
 } from '@/app/slides/format-panel/pick-sections';
@@ -77,6 +78,30 @@ describe('pickSections', () => {
     expect(pickSections(objSel('table'))).toEqual([
       'size-position',
       'alt-text',
+    ]);
+  });
+});
+
+describe('groupSections', () => {
+  it('folds the adjacent effect toggles into one group', () => {
+    expect(groupSections(pickSections(objSel('shape')))).toEqual([
+      ['size-position'],
+      ['drop-shadow', 'reflection'],
+      ['alt-text'],
+    ]);
+  });
+
+  it('keeps every other section in its own group', () => {
+    expect(groupSections(pickSections(objSel('image')))).toEqual([
+      ['size-position'],
+      ['recolor'],
+      ['image-adjustments'],
+      ['drop-shadow', 'reflection'],
+      ['alt-text'],
+    ]);
+    expect(groupSections(pickSections(objSel('table')))).toEqual([
+      ['size-position'],
+      ['alt-text'],
     ]);
   });
 });

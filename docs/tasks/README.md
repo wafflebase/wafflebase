@@ -70,7 +70,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 640
+- Archived task count: 641
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: agent harness cleanup (2026-11-16)

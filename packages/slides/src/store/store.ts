@@ -131,8 +131,8 @@ export interface SlidesStore {
 
   /**
    * Set the display unit for numeric inputs in the Format options
-   * panel (and ruler, when wired). Persisted on `meta.unit` so peers
-   * see the same preference. No effect on rendering.
+   * panel and the editor rulers. Persisted on `meta.unit` so peers
+   * see the same preference. No effect on slide rendering.
    */
   setUnit(unit: 'in' | 'cm'): void;
 

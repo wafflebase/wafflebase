@@ -10,7 +10,7 @@ target-version: 0.4.2
 The slides editor has horizontal and vertical rulers, plus
 presentation-wide alignment guides that users can drag out of the
 rulers. The ruler is primarily a placement aid: it shows slide
-coordinates (corner origin, inch / cm based on locale) and exposes
+coordinates (corner origin, in the deck's inch / cm unit) and exposes
 draggable guides that participate in the existing snap engine. Text
 indent / tab handles inside text boxes remain deferred to a
 later release.
@@ -187,10 +187,21 @@ its display level on every `render()` call.
 
 ### Unit selection
 
-Locale-driven defaults, same as docs: if `navigator.language` matches
-a metric locale (everything except `en-US`, `en-GB`, `my`), use `cm`,
-else `inch`. A user-facing unit toggle is not surfaced in v1 — when a
-Slides settings surface lands, both docs and slides will share it.
+The ruler follows the deck's `meta.unit` — the same field the Format
+options panel's Units toggle writes — through `rulerUnitOf(meta)`:
+`'cm'` → `cm`, anything else (including unset) → `inch`, matching the
+panel's "absent ⇒ inches" reading. The editor seeds the ruler with it
+and re-applies it on every `render()`, so a remote unit change lands
+with the next store change. The ruler originally picked its unit from
+`navigator.language` like the docs ruler, which showed cm on the ruler
+beside inches in the panel for every non-English locale; `SlidesRuler`
+still falls back to locale detection only when constructed without a
+unit, which the editor never does.
+
+Labels are 10px (the app's Micro floor) and the tick color is read
+from the ruler canvas's computed `color`, which the host sets to
+`text-muted-foreground`, so light and dark mode follow the theme
+without a hex literal.
 
 ### Guides — data model and Yorkie schema
 

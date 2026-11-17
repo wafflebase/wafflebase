@@ -81,7 +81,7 @@ export function SizePositionSection(props: SizePositionSectionProps) {
   const rotation = getCommonValue(elements, (el) => el.frame.rotation);
 
   return (
-    <section aria-labelledby="format-size-position-label" className="p-3">
+    <section aria-labelledby="format-size-position-label">
       <h3
         id="format-size-position-label"
         className="mb-3 text-xs font-semibold"
@@ -89,9 +89,12 @@ export function SizePositionSection(props: SizePositionSectionProps) {
         Size &amp; Position
       </h3>
 
-      <div className="space-y-2">
+      {/* Rows inside a sub-group sit 8px apart; the sub-groups (size,
+          position, rotation, units) step 16px so the eye reads four
+          clusters rather than one long list. */}
+      <div className="flex flex-col gap-4">
         {showWH && (
-          <>
+          <div className="space-y-2">
             <UnitInput
               label="Width"
               valuePx={w}
@@ -132,73 +135,79 @@ export function SizePositionSection(props: SizePositionSectionProps) {
                 {locked ? 'Locked' : 'Lock aspect ratio'}
               </Button>
             </IndentedRow>
-          </>
+          </div>
         )}
 
-        <UnitInput
-          label="X position"
-          valuePx={x}
-          unit={unit}
-          disabled={xyDisabled}
-          disabledTooltip={
-            xyDisabled ? 'Detach endpoints to set position.' : undefined
-          }
-          onCommit={(px) => {
-            if (x === undefined) return;
-            props.onTranslate(ids, px - x, 0);
-          }}
-        />
-        <UnitInput
-          label="Y position"
-          valuePx={y}
-          unit={unit}
-          disabled={xyDisabled}
-          disabledTooltip={
-            xyDisabled ? 'Detach endpoints to set position.' : undefined
-          }
-          onCommit={(px) => {
-            if (y === undefined) return;
-            props.onTranslate(ids, 0, px - y);
-          }}
-        />
+        <div className="space-y-2">
+          <UnitInput
+            label="X position"
+            valuePx={x}
+            unit={unit}
+            disabled={xyDisabled}
+            disabledTooltip={
+              xyDisabled ? 'Detach endpoints to set position.' : undefined
+            }
+            onCommit={(px) => {
+              if (x === undefined) return;
+              props.onTranslate(ids, px - x, 0);
+            }}
+          />
+          <UnitInput
+            label="Y position"
+            valuePx={y}
+            unit={unit}
+            disabled={xyDisabled}
+            disabledTooltip={
+              xyDisabled ? 'Detach endpoints to set position.' : undefined
+            }
+            onCommit={(px) => {
+              if (y === undefined) return;
+              props.onTranslate(ids, 0, px - y);
+            }}
+          />
+        </div>
 
         {showRotation && (
-          <>
+          <div className="space-y-2">
             <RotationInput
               valueRad={rotation}
               onCommit={(rad) => props.onCommitFrame(ids, { rotation: rad })}
             />
             <IndentedRow>
+              {/* The two icons are mirror images, so the visible word
+                  carries the direction and the name spells it out. */}
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                aria-label="Rotate 90 counter-clockwise"
+                aria-label="Rotate 90° counter-clockwise"
+                title="Rotate 90° counter-clockwise"
                 onClick={() => props.onRotate90(ids, -1)}
                 className="h-7 px-2 text-xs"
               >
-                <IconRotate size={14} />
-                90°
+                <IconRotate size={14} aria-hidden="true" />
+                Left
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                aria-label="Rotate 90 clockwise"
+                aria-label="Rotate 90° clockwise"
+                title="Rotate 90° clockwise"
                 onClick={() => props.onRotate90(ids, 1)}
                 className="h-7 px-2 text-xs"
               >
-                <IconRotateClockwise size={14} />
-                90°
+                <IconRotateClockwise size={14} aria-hidden="true" />
+                Right
               </Button>
             </IndentedRow>
-          </>
+          </div>
         )}
 
-        <div className="flex items-center gap-2 pt-2 text-xs">
+        <div className="flex items-center gap-2 text-xs">
           <span className="w-20 shrink-0">Units</span>
           <RadioGroup
-            className="flex items-center gap-2"
+            className="flex items-center gap-3"
             value={unit}
             onValueChange={(value) => props.onSetUnit(value as DisplayUnit)}
           >

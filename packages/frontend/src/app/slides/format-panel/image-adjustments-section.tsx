@@ -56,51 +56,53 @@ export function ImageAdjustmentsSection({
   }, [commonContrast]);
 
   return (
-    <section aria-labelledby="format-adjustments-label" className="p-3">
-      <h3 id="format-adjustments-label" className="mb-2 text-xs font-semibold">
+    <section aria-labelledby="format-adjustments-label">
+      <h3 id="format-adjustments-label" className="mb-3 text-xs font-semibold">
         Adjustments
       </h3>
 
-      <div className="block text-xs">
-        <span className="mb-1 block">Transparency</span>
-        <Slider
-          aria-label="Transparency"
-          min={0}
-          max={100}
-          step={1}
-          value={[transparency]}
-          onValueChange={([v]) => setTransparency(v)}
-          onValueCommit={([v]) => onCommit(ids, { opacity: 1 - v / 100 })}
-        />
-        <span className="text-muted-foreground">{transparency}%</span>
-      </div>
+      <div className="flex flex-col gap-3">
+        <div className="block text-xs">
+          <span className="mb-1 block">Transparency</span>
+          <Slider
+            aria-label="Transparency"
+            min={0}
+            max={100}
+            step={1}
+            value={[transparency]}
+            onValueChange={([v]) => setTransparency(v)}
+            onValueCommit={([v]) => onCommit(ids, { opacity: 1 - v / 100 })}
+          />
+          <span className="text-muted-foreground">{transparency}%</span>
+        </div>
 
-      <div className="mt-2 block text-xs">
-        <span className="mb-1 block">Brightness</span>
-        <Slider
-          aria-label="Brightness"
-          min={-100}
-          max={100}
-          step={1}
-          value={[brightness]}
-          onValueChange={([v]) => setBrightness(v)}
-          onValueCommit={([v]) => onCommit(ids, { brightness: v / 100 })}
-        />
-        <span className="text-muted-foreground">{brightness}%</span>
-      </div>
+        <div className="block text-xs">
+          <span className="mb-1 block">Brightness</span>
+          <Slider
+            aria-label="Brightness"
+            min={-100}
+            max={100}
+            step={1}
+            value={[brightness]}
+            onValueChange={([v]) => setBrightness(v)}
+            onValueCommit={([v]) => onCommit(ids, { brightness: v / 100 })}
+          />
+          <span className="text-muted-foreground">{brightness}%</span>
+        </div>
 
-      <div className="mt-2 block text-xs">
-        <span className="mb-1 block">Contrast</span>
-        <Slider
-          aria-label="Contrast"
-          min={-100}
-          max={100}
-          step={1}
-          value={[contrast]}
-          onValueChange={([v]) => setContrast(v)}
-          onValueCommit={([v]) => onCommit(ids, { contrast: v / 100 })}
-        />
-        <span className="text-muted-foreground">{contrast}%</span>
+        <div className="block text-xs">
+          <span className="mb-1 block">Contrast</span>
+          <Slider
+            aria-label="Contrast"
+            min={-100}
+            max={100}
+            step={1}
+            value={[contrast]}
+            onValueChange={([v]) => setContrast(v)}
+            onValueCommit={([v]) => onCommit(ids, { contrast: v / 100 })}
+          />
+          <span className="text-muted-foreground">{contrast}%</span>
+        </div>
       </div>
     </section>
   );

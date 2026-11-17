@@ -12,7 +12,10 @@ export interface ReflectionSectionProps {
    * selected element. The parent merges it into each element's own
    * `effects` so a co-existing drop shadow is preserved.
    */
-  onCommit: (ids: readonly string[], reflection: Reflection | undefined) => void;
+  onCommit: (
+    ids: readonly string[],
+    reflection: Reflection | undefined,
+  ) => void;
 }
 
 /**
@@ -74,8 +77,8 @@ export function ReflectionSection({
   const sizePct = Math.round((reflection?.size ?? 0) * 100);
 
   return (
-    <section aria-labelledby="format-reflection-label" className="p-3">
-      <div className="mb-2 flex items-center gap-2">
+    <section aria-labelledby="format-reflection-label">
+      <div className="flex items-center gap-2">
         <Checkbox
           id="format-reflection-toggle"
           checked={enabled}
@@ -93,7 +96,9 @@ export function ReflectionSection({
       </div>
 
       {enabled && (
-        <div className="flex flex-col gap-2">
+        // Indented past the checkbox (16px box + 8px gap) so the controls
+        // read as belonging to the toggle that revealed them.
+        <div className="mt-3 flex flex-col gap-3 pl-6">
           <div className="block text-xs">
             <span className="mb-1 block">Transparency</span>
             <Slider
