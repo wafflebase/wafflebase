@@ -8,7 +8,7 @@ import {
 } from '@wafflebase/slides';
 import { palette } from '@wafflebase/core/tokens';
 import {
-  sceneBounds, fitScene, miniToWorld, viewportRectInMini, clipToMini, type MiniFit,
+  sceneBounds, fitScene, miniToWorld, worldToMini, viewportRectInMini, clipToMini, type MiniFit,
 } from './minimap-geometry';
 
 const MINI_W = 200;
@@ -113,8 +113,22 @@ export interface BoardMinimap {
   element: HTMLElement;
   repaintScene(): void;
   repaintViewport(vp: Viewport): void;
+  /**
+   * Collaborators as coloured dots at their world positions (peer
+   * cursors v2). A dot outside the scene bounds is pinned to the panel
+   * edge, so a peer working off the map still shows which way they are.
+   */
+  setPeers(dots: readonly MinimapPeerDot[]): void;
   dispose(): void;
 }
+
+export interface MinimapPeerDot {
+  x: number;
+  y: number;
+  color: string;
+}
+
+const PEER_DOT_RADIUS = 3.5;
 
 /**
  * Bottom-right minimap overlay for the board. Vanilla DOM (mounted by
@@ -171,6 +185,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   let lastFit: MiniFit | null = null;
   let lastVp: Viewport = { panX: 0, panY: 0, zoom: 1 };
+  let peerDots: readonly MinimapPeerDot[] = [];
   // Set in dispose(); guards the async `onAssetLoad` repaint path (and the
   // rAF callback) from touching torn-down canvas/store state after teardown.
   let disposed = false;
@@ -226,6 +241,24 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
         ctx.strokeStyle = viewportStrokeColor(getTheme());
         ctx.lineWidth = VIEWPORT_STROKE;
         ctx.strokeRect(r.x, r.y, r.w, r.h);
+        ctx.restore();
+      }
+      if (peerDots.length > 0) {
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#fff';
+        const m = PEER_DOT_RADIUS + 1;
+        for (const dot of peerDots) {
+          const p = worldToMini(lastFit, dot);
+          const x = Math.min(Math.max(p.x, m), MINI_W - m);
+          const y = Math.min(Math.max(p.y, m), MINI_H - m);
+          ctx.beginPath();
+          ctx.arc(x, y, PEER_DOT_RADIUS, 0, Math.PI * 2);
+          ctx.fillStyle = dot.color;
+          ctx.fill();
+          ctx.stroke();
+        }
         ctx.restore();
       }
     }
@@ -287,6 +320,10 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
     repaintScene: () => { if (visible) scheduleScene(); },
     repaintViewport: (vp: Viewport) => {
       lastVp = vp;
+      if (visible) blit();
+    },
+    setPeers: (dots: readonly MinimapPeerDot[]) => {
+      peerDots = dots;
       if (visible) blit();
     },
     dispose: () => {

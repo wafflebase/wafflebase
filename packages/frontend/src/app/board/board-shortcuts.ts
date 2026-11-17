@@ -87,6 +87,8 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["L"], description: "Line" },
   { category: "Tools", keys: ["Shift+L"], description: "Arrow" },
   { category: "Tools", keys: ["X"], description: "Connector" },
+  { category: "Tools", keys: ["/"], description: "Cursor chat" },
+  { category: "Tools", keys: ["E"], description: "Emotes (then 1–6 to send)" },
 
   { category: "Canvas", keys: ["Space"], description: "Pan (hold, then drag)" },
   { category: "Canvas", keys: ["Mod"], description: "Zoom (hold, then scroll or pinch)" },

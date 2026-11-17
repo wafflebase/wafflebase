@@ -53,4 +53,16 @@ export type BoardPresence = {
   photo: string;
   selectedElementIds?: string[];
   cursor?: { x: number; y: number } | null; // world coords
+  /**
+   * What this user is looking at: the WORLD point at the centre of their
+   * canvas and their zoom. Centre + zoom rather than pan, so a follower
+   * with a different window size frames the same place.
+   */
+  viewport?: { x: number; y: number; zoom: number } | null;
+  /** Non-null while spotlighting: the epoch ms it started (a re-spotlight is a new value). */
+  spotlight?: number | null;
+  /** Cursor chat text, shown beside this user's cursor; null when closed. */
+  chat?: string | null;
+  /** The latest emote burst, at a world point. `at` (epoch ms) identifies it. */
+  emote?: { emoji: string; x: number; y: number; at: number } | null;
 };

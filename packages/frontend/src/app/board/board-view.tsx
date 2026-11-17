@@ -27,8 +27,13 @@ import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
 import { attachBoardTouchGestures } from "./board-touch-gestures";
-import { createCursorPublisher } from "./board-cursor-publish";
+import {
+  attachBoardPresence,
+  type BoardPresenceController,
+} from "./board-presence";
+import type { BoardFollowBridge } from "./board-follow-bridge";
 import { allowClickThroughDismiss } from "./board-click-through";
+import { BoardSpotlightToggle, BoardTimerChip, BoardTimerControl } from "./board-collab-controls";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import {
@@ -109,6 +114,8 @@ interface BoardViewProps {
    * stays disabled until it resolves.
    */
   workspaceId?: string;
+  /** Lets the header's avatars follow / jump to a peer on this board. */
+  followBridge?: BoardFollowBridge;
 }
 
 /**
@@ -137,10 +144,8 @@ function mapBoardPeers(
       label: presence.username || "Anonymous",
       activeSlideId: SYNTHETIC_SLIDE_ID,
       selectedElementIds: presence.selectedElementIds,
-      // SP1 defined `cursor` on BoardPresence but never published or
-      // painted it; SP4 completes both ends. `null` (peer left the
-      // canvas) must become `undefined` so the overlay skips it.
-      cursor: presence.cursor ?? undefined,
+      // No `cursor`: the board draws peer cursors on its own layer
+      // (`board-peer-layer.ts`, peer cursors v2), not the slides dots.
     });
   }
   return views;
@@ -170,13 +175,18 @@ function mapBoardPeers(
  * inside the one `store.batch()` holds open (the selection listener
  * fires synchronously from an insert commit) and reissue that change's
  * `clientSeq`, which strands the document — see the class comment on
- * `YorkieBoardStore.activePresence`. The local pointer is published
- * into `cursor` (rAF-coalesced via `createCursorPublisher`) and peer
- * cursors are read back through `mapBoardPeers` — a bare selection ring
- * is not enough to locate a collaborator working off-screen on an
- * unbounded plane.
+ * `YorkieBoardStore.activePresence`. The local pointer, viewport, cursor
+ * chat and emotes are published, and peer cursors drawn, by
+ * `attachBoardPresence` (`board-presence.ts`) — a bare selection ring is
+ * not enough to locate a collaborator working off-screen on an unbounded
+ * plane.
  */
-export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
+export function BoardView({
+  documentId,
+  readOnly,
+  workspaceId,
+  followBridge,
+}: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Toolbar + canvas: what counts as "the board" for its tool keys.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -212,6 +222,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // controls and Undo/Redo read element data through the store, so
   // `<BoardToolbar>` must re-render once the mount effect creates it.
   const [store, setStore] = useState<YorkieBoardStore | null>(null);
+  // Peer cursors, follow, spotlight, cursor chat and emotes — lifted for
+  // the toolbar's Spotlight toggle (see `board-presence.ts`).
+  const [presenceCtl, setPresenceCtl] = useState<BoardPresenceController | null>(null);
   // The zoom VALUE holder (label/intent channel only — `vp` above stays
   // the single source of truth for scale). Ref-held so it survives
   // mount-effect re-runs (e.g. `workspaceId` resolving after the first
@@ -442,10 +455,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // once. These used to be three statements copy-pasted at each call
     // site, which is exactly how the grid would have been forgotten on one
     // of them.
+    let presence: BoardPresenceController | null = null;
     const commitViewport = (next: Viewport) => {
       vp.current = next;
       editor.setViewport(vp.current);
       minimap.repaintViewport(vp.current);
+      presence?.onViewportCommitted();
       applyGridBackground(
         container,
         gridKindRef.current,
@@ -567,52 +582,27 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     resizeObserver.observe(container);
 
-    // Broadcast the local pointer so peers can see where this user is
-    // working. A board is unbounded, so a selection ring alone does not
-    // locate a collaborator who is editing off-screen.
-    //
-    // Coalesced to at most one write per animation frame by
-    // `createCursorPublisher` (own testable module, see
-    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
-    // CRDT presence update per mouse sample and flood the channel.
-    // Presence only — the document root is untouched.
-    //
-    // "At most", because a presence write is not free even when the doc
-    // is untouched: it emits a SELF `presence-changed`, which
-    // `@yorkie-js/react` turns into a fresh state object, which
-    // re-renders this component and the whole toolbar tree. So the
-    // publisher drops a frame whose position has not moved, and
-    // `shouldPublish` drops the whole thing when there is nobody to see
-    // it — a solo user waving the mouse must not cost 60 React commits a
-    // second. A dropped write is remembered as undelivered, and
-    // `pushPeers` below replays it via `resend()` the moment the
-    // audience opens.
-    const cursorPublisher = createCursorPublisher({
-      requestFrame: (cb) => requestAnimationFrame(cb),
-      cancelFrame: (handle) => cancelAnimationFrame(handle),
-      shouldPublish: () => doc.getOthersPresences().length > 0,
-      publish: (position) => {
-        store.updatePresence({ cursor: position });
-      },
+    // Peer cursors v2, follow / spotlight, cursor chat and emotes. All
+    // presence writes inside go through `store.updatePresence`, none on a
+    // read-only mount; see `board-presence.ts`.
+    presence = attachBoardPresence({
+      container,
+      doc,
+      store,
+      readOnly: readOnly === true,
+      editor,
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getCanvasRect: () => canvasRect,
+      commitViewport,
+      isBoardTarget: (target) =>
+        target === document.body ||
+        (target instanceof Node && rootRef.current?.contains(target) === true),
+      theme: BOARD_PLANE_THEME,
+      minimap,
     });
-    const onCursorMove = (e: PointerEvent) => {
-      // Reuses the cached `canvasRect` maintained by the ResizeObserver
-      // above rather than calling `getBoundingClientRect()` here — this
-      // handler runs on every pointer sample.
-      cursorPublisher.queue(
-        screenToWorld(vp.current, {
-          x: e.clientX - canvasRect.left,
-          y: e.clientY - canvasRect.top,
-        }),
-      );
-    };
-    // Clear on leave so a departed cursor does not stick on peers'
-    // screens at the last position it was seen.
-    const onCursorLeave = () => cursorPublisher.queue(null);
-    if (!readOnly) {
-      container.addEventListener("pointermove", onCursorMove);
-      container.addEventListener("pointerleave", onCursorLeave);
-    }
+    setPresenceCtl(presence);
+    followBridge?.attach(presence);
 
     // --- presence: peers ---
     //
@@ -620,21 +610,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `YorkieSlidesStore.getPeers()` / `onPresenceChange()` verbatim —
     // read directly off `doc` since `YorkieBoardStore` doesn't wrap them
     // (see class doc comment).
-    let hadPeers = false;
     const pushPeers = () => {
       const peers = doc.getOthersPresences().map((p) => ({
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
       editor.setPeers(mapBoardPeers(peers, BOARD_PLANE_THEME));
-      // The audience just opened: hand over the cursor intent the gate
-      // above swallowed while nobody was watching. Without this, a user
-      // who was stationary when the peer joined stays invisible until
-      // they move, and a `pointerleave` that fell while solo leaves a
-      // ghost cursor parked in presence.
-      const hasPeers = peers.length > 0;
-      if (hasPeers && !hadPeers) cursorPublisher.resend();
-      hadPeers = hasPeers;
     };
     const offPeers = doc.subscribe("others", () => pushPeers());
     pushPeers();
@@ -995,9 +976,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
-      container.removeEventListener("pointermove", onCursorMove);
-      container.removeEventListener("pointerleave", onCursorLeave);
-      cursorPublisher.dispose();
+      followBridge?.attach(null);
+      presence?.dispose();
+      presence = null;
+      setPresenceCtl(null);
       offSelection();
       offChange();
       offPeers();
@@ -1017,7 +999,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `zoomValue` is a ref-held singleton with a stable identity for the
     // component's lifetime, so listing it never re-runs this effect — it
     // is here only to satisfy exhaustive-deps.
-  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand]);
+  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand, followBridge]);
 
   // Repaint the grid when the MODE changes — the one input that moves
   // without the viewport moving (the plane never follows the app theme,
@@ -1092,6 +1074,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}
+          collabControls={
+            <>
+              <BoardTimerControl store={store} disabled={!editor} />
+              <BoardSpotlightToggle presence={presenceCtl} />
+            </>
+          }
         />
       )}
       <div className="relative flex-1 w-full min-h-0">
@@ -1102,6 +1090,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
         />
         {isEmpty && !readOnly && <BoardEmptyHint />}
+        <BoardTimerChip store={store} />
       </div>
       <ShortcutsHelpDialog
         open={helpOpen}

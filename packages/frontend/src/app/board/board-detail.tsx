@@ -23,6 +23,7 @@ import {
   type BoardPresence,
 } from "@/types/board-document";
 import { BoardView } from "./board-view";
+import { createBoardFollowBridge } from "./board-follow-bridge";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { PreviewSurface } from "@/components/history/preview-surface";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
@@ -67,6 +68,8 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const doc = useBoardDocSelector((s) => s.doc);
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Header avatar click → follow that peer on the board.
+  const [followBridge] = useState(createBoardFollowBridge);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount BoardView, dropping its local selection
   // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
@@ -169,7 +172,12 @@ function BoardLayout({ documentId }: { documentId: string }) {
               />
             ),
             share: <ShareDialog documentId={documentId} />,
-            presence: <UserPresence />,
+            presence: (
+              <UserPresence
+                onSelectPeer={followBridge.selectPeer}
+                getJumpHint={followBridge.jumpHint}
+              />
+            ),
           }}
         />
         <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -196,6 +204,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
               key={historyResetToken}
               documentId={documentId}
               workspaceId={documentData?.workspaceId}
+              followBridge={followBridge}
             />
           </PreviewSurface>
           {historyOpen && currentUser && (

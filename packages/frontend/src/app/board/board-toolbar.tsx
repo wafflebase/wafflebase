@@ -88,6 +88,8 @@ export interface BoardToolbarProps {
   onInsertSticky?: (colorValue: string) => void;
   /** Upload + insert the picked/pasted/dropped file at the viewport center. */
   onInsertImage?: (file: File) => void;
+  /** Facilitation controls (timer, Spotlight), after the insert tools. */
+  collabControls?: React.ReactNode;
 }
 
 /**
@@ -126,6 +128,7 @@ export function BoardToolbar({
   disabled,
   onInsertSticky,
   onInsertImage,
+  collabControls,
 }: BoardToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const [state, setState] = useState<ToolbarState>(() =>
@@ -448,6 +451,13 @@ export function BoardToolbar({
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
+
+      {collabControls && (
+        <>
+          <ToolbarSeparator className="mx-1" />
+          {collabControls}
+        </>
+      )}
 
       {state.kind === "object" && (
         <>
