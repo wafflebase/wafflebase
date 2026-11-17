@@ -31,7 +31,8 @@ const PULSE_CSS = `
 
 /**
  * The countdown everyone sees — editors and viewers alike — over the
- * canvas's top-right corner. Hidden while the timer is idle. At zero it
+ * canvas's top-left corner: the top-right one holds the Download button
+ * and the find box, which the chip used to sit under. Hidden while the timer is idle. At zero it
  * turns to "Time's up" with a gentle pulse (none under reduced motion).
  */
 export function BoardTimerChip({ store }: { store: TimerStore | null }) {
@@ -44,7 +45,7 @@ export function BoardTimerChip({ store }: { store: TimerStore | null }) {
       aria-live={done ? "assertive" : "off"}
       aria-label={done ? "Timer: time's up" : `Timer: ${formatTimer(remaining)}`}
       className={
-        "pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium tabular-nums shadow-sm " +
+        "pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium tabular-nums shadow-sm " +
         (done
           ? "wfb-board-timer-done border-transparent bg-primary text-primary-foreground"
           : "bg-popover text-popover-foreground")

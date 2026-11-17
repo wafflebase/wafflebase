@@ -50,9 +50,11 @@ export function BoardVotingPanel({
     const mine = userKey ? votesLeft(voting, userKey) : 0;
     const isDone = userKey ? voting.done?.[userKey] === true : false;
     return (
+      // Below the top row (timer chip top-left; Download and the find box
+      // top-right), so a long prompt on a narrow board covers none of them.
       <section
         aria-label="Voting"
-        className="absolute left-1/2 top-3 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-background px-3 py-2 text-sm shadow-md"
+        className="absolute left-1/2 top-12 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-background px-3 py-2 text-sm shadow-md"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <span className="font-medium">{prompt}</span>
