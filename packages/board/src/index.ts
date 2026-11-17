@@ -5,3 +5,7 @@ export * from './import/miro/connector-sites';
 export * from './import/miro/types';
 export * from './model/sticky';
 export * from './model/section';
+export * from './agent/summary';
+export * from './agent/layout';
+export * from './agent/moves';
+export * from './agent/text';

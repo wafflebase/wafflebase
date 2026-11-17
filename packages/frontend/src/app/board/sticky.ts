@@ -1,34 +1,31 @@
 import {
   type Element,
-  type ElementInit,
   type Frame,
   type Point,
   type SlidesStore,
   type SlidesEditor,
-  makeDefaultSlidesTextBlock,
 } from '@wafflebase/slides';
 import {
-  STICKY_ROLE,
-  STICKY_SHADOW,
+  DEFAULT_STICKY_SIZE,
   SYNTHETIC_SLIDE_ID,
+  buildStickyInit,
   isStickyData,
+  type StickyOptions,
+  type StickySize,
   type Viewport,
   screenToWorld,
 } from '@wafflebase/board';
 
-/**
- * Six pastel sticky fills. Kept light so the default dark slides text
- * color stays legible on top — a sticky is a preset `roundRect` shape,
- * not a distinct element type, so it inherits the shape text renderer.
- */
-export const STICKY_COLORS: readonly { name: string; value: string }[] = [
-  { name: 'Yellow', value: '#FFF8B8' },
-  { name: 'Green', value: '#CDEFC4' },
-  { name: 'Blue', value: '#C7E5FF' },
-  { name: 'Pink', value: '#FFD6E7' },
-  { name: 'Orange', value: '#FFE0B2' },
-  { name: 'Purple', value: '#E5D4FF' },
-];
+// The sticky factory and its constants live in `@wafflebase/board`, so the
+// `/api/v1` board endpoints an agent drives build the identical element.
+export {
+  STICKY_COLORS,
+  STICKY_SIZE,
+  DEFAULT_STICKY_SIZE,
+  buildStickyInit,
+  type StickySize,
+  type StickyOptions,
+} from '@wafflebase/board';
 
 /**
  * Whether an element is a sticky note. A sticky is a preset `roundRect`
@@ -38,87 +35,6 @@ export const STICKY_COLORS: readonly { name: string; value: string }[] = [
  */
 export function isStickyElement(el: Element | undefined): boolean {
   return el?.type === 'shape' && isStickyData(el.data);
-}
-
-/** Square sticky side length, in board world px. */
-export const STICKY_SIZE = 180;
-
-/** A sticky's width and height, in board world px. */
-export interface StickySize {
-  w: number;
-  h: number;
-}
-
-/** The default sticky footprint. */
-export const DEFAULT_STICKY_SIZE: StickySize = { w: STICKY_SIZE, h: STICKY_SIZE };
-
-/** Extra fields a new sticky can be created with. */
-export interface StickyOptions {
-  size?: StickySize;
-  /** Creator display name, recorded once (absent on an anonymous board). */
-  author?: string;
-  /** Initial text (a pasted line); absent leaves the body empty. */
-  text?: string;
-  /** Font size for the body; absent keeps the slides default. */
-  fontSize?: number;
-  /** Carried over from a source sticky; absent means the tag is shown. */
-  showAuthor?: boolean;
-}
-
-/**
- * Build the `ElementInit` for a sticky note: a `roundRect` shape with a
- * solid srgb fill, a soft drop shadow, and a middle-anchored,
- * shrink-autofit, center-aligned text body, centered on `center`. It
- * carries the explicit `role: 'sticky'` marker, so restyling it later
- * (a gradient, a border) never demotes it to a plain shape.
- *
- * The text body is seeded (rather than left absent for lazy creation)
- * so the sticky's middle/shrink/center layout applies to the first
- * keystroke — `withShapeText` preserves an existing `data.text` and only
- * synthesizes a bare one (top-anchored, grow) when none exists.
- */
-export function buildStickyInit(
-  colorValue: string,
-  center: Point,
-  options: StickyOptions = {},
-): ElementInit {
-  const { w, h } = options.size ?? DEFAULT_STICKY_SIZE;
-  const block = makeDefaultSlidesTextBlock();
-  block.style = { ...block.style, alignment: 'center' };
-  if (options.text !== undefined || options.fontSize !== undefined) {
-    block.inlines = block.inlines.map((inline, i) => ({
-      ...inline,
-      text: i === 0 && options.text !== undefined ? options.text : inline.text,
-      style:
-        options.fontSize !== undefined
-          ? { ...inline.style, fontSize: options.fontSize }
-          : inline.style,
-    }));
-  }
-  const author = options.author?.trim();
-  return {
-    type: 'shape',
-    frame: {
-      x: center.x - w / 2,
-      y: center.y - h / 2,
-      w,
-      h,
-      rotation: 0,
-    },
-    data: {
-      kind: 'roundRect',
-      role: STICKY_ROLE,
-      fill: { kind: 'srgb', value: colorValue },
-      effects: { shadow: { ...STICKY_SHADOW } },
-      text: {
-        blocks: [block],
-        verticalAnchor: 'middle',
-        autofit: 'shrink',
-      },
-      ...(author ? { author } : {}),
-      ...(options.showAuthor === false ? { showAuthor: false } : {}),
-    },
-  } as ElementInit;
 }
 
 /** Space left between a new sticky and the one it steps away from. */
