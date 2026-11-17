@@ -58,6 +58,9 @@ import {
 import { TIDY_UP_SHORTCUT, tidyUpSelection } from "./board-tidy";
 import type { InkTool } from "./board-ink";
 import { BoardInkControls } from "./board-ink-controls";
+import { BoardLassoToggle } from "./board-drawing-controls";
+import { useToggleOn } from "./use-toggle-on";
+import type { DrawingTools } from "./board-drawing-extras";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -77,6 +80,8 @@ export interface BoardToolbarProps {
   hand?: HandTool | null;
   /** The marker / highlighter pen choice, shared with the M keys. */
   ink?: InkTool | null;
+  /** The laser pointer and lasso-select toggles (`board-drawing-extras.ts`). */
+  drawingTools?: DrawingTools | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -148,6 +153,7 @@ export function BoardToolbar({
   zoomController = null,
   hand = null,
   ink = null,
+  drawingTools = null,
   gridKind,
   onGridKindChange,
   gridSnap,
@@ -180,6 +186,8 @@ export function BoardToolbar({
   // behaviour, and what a board user reaches for.
   useCanvasFocusRelease();
 
+  const laserOn = useToggleOn(drawingTools?.laser);
+  const lassoOn = useToggleOn(drawingTools?.lasso);
   const [handOn, setHandOn] = useState(() => hand?.get() ?? false);
   useEffect(() => {
     if (!hand) return;
@@ -339,8 +347,13 @@ export function BoardToolbar({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={insertMode === null && !handOn && !sectionArmed && !extraToolArmed}
+            pressed={
+              insertMode === null && !handOn && !sectionArmed && !extraToolArmed &&
+              !laserOn && !lassoOn
+            }
             onClick={() => {
+              drawingTools?.laser.set(false);
+              drawingTools?.lasso.set(false);
               hand?.set(false);
               sections?.tool.set(false);
               editor?.setInsertMode(null);
@@ -354,6 +367,7 @@ export function BoardToolbar({
         </TooltipTrigger>
         <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
       </Tooltip>
+      <BoardLassoToggle tool={drawingTools?.lasso ?? null} disabled={disabled || !editor} />
 
       {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
           arming it disarms any insert tool, and vice versa. */}
@@ -518,6 +532,7 @@ export function BoardToolbar({
         ink={ink}
         insertMode={insertMode}
         disabled={disabled}
+        laser={drawingTools?.laser ?? null}
       />
 
       <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />

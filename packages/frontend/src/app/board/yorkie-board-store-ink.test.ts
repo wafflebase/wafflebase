@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { ElementInit, FreeformCommand, ShapeElement } from '@wafflebase/slides';
+import type { ElementInit, ShapeElement } from '@wafflebase/slides';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import type { YorkieElement } from '@/types/slides-document';
 import { YorkieBoardStore } from './yorkie-board-store';
 import { makeYorkieBoardDoc } from './__testkit__';
+
+type FreeformCommand = NonNullable<ShapeElement['data']['path']>['commands'][number];
+
+function rawElements(doc: ReturnType<typeof makeYorkieBoardDoc>): string {
+  return (doc.getRoot().elements as unknown as { toJSON(): string }).toJSON();
+}
 
 /**
  * Compact ink storage: a marker stroke's path is written as ONE packed
@@ -68,7 +74,7 @@ describe('YorkieBoardStore compact ink', () => {
     });
     const packedBytes = docSize(after) - empty;
 
-    const raw = JSON.parse(after.getRoot().elements.toJSON()) as {
+    const raw = JSON.parse(rawElements(after)) as {
       data: { path: { commands: unknown } };
     }[];
     expect(typeof raw[0].data.path.commands).toBe('string');
@@ -130,7 +136,7 @@ describe('YorkieBoardStore compact ink', () => {
         path: { commands: [{ c: 'M', x: 0, y: 0 }, { c: 'L', x: 1, y: 1 }] },
       });
     });
-    const raw = JSON.parse(store['doc'].getRoot().elements.toJSON()) as {
+    const raw = JSON.parse(rawElements(store['doc'])) as {
       id: string;
       data: { children?: { data: { path: { commands: unknown } } }[]; path?: { commands: unknown } };
     }[];

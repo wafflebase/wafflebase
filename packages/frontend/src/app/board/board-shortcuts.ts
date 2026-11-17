@@ -12,6 +12,7 @@ export type BoardTool =
   | { kind: "sticky" }
   | { kind: "section" }
   | { kind: "ink"; pen: "marker" | "highlighter" }
+  | { kind: "laser" }
   | { kind: "insert"; insert: InsertKind };
 
 /**
@@ -34,10 +35,11 @@ const TOOL_KEYS: Readonly<Record<string, BoardTool>> = {
   m: { kind: "ink", pen: "marker" },
   M: { kind: "ink", pen: "highlighter" },
   E: { kind: "insert", insert: "eraser" },
+  K: { kind: "laser" },
 };
 
 /** The shifted tool keys; any other Shift+letter is not a tool. */
-const SHIFTED_TOOL_KEYS = new Set(["L", "S", "M", "E"]);
+const SHIFTED_TOOL_KEYS = new Set(["L", "S", "M", "E", "K"]);
 
 /**
  * The tool a keystroke selects, or `null` when it is not a tool key.
@@ -107,6 +109,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["Shift+M"], description: "Highlighter" },
   { category: "Tools", keys: ["Shift+E"], description: "Eraser (drag across strokes)" },
   { category: "Tools", keys: ["Shift"], description: "Straight line (hold while drawing)" },
+  { category: "Tools", keys: ["Shift+K"], description: "Laser pointer (fades; nothing is saved)" },
 
   { category: "Sticky notes", keys: ["Mod+Enter"], description: "Add a sticky next to the selected one" },
   { category: "Sticky notes", keys: ["Tab", "Mod+Enter"], description: "While typing: finish and start the next sticky" },
@@ -122,6 +125,7 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Canvas", keys: ["Mod+F"], description: "Find on board" },
 
   { category: "Selection", keys: ["Mod+A"], description: "Select everything" },
+  { category: "Selection", keys: ["Alt+drag"], description: "Lasso select (draw a loop on empty canvas)" },
   { category: "Selection", keys: ["Esc"], description: "Finish editing text; clear selection" },
   { category: "Selection", keys: ["Enter", "F2"], description: "Edit the selected sticky, shape or text" },
   { category: "Selection", keys: ["Delete", "Backspace"], description: "Delete" },
@@ -193,6 +197,10 @@ export interface BoardToolKeyContext {
   setSection?: (on: boolean) => void;
   /** Pick a pen and arm freehand drawing (`board-ink.ts` `armInkPen`). */
   armInk?: (pen: "marker" | "highlighter") => void;
+  /** Arm or disarm the laser pointer (Shift+K). Omitted: no laser. */
+  setLaser?: (on: boolean) => void;
+  /** Disarm lasso select (V and Esc return to the plain Select tool). */
+  setLasso?: (on: boolean) => void;
   /**
    * Whether the keystroke's target belongs to the board: its canvas,
    * toolbar, or no focused element at all (`document.body`). The handler
@@ -300,6 +308,8 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
   if (e.key === "Escape") {
     ctx.setHand(false);
     ctx.setSection?.(false);
+    ctx.setLaser?.(false);
+    ctx.setLasso?.(false);
     return false;
   }
   if (ctx.readOnly || ctx.editor.getSelection().length > 0) return false;
@@ -312,6 +322,9 @@ export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): 
   }
   ctx.setHand(false);
   ctx.setSection?.(tool.kind === "section");
+  ctx.setLaser?.(tool.kind === "laser");
+  if (tool.kind === "select") ctx.setLasso?.(false);
+  if (tool.kind === "laser") return true;
   if (tool.kind === "section") ctx.editor.setInsertMode(null);
   else if (tool.kind === "select") ctx.editor.setInsertMode(null);
   else if (tool.kind === "sticky") ctx.dropSticky();
