@@ -80,6 +80,17 @@ export interface SlideRendererOptions {
    * picker opt in.
    */
   showPlaceholderHints?: boolean;
+  /**
+   * Host paint pass run after every element and before drag ghosts, with
+   * the world transform still applied (so it draws in slide-logical /
+   * board-world coordinates). The board paints section titles and the
+   * cover of a hidden section here. Omitted on slides, where nothing runs.
+   */
+  paintAfterElements?: (
+    ctx: CanvasRenderingContext2D,
+    slide: Slide,
+    doc: SlidesDocument,
+  ) => void;
 }
 
 /**
@@ -358,6 +369,12 @@ export function drawSlide(
       ctx, element, doc, theme, onAssetLoad, elementsLookup,
       undefined, undefined, animStates?.get(element.id), paintOpts,
     );
+  }
+
+  if (options.paintAfterElements) {
+    ctx.save();
+    options.paintAfterElements(ctx, slide, doc);
+    ctx.restore();
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {

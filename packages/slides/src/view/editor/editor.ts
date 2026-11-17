@@ -360,7 +360,7 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * — board-only menu entries have no reason to each earn their own
    * editor option.
    */
-  hostCanvasMenuItems?: () => ContextMenuItem[];
+  hostCanvasMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
   /**
    * Extra insert entries, listed first in the empty-canvas menu's
    * "Insert …" group so a host object (the board's sticky note) sits with
@@ -368,6 +368,46 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Extra entries at the end of an element's context menu, for the
+   * current selection (the board's section actions). Omitted on slides.
+   */
+  hostElementMenuItems?: (selectedIds: readonly string[]) => ContextMenuItem[];
+  /**
+   * Top-level elements that travel with a move of `movedIds` (drag or
+   * arrow nudge) in the same batch, i.e. one undo step. The board's
+   * sections carry the elements inside them this way. Ids already moving
+   * are ignored. Consulted at the slide root only, never inside a group
+   * drill-in. Omitted on slides: nothing else moves.
+   */
+  getCompanionMoveIds?: (
+    movedIds: readonly string[],
+    slide: Slide,
+  ) => readonly string[];
+  /**
+   * Top-level elements that cannot be picked: a click, hover, lasso or
+   * Mod+A passes over them as if they were absent. The board's locked
+   * sections and the contents of hidden ones. Omitted on slides.
+   */
+  getUnselectableIds?: (slide: Slide) => ReadonlySet<string>;
+  /**
+   * Final say over a lasso's result, given the dragged rect in logical
+   * coordinates. The board keeps a section out of a lasso that does not
+   * enclose it whole. Omitted on slides: the bbox-intersection result
+   * stands.
+   */
+  filterLassoSelection?: (
+    ids: readonly string[],
+    slide: Slide,
+    rect: { x: number; y: number; w: number; h: number },
+  ) => string[];
+  /**
+   * Called on every text-edit entry (double-click, Enter / F2,
+   * type-to-edit) before the text box mounts. Return `true` to claim it:
+   * the editor then mounts nothing. The board renames a section this way,
+   * since a section's title is not its shape text. Omitted on slides.
+   */
+  interceptTextEdit?: (element: Element, initialText?: string) => boolean;
 }
 
 export interface SlidesEditor {
@@ -1722,6 +1762,8 @@ class SlidesEditorImpl implements SlidesEditor {
       // `SlidesStore` methods (which `YorkieBoardStore` implements as
       // `notSupported()` throws) no-op instead of crashing.
       suppressSlideChrome: this.options.suppressSlideChrome,
+      getCompanionMoveIds: this.options.getCompanionMoveIds,
+      getUnselectableIds: this.options.getUnselectableIds,
     });
   }
 
@@ -3357,6 +3399,7 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+      ...(this.options.hostElementMenuItems?.(selectedIds) ?? []),
     ];
   }
 
@@ -3788,7 +3831,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // slide-scoped block below, so the separator that block opens with
     // still reads as dividing document actions from slide actions.
     if (this.options.hostCanvasMenuItems) {
-      items.push(...this.options.hostCanvasMenuItems());
+      items.push(...this.options.hostCanvasMenuItems({ x, y }));
     }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
@@ -4292,6 +4335,10 @@ class SlidesEditorImpl implements SlidesEditor {
     } else if (
       localElement.type !== 'text' &&
       localElement.type !== 'shape'
+    ) {
+      return;
+    } else if (
+      this.options.interceptTextEdit?.(localElement, options?.initialText)
     ) {
       return;
     }
@@ -5072,7 +5119,7 @@ class SlidesEditorImpl implements SlidesEditor {
       } else if (slide) {
         // Idle hover: highlight the topmost unselected hit element in
         // the current selection scope.
-        const hit = hitTestSlide(slide, x, y, this.hitOptions());
+        const hit = hitTestSlide(slide, x, y, this.hitOptions(slide));
         if (hit !== null) {
           const scopeId = pickScopeId(hit, this.selection.getScope());
           if (scopeId !== null && !this.selection.get().includes(scopeId)) {
@@ -5608,7 +5655,15 @@ class SlidesEditorImpl implements SlidesEditor {
         this.selection.clear();
         return;
       }
-      this.selection.set(selectInRect(slide, rect));
+      let picked = selectInRect(slide, rect);
+      const unselectable = this.options.getUnselectableIds?.(slide);
+      if (unselectable && unselectable.size > 0) {
+        picked = picked.filter((id) => !unselectable.has(id));
+      }
+      if (this.options.filterLassoSelection) {
+        picked = this.options.filterLassoSelection(picked, slide, rect);
+      }
+      this.selection.set(picked);
     };
     this.canvasGestureAbort = abort;
     document.addEventListener('pointermove', onMove);
@@ -5642,12 +5697,29 @@ class SlidesEditorImpl implements SlidesEditor {
       originals.set(id, el);
     }
     if (originalWorldFrames.size === 0) return;
+    // The selection's own bbox drives snapping, so it is taken before any
+    // companion joins the moving set.
+    const snapSourceFrames = Array.from(originalWorldFrames.values());
+    // Host companions (a board section's contents) ride along: same
+    // delta, same ghost pass, same batch. Root scope only — a group
+    // drill-in moves children in group-local space.
+    const movingIds = new Set(selectedIds);
+    if (scope.length === 0 && this.options.getCompanionMoveIds) {
+      for (const id of this.options.getCompanionMoveIds([...selectedIds], startSlide)) {
+        if (movingIds.has(id)) continue;
+        const el = startSlide.elements.find((e) => e.id === id);
+        if (!el) continue;
+        movingIds.add(id);
+        originalWorldFrames.set(id, el.frame);
+        originals.set(id, el);
+      }
+    }
 
     const start = this.clientToLogical(clientX, clientY);
     // Collect snap candidates within the active scope, excluding the
     // dragged elements. Each candidate is an axis-aligned AABB so
     // rotated shapes/groups snap against their visible bbox.
-    const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
+    const otherFrames = collectSnapCandidates(startSlide, [...scope], movingIds);
 
     // Needed when a ghost connector's attached endpoint targets a
     // dragged shape: the ghost line must follow the ghost shape's
@@ -5683,7 +5755,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const locked = lockedAxis
         ? applyAxisLock(lockedAxis, rawDx, rawDy)
         : { dx: rawDx, dy: rawDy };
-      const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
+      const bbox = combinedBoundingBox(snapSourceFrames)!;
       // Single read clone serves both the slide height and the guides.
       const doc = this.options.store.read();
       const snapped = snapDelta(
@@ -5744,7 +5816,7 @@ class SlidesEditorImpl implements SlidesEditor {
         if (ep.kind === 'free') {
           return { kind: 'free', x: ep.x + dx, y: ep.y + dy };
         }
-        if (selectedIds.has(ep.elementId)) {
+        if (movingIds.has(ep.elementId)) {
           const world = resolveEndpoint(ep, slideLookup);
           return { kind: 'free', x: world.x + dx, y: world.y + dy };
         }
@@ -5772,10 +5844,12 @@ class SlidesEditorImpl implements SlidesEditor {
       // Handles anchor to the ORIGINAL world frames so the user reads
       // them as "where it started"; the ghost reads as "where it will
       // land". Build pseudo-elements with the world frame patched in.
-      const handleElements: Element[] = Array.from(originals.values()).map((el) => ({
-        ...el,
-        frame: originalWorldFrames.get(el.id)!,
-      } as Element));
+      const handleElements: Element[] = Array.from(originals.values())
+        .filter((el) => selectedIds.has(el.id))
+        .map((el) => ({
+          ...el,
+          frame: originalWorldFrames.get(el.id)!,
+        } as Element));
 
       this.paintGhostPreview(ghosts, handleElements, guides);
     };
@@ -6046,10 +6120,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * tolerance scales with the editor's zoom so a 6-logical-pixel
    * threshold stays at a roughly-constant 6 viewport pixels.
    */
-  private hitOptions(): { ctx: HitTestCtx; tolerance: number } {
+  private hitOptions(
+    slide?: Slide,
+  ): { ctx: HitTestCtx; tolerance: number; skipIds?: ReadonlySet<string> } {
     return {
       ctx: this.hitCtx,
       tolerance: this.hitTolerance / this.scale(),
+      skipIds: slide ? this.options.getUnselectableIds?.(slide) : undefined,
     };
   }
 
@@ -6072,7 +6149,7 @@ class SlidesEditorImpl implements SlidesEditor {
       if (typeof ctx.setTransform === 'function') {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
-      return hitTestSlide(slide, x, y, this.hitOptions());
+      return hitTestSlide(slide, x, y, this.hitOptions(slide));
     } finally {
       if (hasSave) ctx.restore!();
     }
