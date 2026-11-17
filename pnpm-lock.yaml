@@ -128,6 +128,9 @@ importers:
       '@types/passport-google-oauth20':
         specifier: ^2.0.16
         version: 2.0.17
+      '@wafflebase/board':
+        specifier: workspace:*
+        version: link:../board
       '@wafflebase/docs':
         specifier: workspace:^
         version: link:../docs
