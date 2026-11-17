@@ -96,4 +96,16 @@ describe("layoutRituals", () => {
       ["__pending__", 9, 9, false, true],
     ]);
   });
+
+  it("draws no marks on the contents of a hidden section", () => {
+    const layout = layoutRituals(
+      input({
+        hidden: new Set(["e1"]),
+        myVotes: new Map([["e1", 1]]),
+        results: new Map([["e1", 3]]),
+        threads: [thread("t1", { kind: "board", elementId: "e1", u: 1, v: 1, x: 0, y: 0 })],
+      }),
+    );
+    expect(layout).toEqual({ stamps: [], voteDots: [], results: [], pins: [] });
+  });
 });

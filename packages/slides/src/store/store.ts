@@ -10,7 +10,7 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../model/connector';
-import type { ElementInit, Frame, PlaceholderRef } from '../model/element';
+import type { ElementInit, Frame, PlaceholderRef, TextBody } from '../model/element';
 import type { ColorScheme, Fill, FontScheme, Theme } from '../model/theme';
 import type { MasterBackgroundImage, PlaceholderStyle } from '../model/master';
 
@@ -300,6 +300,17 @@ export interface SlidesStore {
     slideId: string,
     elementId: string,
     bend: number | undefined,
+  ): void;
+
+  /**
+   * Replace a connector's text label (whole-body last-writer-wins, like
+   * a shape's text body). Pass `undefined` to remove it; callers pass
+   * `undefined` rather than an empty body.
+   */
+  updateConnectorLabel(
+    slideId: string,
+    elementId: string,
+    label: TextBody | undefined,
   ): void;
 
   // --- guides (presentation-wide) ---

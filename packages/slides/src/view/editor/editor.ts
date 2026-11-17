@@ -56,6 +56,7 @@ import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-render
 import { screenToWorld, type Viewport } from '../canvas/viewport';
 import {
   alignFrames,
+  arrangeableFrames,
   distributeFrames,
   type AlignDirection,
   type AlignReference,
@@ -84,7 +85,15 @@ import { LiveInkLayer } from './live-ink-layer';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
-import { dragEndpoint } from './interactions/connector-endpoint-drag';
+import {
+  dragEndpoint,
+  endpointGlueOptions,
+} from './interactions/connector-endpoint-drag';
+import {
+  connectorLabelEditTarget,
+  labelFromEditedBlocks,
+} from './connector-label-edit';
+import { labelKnockoutColor } from '../canvas/connector-label';
 import {
   allowsSlowDoubleClick,
   commitsAsDrag,
@@ -996,6 +1005,13 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private connectorCursor: { x: number; y: number } | null = null;
   /**
+   * Element whose body must not glue the endpoint being placed: the
+   * element the connector's other end is attached to. Set for the
+   * duration of a connector insert / endpoint drag so the overlay's
+   * glue highlight agrees with `snappedEndpoint`'s `excludeBodyOf`.
+   */
+  private connectorGlueExclude: string | null = null;
+  /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
    *   - drag/resize/rotate/lasso interactions are short-circuited
@@ -1555,10 +1571,16 @@ class SlidesEditorImpl implements SlidesEditor {
    * cursor position yet (cursor hasn't entered the canvas).
    */
   private connectorAffordance():
-    | { cursor: { x: number; y: number }; zoom: number }
+    | { cursor: { x: number; y: number }; zoom: number; excludeBodyOf?: string }
     | undefined {
     if (this.connectorCursor === null) return undefined;
-    return { cursor: this.connectorCursor, zoom: this.scale() };
+    return {
+      cursor: this.connectorCursor,
+      zoom: this.scale(),
+      ...(this.connectorGlueExclude !== null
+        ? { excludeBodyOf: this.connectorGlueExclude }
+        : {}),
+    };
   }
 
   /**
@@ -2092,12 +2114,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
-    if (framesMap.size === 0) return;
+    const selectedFrames = this.collectSelectedFrames(slide);
+    if (selectedFrames.size === 0) return;
+    const framesMap = this.arrangeableSelectedFrames(slide, selectedFrames);
     // Multi-select: align to the combined bbox of the selection.
     // Single-select: align to the slide canvas (SLIDE_WIDTH × deck height).
+    // Decided on the whole selection: one shape + a connector aligns the
+    // shape to itself (a no-op), never to the slide.
     let reference: AlignReference;
-    if (framesMap.size >= 2) {
+    if (selectedFrames.size >= 2) {
       reference = combinedBoundingBox(Array.from(framesMap.values()))!;
     } else {
       reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: this.slideHeight() };
@@ -2110,7 +2135,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
+    const framesMap = this.arrangeableSelectedFrames(
+      slide,
+      this.collectSelectedFrames(slide),
+    );
     if (framesMap.size < 3) return;
     const updates = distributeFrames(framesMap, axis);
     this.applyFrameUpdates(slide.id, updates);
@@ -2462,6 +2490,17 @@ class SlidesEditorImpl implements SlidesEditor {
    * the given slide. Defends against ids that were removed remotely
    * between selection and the toolbar action.
    */
+  /** Align / distribute targets: see `arrangeableFrames`. */
+  private arrangeableSelectedFrames(
+    slide: Slide,
+    frames: ReadonlyMap<string, Frame>,
+  ): Map<string, Frame> {
+    return arrangeableFrames(
+      frames,
+      (id) => findElement(slide.elements, id)?.type === 'connector',
+    );
+  }
+
   private collectSelectedFrames(slide: Slide): Map<string, Frame> {
     // Walk the element tree so this works at any drill-in depth — at
     // slide-root scope the elements are top-level; in drill-in, the
@@ -4339,6 +4378,21 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hitResult = this.hitTestAt(slide, x, y);
+    // Connector label: a double-click on the selected connector edits its
+    // label at the path midpoint (it used to fall through and deselect).
+    // Top-level only, like crop: grouped connectors keep group drill-in.
+    if (
+      hitResult !== null &&
+      hitResult.ancestorPath.length === 1 &&
+      hitResult.elementId !== this.editingElementId &&
+      slide.elements.find((el) => el.id === hitResult.elementId)?.type ===
+        'connector'
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterEditMode(slide.id, hitResult.elementId);
+      return;
+    }
     if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
@@ -4436,7 +4490,8 @@ class SlidesEditorImpl implements SlidesEditor {
       if (localElement.type !== 'table') return;
     } else if (
       localElement.type !== 'text' &&
-      localElement.type !== 'shape'
+      localElement.type !== 'shape' &&
+      localElement.type !== 'connector'
     ) {
       return;
     } else if (
@@ -4476,6 +4531,15 @@ class SlidesEditorImpl implements SlidesEditor {
       // dblclick should silently fall through rather than mount on a
       // bogus rect.
       if (target === null) return;
+    } else if (worldElement.type === 'connector') {
+      target = {
+        kind: 'connector-label',
+        ...connectorLabelEditTarget(
+          worldElement,
+          worldLookup,
+          deckFontScale(doc.meta),
+        ),
+      };
     } else {
       target = buildEditTarget(
         worldElement as TextElement | ShapeElement,
@@ -4566,7 +4630,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // height on entry. Cell rows auto-grow only on commit via the
       // renderer, so the box must stay fixed while editing, just like a
       // shape. Only text elements keep the default auto-grow behavior.
-      growMode: target.kind === 'text' ? 'auto' : 'never',
+      growMode:
+        target.kind === 'text' || target.kind === 'connector-label'
+          ? 'auto'
+          : 'never',
       // Mirror the slide canvas offset so in-place editing keeps the
       // caret and text glyphs aligned with the committed render.
       verticalAnchor: target.verticalAnchor,
@@ -4590,7 +4657,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // auto-grow instead, so they never overflow and keep the frame-sized
       // canvas.
       overflowBounds:
-        target.kind === 'text'
+        target.kind === 'text' || target.kind === 'connector-label'
           ? undefined
           : {
               left: target.editFrame.x,
@@ -4662,6 +4729,13 @@ class SlidesEditorImpl implements SlidesEditor {
                   target!.cell.col,
                   () => next,
                 );
+              } else if (target!.kind === 'connector-label') {
+                // Whole-label write; an emptied label removes the field.
+                this.options.store.updateConnectorLabel(
+                  slideId,
+                  elementId,
+                  labelFromEditedBlocks(next),
+                );
               } else {
                 this.options.store.withShapeText(slideId, elementId, () => next);
               }
@@ -4677,6 +4751,10 @@ class SlidesEditorImpl implements SlidesEditor {
       onCancel: () => {},
     });
     this.editingTextBox = tb;
+    // The label knockout, live: the connector line passes under the box.
+    if (target.kind === 'connector-label') {
+      tb.container.style.background = labelKnockoutColor(getActiveTheme(doc));
+    }
     // See the field's comment: `detach()` flushes a final commit for a
     // focused box, so a teardown that is not an Escape needs a way to say
     // "discard" first.
@@ -5574,6 +5652,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // drag. The cursor at mousedown seeds the dots so they appear on
     // the very first paint, before any mousemove.
     this.connectorCursor = start;
+    const startEp = snappedEndpoint(start, slide.elements, this.scale());
+    this.connectorGlueExclude =
+      startEp.kind === 'attached' ? startEp.elementId : null;
     const onMove = (ev: MouseEvent) => {
       const raw = this.clientToLogical(ev.clientX, ev.clientY);
       endPoint = ev.shiftKey ? snapEndpointAngle(start, raw) : raw;
@@ -5595,6 +5676,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // tool-armed hover plumbing will refill it on the next mousemove
       // if the user is still in connector mode.
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
     };
     const onUp = () => {
       cleanup();
@@ -6408,6 +6490,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // important when the user clicks the handle directly over a nearby
     // shape and never crosses the move threshold below.
     this.connectorCursor = startCursor;
+    this.connectorGlueExclude =
+      endpointGlueOptions(startConnector, side).excludeBodyOf ?? null;
 
     // World-space position of the OTHER (non-dragging) endpoint. Captured
     // once at mousedown — the opposite endpoint stays fixed for the
@@ -6426,7 +6510,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const candidates = startSlide.elements.filter(
         (e) => e.id !== startConnector.id,
       );
-      liveEndpoint = snappedEndpoint(cur, candidates, this.scale());
+      liveEndpoint = snappedEndpoint(
+        cur,
+        candidates,
+        this.scale(),
+        endpointGlueOptions(startConnector, side),
+      );
       liveCursor = cur;
     };
 
@@ -6507,6 +6596,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // Drop the affordance cursor before repainting so the dots
       // disappear on commit (no drag = no affordance).
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
       if (!moved) {
         // No drag occurred — repaint anyway to clear the seed-time
         // affordance dots we painted on mousedown.
@@ -7739,6 +7829,10 @@ export function maskEditingElement(
         out.push({ ...el, data: rest } as typeof el);
       } else if (el.type === 'table' && cellCoords !== null) {
         out.push(maskTableCellBody(el, cellCoords));
+      } else if (el.type === 'connector') {
+        // Keep the line; the label is being edited in the overlay.
+        const { label: _label, ...rest } = el;
+        out.push(rest);
       } else if (el.type === 'text') {
         // Keep the box fill + border painting under the overlay editor,
         // but clear the text body so it isn't double-painted (once from
@@ -7836,7 +7930,7 @@ function maskTableCellBody(
  *   Google Slides behavior.
  */
 type EditTarget = {
-  kind: 'text' | 'shape' | 'cell';
+  kind: 'text' | 'shape' | 'cell' | 'connector-label';
   blocks: Block[];
   autofit?: AutofitMode;
   verticalAnchor?: VerticalAnchorMode;

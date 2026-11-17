@@ -41,6 +41,17 @@ describe("elementText", () => {
     expect(elementText(elements[2])).toBe("Nothing here");
     expect(elementText(elements[4])).toBe("");
   });
+
+  it("reads a connector's label, and nothing from an unlabelled one", () => {
+    const connector = {
+      id: "c",
+      type: "connector",
+      frame: { x: 0, y: 0, w: 100, h: 0, rotation: 0 },
+      label: { blocks: [{ id: "b", type: "paragraph", inlines: [{ text: "depends on", style: {} }], style: {} }] },
+    } as unknown as Element;
+    expect(elementText(connector)).toBe("depends on");
+    expect(elementText({ ...connector, label: undefined } as Element)).toBe("");
+  });
 });
 
 describe("findMatches", () => {

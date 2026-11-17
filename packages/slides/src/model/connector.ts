@@ -1,4 +1,4 @@
-import type { ElementBase, ShapeStroke } from './element';
+import type { ElementBase, ShapeStroke, TextBody } from './element';
 
 export type Endpoint =
   | { kind: 'free'; x: number; y: number }
@@ -40,4 +40,14 @@ export type ConnectorElement = ElementBase & {
    * curved-connector yellow-diamond handle.
    */
   curveBend?: number;
+  /**
+   * Optional text label, centred on the path midpoint over a knockout of
+   * the theme background (FigJam / Miro / Visio). The same `TextBody`
+   * shape and text bodies use, so the in-place rich-text editor is
+   * reused unchanged. Absent ⇒ no label; the editor never stores an
+   * empty one (clearing the text removes the field). Only `blocks` is
+   * read: the label box is sized to its content, so autofit / anchor /
+   * inset do not apply. See `view/canvas/connector-label.ts`.
+   */
+  label?: TextBody;
 };

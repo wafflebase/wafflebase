@@ -705,7 +705,14 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const selected = ctx.selection.get();
         if (selected.length !== 1) return;
         const element = findElementInTree(slide.elements, selected[0]);
-        if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+        // A connector edits its label (F2 / Enter only; typing on a
+        // selected connector does not start one).
+        if (
+          !element ||
+          (element.type !== 'text' &&
+            element.type !== 'shape' &&
+            element.type !== 'connector')
+        ) {
           return;
         }
         e.preventDefault();

@@ -5,6 +5,7 @@ import { PATH_BUILDERS } from '../canvas/shapes';
 import { isActionButton } from '../canvas/shapes/action-buttons';
 import { EVENODD_KINDS, OPEN_PATH_KINDS } from '../canvas/shape-renderer';
 import { buildConnectorPath } from '../canvas/connector-frame';
+import { layoutConnectorLabel } from '../canvas/connector-label';
 import { type BezierPath, isBezierPath } from '../canvas/routing';
 import { buildFreeformPath } from '../canvas/shapes/freeform';
 import { freeformDistance, isFreeformShape, type FreeformShape } from './freeform-hit';
@@ -237,6 +238,12 @@ function hitConnector(
   const tol = opts.tolerance ?? DEFAULT_HIT_TOLERANCE;
   const half = (el.stroke?.width ?? 1) / 2;
   const limit = half + tol;
+  // The label's knockout box is part of the connector: clicking the
+  // text selects (and double-clicking edits) the connector.
+  if (el.label) {
+    const label = layoutConnectorLabel(el, elements);
+    if (label && containsPoint(label.frame, px, py)) return true;
+  }
   const path = buildConnectorPath(el, elements);
   if (isBezierPath(path)) {
     return bezierMinDistance(path, px, py) <= limit;

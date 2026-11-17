@@ -20,12 +20,13 @@ function bodyText(body: TextBody | undefined): string {
 
 /**
  * The searchable text of an element: a sticky's or shape's text body, a
- * text box's blocks, a group's members joined. Images and connectors carry
- * none.
+ * text box's blocks, a connector's label, a group's members joined.
+ * Images carry none.
  */
 export function elementText(el: Element): string {
   if (el.type === "text") return bodyText(el.data);
   if (el.type === "shape") return bodyText(el.data.text);
+  if (el.type === "connector") return bodyText(el.label);
   if (el.type === "group") return el.data.children.map(elementText).join("\n");
   return "";
 }

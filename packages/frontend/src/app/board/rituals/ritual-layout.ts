@@ -70,6 +70,12 @@ export interface RitualLayoutInput {
   threads: ReadonlyArray<Thread<BoardAnchor>>;
   activeThreadId: string | null;
   pending: BoardAnchor | null;
+  /**
+   * Elements whose marks are not drawn: the contents of a hidden section,
+   * which the section's cover hides on the canvas. Their stamps, votes,
+   * result badges and comment pins go with them. Omitted: none.
+   */
+  hidden?: ReadonlySet<string>;
 }
 
 export interface RitualLayout {
@@ -91,7 +97,9 @@ function cornerOnScreen(frame: Frame, viewport: Viewport): { x: number; y: numbe
  */
 export function layoutRituals(input: RitualLayoutInput): RitualLayout {
   const { viewport, frames } = input;
-  const liveIds = new Set(frames.keys());
+  const hidden = input.hidden;
+  const isHidden = (id: string | undefined) => !!id && !!hidden?.has(id);
+  const liveIds = new Set([...frames.keys()].filter((id) => !isHidden(id)));
   const size = stampSize(viewport.zoom);
 
   const stamps: StampItem[] = [];
@@ -116,7 +124,7 @@ export function layoutRituals(input: RitualLayoutInput): RitualLayout {
   const voteDots: VoteDotItem[] = [];
   for (const [elementId, n] of input.myVotes) {
     const frame = frames.get(elementId);
-    if (!frame) continue;
+    if (!frame || isHidden(elementId)) continue;
     const c = cornerOnScreen(frame, viewport);
     for (let i = 0; i < n; i++) {
       voteDots.push({
@@ -131,7 +139,7 @@ export function layoutRituals(input: RitualLayoutInput): RitualLayout {
   const results: ResultBadgeItem[] = [];
   for (const [elementId, votes] of input.results) {
     const frame = frames.get(elementId);
-    if (!frame || votes <= 0) continue;
+    if (!frame || votes <= 0 || isHidden(elementId)) continue;
     const c = cornerOnScreen(frame, viewport);
     results.push({ key: elementId, elementId, votes, x: c.x, y: c.y });
   }
@@ -141,6 +149,7 @@ export function layoutRituals(input: RitualLayoutInput): RitualLayout {
     // Resolved threads leave the canvas, as in docs and sheets; the
     // panel's Resolved tab still lists them.
     if (thread.resolved) continue;
+    if (isHidden(thread.anchor.elementId)) continue;
     const at = resolveBoardAnchor(thread.anchor, frames);
     const p = worldToScreen(viewport, at);
     const root = thread.comments[0];

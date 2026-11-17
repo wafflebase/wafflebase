@@ -45,6 +45,7 @@ import {
   votesLeft,
 } from "./voting";
 import { yorkiePlain } from "./yorkie-plain";
+import { hiddenSectionContentIds } from "./hidden-content";
 import { BoardVotingPanel } from "./board-voting-panel";
 
 /** The canvas-menu entries the rituals add, read by `BoardView`'s editor hooks. */
@@ -146,11 +147,15 @@ export function BoardRituals({
     // --- snapshot of document state, rebuilt only on a content change ---
     let elements: Element[] = [];
     let stamps: BoardStamps | undefined;
+    // Contents of hidden sections: covered on the canvas, so their marks
+    // are not drawn over the cover either.
+    let hidden: ReadonlySet<string> = new Set();
     const readSnapshot = () => {
       elements = store.read().slides[0]?.elements ?? [];
       const frames = new Map<string, Frame>();
       for (const el of elements) frames.set(el.id, el.frame);
       framesRef.current = frames;
+      hidden = hiddenSectionContentIds(elements);
       stamps = yorkiePlain<BoardStamps>(doc.getRoot().stamps);
     };
     readSnapshot();
@@ -187,6 +192,7 @@ export function BoardRituals({
         threads: c?.threads ?? [],
         activeThreadId: c?.activeThreadId ?? null,
         pending: c?.pending?.anchor ?? null,
+        hidden,
       });
       layoutRef.current = layout;
       dom.render(layout);
