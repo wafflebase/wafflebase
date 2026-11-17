@@ -74,6 +74,27 @@ export type PdfTextAnchor = {
 export type PdfAnchor = PdfRegionAnchor | PdfTextAnchor;
 
 /**
+ * Board comment anchor — a pin on an element or on the open plane.
+ *
+ * - `elementId` set: the pin rides that top-level element at `(u, v)`, a
+ *   fraction of its unrotated frame, so it moves, scales and rotates with
+ *   it.
+ * - `elementId` absent: the pin sits at the world point `(x, y)`.
+ *
+ * `x`/`y` are always present: for an element anchor they are the pin's
+ * last known world position, refreshed when the element is deleted, so
+ * an orphan thread keeps its pin where the element was.
+ */
+export type BoardAnchor = {
+  kind: 'board';
+  elementId?: string;
+  u?: number;
+  v?: number;
+  x: number;
+  y: number;
+};
+
+/**
  * Discriminated union of all supported comment anchor types. New
  * consumers add their variant alongside the existing ones — the shared
  * comment helpers stay anchor-generic.
@@ -82,7 +103,8 @@ export type CommentAnchor =
   | SheetCellAnchor
   | DocsRangeAnchor
   | PdfRegionAnchor
-  | PdfTextAnchor;
+  | PdfTextAnchor
+  | BoardAnchor;
 
 /**
  * Comment thread — aliases the base shape owned by `@wafflebase/sheets`

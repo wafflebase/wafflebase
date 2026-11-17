@@ -81,6 +81,10 @@ import {
   saveGridSnap,
   type BoardGridKind,
 } from "./board-grid";
+import { BoardRituals, type RitualMenus } from "./rituals/board-rituals";
+import { BoardRitualTools } from "./rituals/board-ritual-controls";
+import { useRitualToolState } from "./rituals/use-ritual-tool-state";
+import { useBoardCollab } from "./rituals/board-collab-hook";
 
 interface BoardViewProps {
   /**
@@ -198,6 +202,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // funnel through the same insert call, centered on the live viewport.
   const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
+  // Stamps / voting / comment pins (`rituals/`): their context-menu entries
+  // and a handle to centre the viewport on a world point, both filled by
+  // the mount effect / the ritual layer.
+  const ritualMenusRef = useRef<RitualMenus | null>(null);
+  const navigateRef = useRef<((world: { x: number; y: number }) => void) | null>(null);
+  const collab = useBoardCollab();
+  const ritualTool = useRitualToolState();
   const [helpOpen, setHelpOpen] = useState(false);
   // Drives the first-run hint; true only once the store says so, so a
   // board that is still loading never flashes it.
@@ -388,14 +399,16 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
-      hostCanvasMenuItems: () => [
+      hostCanvasMenuItems: (at) => [
         { label: "---", run: () => undefined },
         {
           label: "Snap to grid",
           selected: gridSnapRef.current,
           run: () => setGridSnapRef.current(!gridSnapRef.current),
         },
+        ...(ritualMenusRef.current?.canvasItems(at) ?? []),
       ],
+      hostElementMenuItems: (at) => ritualMenusRef.current?.elementItems(at) ?? [],
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -489,6 +502,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       commit: commitViewport,
     });
     setZoomController(zoom.controller);
+    navigateRef.current = (world) =>
+      commitViewport(centerViewportOnWorld(vp.current, world, { w: hostW, h: hostH }));
 
     stickyInserterRef.current = (colorValue: string) => {
       hand.set(false);
@@ -1006,6 +1021,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       setStore(null);
       setZoomController(null);
       stickyInserterRef.current = null;
+      navigateRef.current = null;
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
@@ -1088,6 +1104,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}
+          extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
+          extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
+          onSelectTool={() => collab?.tool.setMode("none")}
         />
       )}
       <div className="relative flex-1 w-full min-h-0">
@@ -1096,6 +1115,16 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           data-document-id={documentId}
           className="relative w-full h-full"
           style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+        />
+        <BoardRituals
+          editor={editor}
+          store={store}
+          hand={hand}
+          containerRef={containerRef}
+          vpRef={vp}
+          readOnly={readOnly === true}
+          menuRef={ritualMenusRef}
+          navigateRef={navigateRef}
         />
         {isEmpty && !readOnly && <BoardEmptyHint />}
       </div>

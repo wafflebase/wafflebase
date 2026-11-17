@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
@@ -88,6 +88,12 @@ export interface BoardToolbarProps {
   onInsertSticky?: (colorValue: string) => void;
   /** Upload + insert the picked/pasted/dropped file at the viewport center. */
   onInsertImage?: (file: File) => void;
+  /** Board tools owned outside this file (stamps / voting / comments), after Line. */
+  extraTools?: ReactNode;
+  /** One of `extraTools` is armed, so Select is not the live tool. */
+  extraToolArmed?: boolean;
+  /** Called when Select is clicked, to disarm `extraTools`. */
+  onSelectTool?: () => void;
 }
 
 /**
@@ -126,6 +132,9 @@ export function BoardToolbar({
   disabled,
   onInsertSticky,
   onInsertImage,
+  extraTools,
+  extraToolArmed = false,
+  onSelectTool,
 }: BoardToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const [state, setState] = useState<ToolbarState>(() =>
@@ -286,10 +295,11 @@ export function BoardToolbar({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={insertMode === null && !handOn}
+            pressed={insertMode === null && !handOn && !extraToolArmed}
             onClick={() => {
               hand?.set(false);
               editor?.setInsertMode(null);
+              onSelectTool?.();
             }}
             aria-label="Select"
             disabled={disabled || !editor}
@@ -448,6 +458,8 @@ export function BoardToolbar({
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
+
+      {extraTools}
 
       {state.kind === "object" && (
         <>

@@ -40,6 +40,7 @@ import { bandBlockNumerics } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
 import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
+import { pruneRitualsOnDelete } from './rituals/prune-on-delete';
 
 /**
  * YorkieElements array as seen inside a doc.update callback. The Yorkie
@@ -636,6 +637,7 @@ export class YorkieBoardStore implements SlidesStore {
       const rootElements = r.elements as unknown as ProxyArray;
       const path = yorkieFindElementPath(rootElements, elementId);
       if (!path) throw new Error(`Element not found: ${elementId}`);
+      pruneRitualsOnDelete(r, new Map([[elementId, this.worldFrameOf(path)]]));
       this.detachConnectorsTargeting(r, elementId);
       const parentArray = this.resolveYorkieParentArray(rootElements, path);
       const i = parentArray.findIndex((e) => e.id === elementId);
@@ -654,6 +656,10 @@ export class YorkieBoardStore implements SlidesStore {
         const path = yorkieFindElementPath(rootElements, id);
         if (path) paths.set(id, path);
       }
+      pruneRitualsOnDelete(
+        r,
+        new Map([...paths].map(([id, path]) => [id, this.worldFrameOf(path)])),
+      );
       for (const id of set) {
         this.detachConnectorsTargeting(r, id);
       }
@@ -676,6 +682,30 @@ export class YorkieBoardStore implements SlidesStore {
         this.pruneEmptyYorkieAncestorGroups(rootElements, repPath);
       }
     });
+  }
+
+  /**
+   * A removed element's world frame for `pruneRitualsOnDelete`, or `null`
+   * when it sits inside a group (its frame is group-local, and stamps and
+   * comment pins only anchor top-level elements).
+   */
+  private worldFrameOf(path: ProxyArray): Frame | null {
+    return path.length === 1 ? yorkieToPlain<Frame>(path[0].frame) : null;
+  }
+
+  /**
+   * Write board ritual state (stamps, voting) — the board-only root keys
+   * the `SlidesStore` surface has no verb for. Routed through the same
+   * `withUpdate` choke point as every element mutation, so inside a
+   * `batch()` it joins that batch's single change (one undo unit) and
+   * outside one it opens its own `doc.update`.
+   *
+   * Not part of `SlidesStore`; `BoardView`'s ritual layer holds the
+   * concrete store, as it does for {@link updatePresence}.
+   */
+  updateRituals(fn: (root: YorkieBoardRoot) => void): void {
+    this.requireBatch();
+    this.withUpdate(fn);
   }
 
   updateElementFrame(

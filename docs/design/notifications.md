@@ -72,8 +72,8 @@ mention source.
 - **A dedicated `/notifications` page.** The dropdown is the whole surface;
   the list API takes a cursor so a page can be added later without a redesign.
 - **Thread deep-linking.** Clicking opens the document, not the specific
-  comment thread. Scrolling to a thread requires touching all three comment
-  controllers (docs, sheets, pdf) and is deferred.
+  comment thread. Scrolling to a thread requires touching all four comment
+  controllers (docs, sheets, pdf, board) and is deferred.
 - **Content verification of comment events.** See Authorization depth below.
 - **Retention/cleanup.** No age-based cleanup job in v1. Rows *are* deleted,
   but only by cascade — with their document, workspace, or recipient.
@@ -228,9 +228,13 @@ thread's first comment, so the item reads as "resolved your comment: …".
 `preview` is optional in the DTO even though every planned event supplies one:
 `thread_resolved` on an empty first comment legitimately produces none.
 
-Callers are the three comment controllers —
+Callers are the four comment controllers —
 `packages/frontend/src/app/docs/comments/docs-comments-controller.ts`,
-`packages/frontend/src/app/files/comments/pdf-comments-controller.ts`, and the sheets comment path.
+`packages/frontend/src/app/files/comments/pdf-comments-controller.ts`,
+`packages/frontend/src/app/board/rituals/board-collab-context.tsx` (boards,
+whose threads live at `root.comments[threadId]` like pdf and docs), and the
+sheets comment path. The endpoint does not look at the document type, so
+boards needed no backend change.
 Each fires the report **after** the CRDT write succeeds, and ignores failures:
 the comment is already saved, so a failed notification must not surface an
 error to the author.
@@ -263,7 +267,7 @@ That verification was considered and rejected for v1. `withDocument()` loads
 the *entire* document — megabytes for a large spreadsheet — on every comment
 post, and the client's write may not have synced to the Yorkie server yet when
 the report arrives, which would require retry logic plus a per-document-type
-adapter (docs and pdf store threads at `root.comments[threadId]`, sheets at
+adapter (docs, pdf and board store threads at `root.comments[threadId]`, sheets at
 `root.worksheets[tab].comments[threadId]`).
 
 The residual risk is narrow: a malicious client can create a notification with
