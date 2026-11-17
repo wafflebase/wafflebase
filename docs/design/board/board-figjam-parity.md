@@ -179,6 +179,87 @@ The pass ships the roadmap's Phases 1 to 5, the second pass's B and C,
 and the items the audit added, as one PR. § Shipped in the third pass
 records what landed and where.
 
+### Shipped in the third pass
+
+Sections have their own design doc,
+[board-sections.md](board-sections.md). Connector glue and labels are
+in [slides-connectors.md](../slides/slides-connectors.md).
+
+#### Sticky-first flow
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Free-spot search** walks reading order: centre row, then the rows below and above, then rings off-screen, and pans to the result. It never stacks. | `sticky.ts` `freeStickyCenter` | Six presses of `S` piled up at a 24 px cascade. |
+| **Adjacent sticky**: Mod+Enter on a selected sticky, Mod+Enter or Tab while typing in one, and a "+" handle on each side. | `sticky-flow.ts`, `sticky-plus-handles.ts` | FigJam's keep-going loop. Capture-phase handler, because the docs text box reads Mod+Enter as a page break and Tab as an indent. |
+| **Plain-text paste** gives one sticky per line, or one per cell for tab-separated rows, in a grid. Capped at 100. | `sticky-paste.ts` | A pasted list did nothing. |
+| **Paste and duplicate** land in the viewport when the +10/+10 copy would be off-screen. | editor `pasteOffset` | An infinite plane put copies out of sight. |
+| **Size presets** S/M/L/Wide. Corner drags keep a square aspect. **A−/A+** for text. | `sticky-format.ts`, `sticky-controls.tsx`, editor `lockAspectRatio` | One size, and seven actions to change the text size. |
+| **`role: 'sticky'`** is written by every creation path, the Miro importer included. The heuristic stays as a fallback. | `board/src/model/sticky.ts` | A gradient or border silently demoted a sticky. |
+| **Author tag** on stickies. **Anonymous mode** (`meta.anonymous`) hides every name and records none. | `sticky-author.ts` via renderer `decorateElement` | FigJam's "show author". FigJam has no real anonymous mode. |
+
+#### Sketching
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Path hit-testing for freeform.** An open stroke hits within its width/2 plus a screen tolerance; a filled one hits inside its fill. | slides `freeform-hit.ts`, `element-hit.ts` | One diagonal stroke swallowed clicks on everything in its bbox. Slides benefits too. |
+| **Marker** `M`, **highlighter** `Shift+M` and **eraser** `Shift+E`. Colour and width are chosen before drawing and remembered. The tool stays armed until Esc. | `board-ink.ts`, `board-ink-controls.tsx`, editor `stickyInsertKinds` / `getInkStroke` | Scribble was last in the Line picker, had no key, and dropped back to Select after each stroke. |
+| **Stroke quality.** Screen-px decimation, coalesced events, RDP on commit, midpoint-quadratic smoothing, and Shift for a straight line snapped to 15°. | slides `interactions/ink.ts`, `insert-freeform.ts` | Strokes were raw polylines whose density changed with zoom. |
+| **The live stroke draws on its own canvas**; the scene repaints only on commit. | slides `live-ink-layer.ts`, `ink-capture.ts` | Every move rebuilt the element and repainted the scene, which is O(n²) per stroke. |
+| **One finger draws** while a draw tool is armed; a second finger pinches. | `board-touch-gestures.ts` | One finger always panned. |
+| PPTX colour modifiers are written in OOXML units. | slides `export/pptx/color.ts` | The exporter wrote `alpha val="0.35"`, which PowerPoint renders nearly invisible. The highlighter exposed it. |
+
+#### Clustering and connectors
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Sections**: Shift+S, title pill, hide, lock, Sections list, Miro `frame` → section. | [board-sections.md](board-sections.md) | Affinity clusters could not be titled or moved together. |
+| **Body glue**: a connector end dropped on a shape glues to its nearest site. | slides `connector-glue.ts` | Only an exact site drop glued. Google Slides and PowerPoint glue on the body too. |
+| **Align, distribute and Tidy up skip connectors.** | slides `align.ts` `arrangeableFrames` | Distribute moved and detached arrows. |
+| **Connector labels** (`ConnectorElement.label`). Edit with a double-click or F2/Enter. | slides `connector-label*.ts` | Arrows between clusters could not say why. |
+| **Tidy up** (Alt+Shift+T) arranges the selection into an even grid. **Select similar** offers same colour, all stickies, and same kind. | `board-tidy.ts`, `board-select-similar.ts` | FigJam's clean-up after clustering. |
+
+#### Facilitation and presence
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Peer cursors v2** as designed in § Second pass B: 40 ms send with a rest send, a spring, an arrow and name tag, off-screen indicators, and peers on the minimap. | `board-cursor-publish.ts`, `board-cursor-spring.ts`, `board-peer-layer.ts` | |
+| **Follow** from a header avatar, and **Spotlight me**. A local pan or Esc stops following. | `board-follow.ts`, presence `viewport` / `spotlight` | |
+| **Cursor chat** `/` and **emotes** `E`. Both are presence only. | `board-cursor-chat.ts`, `board-emotes.ts` | |
+| **Shared timer** in `root.timer`. It is kept out of undo. | `board-timer.ts` | Late joiners need the running countdown, so it is document state, not presence. |
+| **Stamps** in `root.stamps`, as a flat map keyed per element, user and nonce, so concurrent stamps never touch one key. | `rituals/stamps.ts` | |
+| **Dot voting** in `root.voting`: vote limits, your own votes only until the end, Done, then ranked results. | `rituals/voting.ts` | Votes are hidden in the UI only: every client can read the CRDT. The start dialog says so. |
+| **Board comments** through the shared comments module (`root.comments`). Threads anchor to an element or to a world point. | `rituals/board-comment-store.ts` | PRODUCT.md promises comments on every type. |
+| **A canvas click closes a modal popover and also acts.** | `board-click-through.ts` | Radix sets `body { pointer-events: none }`, so the press that dismissed a popover never reached the canvas. |
+
+#### Polish
+
+| Change | Where | Why |
+| --- | --- | --- |
+| New shapes on the board start pastel blue-grey with a darker outline. | `board-shape-style.ts` via editor `shapeInsertStyle` | The accent-blue default covered stickies. |
+| Board vocabulary: Connector, Curved, and None for a line's weight. | `board-vocabulary.ts` | Slides jargon on a whiteboard. |
+| Fit keeps content clear of the minimap and other floating chrome (`data-board-overlay`). The zoom label leaves "Fit" once the view moves. | `fit-insets.ts`, `board-zoom.ts` | Shift+1 put content under the minimap. |
+| **Find** (Mod+F) over sticky, shape, text and connector-label text. | `board-find.ts` | |
+| **Export** to PNG or PDF, for the whole board or the selection, with size caps. Read-only viewers can export too. | `board-export.ts`, slides `export/region.ts` | |
+
+#### Engine host options added
+
+All of these default to today's Slides behaviour:
+
+- `decorateElement`
+- `paintAfterElements`
+- `lockAspectRatio`
+- `pasteOffset`
+- `getCompanionMoveIds`
+- `getUnselectableIds`
+- `filterLassoSelection`
+- `interceptTextEdit`
+- `hostElementMenuItems(ctx)`
+- `shapeInsertStyle`
+- `stickyInsertKinds`
+- `getInkStroke`
+
+`hostElementMenuItems(ctx)` is one option with three callers (sections, select-similar/tidy, comments). The board concatenates their items explicitly, because a key in the options literal would silently override the one spread from `sections.editorOptions`.
+
 ### Roadmap
 
 Ordered by how much each phase removes from the gap a FigJam user feels,
