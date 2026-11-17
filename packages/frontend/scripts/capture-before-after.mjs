@@ -201,7 +201,7 @@ function publish(args) {
     .sort();
   // Built with plumbing so nothing is checked out: an orphan commit holding
   // only `pr-<n>/*.png`, pushed to its own branch. The PR branch stays free
-  // of binaries, and deleting `assets/pr-<n>` after merge removes them.
+  // of binaries; the PR body links into this branch, so it outlives the merge.
   const entries = files
     .map((f) => {
       const blob = git("hash-object", "-w", path.resolve(args.dir, f));
