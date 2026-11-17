@@ -1357,7 +1357,7 @@ export function BoardView({
           disabled={!workspaceId}
           extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
           extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
-          onSelectTool={() => collab?.tool.setMode("none")}
+          disarmExtraTools={() => collab?.tool.setMode("none")}
           collabControls={
             <>
               <BoardTimerControl store={store} disabled={!editor} />

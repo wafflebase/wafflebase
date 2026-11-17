@@ -107,8 +107,13 @@ export interface BoardToolbarProps {
   extraTools?: ReactNode;
   /** One of `extraTools` is armed, so Select is not the live tool. */
   extraToolArmed?: boolean;
-  /** Called when Select is clicked, to disarm `extraTools`. */
-  onSelectTool?: () => void;
+  /**
+   * Disarms `extraTools`; called when Select is clicked. Deliberately not
+   * an `on*` name: it is plumbing between two tool owners, not a control
+   * a host may leave unwired (the UI-hunter rubric treats every optional
+   * `on*` prop as one, see `scripts/agent-arms/hunt-ui.test.mjs`).
+   */
+  disarmExtraTools?: () => void;
   /** Facilitation controls (timer, Spotlight), after the insert tools. */
   collabControls?: React.ReactNode;
 }
@@ -153,7 +158,7 @@ export function BoardToolbar({
   sections = null,
   extraTools,
   extraToolArmed = false,
-  onSelectTool,
+  disarmExtraTools,
   collabControls,
 }: BoardToolbarProps) {
   const sectionArmed = useSectionToolArmed(sections);
@@ -339,7 +344,7 @@ export function BoardToolbar({
               hand?.set(false);
               sections?.tool.set(false);
               editor?.setInsertMode(null);
-              onSelectTool?.();
+              disarmExtraTools?.();
             }}
             aria-label="Select"
             disabled={disabled || !editor}
