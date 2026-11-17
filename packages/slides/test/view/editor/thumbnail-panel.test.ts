@@ -48,6 +48,37 @@ describe('mountThumbnailPanel', () => {
     expect(first.classList.contains('current')).toBe(true);
   });
 
+  it('rings the current frame without changing any box size', () => {
+    // The current slide's frame is a 1px border plus a 2px outer ring
+    // (box-shadow, so it takes no layout). Every frame reserves the
+    // ring's room as a margin, so switching slides moves no pixels.
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    const frameFor = (id: string) =>
+      panel.querySelector<HTMLDivElement>(
+        `[data-slide-id="${id}"] .wfb-slides-thumb-frame`,
+      )!;
+    const box = (f: HTMLElement) =>
+      [f.style.width, f.style.height, f.style.margin, f.style.borderWidth];
+
+    const before = ids.map((id) => box(frameFor(id)));
+    expect(frameFor(ids[0]).style.margin).toBe('2px');
+    expect(frameFor(ids[1]).style.margin).toBe('2px');
+    expect(frameFor(ids[0]).style.boxShadow).toMatch(/ 2px var\(--primary/);
+    expect(frameFor(ids[0]).style.boxShadow).toContain('var(--primary');
+    expect(frameFor(ids[1]).style.boxShadow).toBe('none');
+
+    panel
+      .querySelector<HTMLElement>(`[data-slide-id="${ids[1]}"]`)!
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+    expect(frameFor(ids[0]).style.boxShadow).toBe('none');
+    expect(frameFor(ids[1]).style.boxShadow).toMatch(/ 2px var\(--primary/);
+    expect(frameFor(ids[1]).style.borderColor).toContain('var(--primary');
+    expect(ids.map((id) => box(frameFor(id)))).toEqual(before);
+  });
+
   it('updates when a new slide is added (refresh handle)', () => {
     const { panel, store, editor } = makeFixture();
     const handle = mountThumbnailPanel(panel, store, editor);
@@ -313,7 +344,8 @@ describe('mountThumbnailPanel — arrow key navigation', () => {
 
 describe('mountThumbnailPanel — responsive sizing + DPR', () => {
   // The bordered thumb box. Its row also holds the 28px slide-number
-  // gutter (22px column + 6px gap), which comes out of the panel width.
+  // gutter (22px column + 6px gap) and a 2px ring margin on each side of
+  // the frame, all of which come out of the panel width (32px total).
   const frameOf = (panel: HTMLElement): HTMLDivElement =>
     panel.querySelector<HTMLDivElement>('[data-slide-id] .wfb-slides-thumb-frame')!;
 
@@ -323,18 +355,18 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     Object.defineProperty(panel, 'clientWidth', { value: 240, configurable: true });
     mountThumbnailPanel(panel, store, editor);
     const frame = frameOf(panel);
-    // outerW = 240 - 28 = 212; innerW = 210, innerH = round(210 / (16/9))
-    // = 118, outerH = 118 + 2 = 120.
-    expect(frame.style.width).toBe('212px');
-    expect(frame.style.height).toBe('120px');
+    // outerW = 240 - 32 = 208; innerW = 206, innerH = round(206 / (16/9))
+    // = 116, outerH = 116 + 2 = 118.
+    expect(frame.style.width).toBe('208px');
+    expect(frame.style.height).toBe('118px');
   });
 
   it('row (gutter + thumb) clamps to MIN_ROW_W (80px) on a very narrow panel', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 40, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    // 80 - 28 = 52: the floor bounds the row, not the thumb alone.
-    expect(frameOf(panel).style.width).toBe('52px');
+    // 80 - 32 = 48: the floor bounds the row, not the thumb alone.
+    expect(frameOf(panel).style.width).toBe('48px');
   });
 
   it('the row never outgrows a panel narrower than gutter + 80px', () => {
@@ -343,7 +375,7 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 100, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    expect(frameOf(panel).style.width).toBe('72px');
+    expect(frameOf(panel).style.width).toBe('68px');
   });
 
   it('thumbnail outer box clamps to MAX_THUMB_W (320px) on a very wide panel', () => {
@@ -361,8 +393,8 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     // innerW / innerH must round-trip to 16:9 within 1 pixel.
     const innerW = Number.parseInt(canvas.style.width, 10);
     const innerH = Number.parseInt(canvas.style.height, 10);
-    expect(innerW).toBe(210);
-    expect(innerH).toBe(Math.round(210 / (16 / 9)));
+    expect(innerW).toBe(206);
+    expect(innerH).toBe(Math.round(206 / (16 / 9)));
   });
 
   it('canvas backing store is sized at devicePixelRatio for crisp Retina paint', () => {
@@ -373,9 +405,9 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
       Object.defineProperty(panel, 'clientWidth', { value: 200, configurable: true });
       mountThumbnailPanel(panel, store, editor);
       const canvas = panel.querySelector<HTMLCanvasElement>('[data-slide-id] canvas')!;
-      // 28px number gutter + 1px border on each side → innerW = 200 - 28
-      // - 2 = 170. Backing store is innerW/H × dpr.
-      const innerW = 170;
+      // 28px number gutter + 2px ring margin and 1px border on each side
+      // → innerW = 200 - 32 - 2 = 166. Backing store is innerW/H × dpr.
+      const innerW = 166;
       const innerH = Math.round(innerW / (16 / 9));
       expect(canvas.width).toBe(innerW * 2);
       expect(canvas.height).toBe(innerH * 2);
@@ -389,10 +421,10 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     const { panel, store, editor } = makeFixture();
     Object.defineProperty(panel, 'clientWidth', { value: 160, configurable: true });
     const handle = mountThumbnailPanel(panel, store, editor);
-    expect(frameOf(panel).style.width).toBe('132px');
+    expect(frameOf(panel).style.width).toBe('128px');
     Object.defineProperty(panel, 'clientWidth', { value: 280, configurable: true });
     handle.refresh();
-    expect(frameOf(panel).style.width).toBe('252px');
+    expect(frameOf(panel).style.width).toBe('248px');
   });
 
   it('falls back to a sensible default size when the container has no measured width', () => {

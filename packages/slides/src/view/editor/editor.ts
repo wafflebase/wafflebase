@@ -130,7 +130,7 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay, renderPeerCursors, type OverlayOptions } from './overlay';
 import { computeAnimationOrder } from './animation-order';
-import { SlidesRuler } from './ruler/ruler';
+import { SlidesRuler, rulerUnitOf } from './ruler/ruler';
 import {
   hitTestGuide,
   startGuideMove,
@@ -1124,6 +1124,7 @@ class SlidesEditorImpl implements SlidesEditor {
         hCanvas: options.hRulerCanvas,
         vCanvas: options.vRulerCanvas,
         corner: options.rulerCorner,
+        unit: rulerUnitOf(options.store.readMeta()),
       });
     }
     this.currentId = options.store.read().slides[0]?.id;
@@ -1544,6 +1545,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // belong to that same SlidesDocument so a future colorResolver
     // can look up theme palettes via `getActiveTheme(doc)`.
     const doc = this.options.store.read();
+    // Every store change (local batch or remote peer) reaches this
+    // dirty path, so this is where a `meta.unit` switch reaches the
+    // ruler — no per-frame meta read on the idle path above.
+    this.ruler?.setUnit(rulerUnitOf(doc.meta));
     const slide = this.resolveCurrentSlide(doc);
     if (!slide) {
       this.paintRuler();

@@ -12,7 +12,12 @@ import type {
 } from '@wafflebase/slides';
 import { deckSlideHeight, findElementPath } from '@wafflebase/slides';
 import { anchoredFramePatch } from './frame-patch';
-import { pickSections, type PanelSelection } from './pick-sections';
+import {
+  groupSections,
+  pickSections,
+  type PanelSelection,
+  type SectionId,
+} from './pick-sections';
 import { SlideSizeSection } from './slide-size-section';
 import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
@@ -34,6 +39,9 @@ export interface FormatPanelProps {
    */
   variant?: 'drawer' | 'sheet';
 }
+
+/** One visual group: 16px vertical / 12px horizontal padding. */
+const GROUP_CLASS = 'flex flex-col gap-4 px-3 py-4';
 
 function derivePanelSelection(
   store: SlidesStore,
@@ -258,101 +266,111 @@ export function FormatPanel({
     [store, selection],
   );
 
+  const renderSection = (id: SectionId) => {
+    if (selection.kind !== 'object') return null;
+    switch (id) {
+      case 'size-position': {
+        const textAutofitMode =
+          selection.selectionType === 'text-element'
+            ? ((selection.elements[0] as TextElement).data.autofit ?? 'grow')
+            : undefined;
+        return (
+          <SizePositionSection
+            key={id}
+            kind={selection.selectionType}
+            elements={selection.elements}
+            unit={unit}
+            textAutofitMode={textAutofitMode}
+            onCommitFrame={commitFrame}
+            onTranslate={translate}
+            onSetUnit={setUnit}
+            onRotate90={rotate90}
+            onLockedResize={lockedResize}
+          />
+        );
+      }
+      case 'text-fitting':
+        return (
+          <TextFittingSection
+            key={id}
+            elements={selection.elements as readonly TextElement[]}
+            onCommit={(ids, mode: AutofitMode) =>
+              commitElementData(ids, { autofit: mode })
+            }
+          />
+        );
+      case 'recolor':
+        return (
+          <RecolorSection
+            key={id}
+            elements={selection.elements as readonly ImageElement[]}
+            onCommit={(ids, recolor) => commitElementData(ids, { recolor })}
+          />
+        );
+      case 'image-adjustments':
+        return (
+          <ImageAdjustmentsSection
+            key={id}
+            elements={selection.elements as readonly ImageElement[]}
+            onCommit={(ids, patch) => commitElementData(ids, patch)}
+          />
+        );
+      case 'drop-shadow':
+        return (
+          <DropShadowSection
+            key={id}
+            elements={selection.elements}
+            onCommit={(ids, shadow) => commitEffects(ids, { shadow })}
+          />
+        );
+      case 'reflection':
+        return (
+          <ReflectionSection
+            key={id}
+            elements={selection.elements}
+            onCommit={(ids, reflection) => commitEffects(ids, { reflection })}
+          />
+        );
+      case 'alt-text':
+        return (
+          <AltTextSection
+            key={id}
+            elements={selection.elements}
+            onCommit={(ids, alt) => commitElementData(ids, { alt })}
+          />
+        );
+    }
+  };
+
+  // Spacing model: rows inside a section sit 8px apart, a section's
+  // heading leads its controls by 12px, and sections are separate groups
+  // padded 16px on either side of a 1px rule. Drop shadow and Reflection
+  // share one group — they are sibling effect toggles, and stacked as
+  // separate groups their collapsed one-line checkboxes read as a list of
+  // equally weighted rows.
   const content = (
-    <>
+    <div className="flex flex-col divide-y">
       {selection.kind === 'idle' && (
-          <>
+        <>
+          <div className={GROUP_CLASS}>
             <SlideSizeSection
               heightPx={deckSlideHeight(meta)}
               unit={unit}
               onCommit={commitSlideHeight}
             />
-            <p className="px-3 pb-3 text-xs text-muted-foreground">
-              Select an object to edit its format.
-            </p>
-          </>
-        )}
-        {selection.kind === 'object' &&
-          sections.map((id) => {
-            switch (id) {
-              case 'size-position': {
-                const textAutofitMode =
-                  selection.selectionType === 'text-element'
-                    ? ((selection.elements[0] as TextElement).data.autofit ??
-                      'grow')
-                    : undefined;
-                return (
-                  <SizePositionSection
-                    key={id}
-                    kind={selection.selectionType}
-                    elements={selection.elements}
-                    unit={unit}
-                    textAutofitMode={textAutofitMode}
-                    onCommitFrame={commitFrame}
-                    onTranslate={translate}
-                    onSetUnit={setUnit}
-                    onRotate90={rotate90}
-                    onLockedResize={lockedResize}
-                  />
-                );
-              }
-              case 'text-fitting':
-                return (
-                  <TextFittingSection
-                    key={id}
-                    elements={selection.elements as readonly TextElement[]}
-                    onCommit={(ids, mode: AutofitMode) =>
-                      commitElementData(ids, { autofit: mode })
-                    }
-                  />
-                );
-              case 'recolor':
-                return (
-                  <RecolorSection
-                    key={id}
-                    elements={selection.elements as readonly ImageElement[]}
-                    onCommit={(ids, recolor) =>
-                      commitElementData(ids, { recolor })
-                    }
-                  />
-                );
-              case 'image-adjustments':
-                return (
-                  <ImageAdjustmentsSection
-                    key={id}
-                    elements={selection.elements as readonly ImageElement[]}
-                    onCommit={(ids, patch) => commitElementData(ids, patch)}
-                  />
-                );
-              case 'drop-shadow':
-                return (
-                  <DropShadowSection
-                    key={id}
-                    elements={selection.elements}
-                    onCommit={(ids, shadow) => commitEffects(ids, { shadow })}
-                  />
-                );
-              case 'reflection':
-                return (
-                  <ReflectionSection
-                    key={id}
-                    elements={selection.elements}
-                    onCommit={(ids, reflection) =>
-                      commitEffects(ids, { reflection })
-                    }
-                  />
-                );
-              case 'alt-text':
-                return (
-                  <AltTextSection
-                    key={id}
-                    elements={selection.elements}
-                    onCommit={(ids, alt) => commitElementData(ids, { alt })}
-                  />
-                );
-            }
-          })}
-    </>
+          </div>
+          <p className="px-3 py-4 text-xs text-muted-foreground">
+            Select an object to edit its format.
+          </p>
+        </>
+      )}
+      {selection.kind === 'object' &&
+        groupSections(sections).map((group) => (
+          <div key={group.join('+')} className={GROUP_CLASS}>
+            {group.map(renderSection)}
+          </div>
+        ))}
+    </div>
   );
 
   if (variant === 'sheet') {

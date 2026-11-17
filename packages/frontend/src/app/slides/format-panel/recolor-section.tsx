@@ -20,8 +20,8 @@ export function RecolorSection({ elements, onCommit }: RecolorSectionProps) {
   const ids = elements.map((el) => el.id);
 
   return (
-    <section aria-labelledby="format-recolor-label" className="p-3">
-      <h3 id="format-recolor-label" className="mb-2 text-xs font-semibold">
+    <section aria-labelledby="format-recolor-label">
+      <h3 id="format-recolor-label" className="mb-3 text-xs font-semibold">
         Recolor
       </h3>
       <div className="grid grid-cols-3 gap-1">

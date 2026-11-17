@@ -18,6 +18,7 @@ import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAutoCollapseSidebar } from "@/hooks/use-auto-collapse-sidebar";
 import { IconHistory } from "@tabler/icons-react";
 import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
@@ -186,6 +187,9 @@ function SlidesLayout({ documentId }: { documentId: string }) {
  */
 function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
+  // Below 1280px the app sidebar would leave the slide ~295px between the
+  // thumbnail rail and the Format panel; Google Slides has no app sidebar.
+  const sidebar = useAutoCollapseSidebar();
   const doc = useSlidesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
@@ -385,7 +389,10 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   }, [store, editor, uploadFn, workspaceId]);
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      open={sidebar.open}
+      onOpenChange={sidebar.onOpenChange}
+    >
       <AppSidebar
         variant="inset"
         items={items}

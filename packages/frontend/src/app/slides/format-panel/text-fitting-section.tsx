@@ -23,15 +23,12 @@ export function TextFittingSection({
     (el): AutofitMode => el.data.autofit ?? 'grow',
   );
   return (
-    <section aria-labelledby="format-text-fitting-label" className="p-3">
-      <h3
-        id="format-text-fitting-label"
-        className="mb-2 text-xs font-semibold"
-      >
+    <section aria-labelledby="format-text-fitting-label">
+      <h3 id="format-text-fitting-label" className="mb-3 text-xs font-semibold">
         Text fitting
       </h3>
       <RadioGroup
-        className="space-y-1.5"
+        className="gap-2"
         value={common ?? undefined}
         onValueChange={(value) =>
           onCommit(

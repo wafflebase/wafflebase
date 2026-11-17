@@ -122,6 +122,10 @@ export interface RightGlobalsProps {
  * DropdownMenu here) — the actual `useSlideBackground` instance now
  * lives in `BackgroundSidePanel`, mounted by `slides-detail.tsx`
  * alongside the other panels, so this component only renders the toggle.
+ *
+ * `SlidesToolbar` renders this cluster in its own strip, outside the
+ * part of the row that folds or scrolls, so it is reachable at every
+ * width and in every toolbar state.
  */
 export function RightGlobals({
   onToggleThemePanel,

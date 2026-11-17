@@ -24,8 +24,8 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
   }, [common]);
 
   return (
-    <section aria-labelledby="format-alt-text-label" className="p-3">
-      <h3 id="format-alt-text-label" className="mb-2 text-xs font-semibold">
+    <section aria-labelledby="format-alt-text-label">
+      <h3 id="format-alt-text-label" className="mb-3 text-xs font-semibold">
         Alt text
       </h3>
       <Textarea

@@ -453,7 +453,10 @@ export function SlidesView({
     // both; no guide can cross the corner because guides always sit
     // at slide-x ≥ 0, which after centring + padding maps to a frame
     // x well to the right of the corner's 14×14 footprint.
+    // The ruler paints its ticks + labels in the canvas's CSS `color`,
+    // so the theme token here is what makes it follow light/dark.
     const hRulerCanvas = document.createElement("canvas");
+    hRulerCanvas.className = "text-muted-foreground";
     hRulerCanvas.style.position = "absolute";
     hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
     hRulerCanvas.style.top = "0";
@@ -463,6 +466,7 @@ export function SlidesView({
     canvasArea.appendChild(hRulerCanvas);
 
     const vRulerCanvas = document.createElement("canvas");
+    vRulerCanvas.className = "text-muted-foreground";
     vRulerCanvas.style.position = "absolute";
     vRulerCanvas.style.left = "0";
     vRulerCanvas.style.top = `${SLIDES_RULER_SIZE}px`;

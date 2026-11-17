@@ -27,9 +27,7 @@ export type PanelSelection =
       slideId: string;
     };
 
-export function pickSections(
-  selection: PanelSelection,
-): readonly SectionId[] {
+export function pickSections(selection: PanelSelection): readonly SectionId[] {
   if (selection.kind === 'idle') return [];
   switch (selection.selectionType) {
     case 'shape':
@@ -62,4 +60,27 @@ export function pickSections(
     case 'mixed':
       return ['size-position'];
   }
+}
+
+/** Sections that render together in one group rather than one each. */
+const EFFECT_SECTIONS: ReadonlySet<SectionId> = new Set([
+  'drop-shadow',
+  'reflection',
+]);
+
+/**
+ * Fold the flat section list into visual groups: adjacent effect toggles
+ * share a group, every other section stands alone.
+ */
+export function groupSections(sections: readonly SectionId[]): SectionId[][] {
+  const groups: SectionId[][] = [];
+  for (const id of sections) {
+    const last = groups[groups.length - 1];
+    if (last && EFFECT_SECTIONS.has(id) && EFFECT_SECTIONS.has(last[0])) {
+      last.push(id);
+    } else {
+      groups.push([id]);
+    }
+  }
+  return groups;
 }

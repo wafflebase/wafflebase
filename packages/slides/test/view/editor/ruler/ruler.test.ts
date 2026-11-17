@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '../../../../src/view/canvas/test-canvas-env';
 import {
   SlidesRuler,
@@ -30,9 +30,9 @@ describe('SlidesRuler', () => {
   });
 
   it('exposes a slim RULER_SIZE (14) and SLIDES_PX_PER_INCH = 144', () => {
-    // 14 px keeps an 8-px label visible above the 6-px major tick
-    // while reclaiming ~30 % of the gutter the docs ruler reserves
-    // — see ruler.ts for the rationale.
+    // 14 px keeps a 10-px label clear of the 5-px major tick while
+    // reclaiming ~30 % of the gutter the docs ruler reserves — see
+    // ruler.ts for the rationale.
     expect(RULER_SIZE).toBe(14);
     expect(SLIDES_PX_PER_INCH).toBe(144);
   });
@@ -180,5 +180,44 @@ describe('SlidesRuler', () => {
     expect(dom.hCanvas.height).toBe(RULER_SIZE * 2);
     expect(dom.vCanvas.width).toBe(RULER_SIZE * 2);
     expect(dom.vCanvas.height).toBe(900);
+  });
+
+  describe('legibility', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // Capture the 2D contexts the ruler acquires so the test can read
+    // what the last paint left on them.
+    function paint(): CanvasRenderingContext2D[] {
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+      const ruler = new SlidesRuler({
+        hCanvas: dom.hCanvas,
+        vCanvas: dom.vCanvas,
+        corner: dom.corner,
+        dpr: 1,
+        unit: 'inch',
+      });
+      ruler.render({ hostWidth: 1920, hostHeight: 1080 });
+      return getContext.mock.results
+        .slice(0, 2)
+        .map((r) => r.value as CanvasRenderingContext2D);
+    }
+
+    it('labels at the 10-px floor, never smaller', () => {
+      for (const ctx of paint()) expect(ctx.font).toMatch(/^10px /);
+    });
+
+    it('paints ticks + labels in the color the host cascades', () => {
+      // The host gives the ruler canvases a theme token class
+      // (`text-muted-foreground`), so light/dark mode flows through
+      // CSS `color` instead of a hex literal in the engine.
+      dom.hCanvas.style.color = 'rgb(1, 2, 3)';
+      dom.vCanvas.style.color = 'rgb(1, 2, 3)';
+      for (const ctx of paint()) {
+        expect(ctx.strokeStyle).toBe('rgb(1, 2, 3)');
+        expect(ctx.fillStyle).toBe('rgb(1, 2, 3)');
+      }
+    });
   });
 });

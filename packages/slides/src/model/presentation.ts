@@ -67,9 +67,9 @@ export type Meta = {
   themeId: string;
   masterId: string;
   /**
-   * Display unit for the Format options panel (and, when adopted,
-   * the ruler). Renderer never reads this field; it only switches
-   * what the panel's numeric inputs show. Absent ⇒ 'in'.
+   * Display unit for the Format options panel and the editor rulers.
+   * Renderer never reads this field; it only switches what the
+   * panel's numeric inputs and the ruler labels show. Absent ⇒ 'in'.
    */
   unit?: 'in' | 'cm';
   /**

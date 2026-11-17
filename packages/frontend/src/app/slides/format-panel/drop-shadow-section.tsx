@@ -84,12 +84,14 @@ export function DropShadowSection({
     typeof shadow?.color === 'string' ? shadow.color : '#000000';
 
   return (
-    <section aria-labelledby="format-drop-shadow-label" className="p-3">
-      <div className="mb-2 flex items-center gap-2">
+    <section aria-labelledby="format-drop-shadow-label">
+      <div className="flex items-center gap-2">
         <Checkbox
           id="format-drop-shadow-toggle"
           checked={enabled}
-          onCheckedChange={(c) => commit(c === true ? DEFAULT_SHADOW : undefined)}
+          onCheckedChange={(c) =>
+            commit(c === true ? DEFAULT_SHADOW : undefined)
+          }
         />
         <Label
           htmlFor="format-drop-shadow-toggle"
@@ -101,7 +103,9 @@ export function DropShadowSection({
       </div>
 
       {enabled && (
-        <div className="flex flex-col gap-2">
+        // Indented past the checkbox (16px box + 8px gap) so the controls
+        // read as belonging to the toggle that revealed them.
+        <div className="mt-3 flex flex-col gap-3 pl-6">
           <label className="flex items-center justify-between text-xs">
             <span>Color</span>
             <input

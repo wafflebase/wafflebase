@@ -74,6 +74,16 @@ const FALLBACK_THUMB_W = 192;
 // changes) so the inner canvas size doesn't jump when the user
 // switches the current slide. 1px on each side = 2px reserved.
 const BORDER_PX = 1;
+// The current slide adds an outer ring (box-shadow) around its border,
+// for a 3px syrup frame that stays findable on a ~80px thumb. A shadow
+// takes no layout space, so the ring room is reserved as a margin on
+// every frame instead: no state shifts layout, and the ring never
+// reaches the scroll parent's overflow edge (the host has no top
+// padding, so a bare ring on the first row would be clipped).
+const RING_PX = 2;
+// Gap between consecutive frames. The row's bottom margin gives back
+// the two ring margins that already sit between them.
+const ROW_GAP_PX = 8;
 // Column left of each thumb that holds its visible slide number, Google
 // Slides style. Wide enough for three tabular digits at 12px (~21px)
 // plus the gap to the frame; the thumb gets the rest of the width.
@@ -124,10 +134,17 @@ function slideOptionLabel(slide: Slide, position: number, total: number): string
   return title ? `${base}: ${title}` : base;
 }
 
-function frameBorderColor(isCurrent: boolean): string {
-  return isCurrent
-    ? `var(--primary, ${SELECTION_COLOR})`
+const CURRENT_FRAME_COLOR = `var(--primary, ${SELECTION_COLOR})`;
+
+// Current slide: syrup border + syrup ring. Every other slide: a hairline
+// and no ring. Only paint properties change, never the box.
+function applyFrameState(frame: HTMLElement, isCurrent: boolean): void {
+  frame.style.borderColor = isCurrent
+    ? CURRENT_FRAME_COLOR
     : 'var(--border, #444)';
+  frame.style.boxShadow = isCurrent
+    ? `0 0 0 ${RING_PX}px ${CURRENT_FRAME_COLOR}`
+    : 'none';
 }
 
 // Muted for every slide, full foreground for the current one — the
@@ -161,7 +178,9 @@ function computeThumbDims(
     containerWidth > 0
       ? Math.min(
           MAX_THUMB_W,
-          Math.max(MIN_ROW_W, Math.floor(containerWidth)) - NUMBER_GUTTER_PX,
+          Math.max(MIN_ROW_W, Math.floor(containerWidth)) -
+            NUMBER_GUTTER_PX -
+            RING_PX * 2,
         )
       : FALLBACK_THUMB_W;
   const innerW = outerW - BORDER_PX * 2;
@@ -287,7 +306,7 @@ export function mountThumbnailPanel(
   };
 
   // Cheap update for highlight-only changes (current-slide switch).
-  // Touches className + border color on existing items; the canvas
+  // Touches className + frame paint on existing items; the canvas
   // bitmaps and IntersectionObserver state are left intact, which
   // avoids both wasted repaints and the one-frame "blank canvas"
   // flicker that a full render() would cause via the async IO fire.
@@ -299,7 +318,7 @@ export function mountThumbnailPanel(
     for (const [id, s] of state) {
       const isCurrent = id === currentId;
       s.item.classList.toggle('current', isCurrent);
-      s.frame.style.borderColor = frameBorderColor(isCurrent);
+      applyFrameState(s.frame, isCurrent);
       s.number.style.color = numberColor(isCurrent);
     }
     syncSelectionAria();
@@ -567,7 +586,7 @@ export function mountThumbnailPanel(
       item.style.alignItems = 'flex-start';
       item.style.gap = `${NUMBER_GAP_PX}px`;
       item.style.cursor = 'pointer';
-      item.style.marginBottom = '8px';
+      item.style.marginBottom = `${ROW_GAP_PX - RING_PX * 2}px`;
 
       // Visible slide number, muted, top-aligned with the frame like
       // Google Slides. aria-hidden: the option's name already carries it.
@@ -581,6 +600,9 @@ export function mountThumbnailPanel(
       number.style.fontVariantNumeric = 'tabular-nums';
       number.style.color = numberColor(isCurrent);
       number.style.userSelect = 'none';
+      // Matches the frame's ring margin so the digit stays level with
+      // the frame's top edge.
+      number.style.marginTop = `${RING_PX}px`;
       item.appendChild(number);
 
       const frame = document.createElement('div');
@@ -589,16 +611,16 @@ export function mountThumbnailPanel(
       frame.style.height = `${dims.outerH}px`;
       frame.style.boxSizing = 'border-box';
       frame.style.flex = '0 0 auto';
-      // Use border (inside the box) instead of outline (outside the
-      // box). Outline pixels sit at the negative edge of the item and
-      // get clipped by the panel's overflow box when a thumbnail is
-      // flush against the panel's left/top — leaving the slide looking
-      // like its left + top edges are missing. Border thickness is
-      // constant across selection states; only the color changes, so
-      // the inner canvas size never jumps when the user switches the
-      // current slide. Theme tokens follow the host frontend's
+      // A constant-width border plus, on the current slide, an outer
+      // ring drawn inside the frame's reserved margin. The ring is a
+      // box-shadow rather than a thicker border so the inner canvas
+      // size never jumps when the current slide changes, and it stays
+      // inside the item so the panel's overflow box can't clip it at
+      // the top/left edge. Theme tokens follow the host frontend's
       // light/dark mode (fallbacks for theme-less hosts like jsdom).
-      frame.style.border = `${BORDER_PX}px solid ${frameBorderColor(isCurrent)}`;
+      frame.style.margin = `${RING_PX}px`;
+      frame.style.border = `${BORDER_PX}px solid`;
+      applyFrameState(frame, isCurrent);
       // Read-only viewers keep the click-to-navigate affordance but
       // never see a drag cursor — drag-reorder handlers are skipped
       // below too.

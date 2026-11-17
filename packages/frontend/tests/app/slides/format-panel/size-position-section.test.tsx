@@ -105,8 +105,30 @@ describe('SizePositionSection (shape)', () => {
         onRotate90={onRotate90}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/rotate 90 clockwise/i));
+    fireEvent.click(screen.getByLabelText(/^rotate 90° clockwise$/i));
     expect(onRotate90).toHaveBeenCalledWith(['a'], 1);
+  });
+
+  it('rotate buttons carry distinct names and visible directions', () => {
+    const onRotate90 = vi.fn();
+    render(
+      <SizePositionSection
+        kind="shape"
+        elements={[shape('a', { x: 0, y: 0, w: 100, h: 100, rotation: 0 })]}
+        unit="in"
+        {...defaultCommit}
+        onRotate90={onRotate90}
+      />,
+    );
+    const ccw = screen.getByRole('button', {
+      name: 'Rotate 90° counter-clockwise',
+    });
+    const cw = screen.getByRole('button', { name: 'Rotate 90° clockwise' });
+    expect(ccw).toHaveTextContent('Left');
+    expect(cw).toHaveTextContent('Right');
+    expect(ccw).toHaveAttribute('title', 'Rotate 90° counter-clockwise');
+    fireEvent.click(ccw);
+    expect(onRotate90).toHaveBeenCalledWith(['a'], -1);
   });
 
   it('unit radio change calls onSetUnit', () => {

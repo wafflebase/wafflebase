@@ -4,6 +4,7 @@ import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import { SlidesRuler } from '../../../src/view/editor/ruler/ruler';
 import type {
   MountSlidesTextBoxOptions,
   SlidesTextBoxEditor,
@@ -3728,5 +3729,71 @@ describe('Editor snap to grid — interaction with the Shift axis lock', () => {
       clientX: hx, clientY: hy, bubbles: true,
     }));
     expect(store.read().slides[0].elements[0].frame.w).toBe(200);
+  });
+});
+
+describe('ruler unit follows the deck unit', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+    vi.restoreAllMocks();
+  });
+
+  function mountWithRuler(store: MemSlidesStore, canvas: HTMLCanvasElement,
+    overlay: HTMLDivElement): () => string | undefined {
+    const hRulerCanvas = document.createElement('canvas');
+    const vRulerCanvas = document.createElement('canvas');
+    const rulerCorner = document.createElement('div');
+    document.body.append(hRulerCanvas, vRulerCanvas, rulerCorner);
+    const render = vi.spyOn(SlidesRuler.prototype, 'render');
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hRulerCanvas, vRulerCanvas, rulerCorner,
+    });
+    editor.render();
+    // The unit of the ruler instance that painted last.
+    return () => {
+      const ruler = render.mock.contexts.at(-1) as SlidesRuler | undefined;
+      return ruler?.getUnit();
+    };
+  }
+
+  it('shows inches when the deck has no unit, like the Format panel', () => {
+    // A metric locale must not override the deck: the Format options
+    // panel reads `meta.unit ?? 'in'`, so the ruler has to agree.
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('ko-KR');
+    const { canvas, overlay, store } = makeFixture();
+    const unit = mountWithRuler(store, canvas, overlay);
+    expect(unit()).toBe('inch');
+  });
+
+  it('initialises from a persisted cm unit', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => store.setUnit('cm'));
+    const unit = mountWithRuler(store, canvas, overlay);
+    expect(unit()).toBe('cm');
+  });
+
+  it('switches when the deck unit changes (local or remote)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const unit = mountWithRuler(store, canvas, overlay);
+    expect(unit()).toBe('inch');
+    // The host's store.onChange handler runs markDirty + render for
+    // every change, local batches and remote peers alike.
+    store.batch(() => store.setUnit('cm'));
+    editor!.markDirty();
+    editor!.render();
+    expect(unit()).toBe('cm');
+    store.batch(() => store.setUnit('in'));
+    editor!.markDirty();
+    editor!.render();
+    expect(unit()).toBe('inch');
   });
 });

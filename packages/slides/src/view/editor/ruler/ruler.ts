@@ -3,10 +3,11 @@
  *
  * Reuses the docs ruler's tick / unit primitives via the shared
  * exports on `@wafflebase/docs`, with a slides-specific 144 dpi
- * physical scale (1920 logical px / 13.333"). Display-only in v1:
- * paint ticks + integer-unit labels (inch / cm, locale-driven) along
- * the slide canvas extent. Guides and drag-out gestures land in a
- * later phase.
+ * physical scale (1920 logical px / 13.333"). Paints ticks +
+ * integer-unit labels (inch / cm) along the slide canvas extent. The
+ * editor drives the unit from the deck's `meta.unit` so the ruler and
+ * the Format options panel always agree; locale detection is only the
+ * default for a ruler constructed without one.
  *
  * Layout contract: the host positions both ruler canvases as
  * absolutely-placed frames around the canvas area (top edge / left
@@ -21,6 +22,7 @@
  */
 
 import {
+  Theme,
   detectUnit,
   getGridConfig,
   drawTicks,
@@ -29,16 +31,16 @@ import {
   type TickDensity,
 } from '@wafflebase/docs';
 
-import { SLIDE_WIDTH } from '../../../model/presentation';
+import { SLIDE_WIDTH, type Meta } from '../../../model/presentation';
 
 /**
  * Ruler thickness in CSS pixels.
  *
  * Intentionally slimmer than the docs ruler (20 px). The slide is a
  * "stage" rather than a "page" — a heavy ruler bar clutters the
- * canvas chrome and competes with the slide elevation. 14 px keeps
- * the tick + integer-unit label readable while reclaiming ~30 % of
- * the gutter the docs ruler reserves.
+ * canvas chrome and competes with the slide elevation. 14 px still
+ * fits a 10-px label (the DESIGN.md floor) above a 5-px major tick
+ * while reclaiming ~30 % of the gutter the docs ruler reserves.
  */
 export const RULER_SIZE = 14;
 
@@ -52,18 +54,14 @@ export const RULER_SIZE = 14;
  */
 export const SLIDES_PX_PER_INCH = 144;
 
-// Tick + label proportions tuned to the slim 14-px ruler. Major ticks
-// occupy ~40 % of the ruler height so an 8-px label can sit at the
-// top edge (y = 0) without colliding with the tick stem at the
-// bottom.
-const TICK_HEIGHTS = { major: 6, half: 4, minor: 2 };
-const LABEL_FONT = '8px Arial';
-const LABEL_INSET = 0;
+// Tick + label proportions tuned to the slim 14-px ruler. A 10-px
+// Arial digit is ~7 px of ink below ~2 px of ascent slack, so lifting
+// the label 1 px (inset -1) puts its ink at y ≈ 1..8 and the 5-px
+// major tick at y = 9..14 — the two never touch.
+const TICK_HEIGHTS = { major: 5, half: 3, minor: 2 };
+const LABEL_FONT = '10px Arial';
+const LABEL_INSET = -1;
 const VERTICAL_LABEL_INSET = 4;
-// Soft neutral so the ruler reads as chrome, not a measurement bar.
-// Inherits from the surrounding column instead of painting its own
-// background — keeps the visual weight on the slide itself.
-const TICK_COLOR = '#b0b0b0';
 
 export interface SlidesRulerOptions {
   hCanvas: HTMLCanvasElement;
@@ -71,7 +69,7 @@ export interface SlidesRulerOptions {
   corner: HTMLElement;
   /** Override the device-pixel-ratio (mainly for tests). */
   dpr?: number;
-  /** Override locale-driven unit detection. */
+  /** Initial unit; locale-detected when omitted. */
   unit?: RulerUnit;
 }
 
@@ -142,9 +140,10 @@ export class SlidesRuler {
       minorStepPx: this.grid.minorStepPx * zoom,
     };
     const density = pickDensity(scaledGrid.majorStepPx);
+    const color = this.tickColor();
 
-    this.paintHorizontal(hostWidth, scaledGrid, density, scrollX);
-    this.paintVertical(hostHeight, scaledGrid, density, scrollY);
+    this.paintHorizontal(hostWidth, scaledGrid, density, scrollX, color);
+    this.paintVertical(hostHeight, scaledGrid, density, scrollY, color);
   }
 
   /**
@@ -161,11 +160,28 @@ export class SlidesRuler {
     this.disposed = true;
   }
 
+  /**
+   * Tick + label color, resolved per paint from the CSS `color` the
+   * host cascades onto the ruler canvas (slides-view gives it the
+   * `text-muted-foreground` token). Canvas cannot read `currentColor`
+   * itself, and resolving every paint means a light/dark switch lands
+   * on the next RAF frame with no theme subscription. The docs ruler
+   * token is the fallback where no style is computed.
+   */
+  private tickColor(): string {
+    if (typeof getComputedStyle === 'function') {
+      const color = getComputedStyle(this.hCanvas).color;
+      if (color) return color;
+    }
+    return Theme.rulerTickColor;
+  }
+
   private paintHorizontal(
     hostWidth: number,
     grid: GridConfig,
     density: TickDensity,
     scrollX: number,
+    color: string,
   ): void {
     const ctx = this.hCtx;
     if (!ctx) return;
@@ -193,7 +209,7 @@ export class SlidesRuler {
       start: slideOffset,
       length: hostWidth,
       grid,
-      color: TICK_COLOR,
+      color,
       density,
       rulerSize: RULER_SIZE,
       tickHeights: TICK_HEIGHTS,
@@ -208,6 +224,7 @@ export class SlidesRuler {
     grid: GridConfig,
     density: TickDensity,
     scrollY: number,
+    color: string,
   ): void {
     const ctx = this.vCtx;
     if (!ctx) return;
@@ -223,7 +240,7 @@ export class SlidesRuler {
       start: slideOffset,
       length: hostHeight,
       grid,
-      color: TICK_COLOR,
+      color,
       density,
       rulerSize: RULER_SIZE,
       tickHeights: TICK_HEIGHTS,
@@ -258,6 +275,15 @@ export class SlidesRuler {
     // canvases). Setting them would override the host's "right: 0"
     // pin and shrink the ruler back to host width.
   }
+}
+
+/**
+ * The ruler unit for a deck. Mirrors the Format options panel's
+ * `meta.unit ?? 'in'` (and the `Meta.unit` contract, "absent ⇒ 'in'")
+ * rather than the viewer's locale, so the two surfaces never disagree.
+ */
+export function rulerUnitOf(meta: Pick<Meta, 'unit'>): RulerUnit {
+  return meta.unit === 'cm' ? 'cm' : 'inch';
 }
 
 function pickDensity(majorStepOnScreen: number): TickDensity {
