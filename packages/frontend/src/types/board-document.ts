@@ -1,7 +1,16 @@
 import type { YorkieElement } from './slides-document';
 
 export interface YorkieBoardRoot {
-  meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] };
+  meta: {
+    title: string;
+    unit?: 'in' | 'cm';
+    recentColors?: string[];
+    /**
+     * Anonymous mode: hide every sticky author name on the board and
+     * record none on new stickies. Absent ⇒ off.
+     */
+    anonymous?: boolean;
+  };
   elements: YorkieElement[];
 }
 

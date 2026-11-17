@@ -60,6 +60,7 @@ export const TOOL_HINTS = {
 
 export const BOARD_SHORTCUT_CATEGORIES = [
   "Tools",
+  "Sticky notes",
   "Canvas",
   "Selection",
   "Clipboard",
@@ -87,6 +88,10 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Tools", keys: ["L"], description: "Line" },
   { category: "Tools", keys: ["Shift+L"], description: "Arrow" },
   { category: "Tools", keys: ["X"], description: "Connector" },
+
+  { category: "Sticky notes", keys: ["Mod+Enter"], description: "Add a sticky next to the selected one" },
+  { category: "Sticky notes", keys: ["Tab", "Mod+Enter"], description: "While typing: finish and start the next sticky" },
+  { category: "Sticky notes", keys: ["Mod+V"], description: "Paste text: one sticky per line or cell" },
 
   { category: "Canvas", keys: ["Space"], description: "Pan (hold, then drag)" },
   { category: "Canvas", keys: ["Mod"], description: "Zoom (hold, then scroll or pinch)" },

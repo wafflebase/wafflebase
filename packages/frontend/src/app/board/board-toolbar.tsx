@@ -192,18 +192,24 @@ export function BoardToolbar({
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
   // A selection made only of sticky notes gets the sticky palette instead
-  // of the rectangle controls (see `StickyControls`). Recomputed on each
-  // render, which `store.onChange` above already drives.
+  // of the rectangle controls (see `StickyControls`); a MIXED selection
+  // that contains stickies keeps its own controls plus the sticky colour
+  // row for the stickies in it. Recomputed on each render, which
+  // `store.onChange` above already drives.
+  const stickyIds =
+    state.kind === "object"
+      ? (() => {
+          const elements = store?.read().slides[0]?.elements ?? [];
+          return state.ids.filter((id) =>
+            isStickyElement(elements.find((e) => e.id === id)),
+          );
+        })()
+      : [];
   const allStickies =
     state.kind === "object" &&
     state.selectionType === "shape" &&
     state.ids.length > 0 &&
-    (() => {
-      const elements = store?.read().slides[0]?.elements ?? [];
-      return state.ids.every((id) =>
-        isStickyElement(elements.find((e) => e.id === id)),
-      );
-    })();
+    stickyIds.length === state.ids.length;
 
   // Both settings are spoken here: the icon is identical in every mode
   // and says nothing at all about snapping, so the trigger's label is
@@ -454,6 +460,12 @@ export function BoardToolbar({
           <ToolbarSeparator className="mx-1" />
           {allStickies && (
             <StickyControls editor={editor} store={store} ids={state.ids} />
+          )}
+          {!allStickies && stickyIds.length > 0 && (
+            <>
+              <StickyControls editor={editor} store={store} ids={stickyIds} colorsOnly />
+              <ToolbarSeparator className="mx-1" />
+            </>
           )}
           {!allStickies &&
             (state.selectionType === "shape" ||

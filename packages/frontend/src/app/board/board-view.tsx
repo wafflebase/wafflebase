@@ -34,8 +34,13 @@ import {
   STICKY_COLORS,
   dropStickyAt,
   dropStickyAtViewportCenter,
+  isStickyElement,
   visibleWorldRect,
 } from "./sticky";
+import { attachStickyFlow } from "./sticky-flow";
+import { drawStickyAuthor } from "./sticky-author";
+import { MAX_PASTED_STICKIES, boardPasteOffset } from "./sticky-paste";
+import { stickyKeepsAspect } from "./sticky-format";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
@@ -306,6 +311,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
 
     const store = new YorkieBoardStore(doc);
     setStore(store);
+    // The name a new sticky records as its author; none on an anonymous
+    // board. Read at creation time, so a rename mid-session is picked up.
+    const stickyAuthor = (): string | undefined =>
+      store.isAnonymous()
+        ? undefined
+        : (doc.getMyPresence() as BoardPresence | undefined)?.username || undefined;
 
     // Host fills the container edge-to-edge — there is no fitted slide
     // rect to center, unlike SlidesView's `computeFitSize`/`refitCanvas`.
@@ -381,6 +392,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
                     colorValue: STICKY_COLORS[0].value,
                     occupied: readFrames(),
                     visible: visibleWorldRect(vp.current, hostW, hostH),
+                    author: stickyAuthor(),
+                    reveal: revealBox,
                   });
                 },
               },
@@ -395,7 +408,27 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           selected: gridSnapRef.current,
           run: () => setGridSnapRef.current(!gridSnapRef.current),
         },
+        // A board-wide document setting, so a read-only viewer cannot
+        // flip it.
+        ...(readOnly
+          ? []
+          : [
+              {
+                label: "Hide sticky authors",
+                selected: store.isAnonymous(),
+                run: () => store.batch(() => store.setAnonymous(!store.isAnonymous())),
+              },
+            ]),
       ],
+      // Sticky notes: the author tag at the bottom edge, square stickies
+      // that stay square on a corner drag, and a paste or duplicate that
+      // lands on screen when its source is not.
+      decorateElement: (ctx, element) =>
+        drawStickyAuthor(ctx, element, store.isAnonymous()),
+      lockAspectRatio: (element) =>
+        isStickyElement(element) && stickyKeepsAspect(element),
+      pasteOffset: (bounds) =>
+        boardPasteOffset(bounds, visibleWorldRect(vp.current, hostW, hostH)),
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -438,10 +471,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // once. These used to be three statements copy-pasted at each call
     // site, which is exactly how the grid would have been forgotten on one
     // of them.
+    let stickyFlow: { refresh: () => void; dispose: () => void } | null = null;
     const commitViewport = (next: Viewport) => {
       vp.current = next;
       editor.setViewport(vp.current);
       minimap.repaintViewport(vp.current);
+      stickyFlow?.refresh();
       applyGridBackground(
         container,
         gridKindRef.current,
@@ -490,6 +525,17 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     setZoomController(zoom.controller);
 
+    // Bring an off-screen world box (a sticky placed past the screen
+    // edge, which then enters text edit) into view, centred.
+    const revealBox = (box: Frame) =>
+      commitViewport(
+        centerViewportOnWorld(
+          vp.current,
+          { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+          { w: hostW, h: hostH },
+        ),
+      );
+
     stickyInserterRef.current = (colorValue: string) => {
       hand.set(false);
       dropStickyAtViewportCenter({
@@ -500,8 +546,30 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         hostHeight: hostH,
         colorValue,
         occupied: readFrames(),
+        author: stickyAuthor(),
+        reveal: revealBox,
       });
     };
+
+    // Sticky-first flow: Mod+Enter / Tab adjacent stickies, plain-text
+    // paste as stickies, "+" handles round a selected sticky.
+    stickyFlow = attachStickyFlow({
+      container,
+      store,
+      editor,
+      readOnly: readOnly === true,
+      getViewport: () => vp.current,
+      getHostSize: () => ({ w: hostW, h: hostH }),
+      reveal: revealBox,
+      author: stickyAuthor,
+      isBoardTarget: (target) =>
+        target === document.body ||
+        (target instanceof Node && rootRef.current?.contains(target) === true),
+      onPasteTruncated: (dropped) =>
+        toast.info(
+          `Pasted the first ${MAX_PASTED_STICKIES} as sticky notes; ${dropped} more were left out.`,
+        ),
+    });
 
     // Image input: paste + drag-drop + toolbar button, all funneling to
     // insertImageOnSlide, centered on the current viewport. Disabled in
@@ -1006,6 +1074,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       setStore(null);
       setZoomController(null);
       stickyInserterRef.current = null;
+      stickyFlow?.dispose();
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
