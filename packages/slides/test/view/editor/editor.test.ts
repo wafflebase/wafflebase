@@ -3797,3 +3797,65 @@ describe('ruler unit follows the deck unit', () => {
     expect(unit()).toBe('inch');
   });
 });
+
+describe('Editor host hooks — element menu and shape insert style', () => {
+  let editor: SlidesEditor | null = null;
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+    document.body.innerHTML = '';
+  });
+
+  const openAt = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX, clientY, bubbles: true, cancelable: true,
+    }));
+    return document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+  };
+
+  it('appends host items to an element menu with the right-clicked id', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let id = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Select all of this type', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostElementMenuItems: items,
+    });
+    const menu = openAt(canvas, 150, 150);
+    const li = [...menu.querySelectorAll('li')].find((l) =>
+      l.textContent?.includes('Select all of this type'),
+    ) as HTMLElement;
+    expect(li).toBeTruthy();
+    expect(items).toHaveBeenCalledWith({ elementId: id, selectedIds: [id] });
+    li.click();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('styles a canvas-menu rectangle through shapeInsertStyle', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      shapeInsertStyle: () => ({ fill: { kind: 'srgb', value: '#e3ecfa' } }),
+    });
+    const menu = openAt(canvas, 50, 50);
+    const li = [...menu.querySelectorAll('li')].find((l) =>
+      l.textContent?.trim() === 'Insert rectangle',
+    ) as HTMLElement;
+    li.click();
+    const el = store.read().slides[0].elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type === 'shape') {
+      expect(el.data.fill).toEqual({ kind: 'srgb', value: '#e3ecfa' });
+    }
+  });
+});

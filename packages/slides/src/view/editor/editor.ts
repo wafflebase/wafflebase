@@ -71,6 +71,7 @@ import {
 } from './hit-test';
 import {
   buildInsertElement,
+  type ShapeInsertStyleHook,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
 import { buildFreeformInit } from './interactions/insert-freeform';
@@ -368,6 +369,23 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Extra items appended to an element's context menu. `elementId` is the
+   * element under the pointer (it may be a group member), `selectedIds`
+   * the selection after the right-click resolved it. Prefix with a
+   * `'---'` separator item if the host wants one. Omitted on a slides
+   * mount, whose element menu is unchanged.
+   */
+  hostElementMenuItems?: (ctx: {
+    elementId: string;
+    selectedIds: readonly string[];
+  }) => ContextMenuItem[];
+  /**
+   * Starting fill + stroke for a shape inserted from the toolbar, a tool
+   * key or the canvas menu (see `ShapeInsertStyleHook`). Omitted on a
+   * slides mount, which keeps the theme-accent defaults.
+   */
+  shapeInsertStyle?: ShapeInsertStyleHook;
 }
 
 export interface SlidesEditor {
@@ -3268,6 +3286,12 @@ class SlidesEditorImpl implements SlidesEditor {
       this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
     const items = this.elementContextItems(slide.id);
+    if (this.options.hostElementMenuItems) {
+      items.push(...this.options.hostElementMenuItems({
+        elementId: hitResult.elementId,
+        selectedIds: this.selection.get(),
+      }));
+    }
     showContextMenu(document.body, items, clientX, clientY);
   }
 
@@ -3835,7 +3859,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // triggers buildInsertElement's click branch, which looks up the
     // per-kind default frame (rect → SHAPE_WIDE, ellipse →
     // SHAPE_SQUARE, etc.). Text uses its own fixed default box.
-    const init = buildInsertElement(kind, { x, y }, { x, y });
+    const init = buildInsertElement(kind, { x, y }, { x, y }, this.options.shapeInsertStyle);
     this.options.store.batch(() => {
       const id = this.options.store.addElement(slide.id, init);
       this.selection.set([id]);
@@ -5264,6 +5288,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.hoverPreview.kind,
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
+      this.options.shapeInsertStyle,
     );
     const ghost = { ...init, id: '__hover_preview__' } as Element;
     this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
@@ -5346,7 +5371,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent) => {
       const raw = this.clientToLogical(ev.clientX, ev.clientY);
       endPoint = ev.shiftKey ? constrainToSquare(start, raw) : raw;
-      const init = buildInsertElement(kind, start, endPoint);
+      const init = buildInsertElement(kind, start, endPoint, this.options.shapeInsertStyle);
       const ghost = { ...init, id: '__preview__' } as Element;
       this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
     };
@@ -5362,7 +5387,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // buildInsertElement handles the click-vs-drag distinction: if
       // the pointer barely moved, it returns a per-kind default-sized
       // frame anchored at `start`; otherwise it uses the drag rect.
-      const init = buildInsertElement(kind, start, endPoint);
+      const init = buildInsertElement(kind, start, endPoint, this.options.shapeInsertStyle);
       this.options.store.batch(() => {
         const id = this.options.store.addElement(slide.id, init);
         this.selection.set([id]);
