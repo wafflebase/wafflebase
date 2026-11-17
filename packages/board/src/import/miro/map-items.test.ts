@@ -26,6 +26,8 @@ describe('mapMiroItems', () => {
     expect(data.text.blocks[0].inlines.map((i: any) => i.text).join('')).toBe('Hi');
     // The board's sticky preset, so it gets the sticky controls.
     expect(isStickyData(data)).toBe(true);
+    // And the explicit marker, so a later restyle never demotes it.
+    expect(data.role).toBe('sticky');
   });
 
   it('does not make a Miro round-rectangle shape a sticky', () => {
