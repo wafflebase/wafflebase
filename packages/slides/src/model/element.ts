@@ -161,6 +161,12 @@ export type Stroke = {
   color: ThemeColor | string;
   width: number;
   dash?: 'solid' | 'dashed' | 'dotted';
+  /**
+   * Line cap and join. Absent ⇒ the renderer's historical default (butt
+   * caps, round joins). `'round'` rounds both ends, which is what makes
+   * marker ink look drawn rather than cut ↔ OOXML `<a:ln cap="rnd">`.
+   */
+  cap?: 'round';
 };
 
 /** @deprecated Use {@link Stroke} instead. Kept for type-level compatibility with ConnectorElement. */

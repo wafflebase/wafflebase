@@ -8,7 +8,7 @@ describe('buildFreeformInit', () => {
     expect(buildFreeformInit([{ x: 5, y: 5 }])).toBeNull();
   });
 
-  it('builds a stroke-only freeform from the captured bbox', () => {
+  it('builds a smoothed stroke-only freeform from the captured bbox', () => {
     const init = buildFreeformInit([
       { x: 100, y: 200 },
       { x: 150, y: 250 },
@@ -21,11 +21,11 @@ describe('buildFreeformInit', () => {
     expect(data.kind).toBe('freeform');
     expect(data.fill).toBeUndefined();
     expect(data.stroke?.width).toBe(2);
-    // First command is a moveTo, the rest are lineTo, all normalized [0,1].
+    // Midpoint quadratic smoothing: the captured middle point is the
+    // control point, the ends are hit exactly; all normalized [0,1].
     expect(data.path!.commands).toEqual([
       { c: 'M', x: 0, y: 0 },
-      { c: 'L', x: 0.5, y: 1 },
-      { c: 'L', x: 1, y: 0 },
+      { c: 'Q', x1: 0.5, y1: 1, x: 1, y: 0 },
     ]);
   });
 
@@ -37,10 +37,22 @@ describe('buildFreeformInit', () => {
     expect(init!.frame.h).toBe(1);
     expect(init!.frame.w).toBe(100);
     const data = (init as ShapeElement).data;
-    // All points collapse to y=0 (top of the thin frame); no NaN.
+    // Two points stay a straight line; all collapse to y=0, no NaN.
     expect(data.path!.commands).toEqual([
       { c: 'M', x: 0, y: 0 },
       { c: 'L', x: 1, y: 0 },
+    ]);
+  });
+
+  it('uses a host stroke and commits a tap as a dot when asked', () => {
+    const stroke = { color: '#ff0000', width: 8, cap: 'round' as const };
+    const init = buildFreeformInit([{ x: 10, y: 20 }], { stroke, allowDot: true });
+    expect(init).not.toBeNull();
+    const data = (init as ShapeElement).data;
+    expect(data.stroke).toEqual(stroke);
+    expect(data.path!.commands).toEqual([
+      { c: 'M', x: 0, y: 0 },
+      { c: 'L', x: 0, y: 0 },
     ]);
   });
 });

@@ -95,6 +95,7 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         activeKind={
           insertMode &&
           insertMode !== 'text' &&
+          insertMode !== 'eraser' &&
           !isLineToolKind(insertMode)
             ? insertMode
             : null

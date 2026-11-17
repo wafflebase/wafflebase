@@ -73,7 +73,13 @@ import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
-import { buildFreeformInit } from './interactions/insert-freeform';
+import { buildFreeformInit, DEFAULT_FREEFORM_STROKE } from './interactions/insert-freeform';
+import {
+  captureEraserDrag,
+  captureInkStroke,
+  type InkCaptureHost,
+} from './interactions/ink-capture';
+import { LiveInkLayer } from './live-ink-layer';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
@@ -152,7 +158,7 @@ import {
 } from './peers';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
-import { getActiveTheme } from '../canvas/render-context';
+import { getActiveTheme, resolveStrokeColor } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
 import {
   buildElementWorldLookup,
@@ -176,7 +182,12 @@ export type ConnectorInsertKind =
   | 'connector:elbow'
   | 'connector:curved';
 
-export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
+/**
+ * `'eraser'` is the stroke eraser: a drag deletes every freeform it
+ * crosses (`interactions/ink-capture.ts`). Inserts nothing; it is an
+ * insert mode only because it is armed, and disarmed, like one.
+ */
+export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind | 'eraser';
 
 /**
  * Floor for an auto-grown text box's frame height (logical px). Content
@@ -368,6 +379,22 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Insert kinds that stay armed after a placement instead of dropping
+   * back to Select — the board's marker (`'freeform'`) and `'eraser'`,
+   * which draw stroke after stroke. Esc mid-stroke then discards only
+   * that stroke; Esc with nothing in progress disarms. Omitted (Slides):
+   * every kind disarms after one placement, as before.
+   */
+  stickyInsertKinds?: readonly InsertKind[];
+  /**
+   * The stroke a new freehand (`'freeform'`) element gets, read at the
+   * start of each stroke — the board's marker / highlighter colour and
+   * width. Also lets a single tap commit a dot, and leaves the new stroke
+   * unselected so the next one can start at once. Omitted or `null`
+   * (Slides): the theme-text 2px scribble, selected after drawing.
+   */
+  getInkStroke?: () => Stroke | null;
 }
 
 export interface SlidesEditor {
@@ -757,6 +784,15 @@ export interface SlidesEditor {
   clearSelectionAndScope(): void;
 
   /**
+   * Discard a freehand stroke or eraser drag in progress, as Esc would,
+   * without disarming a sticky tool. For hosts that take the pointer
+   * stream away mid-gesture: the board's touch layer turns a second
+   * finger into a pinch, and the first finger's half-drawn stroke must
+   * not be committed. No-op when nothing is being drawn.
+   */
+  cancelInkStroke(): void;
+
+  /**
    * Preview the current slide's animations on the editor canvas.
    * Auto-plays every step back-to-back (unlike the presenter which
    * waits for clicks). The canvas returns to static render when done.
@@ -779,6 +815,10 @@ interface ListenerEntry<E extends Event = Event> {
 class SlidesEditorImpl implements SlidesEditor {
   readonly selection = new Selection();
   insertKind: InsertKind | null = null;
+  /** Live (uncommitted) ink strokes; created on first stroke. */
+  private liveInk: LiveInkLayer | null = null;
+  /** Aborts the freehand stroke / eraser drag in progress, if any. */
+  private inkAbort: (() => void) | null = null;
   private lastHoverCursor: string = '';
   private renderer: SlideRenderer;
   private listeners: ListenerEntry[] = [];
@@ -2891,6 +2931,11 @@ class SlidesEditorImpl implements SlidesEditor {
     // An in-flight move-drag or lasso holds document-level listeners
     // that would outlive this editor.
     this.abortCanvasGesture();
+    // So does a stroke or eraser drag; its live layer is a canvas
+    // the editor inserted next to the scene canvas.
+    this.inkAbort?.();
+    this.liveInk?.dispose();
+    this.liveInk = null;
     // Drop any active crop session, its in-flight drag listeners, and its
     // capture-phase key listener so a SlidesView remount starts clean.
     this.cropDragCleanup?.();
@@ -4978,7 +5023,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const kind = this.insertKind;
     // Freeform has no fixed-size ghost — the scribble preview is driven
     // by the live capture in `startScribbleInsert`, not a hover preview.
-    if (kind === null || kind === 'text' || kind === 'freeform') return;
+    if (kind === null || kind === 'text' || kind === 'freeform' || kind === 'eraser') return;
     // Connector insert modes: no shape-style hover ghost, but DO drive
     // the Task 13 connection-points affordance so the user sees where
     // their connector will attach before they even click. The live
@@ -5332,6 +5377,11 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
+    if (kind === 'eraser') {
+      this.startEraser(slide, start);
+      return;
+    }
+
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
@@ -5483,16 +5533,12 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * Freehand-scribble flow for the `'freeform'` insert kind. Captures
-   * pointer positions from mousedown to mouseup, paints a live ghost of
-   * the in-progress polyline through the same `forceRender` channel as
-   * the shape/connector previews, and commits a stroke-only freeform
-   * ShapeElement on release. ESC cancels (capture-phase pre-emption so
-   * the editor's own Esc keyrule doesn't also fire).
-   *
-   * Points are decimated by a small distance threshold so a slow drag
-   * doesn't accumulate hundreds of near-duplicate vertices in the
-   * stored path.
+   * Freehand flow for the `'freeform'` insert kind (Slides' Scribble,
+   * the board's marker / highlighter). The capture loop lives in
+   * `interactions/ink-capture.ts`: it paints the stroke in progress on
+   * the live-ink layer (never re-rendering the scene per move), and on
+   * release hands back the simplified points, committed here as one
+   * stroke-only freeform in one batch. Esc / pointercancel discard it.
    */
   private startScribbleInsert(
     slide: Slide,
@@ -5500,55 +5546,108 @@ class SlidesEditorImpl implements SlidesEditor {
   ): void {
     this.insertDragging = true;
     this.hoverPreview = null;
-    const points: { x: number; y: number }[] = [start];
-    let cancelled = false;
-    // Square of the minimum logical distance between retained points.
-    const MIN_POINT_DISTANCE_SQ = 4;
-    const onMove = (ev: MouseEvent) => {
-      const p = this.clientToLogical(ev.clientX, ev.clientY);
-      const last = points[points.length - 1];
-      const dx = p.x - last.x;
-      const dy = p.y - last.y;
-      if (dx * dx + dy * dy < MIN_POINT_DISTANCE_SQ) return;
-      points.push(p);
-      const init = buildFreeformInit(points);
-      if (!init) return;
-      const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
+    const hostStroke = this.options.getInkStroke?.() ?? null;
+    this.inkAbort = captureInkStroke(
+      this.inkCaptureHost('freeform'),
+      start,
+      this.activePointerId,
+      hostStroke ?? DEFAULT_FREEFORM_STROKE,
+      {
+        commit: (points) => {
+          const init = buildFreeformInit(points, {
+            stroke: hostStroke ?? undefined,
+            allowDot: hostStroke !== null,
+          });
+          if (!init) return;
+          this.options.store.batch(() => {
+            const id = this.options.store.addElement(slide.id, init);
+            // A host ink stroke stays unselected, so the next stroke (and
+            // the tool keys, which stand down on a selection) carry on.
+            this.selection.set(hostStroke !== null ? [] : [id]);
+          });
+          this.renderer.markDirty();
+          this.render();
+        },
+        end: (disarm) => this.endInkGesture(disarm),
+      },
+    );
+  }
+
+  /**
+   * Drag flow for the `'eraser'` insert kind: every top-level freeform
+   * the drag crosses vanishes at once and is deleted on release, in one
+   * batch (one undo). See `captureEraserDrag`.
+   */
+  private startEraser(slide: Slide, start: { x: number; y: number }): void {
+    this.insertDragging = true;
+    this.hoverPreview = null;
+    const doc = this.options.store.read();
+    this.inkAbort = captureEraserDrag(
+      {
+        ...this.inkCaptureHost('eraser'),
+        elements: slide.elements,
+        preview: (hidden) => {
+          this.renderer.forceRender(
+            { ...slide, elements: slide.elements.filter((e) => !hidden.has(e.id)) },
+            doc,
+          );
+        },
+        remove: (ids) => {
+          this.options.store.batch(() => {
+            this.options.store.removeElements(slide.id, ids);
+          });
+          this.selection.set(this.selection.get().filter((id) => !ids.includes(id)));
+          this.renderer.markDirty();
+          this.render();
+        },
+      },
+      start,
+      this.activePointerId,
+      { end: (disarm) => this.endInkGesture(disarm) },
+    );
+  }
+
+  private inkCaptureHost(kind: InsertKind): InkCaptureHost {
+    if (this.liveInk === null) {
+      this.liveInk = new LiveInkLayer({
+        canvas: this.options.canvas,
+        worldToCanvas: (p) => this.logicalToCanvas(p),
+        scale: () => this.scale(),
+        dpr: () => this.options.dpr,
+      });
+    }
+    const theme = getActiveTheme(this.options.store.read());
+    return {
+      clientToLogical: (x, y) => this.clientToLogical(x, y),
+      scale: () => this.scale(),
+      liveLayer: this.liveInk,
+      resolveColor: (color) => resolveStrokeColor(color, theme),
+      sticky: this.options.stickyInsertKinds?.includes(kind) ?? false,
     };
-    const cleanup = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('keydown', onKey, true);
-      this.insertDragging = false;
+  }
+
+  private endInkGesture(disarm: boolean): void {
+    this.inkAbort = null;
+    this.insertDragging = false;
+    if (disarm) this.setInsertMode(null);
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  cancelInkStroke(): void {
+    this.inkAbort?.();
+  }
+
+  /** Inverse of {@link clientToLogical}, in canvas-local CSS px. */
+  private logicalToCanvas(p: { x: number; y: number }): { x: number; y: number } {
+    const vp = this.options.viewport;
+    if (vp) return { x: p.x * vp.zoom + vp.panX, y: p.y * vp.zoom + vp.panY };
+    const scale = this.scale();
+    return {
+      x: (p.x + (this.options.slideOffsetLogicalX ?? 0)) * scale,
+      y: (p.y + (this.options.slideOffsetLogicalY ?? 0)) * scale,
     };
-    const onUp = () => {
-      cleanup();
-      if (cancelled) return; // ESC pressed mid-draw — discard.
-      const init = buildFreeformInit(points);
-      if (init) {
-        this.options.store.batch(() => {
-          const id = this.options.store.addElement(slide.id, init);
-          this.selection.set([id]);
-        });
-      }
-      this.setInsertMode(null);
-      this.renderer.markDirty();
-      this.render();
-    };
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== 'Escape') return;
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
-      cancelled = true;
-      cleanup();
-      this.setInsertMode(null);
-      this.renderer.markDirty();
-      this.render();
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('keydown', onKey, true);
   }
 
   private startLasso(clientX: number, clientY: number): void {

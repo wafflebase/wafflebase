@@ -1,28 +1,41 @@
 import type {
   ElementInit,
-  FreeformCommand,
   FreeformPath,
+  Stroke,
 } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
 import type { Point } from './insert';
+import { smoothedCommands } from './ink';
 
 /**
  * Freeform (scribble) insertion. Unlike the parametric shapes — which
  * use the rectangular drag-to-size flow in `buildInsertElement` — a
  * scribble is captured as a stream of pointer positions and committed
  * as a `'freeform'` ShapeElement whose `data.path` mirrors an OOXML
- * `<a:custGeom>` polyline. The geometry is stroke-only (no fill), the
+ * `<a:custGeom>` path. The geometry is stroke-only (no fill), the
  * Google-Slides / PowerPoint scribble default.
+ *
+ * The stored path is the captured points with midpoint quadratic
+ * smoothing (`ink.ts` `traceSmoothed`): `M`, then `Q`s whose control
+ * points are the captured points. That is what the live preview draws,
+ * and `Q` round-trips through PPTX as `<a:quadBezTo>`.
  *
  * Points are normalized to `[0, 1]` of the captured bounding box so the
  * stored path scales with the frame, exactly like an imported custGeom
- * (see `buildFreeformPath`).
+ * (see `buildFreeformPath`). A quadratic stays inside the hull of its
+ * control points, so the bbox of the points bounds the curve.
  */
 
 // Theme-bound so a scribble follows the deck palette like every other
 // inserted shape; users override via the Stroke picker.
 const STROKE_COLOR: ThemeColor = { kind: 'role', role: 'text' };
 const STROKE_WIDTH = 2;
+
+/** The stroke a scribble gets when the host supplies none. */
+export const DEFAULT_FREEFORM_STROKE: Stroke = {
+  color: STROKE_COLOR,
+  width: STROKE_WIDTH,
+};
 
 /**
  * Minimum frame extent (slide-logical px) on either axis. A perfectly
@@ -31,13 +44,28 @@ const STROKE_WIDTH = 2;
  */
 const MIN_SPAN = 1;
 
+export interface FreeformInitOptions {
+  /** Stroke for the new element. Defaults to {@link DEFAULT_FREEFORM_STROKE}. */
+  stroke?: Stroke;
+  /**
+   * Commit a single point as a dot (a zero-length segment a round cap
+   * paints as a disc). Off by default: a stray click in Slides' scribble
+   * mode commits nothing, as it always has.
+   */
+  allowDot?: boolean;
+}
+
 /**
  * Build the `ElementInit` for a freeform scribble from the captured
  * point stream. Returns `null` for a degenerate gesture (fewer than two
- * points) so a stray click in scribble mode commits nothing.
+ * points, unless `allowDot`) so a stray click commits nothing.
  */
-export function buildFreeformInit(points: readonly Point[]): ElementInit | null {
-  if (points.length < 2) return null;
+export function buildFreeformInit(
+  points: readonly Point[],
+  opts: FreeformInitOptions = {},
+): ElementInit | null {
+  if (points.length === 0) return null;
+  if (points.length < 2 && !opts.allowDot) return null;
 
   let minX = Infinity;
   let minY = Infinity;
@@ -53,12 +81,12 @@ export function buildFreeformInit(points: readonly Point[]): ElementInit | null 
   const w = Math.max(MIN_SPAN, maxX - minX);
   const h = Math.max(MIN_SPAN, maxY - minY);
 
-  const commands: FreeformCommand[] = points.map((p, i) => {
-    const x = (p.x - minX) / w;
-    const y = (p.y - minY) / h;
-    return i === 0 ? { c: 'M', x, y } : { c: 'L', x, y };
-  });
-  const path: FreeformPath = { commands };
+  const path: FreeformPath = {
+    commands: smoothedCommands(points, (p) => ({
+      x: (p.x - minX) / w,
+      y: (p.y - minY) / h,
+    })),
+  };
 
   return {
     type: 'shape',
@@ -66,7 +94,7 @@ export function buildFreeformInit(points: readonly Point[]): ElementInit | null 
     data: {
       kind: 'freeform',
       path,
-      stroke: { color: STROKE_COLOR, width: STROKE_WIDTH },
+      stroke: { ...(opts.stroke ?? DEFAULT_FREEFORM_STROKE) },
     },
   };
 }
