@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import { MemSlidesStore } from '../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
-import { drawSlide } from '../../../src/view/canvas/slide-renderer';
+import { drawSlide, SlideRenderer } from '../../../src/view/canvas/slide-renderer';
 
 /**
  * The editor host options the board's sections are built on. Each one is
@@ -96,6 +96,28 @@ describe('section host options', () => {
       store.undo();
       expect(frameOf(store, outer).x).toBe(100);
       expect(frameOf(store, inner).x).toBe(1000);
+    });
+
+    it('ghosts no companion the host marks unselectable (hidden contents)', () => {
+      const { canvas, overlay, store } = makeFixture();
+      addRect(store, 100, 100, 600, 400);
+      const shown = addRect(store, 1000, 800, 50, 50);
+      const covered = addRect(store, 1200, 800, 50, 50);
+      editor = initialize({
+        canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+        getCompanionMoveIds: () => [shown, covered],
+        getUnselectableIds: () => new Set([covered]),
+      });
+      const spy = vi.spyOn(SlideRenderer.prototype, 'forceRender');
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 150, clientY: 150, bubbles: true }));
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 250, clientY: 250, bubbles: true }));
+      const ghostIds = (spy.mock.calls.at(-1)?.[2] ?? []).map((g) => g.id);
+      document.dispatchEvent(new PointerEvent('pointerup', { clientX: 250, clientY: 250, bubbles: true }));
+      spy.mockRestore();
+      expect(ghostIds).toContain(shown);
+      expect(ghostIds).not.toContain(covered);
+      // It still moves.
+      expect(frameOf(store, covered).x).not.toBe(1200);
     });
 
     it('nudges companions with an arrow key', () => {

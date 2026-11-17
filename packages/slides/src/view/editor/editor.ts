@@ -5704,7 +5704,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // delta, same ghost pass, same batch. Root scope only — a group
     // drill-in moves children in group-local space.
     const movingIds = new Set(selectedIds);
+    // Companions the host also marks unselectable (a hidden section's
+    // covered contents) move without a ghost: a translucent preview
+    // painted over the cover would reveal what the cover hides.
+    const unghosted = new Set<string>();
     if (scope.length === 0 && this.options.getCompanionMoveIds) {
+      const unselectable = this.options.getUnselectableIds?.(startSlide);
       for (const id of this.options.getCompanionMoveIds([...selectedIds], startSlide)) {
         if (movingIds.has(id)) continue;
         const el = startSlide.elements.find((e) => e.id === id);
@@ -5712,6 +5717,7 @@ class SlidesEditorImpl implements SlidesEditor {
         movingIds.add(id);
         originalWorldFrames.set(id, el.frame);
         originals.set(id, el);
+        if (unselectable?.has(id)) unghosted.add(id);
       }
     }
 
@@ -5825,6 +5831,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
       const ghosts: Element[] = [];
       for (const el of originals.values()) {
+        if (unghosted.has(el.id)) continue;
         if (el.type === 'connector') {
           ghosts.push({
             ...el,
