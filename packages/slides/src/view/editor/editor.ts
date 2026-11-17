@@ -360,7 +360,7 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * — board-only menu entries have no reason to each earn their own
    * editor option.
    */
-  hostCanvasMenuItems?: () => ContextMenuItem[];
+  hostCanvasMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
   /**
    * Extra insert entries, listed first in the empty-canvas menu's
    * "Insert …" group so a host object (the board's sticky note) sits with
@@ -368,6 +368,14 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Extra items appended to an element's context menu (after the arrange
+   * group), read when the menu opens. `at` is the right-clicked point in
+   * logical (world) coordinates; the selection has already been resolved
+   * to the clicked element. The board's "Comment" entry uses it. A slides
+   * mount omits it and the element menu is unchanged.
+   */
+  hostElementMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
 }
 
 export interface SlidesEditor {
@@ -730,6 +738,15 @@ export interface SlidesEditor {
    * of which the host holds.
    */
   hasContentAt(clientX: number, clientY: number): boolean;
+
+  /**
+   * The id of the TOP-LEVEL element under this viewport coordinate (the
+   * outermost group when the hit lands inside one), or `null` over empty
+   * canvas. Same hit-test as {@link hasContentAt}, minus selection
+   * handles. For hosts that annotate whole elements (the board's stamps,
+   * votes and comment pins) and so must not drill into a group.
+   */
+  topLevelElementAt(clientX: number, clientY: number): string | null;
 
   /**
    * Open the context menu for whatever is at this viewport coordinate,
@@ -3267,11 +3284,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.selection.click(hitResult, {});
       this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
-    const items = this.elementContextItems(slide.id);
+    const items = this.elementContextItems(slide.id, { x, y });
     showContextMenu(document.body, items, clientX, clientY);
   }
 
-  private elementContextItems(slideId: string): ContextMenuItem[] {
+  private elementContextItems(
+    slideId: string,
+    at?: { x: number; y: number },
+  ): ContextMenuItem[] {
     // Selection has already been resolved by `onContextMenu` (right-click)
     // through the drill-in state machine. We DO NOT set it here — calling
     // `selection.set([leafId])` would bypass drill-in rules and leave the
@@ -3357,6 +3377,9 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+      ...(at && this.options.hostElementMenuItems
+        ? this.options.hostElementMenuItems(at)
+        : []),
     ];
   }
 
@@ -3788,7 +3811,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // slide-scoped block below, so the separator that block opens with
     // still reads as dividing document actions from slide actions.
     if (this.options.hostCanvasMenuItems) {
-      items.push(...this.options.hostCanvasMenuItems());
+      items.push(...this.options.hostCanvasMenuItems({ x, y }));
     }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
@@ -6094,6 +6117,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return false;
     const { x, y } = this.clientToLogical(clientX, clientY);
     return this.hitTestAt(slide, x, y) !== null;
+  }
+
+  topLevelElementAt(clientX: number, clientY: number): string | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const hit = this.hitTestAt(slide, x, y);
+    if (!hit) return null;
+    return hit.ancestorPath[0] ?? hit.elementId;
   }
 
   private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {

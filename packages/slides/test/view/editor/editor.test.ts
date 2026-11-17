@@ -3373,6 +3373,39 @@ describe('Editor snap to grid (host-supplied step)', () => {
     expect(p2.y - p1.y).toBeGreaterThan(0);
     expect((p2.x - p1.x) / (p2.y - p1.y)).toBeCloseTo(100 / 40);
   });
+
+  it('appends host element items to an element menu, with the clicked point', () => {
+    const { canvas, overlay, store } = withShape();
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Comment', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostElementMenuItems: items,
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 150, clientY: 150, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const lis = [...menu.querySelectorAll('li')];
+    const labels = lis.map((li) => li.textContent?.trim());
+    // Last, after the arrange group.
+    expect(labels[labels.length - 1]).toBe('Comment');
+    expect(labels).toContain('Send to back');
+    lis[lis.length - 1].click();
+    expect(run).toHaveBeenCalledTimes(1);
+    const [at] = items.mock.calls[0] as unknown as [{ x: number; y: number }];
+    expect(Number.isFinite(at.x) && Number.isFinite(at.y)).toBe(true);
+  });
+
+  it('topLevelElementAt names the element under a point, or null', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    const id = store.read().slides[0].elements[0].id;
+    expect(editor.topLevelElementAt(150, 150)).toBe(id);
+    expect(editor.topLevelElementAt(5, 5)).toBeNull();
+  });
 });
 
 describe('Editor snap to grid — gesture gating and multi-selection', () => {
