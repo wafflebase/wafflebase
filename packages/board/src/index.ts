@@ -4,3 +4,4 @@ export * from './import/miro/map-items';
 export * from './import/miro/connector-sites';
 export * from './import/miro/types';
 export * from './model/sticky';
+export * from './model/section';

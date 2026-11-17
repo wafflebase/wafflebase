@@ -107,6 +107,11 @@ export interface BoardMinimapDeps {
    * to the theme's `--card`.
    */
   planeBackground?: string;
+  /**
+   * Host paint pass over the scene, in world coordinates at minimap scale
+   * `zoom` (the board covers hidden sections here).
+   */
+  paintAfterElements?: (ctx: CanvasRenderingContext2D, slide: Slide, zoom: number) => void;
 }
 
 export interface BoardMinimap {
@@ -194,13 +199,17 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
       blit();
       return;
     }
-    lastFit = fitScene(bounds, { w: MINI_W, h: MINI_H });
+    const fit = fitScene(bounds, { w: MINI_W, h: MINI_H });
+    lastFit = fit;
     renderThumbnail(snapCtx, slide, doc, {
       hostWidth: MINI_W,
       hostHeight: MINI_H,
       dpr,
-      viewport: { zoom: lastFit.scale, panX: lastFit.offsetX, panY: lastFit.offsetY },
+      viewport: { zoom: fit.scale, panX: fit.offsetX, panY: fit.offsetY },
       cull: false,
+      paintAfterElements: deps.paintAfterElements
+        ? (c, s) => deps.paintAfterElements!(c, s, fit.scale)
+        : undefined,
     }, () => scheduleScene());
     blit();
   };

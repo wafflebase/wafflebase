@@ -1,6 +1,6 @@
 import type { Element, Frame } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
-import type { InsertKind } from '../editor';
+import type { InsertKind, SlidesEditorOptions } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
 import { findElementPath } from '../../../model/group';
@@ -115,6 +115,10 @@ export interface KeyboardContext {
     bounds: Frame,
     kind: 'paste' | 'duplicate',
   ) => { dx: number; dy: number };
+  /** Mirrors `SlidesEditorOptions.getCompanionMoveIds`, for arrow nudge. */
+  getCompanionMoveIds?: SlidesEditorOptions['getCompanionMoveIds'];
+  /** Mirrors `SlidesEditorOptions.getUnselectableIds`, for Mod+A. */
+  getUnselectableIds?: SlidesEditorOptions['getUnselectableIds'];
 }
 
 /** The slides paste / duplicate offset: just off the source. */
@@ -288,8 +292,19 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           const slideId = ctx.currentSlideId();
           if (!slideId) return;
           const scope = ctx.selection.getScope();
+          // Host companions (a board section's contents) nudge with the
+          // selection, in the same batch. Root scope only, as for drag.
+          const moving = [...ctx.selection.get()];
+          if (scope.length === 0 && ctx.getCompanionMoveIds) {
+            const root = ctx.store.read().slides.find((s) => s.id === slideId);
+            if (root) {
+              for (const id of ctx.getCompanionMoveIds(moving, root)) {
+                if (!moving.includes(id)) moving.push(id);
+              }
+            }
+          }
           ctx.store.batch(() => {
-            for (const id of ctx.selection.get()) {
+            for (const id of moving) {
               const slide = ctx.store.read().slides.find((s) => s.id === slideId);
               if (!slide) continue;
               // Find element anywhere in the tree (supports drilled-in scope).
@@ -548,7 +563,12 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const slide = currentSlide(ctx);
         if (!slide || slide.elements.length === 0) return;
         e.preventDefault();
-        ctx.selection.set(slide.elements.map((el) => el.id));
+        const unselectable = ctx.getUnselectableIds?.(slide);
+        ctx.selection.set(
+          slide.elements
+            .map((el) => el.id)
+            .filter((id) => !unselectable?.has(id)),
+        );
         ctx.requestRender();
       },
     },

@@ -88,6 +88,17 @@ export interface SlideRendererOptions {
    * group children. Absent (every slides mount) ⇒ nothing extra painted.
    */
   decorateElement?: (ctx: CanvasRenderingContext2D, element: Element) => void;
+  /**
+   * Host paint pass run after every element and before drag ghosts, with
+   * the world transform still applied (so it draws in slide-logical /
+   * board-world coordinates). The board paints section titles and the
+   * cover of a hidden section here. Omitted on slides, where nothing runs.
+   */
+  paintAfterElements?: (
+    ctx: CanvasRenderingContext2D,
+    slide: Slide,
+    doc: SlidesDocument,
+  ) => void;
 }
 
 /**
@@ -367,6 +378,12 @@ export function drawSlide(
       undefined, undefined, animStates?.get(element.id), paintOpts,
     );
     options.decorateElement?.(ctx, element);
+  }
+
+  if (options.paintAfterElements) {
+    ctx.save();
+    options.paintAfterElements(ctx, slide, doc);
+    ctx.restore();
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {
