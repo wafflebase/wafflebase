@@ -61,17 +61,23 @@ test("the board rubric names EVERY control the harness leaves unwired", () => {
   // Same guard the sheet rubric gets, for the same reason: a charter claim about which
   // controls are inert is a claim with an expiry date, and the sheet's went stale silently
   // (it said FOUR when there were five) until a live run spent two verifier sessions on
-  // `Paint format`. Pinned against `BoardToolbarProps`' OPTIONAL callback props, which is
-  // what "unwired here" means — the harness passes the required ones and omits these.
-  const toolbar = readFileSync(
-    path.join(HERE, "..", "..", "packages", "frontend", "src", "app", "board", "board-toolbar.tsx"),
-    "utf8",
-  );
-  const propsStart = toolbar.indexOf("interface BoardToolbarProps");
-  assert.ok(propsStart > 0, "could not find BoardToolbarProps — the pattern has gone stale");
-  const propsBlock = toolbar.slice(propsStart, toolbar.indexOf("}", propsStart));
-  const optional = [...propsBlock.matchAll(/^\s+(on[A-Z]\w*)\?:/gm)].map((m) => m[1]);
-  assert.ok(optional.length > 0, "parsed no optional callbacks out of BoardToolbarProps");
+  // `Paint format`. Pinned against the OPTIONAL callback props of `BoardToolbarProps` and
+  // `BoardToolDockProps` (the insert tools moved into the bottom dock), which is what
+  // "unwired here" means — the harness passes the required ones and omits these.
+  const optional = [
+    ["board-toolbar.tsx", "BoardToolbarProps"],
+    ["board-tool-dock.tsx", "BoardToolDockProps"],
+  ].flatMap(([file, iface]) => {
+    const source = readFileSync(
+      path.join(HERE, "..", "..", "packages", "frontend", "src", "app", "board", file),
+      "utf8",
+    );
+    const propsStart = source.indexOf(`interface ${iface}`);
+    assert.ok(propsStart > 0, `could not find ${iface} — the pattern has gone stale`);
+    const propsBlock = source.slice(propsStart, source.indexOf("\n}", propsStart));
+    return [...propsBlock.matchAll(/^\s+(on[A-Z]\w*)\?:/gm)].map((m) => m[1]);
+  });
+  assert.ok(optional.length > 0, "parsed no optional callbacks out of the board toolbar or dock");
 
   const rubric = loadPersonas(CHARTERS_UI).find((p) => p.id === "board-author").rubric;
   const labels = { onInsertSticky: "Sticky note", onInsertImage: "Insert image" };
@@ -83,7 +89,7 @@ test("the board rubric names EVERY control the harness leaves unwired", () => {
 });
 
 test("the board rubric's control counts match what the toolbar can render", () => {
-  // The charter quotes "7 controls" idle and "12" with a selection, and names each of the five
+  // The charter names each of the five
   // that appear on selection. Those numbers came from a live reading and would otherwise rot
   // in silence, so pin the part that is checkable statically: every control the charter names
   // as appearing on selection must actually exist in the toolbar source.

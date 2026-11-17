@@ -16,12 +16,13 @@ after looking is not evidence of anything.
 **START BY READING `dom.controls`.** It lists every control you can click right now, as
 the exact `{role, name}` pairs a click target takes, so you never have to guess a name.
 
-**THEN READ IT AGAIN AFTER YOU SELECT SOMETHING.** This toolbar MORPHS. Measured: with
-nothing selected it offers 7 controls (`Grid: None`, `Line`, `Select`, `Shape`,
-`Sticky note`, `Sticky note color`, `Text box`). Select an element and it offers 12 —
-`Arrange`, `Border color`, `Border dash`, `Border weight` and `Fill color` appear. Every
-object control you actually want is in the second list, so a run that reads `dom.controls`
-once at rest concludes the surface has no formatting controls at all.
+**THEN READ IT AGAIN AFTER YOU SELECT SOMETHING.** This toolbar MORPHS. With nothing
+selected the top bar offers the view controls (`Grid: None`) and the insert tools sit in a
+dock at the bottom of the canvas (`Select`, `Sticky note`, `Sticky note color`, `Text box`,
+`Shape`, `Line`, `Eraser`; the dock's other tools are disabled here). Select an element and
+`Arrange`, `Border color`, `Border dash`, `Border weight` and `Fill color` appear in the top
+bar. Every object control you actually want is in the second list, so a run that reads
+`dom.controls` once at rest concludes the surface has no formatting controls at all.
 
 **A `violated` verdict is the only thing that starts an investigation.** Not a feeling
 that something looked odd — you cannot see the board, and you have no screenshot. You
@@ -93,7 +94,7 @@ window could have changed it.
 - **`Sticky note` AND `Sticky note color` DO NOTHING HERE.** They reach the toolbar through an
   optional callback this harness does not supply. Measured: clicking `Sticky note`, with and
   without a following drag, leaves `board.elementCount` unchanged. They are unwired here only,
-  not broken. `Insert image` is absent from the toolbar entirely for the same reason.
+  not broken. `Insert image` is disabled in the dock for the same reason.
 - **`Shape` AND `Text box` DO WORK, and they need a drag.** Measured: either one, then a drag
   across empty space, adds exactly one element. A click alone adds nothing.
 - **THE GRID CONTROLS ARE REAL.** `Grid` and its snap checkbox are wired to actual state here,

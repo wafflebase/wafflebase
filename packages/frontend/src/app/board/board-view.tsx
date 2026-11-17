@@ -37,6 +37,7 @@ import { allowClickThroughDismiss } from "./board-click-through";
 import { BoardSpotlightToggle, BoardTimerChip, BoardTimerControl } from "./board-collab-controls";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
+import { BoardToolDock } from "./board-tool-dock";
 import {
   STICKY_COLORS,
   dropStickyAt,
@@ -1382,9 +1383,6 @@ export function BoardView({
           editor={editor}
           store={store}
           zoomController={zoomController}
-          hand={hand}
-          ink={ink}
-          drawingTools={drawingTools}
           gridKind={gridKind}
           onGridKindChange={(kind) => {
             setGridKind(kind);
@@ -1392,13 +1390,7 @@ export function BoardView({
           }}
           gridSnap={gridSnap}
           onGridSnapChange={(next) => setGridSnapRef.current(next)}
-          onInsertSticky={(color) => stickyInserterRef.current?.(color)}
-          onInsertImage={(file) => imageInserterRef.current?.(file)}
           sections={sections}
-          disabled={!workspaceId}
-          extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
-          extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
-          disarmExtraTools={() => collab?.tool.setMode("none")}
           collabControls={
             <>
               <BoardTimerControl store={store} disabled={!editor} />
@@ -1424,7 +1416,24 @@ export function BoardView({
           menuRef={ritualMenusRef}
           navigateRef={navigateRef}
         />
-        {isEmpty && !readOnly && <BoardEmptyHint />}
+        {isEmpty && !readOnly && <BoardEmptyHint workspaceId={workspaceId} />}
+        {/* The insert tools, floating bottom-centre (FigJam, Miro); hidden
+            for viewers like the toolbar. See `board-tool-dock.tsx`. */}
+        {!readOnly && (
+          <BoardToolDock
+            editor={editor}
+            hand={hand}
+            ink={ink}
+            drawingTools={drawingTools}
+            sections={sections}
+            disabled={!workspaceId}
+            onInsertSticky={(color) => stickyInserterRef.current?.(color)}
+            onInsertImage={(file) => imageInserterRef.current?.(file)}
+            extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
+            extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
+            disarmExtraTools={() => collab?.tool.setMode("none")}
+          />
+        )}
         <BoardExportMenu store={store} editor={editor} title={title || "Board"} />
         {findOpen && nav && store && (
           <BoardFindBox

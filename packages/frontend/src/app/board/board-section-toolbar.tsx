@@ -38,72 +38,82 @@ import {
 } from "./board-sections";
 
 /**
- * The section entries of the board toolbar's insert block: the section
- * tool (Shift+S) and the sections list, which frames a section on click.
+ * The section tool (Shift+S), an insert tool: it lives in the board's
+ * tool dock.
  */
-export function SectionToolItems({
+export function SectionToolToggle({
   sections,
-  store,
   disabled,
 }: {
   sections: BoardSections | null;
-  store: SlidesStore | null;
   disabled?: boolean;
 }) {
   const armed = useSectionToolArmed(sections);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          pressed={armed}
+          onPressedChange={(pressed) => sections?.tool.set(pressed)}
+          aria-label="Section"
+          disabled={disabled || !sections}
+        >
+          <IconFrame size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>Section (Shift+S)</TooltipContent>
+    </Tooltip>
+  );
+}
 
+/**
+ * The sections list, which frames a section on click. Navigation rather
+ * than insertion, so it stays in the top bar beside Zoom.
+ */
+export function SectionsListMenu({
+  sections,
+  store,
+}: {
+  sections: BoardSections | null;
+  store: SlidesStore | null;
+}) {
   // Read when the menu opens, not per render: the list is only needed then.
   const [open, setOpen] = useState(false);
   const list = open && store ? listSections(readElements(store)) : [];
 
   return (
-    <>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={armed}
-            onPressedChange={(pressed) => sections?.tool.set(pressed)}
-            aria-label="Section"
-            disabled={disabled || !sections}
-          >
-            <IconFrame size={16} />
-          </Toggle>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              aria-label="Sections"
+              disabled={!sections || !store}
+            >
+              <IconListDetails size={16} />
+            </Button>
+          </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>Section (Shift+S)</TooltipContent>
+        <TooltipContent>Sections</TooltipContent>
       </Tooltip>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2"
-                aria-label="Sections"
-                disabled={!sections || !store}
-              >
-                <IconListDetails size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Sections</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" className="max-h-80 min-w-48 overflow-y-auto">
-          <DropdownMenuLabel>Sections</DropdownMenuLabel>
-          {list.length === 0 && (
-            <DropdownMenuItem disabled>No sections yet</DropdownMenuItem>
-          )}
-          {list.map(({ id, meta }) => (
-            <DropdownMenuItem key={id} onSelect={() => sections?.goTo(id)}>
-              <span className="truncate">{meta.title.trim() || "Untitled section"}</span>
-              {meta.locked && <IconLock size={14} aria-label="Locked" className="ml-auto opacity-60" />}
-              {meta.hidden && <IconEyeOff size={14} aria-label="Hidden" className={cn(!meta.locked && "ml-auto", "opacity-60")} />}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
+      <DropdownMenuContent align="start" className="max-h-80 min-w-48 overflow-y-auto">
+        <DropdownMenuLabel>Sections</DropdownMenuLabel>
+        {list.length === 0 && (
+          <DropdownMenuItem disabled>No sections yet</DropdownMenuItem>
+        )}
+        {list.map(({ id, meta }) => (
+          <DropdownMenuItem key={id} onSelect={() => sections?.goTo(id)}>
+            <span className="truncate">{meta.title.trim() || "Untitled section"}</span>
+            {meta.locked && <IconLock size={14} aria-label="Locked" className="ml-auto opacity-60" />}
+            {meta.hidden && <IconEyeOff size={14} aria-label="Hidden" className={cn(!meta.locked && "ml-auto", "opacity-60")} />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -49,6 +49,12 @@ export interface BoardInkControlsProps {
   disabled?: boolean;
   /** The laser pointer (Shift+K), toggled from the popover. */
   laser?: ToggleTool | null;
+  /**
+   * Whether the Eraser toggle follows the pen. Omitted: it does. The
+   * dock's compact (phone) layout sets it false and offers
+   * `BoardEraserToggle` under "More" instead.
+   */
+  withEraser?: boolean;
 }
 
 /**
@@ -65,6 +71,7 @@ export function BoardInkControls({
   insertMode,
   disabled,
   laser = null,
+  withEraser = true,
 }: BoardInkControlsProps) {
   const [state, setState] = useState(() => ink?.get() ?? null);
   useEffect(() => {
@@ -203,22 +210,35 @@ export function BoardInkControls({
         </Popover>
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === "eraser"}
-            onPressedChange={(pressed) =>
-              editor?.setInsertMode(pressed ? "eraser" : null)
-            }
-            aria-label="Eraser"
-            disabled={disabled || !editor}
-          >
-            <IconEraser size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Eraser ({INK_HINTS.eraser})</TooltipContent>
-      </Tooltip>
+      {withEraser && (
+        <BoardEraserToggle editor={editor} insertMode={insertMode} disabled={disabled} />
+      )}
     </>
+  );
+}
+
+/** The Eraser toggle (Shift+E): drag across strokes to remove them. */
+export function BoardEraserToggle({
+  editor,
+  insertMode,
+  disabled,
+}: Pick<BoardInkControlsProps, "editor" | "insertMode" | "disabled">) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          pressed={insertMode === "eraser"}
+          onPressedChange={(pressed) =>
+            editor?.setInsertMode(pressed ? "eraser" : null)
+          }
+          aria-label="Eraser"
+          disabled={disabled || !editor}
+        >
+          <IconEraser size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>Eraser ({INK_HINTS.eraser})</TooltipContent>
+    </Tooltip>
   );
 }

@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
-import { Toggle } from "@/components/ui/toggle";
+import { useEffect, useMemo, useState } from "react";
+import type { SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
@@ -8,19 +7,10 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import {
-  IconPointer,
-  IconHandStop,
-  IconLetterT,
-  IconNote,
-  IconPhoto,
-  IconGrid3x3,
-  IconChevronDown,
-} from "@tabler/icons-react";
+import { IconGrid3x3, IconChevronDown } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
@@ -28,9 +18,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ShapePicker } from "../slides/shape-picker";
-import { LinePicker } from "../slides/line-picker";
-import { isLineToolKind } from "../slides/line-picker-helpers";
 import type { ZoomController } from "../slides/zoom-controller";
 import { getToolbarState, type ToolbarState } from "../slides/toolbar/state";
 import { UndoRedoGroup } from "../slides/toolbar/global-controls";
@@ -41,26 +28,19 @@ import { TextElementControls } from "../slides/toolbar/text-element-controls";
 import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
-import { STICKY_COLORS, isStickyElement } from "./sticky";
+import { isStickyElement } from "./sticky";
 import { StickyControls } from "./sticky-controls";
-import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
-import type { HandTool } from "./board-hand";
 import { isSectionElement } from "@wafflebase/board";
-import { useSectionToolArmed, type BoardSections } from "./board-sections";
-import { SectionControls, SectionToolItems } from "./board-section-toolbar";
-import {
-  BOARD_LINE_EXCLUDE,
-  BOARD_LINE_LABELS,
-  BOARD_LINE_NONE_LABEL,
-} from "./board-vocabulary";
+import { type BoardSections } from "./board-sections";
+import { SectionControls, SectionsListMenu } from "./board-section-toolbar";
+import { BOARD_LINE_NONE_LABEL } from "./board-vocabulary";
 import { TIDY_UP_SHORTCUT, tidyUpSelection } from "./board-tidy";
-import type { InkTool } from "./board-ink";
-import { BoardInkControls } from "./board-ink-controls";
-import { BoardLassoToggle } from "./board-drawing-controls";
-import { useToggleOn } from "./use-toggle-on";
-import type { DrawingTools } from "./board-drawing-extras";
+
+// Re-exported so a host that lazy-loads the toolbar (the hunt harness) gets
+// the dock from the same chunk.
+export { BoardToolDock } from "./board-tool-dock";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -76,12 +56,6 @@ export interface BoardToolbarProps {
    */
   store?: SlidesStore | null;
   zoomController?: ZoomController | null;
-  /** The hand (drag-to-pan) tool, shared with the board's `H` key. */
-  hand?: HandTool | null;
-  /** The marker / highlighter pen choice, shared with the M keys. */
-  ink?: InkTool | null;
-  /** The laser pointer and lasso-select toggles (`board-drawing-extras.ts`). */
-  drawingTools?: DrawingTools | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -101,25 +75,9 @@ export interface BoardToolbarProps {
    */
   gridSnap: boolean;
   onGridSnapChange: (snap: boolean) => void;
-  disabled?: boolean;
-  /** Drop a sticky of the given fill color at the viewport center. */
-  onInsertSticky?: (colorValue: string) => void;
-  /** Upload + insert the picked/pasted/dropped file at the viewport center. */
-  onInsertImage?: (file: File) => void;
-  /** Board sections: the section tool, the sections list, section controls. */
+  /** Board sections: the sections list and the section controls. */
   sections?: BoardSections | null;
-  /** Board tools owned outside this file (stamps / voting / comments), after Line. */
-  extraTools?: ReactNode;
-  /** One of `extraTools` is armed, so Select is not the live tool. */
-  extraToolArmed?: boolean;
-  /**
-   * Disarms `extraTools`; called when Select is clicked. Deliberately not
-   * an `on*` name: it is plumbing between two tool owners, not a control
-   * a host may leave unwired (the UI-hunter rubric treats every optional
-   * `on*` prop as one, see `scripts/agent-arms/hunt-ui.test.mjs`).
-   */
-  disarmExtraTools?: () => void;
-  /** Facilitation controls (timer, Spotlight), after the insert tools. */
+  /** Facilitation controls (timer, Spotlight), after the view controls. */
   collabControls?: React.ReactNode;
 }
 
@@ -127,19 +85,15 @@ export interface BoardToolbarProps {
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Hand][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾][Sections ▾] │ [Timer][Spotlight] │ ‹contextual›
  * ```
  *
- * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
- * against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
- * `onInsertModeChange` API, minus the one control that doesn't apply to a
- * board:
- *
- * - Table insert is deliberately never exposed here: `YorkieBoardStore`
- *   throws `notSupported()` on the table-editing ops (`insertTableRow`
- *   etc.) a table element's handlers call, and board paste already
- *   strips tables on the way in. Surfacing `<TablePicker>` would let a
- *   user create a table that then crashes as soon as it's edited.
+ * The insert tools live in the bottom-centre tool dock
+ * (`board-tool-dock.tsx`), FigJam's and Miro's arrangement: this bar keeps
+ * the view and the controls for whatever is selected. Table insert is
+ * offered in neither: `YorkieBoardStore` throws `notSupported()` on the
+ * table-editing ops a table element's handlers call, and board paste
+ * strips tables on the way in.
  *
  * The contextual zone reuses the slides toolbar's LEAF controls, routed
  * off the same `getToolbarState`. The slides SHELLS (`SlidesToolbar` /
@@ -151,33 +105,16 @@ export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
-  hand = null,
-  ink = null,
-  drawingTools = null,
   gridKind,
   onGridKindChange,
   gridSnap,
   onGridSnapChange,
-  disabled,
-  onInsertSticky,
-  onInsertImage,
   sections = null,
-  extraTools,
-  extraToolArmed = false,
-  disarmExtraTools,
   collabControls,
 }: BoardToolbarProps) {
-  const sectionArmed = useSectionToolArmed(sections);
-  const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
   );
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // Color chosen from the palette, applied in `onCloseAutoFocus` (below) so
-  // the sticky is created only after Radix has finished closing the menu —
-  // and with focus restoration prevented, so the new sticky's text caret
-  // keeps focus instead of the dropdown trigger stealing it back.
-  const pendingStickyColor = useRef<string | null>(null);
 
   // Hand focus back to the board after a pointer interaction with the
   // toolbar (issue #882), as the slides toolbar does. The hook leaves a
@@ -185,21 +122,6 @@ export function BoardToolbar({
   // still activates it; after a mouse click, Space pans — FigJam's
   // behaviour, and what a board user reaches for.
   useCanvasFocusRelease();
-
-  const laserOn = useToggleOn(drawingTools?.laser);
-  const lassoOn = useToggleOn(drawingTools?.lasso);
-  const [handOn, setHandOn] = useState(() => hand?.get() ?? false);
-  useEffect(() => {
-    if (!hand) return;
-    setHandOn(hand.get());
-    return hand.subscribe(() => setHandOn(hand.get()));
-  }, [hand]);
-
-  useEffect(() => {
-    if (!editor) return;
-    setInsertMode(editor.getInsertMode());
-    return editor.onInsertModeChange(() => setInsertMode(editor.getInsertMode()));
-  }, [editor]);
 
   // Contextual state: which leaf controls the selection/text-edit state
   // calls for. `onCurrentSlideChange` / `onCellSelectionChange` are
@@ -338,206 +260,9 @@ export function BoardToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <ToolbarSeparator className="mx-1" />
-      {/* Select — pressed when insertMode === null (Esc/default state).
-          onClick rather than onPressedChange so a second click while
-          already in select mode is a no-op instead of toggling to
-          undefined. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={
-              insertMode === null && !handOn && !sectionArmed && !extraToolArmed &&
-              !laserOn && !lassoOn
-            }
-            onClick={() => {
-              drawingTools?.laser.set(false);
-              drawingTools?.lasso.set(false);
-              hand?.set(false);
-              sections?.tool.set(false);
-              editor?.setInsertMode(null);
-              disarmExtraTools?.();
-            }}
-            aria-label="Select"
-            disabled={disabled || !editor}
-          >
-            <IconPointer size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
-      </Tooltip>
-      <BoardLassoToggle tool={drawingTools?.lasso ?? null} disabled={disabled || !editor} />
-
-      {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
-          arming it disarms any insert tool, and vice versa. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={handOn}
-            onPressedChange={(pressed) => hand?.set(pressed)}
-            aria-label="Hand"
-            disabled={!hand || !editor}
-          >
-            <IconHandStop size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Hand ({TOOL_HINTS.hand})</TooltipContent>
-      </Tooltip>
-
-      {/* Text box */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === "text"}
-            onPressedChange={(pressed) =>
-              editor?.setInsertMode(pressed ? "text" : null)
-            }
-            aria-label="Text box"
-            disabled={disabled || !editor}
-          >
-            <IconLetterT size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Text box ({TOOL_HINTS.text})</TooltipContent>
-      </Tooltip>
-
-      {/* Sticky note ▾ — main click drops the first (yellow) color;
-          chevron opens the 6-color palette. Placement + text-edit entry
-          is board-local (dropStickyAtViewportCenter), not an editor
-          InsertKind, so the slides editor is untouched. */}
-      <div className="flex items-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2"
-              aria-label="Sticky note"
-              disabled={disabled || !editor}
-              onClick={() => onInsertSticky?.(STICKY_COLORS[0].value)}
-            >
-              <IconNote size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
-        </Tooltip>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 w-5 px-0"
-              aria-label="Sticky note color"
-              disabled={disabled || !editor}
-            >
-              <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="flex gap-1 p-1"
-            onCloseAutoFocus={(e) => {
-              const color = pendingStickyColor.current;
-              if (!color) return;
-              pendingStickyColor.current = null;
-              // Skip Radix's default focus restore to the trigger — otherwise
-              // it steals focus from the sticky's text caret that
-              // `dropStickyAtViewportCenter` (via onInsertSticky) just entered.
-              e.preventDefault();
-              onInsertSticky?.(color);
-            }}
-          >
-            {STICKY_COLORS.map((c) => (
-              <DropdownMenuItem
-                key={c.value}
-                aria-label={c.name}
-                title={c.name}
-                // Rendered into a portal, so the toolbar root's coarse
-                // rule does not reach it. 28px matches every other
-                // toolbar target; coarse pointers get 44px.
-                className="size-7 rounded border border-black/15 p-0 pointer-coarse:size-11"
-                style={{ backgroundColor: c.value }}
-                onSelect={() => {
-                  // Defer the actual insert to onCloseAutoFocus; onSelect just
-                  // records the choice and lets Radix close the menu.
-                  pendingStickyColor.current = c.value;
-                }}
-              />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Image — opens a file picker; upload + insert is board-view's
-          onInsertImage (reuses the slides upload + insert pipeline). */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={false}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Insert image"
-            disabled={disabled || !editor || !onInsertImage}
-          >
-            <IconPhoto size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Insert image</TooltipContent>
-      </Tooltip>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onInsertImage?.(file);
-          e.target.value = ""; // allow re-selecting the same file
-        }}
-      />
-
-      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
-          not a line-tool kind: connectors / scribble live in Line ▾) */}
-      <ShapePicker
-        activeKind={
-          insertMode &&
-          insertMode !== "text" &&
-          insertMode !== "eraser" &&
-          !isLineToolKind(insertMode)
-            ? insertMode
-            : null
-        }
-        onSelect={(kind) => editor?.setInsertMode(kind)}
-        disabled={disabled || !editor}
-      />
-
-      {/* Line ▾ — connectors only. Freehand belongs to the Marker tool
-          below, so a "freeform" insert mode lights Marker, not Line. */}
-      <LinePicker
-        activeKind={
-          isLineToolKind(insertMode) && insertMode !== "freeform" ? insertMode : null
-        }
-        onSelect={(kind) => editor?.setInsertMode(kind)}
-        disabled={disabled || !editor}
-        labels={BOARD_LINE_LABELS}
-        exclude={BOARD_LINE_EXCLUDE}
-      />
-
-      {/* Marker ▾ + Eraser — see `board-ink-controls.tsx`. */}
-      <BoardInkControls
-        editor={editor}
-        ink={ink}
-        insertMode={insertMode}
-        disabled={disabled}
-        laser={drawingTools?.laser ?? null}
-      />
-
-      <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />
-
-      {extraTools}
+      {/* Sections ▾ — frames a section on click: navigation, so it sits
+          with the view controls rather than in the tool dock. */}
+      <SectionsListMenu sections={sections} store={store} />
 
       {collabControls && (
         <>
@@ -574,7 +299,7 @@ export function BoardToolbar({
           )}
           {state.selectionType === "image" && (
             // No `upload` on purpose: the Replace affordance stays inert
-            // on a board this pass — the insert block's Image button is
+            // on a board this pass — the tool dock's Image button is
             // the board's image path.
             <ImageControls editor={editor} store={store} ids={state.ids} />
           )}
