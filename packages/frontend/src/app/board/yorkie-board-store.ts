@@ -38,7 +38,11 @@ import {
 import type { Block } from '@wafflebase/docs';
 import { bandBlockNumerics } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
-import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
+import type {
+  BoardPresence,
+  BoardTimerState,
+  YorkieBoardRoot,
+} from '@/types/board-document';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
 
 /**
@@ -577,6 +581,34 @@ export class YorkieBoardStore implements SlidesStore {
     } else {
       this.doc.update((_, p) => p.set(presence));
     }
+  }
+
+  // --- facilitation timer (board-timer.ts) ---
+
+  /** The raw `root.timer`, or undefined on a board that never ran one. */
+  readTimer(): BoardTimerState | undefined {
+    return yorkieToPlain<BoardTimerState>(this.doc.getRoot().timer);
+  }
+
+  /**
+   * Replace `root.timer`. Its own change, deliberately kept OUT of the
+   * undo stack: Mod+Z is for the user's edits, and undoing a colleague's
+   * shared countdown along with your last sticky would be a surprise.
+   * The SDK has no per-change history opt-out, so the entry this change
+   * pushed is popped right after. Refused inside a `batch()`, which owns
+   * the open change.
+   */
+  writeTimer(next: BoardTimerState): void {
+    if (this.batchDepth > 0) {
+      throw new Error('[board] writeTimer() must not run inside batch()');
+    }
+    const stack = this.doc.getUndoStackForTest() as unknown[];
+    const top = stack[stack.length - 1];
+    this.doc.update((r) => {
+      r.timer = { ...next };
+    });
+    if (stack.length > 0 && stack[stack.length - 1] !== top) stack.pop();
+    this.notifyChange();
   }
 
   // --- element ops ---

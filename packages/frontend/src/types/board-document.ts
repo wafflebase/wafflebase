@@ -3,7 +3,25 @@ import type { YorkieElement } from './slides-document';
 export interface YorkieBoardRoot {
   meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] };
   elements: YorkieElement[];
+  /**
+   * The shared facilitation timer. Optional and additive: a board that
+   * never ran one has no key, and a viewer attaches with `{}`. See
+   * `app/board/board-timer.ts`.
+   */
+  timer?: BoardTimerState;
 }
+
+/**
+ * A board's countdown timer, in document state so a late joiner sees it.
+ * Running: `endsAt` is an epoch ms and `pausedRemaining` is null. Paused:
+ * `endsAt` is null and `pausedRemaining` holds the ms left. Idle (reset):
+ * both null.
+ */
+export type BoardTimerState = {
+  endsAt: number | null;
+  pausedRemaining: number | null;
+  durationMs: number;
+};
 
 export function initialBoardRoot(): Partial<YorkieBoardRoot> {
   return { meta: { title: 'Untitled board' }, elements: [] };
