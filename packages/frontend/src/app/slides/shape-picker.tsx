@@ -11,7 +11,10 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { SHAPE_PICKER_CATEGORIES } from "./shape-picker-helpers";
+import {
+  SHAPE_PICKER_CATEGORIES,
+  type CategoryEntry,
+} from "./shape-picker-helpers";
 
 interface IconButtonProps {
   kind: ShapeKind;
@@ -77,6 +80,15 @@ export interface ShapePickerProps {
    * `ReactElement` rather than `ReactNode` so the `asChild` slot can
    * actually bind to it. */
   trigger?: React.ReactElement;
+  /**
+   * A short curated list shown first, for a host whose users need a few
+   * shapes rather than the whole OOXML catalogue (the board). A "More
+   * shapes…" button below it switches the popover to the full catalogue.
+   * Omitted: the full catalogue, as Slides shows it.
+   */
+  featured?: readonly CategoryEntry[];
+  /** The trigger's tooltip. Omitted: "Shape". */
+  tooltip?: string;
 }
 
 /**
@@ -92,6 +104,8 @@ export function ShapePicker({
   onSelect,
   disabled,
   trigger,
+  featured,
+  tooltip = "Shape",
 }: ShapePickerProps) {
   // Controlled open state so we can close the picker as soon as the
   // user picks a shape. The grid buttons are plain <button>s (not
@@ -99,6 +113,13 @@ export function ShapePicker({
   // without this the menu stays open after `onSelect`, requiring a
   // second click off-menu to dismiss it.
   const [open, setOpen] = useState(false);
+  // With a curated list, the full catalogue is one click further in. Reset
+  // on every open so the curated list is always what the picker opens on.
+  const [showAll, setShowAll] = useState(false);
+  const pick = (k: ShapeKind) => {
+    onSelect(k);
+    setOpen(false);
+  };
   const defaultTrigger = (
     <button
       type="button"
@@ -114,7 +135,13 @@ export function ShapePicker({
     </button>
   );
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setShowAll(false);
+      }}
+    >
       {trigger ? (
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       ) : (
@@ -122,7 +149,7 @@ export function ShapePicker({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>{defaultTrigger}</DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Shape</TooltipContent>
+          <TooltipContent>{tooltip}</TooltipContent>
         </Tooltip>
       )}
       <DropdownMenuContent
@@ -130,27 +157,47 @@ export function ShapePicker({
         sideOffset={6}
         className="z-50 max-h-[480px] w-[280px] overflow-y-auto p-2"
       >
-        {SHAPE_PICKER_CATEGORIES.map((cat) => (
-          <section key={cat.id} className="mb-2 last:mb-0">
-            <h4 className="mb-1 px-1 text-xs font-medium text-muted-foreground">
-              {cat.title}
-            </h4>
+        {featured && !showAll ? (
+          <>
             <div className="grid grid-cols-6 gap-1">
-              {cat.kinds.map((entry) => (
+              {featured.map((entry) => (
                 <IconButton
                   key={entry.kind}
                   kind={entry.kind}
                   label={entry.label}
                   active={entry.kind === activeKind}
-                  onSelect={(k) => {
-                    onSelect(k);
-                    setOpen(false);
-                  }}
+                  onSelect={pick}
                 />
               ))}
             </div>
-          </section>
-        ))}
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="focus-ring mt-2 w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm hover:bg-accent pointer-coarse:min-h-11"
+            >
+              More shapes…
+            </button>
+          </>
+        ) : (
+          SHAPE_PICKER_CATEGORIES.map((cat) => (
+            <section key={cat.id} className="mb-2 last:mb-0">
+              <h4 className="mb-1 px-1 text-xs font-medium text-muted-foreground">
+                {cat.title}
+              </h4>
+              <div className="grid grid-cols-6 gap-1">
+                {cat.kinds.map((entry) => (
+                  <IconButton
+                    key={entry.kind}
+                    kind={entry.kind}
+                    label={entry.label}
+                    active={entry.kind === activeKind}
+                    onSelect={pick}
+                  />
+                ))}
+              </div>
+            </section>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

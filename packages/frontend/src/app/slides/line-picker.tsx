@@ -182,6 +182,8 @@ export interface LinePickerProps {
    * entry in `LINE_PICKER_ENTRIES`.
    */
   exclude?: readonly LineToolKind[];
+  /** The trigger's tooltip. Omitted: "Line". */
+  tooltip?: string;
 }
 
 /**
@@ -200,6 +202,7 @@ export function LinePicker({
   trigger,
   labels,
   exclude,
+  tooltip = "Line",
 }: LinePickerProps) {
   // Controlled open state so we can close the dropdown as soon as the
   // user picks an entry. Mirrors the pattern in `<ShapePicker />`.
@@ -226,7 +229,7 @@ export function LinePicker({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>{defaultTrigger}</DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Line</TooltipContent>
+          <TooltipContent>{tooltip}</TooltipContent>
         </Tooltip>
       )}
       <DropdownMenuContent
