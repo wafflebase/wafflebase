@@ -84,7 +84,7 @@ const BLANK_PNG =
 // PDF page width in points for the default 16:9 deck (13.333" × 72).
 const PAGE_WIDTH_PT = 960;
 
-type ExportCanvas = OffscreenCanvas | HTMLCanvasElement;
+export type ExportCanvas = OffscreenCanvas | HTMLCanvasElement;
 
 /**
  * Export the whole presentation as a multi-page PDF (one slide per
@@ -217,6 +217,9 @@ export function collectFontFamilies(doc: SlidesDocument): string[] {
 }
 
 // --- internals ------------------------------------------------------
+//
+// Exported for `./region` (the board's PNG / PDF export), not from the
+// package index.
 
 /** Flatten the element tree, recursing into groups, into a single list. */
 function flattenElements(elements: readonly Element[]): Element[] {
@@ -252,7 +255,7 @@ function textBodiesOf(el: Element): TextBody[] {
  * `data:`/`blob:` srcs pass through untouched; fetch failures map to a
  * blank PNG so a forbidden URL renders empty rather than tainting.
  */
-async function resolveDeckImages(
+export async function resolveDeckImages(
   doc: SlidesDocument,
   fetcher: SlidesImageFetcher | undefined,
 ): Promise<{ map: Map<string, string>; temp: string[] }> {
@@ -307,7 +310,7 @@ async function resolveDeckImages(
  * "Click to add title" ghost only under `showPlaceholderHints`, which the
  * exporter never sets.
  */
-function prepareExportSlide(
+export function prepareExportSlide(
   slide: Slide,
   doc: SlidesDocument,
   map: Map<string, string>,
@@ -335,7 +338,7 @@ function prepareExportSlide(
 }
 
 /** Image srcs to preload before painting a (cleaned) slide. */
-function imageSrcsToPreload(slide: Slide): string[] {
+export function imageSrcsToPreload(slide: Slide): string[] {
   const srcs: string[] = [];
   for (const el of flattenElements(slide.elements)) {
     if (el.type === 'image' && el.data.src) srcs.push(el.data.src);
@@ -349,7 +352,7 @@ function imageSrcsToPreload(slide: Slide): string[] {
  * Wraps the event-driven shared image cache in a promise so the single
  * paint can run after all assets settle.
  */
-function awaitImageLoaded(src: string, timeoutMs: number): Promise<void> {
+export function awaitImageLoaded(src: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (): void => {
@@ -367,7 +370,7 @@ function awaitImageLoaded(src: string, timeoutMs: number): Promise<void> {
   });
 }
 
-function createExportCanvas(width: number, height: number): ExportCanvas {
+export function createExportCanvas(width: number, height: number): ExportCanvas {
   if (typeof OffscreenCanvas !== 'undefined') {
     return new OffscreenCanvas(width, height);
   }
@@ -377,7 +380,7 @@ function createExportCanvas(width: number, height: number): ExportCanvas {
   return canvas;
 }
 
-async function canvasToBytes(
+export async function canvasToBytes(
   canvas: ExportCanvas,
   format: 'png' | 'jpeg',
   quality: number,

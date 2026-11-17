@@ -50,6 +50,8 @@ import type { HandTool } from "./board-hand";
 import { isSectionElement } from "@wafflebase/board";
 import { useSectionToolArmed, type BoardSections } from "./board-sections";
 import { SectionControls, SectionToolItems } from "./board-section-toolbar";
+import { BOARD_LINE_LABELS, BOARD_LINE_NONE_LABEL } from "./board-vocabulary";
+import { TIDY_UP_SHORTCUT, tidyUpSelection } from "./board-tidy";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -483,6 +485,7 @@ export function BoardToolbar({
         activeKind={isLineToolKind(insertMode) ? insertMode : null}
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
+        labels={BOARD_LINE_LABELS}
       />
 
       <SectionToolItems sections={sections} store={store} disabled={disabled || !editor} />
@@ -512,6 +515,7 @@ export function BoardToolbar({
               store={store}
               theme={theme}
               ids={state.ids}
+              lineNoneLabel={BOARD_LINE_NONE_LABEL}
             />
           )}
           {state.selectionType === "image" && (
@@ -536,6 +540,10 @@ export function BoardToolbar({
             selectionSize={state.ids.length}
             canUngroup={canUngroupSelection(editor, store, state.ids)}
             minAlignSelection={2}
+            onTidyUp={
+              editor && store ? () => tidyUpSelection(editor, store) : undefined
+            }
+            tidyUpShortcut={TIDY_UP_SHORTCUT}
           />
         </>
       )}

@@ -1,4 +1,4 @@
-import type { ElementInit, ShapeKind } from '../../../model/element';
+import type { ElementInit, ShapeElement, ShapeKind } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
 import type { Point, Size } from '@wafflebase/core/geometry';
 import { makeDefaultSlidesTextBlock } from '../default-text';
@@ -330,10 +330,29 @@ function defaultsForShape(
  * here so the context-menu "Insert rectangle" path and the toolbar
  * picker path agree on what a "default-sized" shape looks like.
  */
+/**
+ * The fill + stroke a freshly inserted shape starts with. What
+ * {@link ShapeInsertStyleHook} receives and returns.
+ */
+export type ShapeInsertStyle = Pick<ShapeElement['data'], 'fill' | 'stroke'>;
+
+/**
+ * Host override for a new shape's starting fill + stroke. Receives the
+ * slides default for that kind (accent fill for basic shapes, outlined
+ * for callouts, stroke-only for arcs) and returns the style to use.
+ * A board passes one so a rectangle starts as a light tint instead of a
+ * saturated accent block that hides the stickies under it.
+ */
+export type ShapeInsertStyleHook = (
+  kind: ShapeKind,
+  defaults: ShapeInsertStyle,
+) => ShapeInsertStyle;
+
 export function buildInsertElement(
   kind: ShapeOrTextInsertKind,
   start: Point,
   end: Point,
+  shapeStyle?: ShapeInsertStyleHook,
 ): ElementInit {
   if (kind === 'text') {
     // Text participates in the same click-vs-drag rect logic as shapes:
@@ -379,5 +398,7 @@ export function buildInsertElement(
     };
   }
 
-  return { type: 'shape', frame, data: { kind, ...defaultsForShape(kind) } };
+  const defaults = defaultsForShape(kind);
+  const style = shapeStyle ? shapeStyle(kind, defaults) : defaults;
+  return { type: 'shape', frame, data: { kind, ...style } };
 }

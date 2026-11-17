@@ -96,9 +96,10 @@ export function BoardVotingPanel({
   }
 
   return (
+    // Below the top-right row (Download button, find box), not over it.
     <section
       aria-label="Voting results"
-      className="absolute right-3 top-3 z-20 flex max-h-[60%] w-72 max-w-[calc(100%-1.5rem)] flex-col rounded-lg border bg-background shadow-md"
+      className="absolute right-3 top-12 z-20 flex max-h-[60%] w-72 max-w-[calc(100%-1.5rem)] flex-col rounded-lg border bg-background shadow-md"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <header className="flex items-start justify-between gap-2 border-b px-3 py-2">

@@ -97,6 +97,14 @@ import { BoardRituals, type RitualMenus } from "./rituals/board-rituals";
 import { BoardRitualTools } from "./rituals/board-ritual-controls";
 import { useRitualToolState } from "./rituals/use-ritual-tool-state";
 import { useBoardCollab } from "./rituals/board-collab-hook";
+import { boardShapeInsertStyle } from "./board-shape-style";
+import { selectSimilarMenuItems } from "./board-select-similar";
+import { tidyUpSelection } from "./board-tidy";
+import { measureOverlayInsets } from "./fit-insets";
+import { createViewportSignal, type BoardNav } from "./board-nav";
+import { handleBoardUtilityKey } from "./board-utility-keys";
+import { BoardFindBox } from "./board-find-box";
+import { BoardExportMenu } from "./board-export-menu";
 
 interface BoardViewProps {
   /**
@@ -124,6 +132,8 @@ interface BoardViewProps {
    * stays disabled until it resolves.
    */
   workspaceId?: string;
+  /** Document title, used to name exported files. */
+  title?: string;
 }
 
 /**
@@ -191,7 +201,7 @@ function mapBoardPeers(
  * is not enough to locate a collaborator working off-screen on an
  * unbounded plane.
  */
-export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
+export function BoardView({ documentId, readOnly, workspaceId, title }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Toolbar + canvas: what counts as "the board" for its tool keys.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -278,6 +288,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       offSection();
     };
   }, [ritualToolHandle, sections]);
+  // Find on board (Mod+F). `findFocus` is bumped on every Mod+F so a find
+  // pressed while the box is open re-focuses its query.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  // The viewport as the floating tools (find) see it; built in the mount
+  // effect around `commitViewport`.
+  const [nav, setNav] = useState<BoardNav | null>(null);
 
   // Held so the grid-mode effect can repaint the minimap's viewport frame
   // without waiting for a pan.
@@ -452,6 +469,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
               },
               ...sections.insertMenuItems(at),
             ],
+      // A new rectangle / ellipse starts as a light tint, not the slides
+      // accent block that hides the stickies under it.
+      shapeInsertStyle: boardShapeInsertStyle,
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
@@ -476,11 +496,19 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         ...sections.canvasMenuItems(at),
         ...(ritualMenusRef.current?.canvasItems(at) ?? []),
       ],
-      // Element menu: section actions, then the rituals' "Comment". Spelled
-      // out because a key here would otherwise override the one
-      // `sections.editorOptions` spreads in above.
+      // Element menu, one group per feature: section actions, select
+      // similar + Tidy up (for a multi-selection), then the rituals'
+      // "Comment". Spelled out because a key here would otherwise override
+      // the one `sections.editorOptions` spreads in above. Nothing on a
+      // read-only mount (no menu opens).
       hostElementMenuItems: (ctx) => [
         ...(sections.editorOptions.hostElementMenuItems?.(ctx) ?? []),
+        ...selectSimilarMenuItems(readTopLevel(), ctx, (ids) =>
+          editor.setSelection(ids),
+        ),
+        ...(ctx.selectedIds.length >= 2
+          ? [{ label: "Tidy up", run: () => tidyUpSelection(editor, store) }]
+          : []),
         ...(ritualMenusRef.current?.elementItems(ctx.at) ?? []),
       ],
       // Sticky notes: the author tag at the bottom edge, square stickies
@@ -536,6 +564,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       readTopLevel()
         .filter((e) => !isSectionElement(e))
         .map((e) => e.frame);
+    // Chrome floating over the canvas (minimap, find box, download button)
+    // that a fit keeps content out from under.
+    const getInsets = () => measureOverlayInsets(container, { w: hostW, h: hostH });
+    // "The viewport just changed", by any path — the zoom readout leaves
+    // "Fit" on it and the find box's outline follows it.
+    const viewportSignal = createViewportSignal();
+    // Set once the zoom binding exists (below); the open-time fit can run
+    // before it does.
+    let markFitted: (fitted: Viewport) => void = () => {};
 
     // THE viewport chokepoint. Every pan/zoom path — minimap navigate,
     // fit-to-content, the zoom dropdown, wheel, space/middle-drag — goes
@@ -556,6 +593,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         vp.current,
         BOARD_PLANE_THEME,
       );
+      viewportSignal.emit(vp.current);
     };
 
     // Initial grid paint. NOT redundant with the mode/theme effect below:
@@ -582,7 +620,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       latch: fitLatch.current,
       getFrames: readFrames,
       getHostSize: () => ({ w: hostW, h: hostH }),
-      apply: (fitted) => commitViewport(fitted),
+      getInsets,
+      apply: (fitted) => {
+        markFitted(fitted);
+        commitViewport(fitted);
+      },
     });
     fitToContentOnce();
 
@@ -595,6 +637,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       getHost: () => ({ w: hostW, h: hostH }),
       getFrames: readFrames,
       commit: commitViewport,
+      getInsets,
     });
     setZoomController(zoom.controller);
     navigateRef.current = (world) =>
@@ -617,6 +660,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       commitViewport(fitted);
       zoom.reportViewportZoom(fitted.zoom);
     };
+    markFitted = zoom.markFitted;
+    const offZoomNote = viewportSignal.subscribe(zoom.noteViewport);
+    setNav({
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getInsets,
+      commit: commitViewport,
+      subscribe: viewportSignal.subscribe,
+    });
 
     stickyInserterRef.current = (colorValue: string) => {
       hand.set(false);
@@ -861,8 +913,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // `reportViewportZoom` writes the value channel and nothing else,
       // so this scale — already applied above, anchored at the CURSOR —
       // is never re-resolved and re-committed about the host centre.
-      // Skipped entirely on a pan tick, which changes no scale and must
-      // not flip the readout off "Fit".
+      // Skipped on a pan tick, which changes no scale; leaving "Fit" after
+      // a pan is `zoom.noteViewport`'s job (via `commitViewport`).
       if (zoomed) zoom.reportViewportZoom(vp.current.zoom);
     };
     container.addEventListener("wheel", onWheel, { passive: false });
@@ -977,6 +1029,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
             readTopLevel(),
             editor.getSelection(),
             { w: hostW, h: hostH },
+            getInsets(),
           );
           if (!fitted) return;
           commitViewport(fitted);
@@ -990,8 +1043,24 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           (target instanceof Node && rootRef.current?.contains(target) === true),
       });
     };
+    // Mod+F (find on board) and Alt+Shift+T (tidy up).
+    const onUtilityKey = (e: KeyboardEvent) => {
+      handleBoardUtilityKey(e, {
+        editor,
+        readOnly: readOnly === true,
+        isBoardTarget: (target) =>
+          target === document.body ||
+          (target instanceof Node && rootRef.current?.contains(target) === true),
+        openFind: () => {
+          setFindOpen(true);
+          setFindFocus((n) => n + 1);
+        },
+        tidyUp: () => tidyUpSelection(editor, store),
+      });
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keydown", onToolKey, true);
+    document.addEventListener("keydown", onUtilityKey, true);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
@@ -1166,6 +1235,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       delete overlay.dataset.boardPan;
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keydown", onToolKey, true);
+      document.removeEventListener("keydown", onUtilityKey, true);
+      offZoomNote();
+      setNav(null);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
@@ -1292,6 +1364,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           navigateRef={navigateRef}
         />
         {isEmpty && !readOnly && <BoardEmptyHint />}
+        <BoardExportMenu store={store} editor={editor} title={title || "Board"} />
+        {findOpen && nav && store && (
+          <BoardFindBox
+            nav={nav}
+            readElements={() => store.read().slides[0]?.elements ?? []}
+            focusRequest={findFocus}
+            onClose={() => setFindOpen(false)}
+          />
+        )}
       </div>
       <ShortcutsHelpDialog
         open={helpOpen}

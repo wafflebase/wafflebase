@@ -40,6 +40,23 @@ export async function exportSlidesPdfAndDownload(
   title: string,
   onProgress?: (done: number, total: number, phase: string) => void,
 ): Promise<void> {
+  await loadDeckFonts(doc);
+
+  const bytes = await exportSlidesPdf(doc, {
+    imageFetcher: docsImageFetcher,
+    title,
+    onProgress,
+  });
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  downloadBlob(blob, safeFilename(title, "pdf"));
+}
+
+/**
+ * Load every font family `doc` uses into `document.fonts` before a raster
+ * export paints it — step 1 of {@link exportSlidesPdfAndDownload}'s
+ * contract. Shared with the board's PNG / PDF export.
+ */
+export async function loadDeckFonts(doc: SlidesDocument): Promise<void> {
   const families = collectFontFamilies(doc);
   // Bounded: a stylesheet that neither loads nor errors (an offline tab, a CSP
   // that swallows the request) must cost the export a few seconds, not the
@@ -57,12 +74,4 @@ export async function exportSlidesPdfAndDownload(
       ),
     );
   }
-
-  const bytes = await exportSlidesPdf(doc, {
-    imageFetcher: docsImageFetcher,
-    title,
-    onProgress,
-  });
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  downloadBlob(blob, safeFilename(title, "pdf"));
 }

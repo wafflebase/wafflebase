@@ -205,3 +205,26 @@ describe('BorderPicker weight menu', () => {
     expect(none).toHaveTextContent('No border');
   });
 });
+
+describe('BorderPicker none label', () => {
+  async function openWeight() {
+    await userEvent.click(screen.getByRole('button', { name: /border weight/i }));
+  }
+
+  it('says "No border" by default (slides)', async () => {
+    renderPicker({ color: '#000', width: 1, dash: 'solid' });
+    await openWeight();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'No border' })).toBeTruthy();
+  });
+
+  it('takes a host label for lines', async () => {
+    render(
+      <TooltipProvider>
+        <BorderPicker value={{ color: '#000', width: 1 }} onChange={vi.fn()} noneLabel="None" />
+      </TooltipProvider>,
+    );
+    await openWeight();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'None' })).toBeTruthy();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'No border' })).toBeNull();
+  });
+});

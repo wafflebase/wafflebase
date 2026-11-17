@@ -39,6 +39,13 @@ export interface ArrangeMenuProps {
    * reaches `align()`'s selection-bounding-box branch.
    */
   minAlignSelection?: number;
+  /**
+   * Host action that lays the selection out in an even grid ("Tidy up",
+   * FigJam). Listed under Distribute when supplied; omitted on slides.
+   */
+  onTidyUp?: () => void;
+  /** Shortcut hint shown beside "Tidy up". */
+  tidyUpShortcut?: string;
 }
 
 /**
@@ -51,6 +58,8 @@ export function ArrangeMenu({
   selectionSize,
   canUngroup = false,
   minAlignSelection = 1,
+  onTidyUp,
+  tidyUpShortcut,
 }: ArrangeMenuProps) {
   const canAlign = !!editor && selectionSize >= minAlignSelection;
   // Rotation turns the selection about its own centre, so unlike Align it
@@ -161,6 +170,12 @@ export function ArrangeMenu({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {onTidyUp && (
+          <DropdownMenuItem disabled={!canGroup} onClick={onTidyUp}>
+            Tidy up
+            {tidyUpShortcut && <Shortcut>{tidyUpShortcut}</Shortcut>}
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 
