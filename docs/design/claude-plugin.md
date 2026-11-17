@@ -156,7 +156,7 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | `write` | `ask` (or `allow` with the *Auto-approve document writes* option, for a plain invocation) | "Ask before edits" default, accept-all opt-in |
 | `destructive`, a `--replace` variant, or a payload-dependent destructive variant | `ask`, always | Delete / overwrite are not undoable over the API today |
 | `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`; `-` = stdout is exempt) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
-| A write that uploads a local file (`files upload`, `images upload`, `… import <file>`) | `ask`, always | Sending the user's disk to a possibly shared workspace is not a document edit (`~/.ssh/id_rsa` is one prompt injection away) |
+| A write that uploads a local file (`files upload`, `images upload`, `… import <file>`, a write's `--file <path>` such as `board add-stickies`) | `ask`, always | Sending the user's disk to a possibly shared workspace is not a document edit (`~/.ssh/id_rsa` is one prompt injection away) |
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` (`--into` another workspace) | `ask`, always | Credentials, sign-in state or a document's audience — not document content |
 | Any command with `--server`, `--api-key`, `--profile`, `--frontend` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |

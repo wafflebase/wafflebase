@@ -474,6 +474,83 @@ const registry: CommandSchema[] = [
     response: { type: 'object', description: 'The stored board JSON, echoed back by the server' },
     aliases: ['boards.set-content'],
   },
+  {
+    name: 'board.elements',
+    description: "List a board's elements: kind, plain text, colour, frame, section membership, stamps, votes",
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--kind': { type: 'string', required: false, description: 'Only this kind: sticky | section | shape | freeform | text | connector | image | group' },
+    },
+    response: {
+      elements:
+        'array of { id, kind, text?, color?, frame: { x, y, w, h, rotation }, section? (innermost containing section id), title?/hidden?/locked? (sections), from?/to? (connectors), stamps?: { kind: count }, votes? (ended votes only), author? }',
+    },
+    aliases: ['boards.elements'],
+  },
+  {
+    name: 'board.add-stickies',
+    description: 'Add stickies, laid out as a grid in free space (one per --text, or per line of --file)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--text': { type: 'string', required: false, description: 'Sticky text; repeat for several' },
+      '--file': { type: 'string', required: false, description: 'Local file with one sticky per line (- for stdin)' },
+      '--color': { type: 'string', required: false, description: 'yellow | green | blue | pink | orange | purple | #RRGGBB', default: 'yellow' },
+      '--near': { type: 'string', required: false, description: 'Element id to place the grid beside (default: beside the existing content)' },
+      '--columns': { type: 'number', required: false, description: 'Grid columns (default: near-square)' },
+    },
+    response: { ids: 'string[] (new sticky ids, in input order)' },
+    aliases: ['boards.add-stickies', 'board.stickies.add'],
+  },
+  {
+    name: 'board.add-section',
+    description: 'Add a titled section around --ids (optionally laid out as a --grid), or at --frame',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--title': { type: 'string', required: true, description: 'Section title' },
+      '--ids': { type: 'string', required: false, description: 'Comma-separated element ids to wrap' },
+      '--grid': { type: 'boolean', required: false, description: 'Lay the --ids out as a grid in free space (or at --at) first, then wrap them' },
+      '--at': { type: 'string', required: false, description: 'x,y top-left of the section (with --grid, or for an empty section)' },
+      '--columns': { type: 'number', required: false, description: 'Grid columns (with --grid)' },
+      '--frame': { type: 'string', required: false, description: 'x,y,w,h frame to fill instead of wrapping elements' },
+      '--color': { type: 'string', required: false, description: 'gray | yellow | green | blue | pink | purple', default: 'gray' },
+    },
+    response: { id: 'string', frame: '{ x, y, w, h, rotation }', members: 'string[] (element ids inside it)', moved: 'string[] (ids the grid moved)' },
+    aliases: ['boards.add-section', 'board.sections.add'],
+  },
+  {
+    name: 'board.move',
+    description: 'Move / resize elements from a JSON array of { id, x, y, w?, h? } (a moved section carries its contents)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--file': { type: 'string', required: false, description: 'Local JSON file of moves (- for stdin)' },
+      '--data': { type: 'string', required: false, description: 'The moves as a JSON string' },
+    },
+    response: { moved: 'string[]', carried: 'string[] (section members that moved with their section)' },
+    aliases: ['boards.move', 'board.elements.move'],
+  },
+  {
+    name: 'board.add-text',
+    description: 'Add a text box (a summary, a heading) at --x/--y, beside --near, or beside the content',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--text': { type: 'string', required: false, description: 'The text; newlines become paragraphs' },
+      '--file': { type: 'string', required: false, description: 'Local file holding the text (- for stdin)' },
+      '--near': { type: 'string', required: false, description: 'Element id to place it beside' },
+      '--side': { type: 'string', required: false, description: 'right | left | below | above (with --near)', default: 'right' },
+      '--x': { type: 'number', required: false, description: 'Top-left x (with --y)' },
+      '--y': { type: 'number', required: false, description: 'Top-left y (with --x)' },
+      '--width': { type: 'number', required: false, description: 'Box width', default: '400' },
+      '--font-size': { type: 'number', required: false, description: 'Font size', default: '18' },
+      '--bold': { type: 'boolean', required: false, description: 'Bold text' },
+    },
+    response: { id: 'string', frame: '{ x, y, w, h, rotation }' },
+    aliases: ['boards.add-text', 'board.text.add'],
+  },
 
   // Comments — threads live in the CRDT, so these routes are the only way to
   // reach them without an editor session.

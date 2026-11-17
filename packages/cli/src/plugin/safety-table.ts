@@ -47,6 +47,8 @@ export interface SafetyNode {
    * document writes" opted into, so the guard always asks.
    */
   localInputArg?: number;
+  /** Options whose value is a local file a write reads and sends (`--file <path>`). */
+  localInputOptions?: string[];
   /**
    * The command changes credentials, sign-in state or who can see a
    * document rather than document content, so auto-approve never covers it.
@@ -79,6 +81,13 @@ const LOCAL_OUTPUT_ARGS = new Set(['file', 'out']);
  * `--out <dir>` (slides render) writes a directory of files.
  */
 const LOCAL_OUTPUT_OPTIONS = new Set(['--out']);
+/**
+ * Options whose value is a local path a WRITE reads and sends to the server
+ * (`board add-stickies --file list.txt`). On a read-only command the same
+ * flag (`slides lint --file deck.pptx`) only reads this machine's disk and
+ * sends nothing, so it is not flagged there.
+ */
+const LOCAL_INPUT_OPTIONS = new Set(['--file']);
 
 /**
  * Writes that are not document edits: they mint credentials, change who is
@@ -156,6 +165,11 @@ function buildNode(cmd: Command, path: string[]): SafetyNode {
       const args: readonly Argument[] = cmd.registeredArguments;
       const input = args.findIndex((a) => LOCAL_OUTPUT_ARGS.has(a.name()));
       if (input >= 0) node.localInputArg = input;
+      const inOpts = cmd.options
+        .filter((o) => o.long !== undefined && LOCAL_INPUT_OPTIONS.has(o.long))
+        .flatMap(optionNames)
+        .sort();
+      if (inOpts.length > 0) node.localInputOptions = inOpts;
     }
     if (schema.safety === 'read-only') {
       const args: readonly Argument[] = cmd.registeredArguments;

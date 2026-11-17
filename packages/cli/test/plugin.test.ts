@@ -348,11 +348,23 @@ describe('guard.decide', () => {
       'wafflebase images upload /etc/passwd',
       'wafflebase sheets import abc creds.csv',
       'wafflebase docs import ./secret.docx',
+      'wafflebase board add-stickies b --file /home/me/.aws/credentials',
+      'wafflebase board move b --file=moves.json',
+      'wafflebase board add-text b --file notes.txt',
     ]) {
       const d = decide(cmd, { autoApproveWrites: true });
       expect(d?.decision, cmd).toBe('ask');
       expect(d?.reason, cmd).toContain('from this machine');
     }
+    // Text on the command line or stdin sends nothing from the disk.
+    expect(
+      decide('wafflebase board add-stickies b --text idea', { autoApproveWrites: true })
+        ?.decision,
+    ).toBe('allow');
+    expect(
+      decide('wafflebase board add-stickies b --file -', { autoApproveWrites: true })
+        ?.decision,
+    ).toBe('allow');
   });
 
   it('never auto-approves credential, sign-in or sharing changes', () => {
