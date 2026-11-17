@@ -27,8 +27,11 @@ None: everything here is original to this repository.
 ## Adding one
 
 1. Add a `TemplateSeed` to the file for its document kind (`slides*.ts`,
-   `sheets.ts`, `docs.ts`, `note-and-board.ts`), or start a new one. Themed
-   slides decks use `themedDeck()` from `../builders`.
+   `sheets.ts`, `docs.ts`, `note-and-board.ts`, `boards.ts`), or start a new
+   one. Themed slides decks use `themedDeck()` from `../builders`. Board
+   templates build sections and stickies with the helpers in `boards.ts`,
+   which write the markers a board client reads (`boards.spec.ts` pins
+   them).
 2. Register it in `index.ts`.
 3. For a slides template, add its brief — the values an author should collect
    — to the matching `briefs-*.ts` and register it in `briefs.ts`. A list or

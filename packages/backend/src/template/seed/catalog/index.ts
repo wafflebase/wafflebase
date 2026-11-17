@@ -2,6 +2,11 @@ import type { TemplateSeed } from '../types';
 import { meetingNotes, productRequirementsDoc } from './docs';
 import { retrospectiveBoard, weeklyOneOnOne } from './note-and-board';
 import {
+  brainstormAffinityMap,
+  retroStartStopContinue,
+  weeklyTeamSync,
+} from './boards';
+import {
   contentCalendar,
   invoice,
   monthlyBudgetTracker,
@@ -69,4 +74,7 @@ export const TEMPLATE_CATALOG: TemplateSeed[] = [
   meetingNotes,
   weeklyOneOnOne,
   retrospectiveBoard,
+  retroStartStopContinue,
+  brainstormAffinityMap,
+  weeklyTeamSync,
 ];
