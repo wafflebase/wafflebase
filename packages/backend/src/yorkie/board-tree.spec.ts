@@ -24,6 +24,22 @@ describe('readBoardRoot', () => {
     });
   });
 
+  it('decodes a packed ink path back into command arrays', () => {
+    const packed = {
+      id: 'ink',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      data: { kind: 'freeform', path: { commands: 'q1:M0,0L10000,10000' } },
+    } as never;
+    const [el] = readBoardRoot({ elements: [packed] }).elements as unknown as {
+      data: { path: { commands: unknown } };
+    }[];
+    expect(el.data.path.commands).toEqual([
+      { c: 'M', x: 0, y: 0 },
+      { c: 'L', x: 1, y: 1 },
+    ]);
+  });
+
   it('defaults an uninitialised root rather than returning undefined fields', () => {
     expect(readBoardRoot({})).toEqual({
       meta: { title: 'Untitled board' },
