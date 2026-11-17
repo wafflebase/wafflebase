@@ -146,6 +146,39 @@ document on every pointer move. From the example:
   strokes as objects too). A separate ink layer is worth revisiting only if
   boards accumulate thousands of strokes.
 
+### Third pass: brainstorming and sketching (2026-11-17)
+
+A three-way audit found gaps the roadmap below either missed or ordered
+too late. It had three parts:
+
+- FigJam research
+- a code audit
+- a hands-on session running an affinity-mapping retro and a wireframe
+  sketch in the browser
+
+The findings that drove this pass:
+
+- **Sketching was blocked.** Scribble sat last in the Line picker with
+  no key, dropped back to Select after every stroke, and took its colour
+  only after drawing. A finger on empty canvas panned instead of
+  drawing. Hit-testing used the stroke's padded bbox
+  (`element-hit.ts`), so one diagonal stroke swallowed clicks on every
+  sticky under it, and an eraser could not be built on it.
+- **Brainstorming was blocked.**
+  - There were no sections, so clusters could not be titled or moved
+    together.
+  - There were no stamps, votes, timer, cursor chat or board comments.
+  - Repeated `S` stacked stickies on one another.
+  - A pasted list did nothing.
+- **Connectors broke clusters.**
+  - A connector only glued when dropped exactly on a site.
+  - Distribute moved connectors as if they were objects.
+  - A connector could not carry a label.
+
+The pass ships the roadmap's Phases 1 to 5, the second pass's B and C,
+and the items the audit added, as one PR. § Shipped in the third pass
+records what landed and where.
+
 ### Roadmap
 
 Ordered by how much each phase removes from the gap a FigJam user feels,
