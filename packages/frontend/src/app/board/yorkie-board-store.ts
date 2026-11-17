@@ -267,6 +267,12 @@ export class YorkieBoardStore implements SlidesStore {
    */
   private cachedDoc: SlidesDocument | null = null;
 
+  /**
+   * Memoized `meta.anonymous`, read by the renderer once per sticky per
+   * paint. Dropped with {@link cachedDoc}.
+   */
+  private cachedAnonymous: boolean | null = null;
+
   constructor(doc: YorkieDocument<YorkieBoardRoot>) {
     this.doc = doc;
     this.undoFloor = this.doc.getUndoStackForTest().length;
@@ -306,6 +312,7 @@ export class YorkieBoardStore implements SlidesStore {
   /** Drop the memoized {@link read} snapshot. See {@link cachedDoc}. */
   private invalidateRead(): void {
     this.cachedDoc = null;
+    this.cachedAnonymous = null;
   }
 
   // --- read ---
@@ -539,6 +546,25 @@ export class YorkieBoardStore implements SlidesStore {
     }
     this.withUpdate((r) => {
       r.meta.unit = unit;
+    });
+  }
+
+  /** Whether the board is in anonymous mode (`meta.anonymous`). */
+  isAnonymous(): boolean {
+    if (this.cachedAnonymous === null) {
+      const meta = this.doc.getRoot().meta as { anonymous?: unknown } | undefined;
+      this.cachedAnonymous = meta?.anonymous === true;
+    }
+    return this.cachedAnonymous;
+  }
+
+  /** Turn anonymous mode on or off. Off removes the field. */
+  setAnonymous(on: boolean): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const meta = r.meta as { anonymous?: boolean };
+      if (on) meta.anonymous = true;
+      else delete meta.anonymous;
     });
   }
 

@@ -3,6 +3,7 @@ import {
   STICKY_COLORS,
   STICKY_GAP,
   STICKY_SIZE,
+  adjacentStickyCenter,
   buildStickyInit,
   dropStickyAtViewportCenter,
   freeStickyCenter,
@@ -33,6 +34,22 @@ describe('buildStickyInit', () => {
     expect(text.verticalAnchor).toBe('middle');
     expect(text.autofit).toBe('shrink');
     expect(text.blocks[0].style.alignment).toBe('center');
+  });
+
+  it('writes the role marker, and the author and options it is given', () => {
+    const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 }, {
+      author: ' Ada ', text: 'Idea', fontSize: 32, size: { w: 120, h: 120 },
+    });
+    const data = (init as unknown as { data: unknown }).data as {
+      role: string; author: string;
+      text: { blocks: { inlines: { text: string; style: { fontSize: number } }[] }[] };
+    };
+    expect(data.role).toBe('sticky');
+    expect(data.author).toBe('Ada');
+    expect(data.text.blocks[0].inlines[0].text).toBe('Idea');
+    expect(data.text.blocks[0].inlines[0].style.fontSize).toBe(32);
+    expect(init.frame).toMatchObject({ x: -60, y: -60, w: 120, h: 120 });
+    expect('author' in buildStickyInit('#FFF8B8', { x: 0, y: 0 }).data).toBe(false);
   });
 
   it('carries a drop shadow', () => {
@@ -145,34 +162,96 @@ describe('freeStickyCenter', () => {
     expect(freeStickyCenter([sq(0, 0), sq(step, 0)], { x: 0, y: 0 })).toEqual({ x: -step, y: 0 });
   });
 
-  it('walks out to the nearest free square of a crowded row', () => {
+  it('moves to the row below once the nearest ring of a row is taken', () => {
     const row = [sq(-step, 0), sq(0, 0), sq(step, 0)];
-    expect(freeStickyCenter(row, { x: 0, y: 0 })).toEqual({ x: 2 * step, y: 0 });
+    expect(freeStickyCenter(row, { x: 0, y: 0 })).toEqual({ x: 0, y: step });
   });
 
   it('steps off a partial cover, not only an exact one', () => {
     expect(freeStickyCenter([sq(-40, 30)], { x: 0, y: 0 })).toEqual({ x: step, y: 0 });
   });
 
-  it('never steps outside the visible rect', () => {
-    // Zoomed in: only the centre square and its right neighbour fit.
-    const visible = { x: -100, y: -100, w: 100 + step + 100, h: 200, rotation: 0 };
-    expect(freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, visible)).toEqual({ x: step, y: 0 });
-    // Both visible squares taken: nudge, rather than walk off-screen.
-    expect(freeStickyCenter([sq(0, 0), sq(step, 0)], { x: 0, y: 0 }, visible)).toEqual({
-      x: STICKY_GAP, y: STICKY_GAP,
-    });
+  it('fills the visible rows in reading order: right, left, then the row below', () => {
+    // Three columns by two rows fit on screen around the centre.
+    const visible = { x: -step * 1.5, y: -step * 0.5, w: step * 3, h: step * 2, rotation: 0 };
+    const placed: ReturnType<typeof sq>[] = [];
+    const order: { x: number; y: number }[] = [];
+    for (let n = 0; n < 6; n++) {
+      const p = freeStickyCenter(placed, { x: 0, y: 0 }, visible);
+      order.push(p);
+      placed.push(sq(p.x, p.y));
+    }
+    expect(order).toEqual([
+      { x: 0, y: 0 }, { x: step, y: 0 }, { x: -step, y: 0 },
+      { x: 0, y: step }, { x: step, y: step }, { x: -step, y: step },
+    ]);
   });
 
-  it('cascades rather than covering exactly on a board too dense to find room', () => {
+  it('never stacks: six drops on one point make six disjoint stickies', () => {
+    const visible = { x: -400, y: -300, w: 800, h: 600, rotation: 0 };
+    const placed: ReturnType<typeof sq>[] = [];
+    for (let n = 0; n < 6; n++) {
+      const p = freeStickyCenter(placed, { x: 0, y: 0 }, visible);
+      const box = sq(p.x, p.y);
+      for (const other of placed) {
+        const disjoint =
+          box.x >= other.x + other.w || other.x >= box.x + box.w ||
+          box.y >= other.y + other.h || other.y >= box.y + box.h;
+        expect(disjoint).toBe(true);
+      }
+      placed.push(box);
+    }
+  });
+
+  it('goes off-screen to the nearest free square once the screen is full', () => {
+    // Only the centre square fits on screen, and it is taken.
+    const visible = { x: -100, y: -100, w: 200, h: 200, rotation: 0 };
+    expect(freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, visible)).toEqual({ x: step, y: 0 });
+  });
+
+  it('places a sticky of another size on its own grid', () => {
+    const wide = { w: 360, h: 180 };
+    const p = freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, undefined, wide);
+    expect(p).toEqual({ x: 360 + STICKY_GAP, y: 0 });
+  });
+
+  it('lands right of everything on a board too dense to search', () => {
     const wall = { x: -1e6, y: -1e6, w: 2e6, h: 2e6, rotation: 0 };
-    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5, y: 5 });
-    // Each repeated drop with no room lands one gap further down-right.
-    const visible = { x: -90, y: -90, w: 180, h: 180, rotation: 0 };
-    const first = freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, visible);
-    expect(first).toEqual({ x: STICKY_GAP, y: STICKY_GAP });
-    const second = freeStickyCenter([sq(0, 0), sq(first.x, first.y)], { x: 0, y: 0 }, visible);
-    expect(second).toEqual({ x: 2 * STICKY_GAP, y: 2 * STICKY_GAP });
+    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({
+      x: 1e6 + STICKY_GAP + STICKY_SIZE / 2, y: 5,
+    });
+  });
+});
+
+describe('adjacentStickyCenter', () => {
+  const step = STICKY_SIZE + STICKY_GAP;
+  const sq = (cx: number, cy: number) => ({
+    x: cx - STICKY_SIZE / 2, y: cy - STICKY_SIZE / 2, w: STICKY_SIZE, h: STICKY_SIZE, rotation: 0,
+  });
+
+  it('puts the new sticky one gap away on the asked side', () => {
+    const source = sq(0, 0);
+    expect(adjacentStickyCenter([source], source, 'right')).toEqual({ x: step, y: 0 });
+    expect(adjacentStickyCenter([source], source, 'left')).toEqual({ x: -step, y: 0 });
+    expect(adjacentStickyCenter([source], source, 'down')).toEqual({ x: 0, y: step });
+    expect(adjacentStickyCenter([source], source, 'up')).toEqual({ x: 0, y: -step });
+  });
+
+  it('walks further along a taken side', () => {
+    const source = sq(0, 0);
+    expect(adjacentStickyCenter([source, sq(step, 0)], source, 'right')).toEqual({ x: 2 * step, y: 0 });
+  });
+
+  it('keeps the source size', () => {
+    const wide = { x: 0, y: 0, w: 360, h: 180, rotation: 0 };
+    expect(adjacentStickyCenter([wide], wide, 'right')).toEqual({ x: 180 + 360 + STICKY_GAP, y: 90 });
+  });
+
+  it('wraps to the next row when the line hits the screen edge', () => {
+    const source = sq(0, 0);
+    const visible = { x: -100, y: -100, w: step + 200, h: step + 200, rotation: 0 };
+    const p = adjacentStickyCenter([source, sq(step, 0)], source, 'right', visible);
+    expect(p).toEqual({ x: step, y: step });
   });
 });
 
@@ -194,16 +273,27 @@ describe('isStickyElement', () => {
     expect(isStickyElement(asElement(buildStickyInit('#ABCDEF', { x: 0, y: 0 })))).toBe(true);
   });
 
-  it('rejects a plain rounded rectangle someone typed into', () => {
+  it('rejects an unmarked rounded rectangle someone typed into', () => {
     const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 });
-    const data = init.data as { text: { autofit: string } };
+    const data = (init as unknown as { data: { role?: string; text: { autofit: string } } }).data;
+    delete data.role;
     data.text.autofit = 'grow';
     expect(isStickyElement(asElement(init))).toBe(false);
   });
 
+  it('keeps a marked sticky a sticky after a gradient and a border', () => {
+    const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 });
+    const data = (init as unknown as { data: Record<string, unknown> }).data;
+    data.fill = { kind: 'gradient' };
+    data.stroke = { color: '#000', width: 2 };
+    expect(isStickyElement(asElement(init))).toBe(true);
+  });
+
   it('rejects other kinds, other types, and nothing', () => {
     const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 });
-    (init.data as { kind: string }).kind = 'rect';
+    const data = (init as unknown as { data: { role?: string; kind: string } }).data;
+    delete data.role;
+    data.kind = 'rect';
     expect(isStickyElement(asElement(init))).toBe(false);
     expect(
       isStickyElement({ id: 't', type: 'text' } as unknown as import('@wafflebase/slides').Element),
