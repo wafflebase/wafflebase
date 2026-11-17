@@ -3,6 +3,7 @@ import type {
   AutofitMode,
   Crop,
   Element,
+  ElementInit,
   Frame,
   ShapeKind,
   Stroke,
@@ -81,7 +82,8 @@ import {
   captureInkStroke,
   type InkCaptureHost,
 } from './interactions/ink-capture';
-import { LiveInkLayer } from './live-ink-layer';
+import { LiveInkLayer, type LiveStroke } from './live-ink-layer';
+import { captureFreeLasso, polygonBounds, selectInPolygon } from './interactions/free-lasso';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
@@ -483,6 +485,32 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * (Slides): the theme-text 2px scribble, selected after drawing.
    */
   getInkStroke?: () => Stroke | null;
+  /**
+   * Called with the world points of the freehand stroke in progress on
+   * every change, and with `null` once it is committed or discarded. The
+   * board mirrors it into presence so peers watch the line being drawn.
+   * Omitted (Slides): nothing is reported.
+   */
+  onInkProgress?: (points: readonly { x: number; y: number }[] | null) => void;
+  /**
+   * Final say over a finished freehand stroke: return the elements to
+   * insert INSTEAD of the stroke, or `null` to keep it. They are added in
+   * the stroke's own batch, so one undo removes them. The board's smart
+   * shapes turn a drawn box into a rectangle this way. Omitted (Slides):
+   * the stroke is always kept.
+   */
+  transformInkStroke?: (
+    points: readonly { x: number; y: number }[],
+    stroke: Stroke,
+  ) => ElementInit[] | null;
+  /**
+   * Whether an empty-canvas drag draws a free-form lasso loop instead of
+   * the rectangle, given the press. The board answers Alt+drag, or its
+   * lasso toggle. A loop picks elements whose centre it encloses and
+   * freehand strokes its outline crosses (`interactions/free-lasso.ts`).
+   * Omitted (Slides): always the rectangle.
+   */
+  freeLasso?: (press: { altKey: boolean }) => boolean;
 }
 
 export interface SlidesEditor {
@@ -888,6 +916,13 @@ export interface SlidesEditor {
    * not be committed. No-op when nothing is being drawn.
    */
   cancelInkStroke(): void;
+
+  /**
+   * Show (or, with `null`, remove) a collaborator's stroke in progress on
+   * the live-ink layer, under its own key so it never collides with this
+   * client's stroke. The board feeds it from presence.
+   */
+  setPeerInkStroke(key: string, stroke: LiveStroke | null): void;
 
   /**
    * Preview the current slide's animations on the editor canvas.
@@ -2019,6 +2054,8 @@ class SlidesEditorImpl implements SlidesEditor {
     this.options.viewport = viewport;
     this.markDirty();
     this.render();
+    // Live strokes are painted in screen space: re-project them.
+    this.liveInk?.flush();
   }
 
   setSlideOffset(logicalX: number, logicalY: number): void {
@@ -4323,6 +4360,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (e.shiftKey) {
       return;
     }
+    if (this.options.freeLasso?.({ altKey: e.altKey })) {
+      this.startFreeLasso(e.clientX, e.clientY);
+      return;
+    }
     this.startLasso(e.clientX, e.clientY);
   }
 
@@ -5741,13 +5782,24 @@ class SlidesEditorImpl implements SlidesEditor {
       hostStroke ?? DEFAULT_FREEFORM_STROKE,
       {
         commit: (points) => {
-          const init = buildFreeformInit(points, {
-            stroke: hostStroke ?? undefined,
-            allowDot: hostStroke !== null,
-          });
-          if (!init) return;
+          const replaced = this.options.transformInkStroke?.(
+            points,
+            hostStroke ?? DEFAULT_FREEFORM_STROKE,
+          );
+          const init = replaced
+            ? null
+            : buildFreeformInit(points, {
+                stroke: hostStroke ?? undefined,
+                allowDot: hostStroke !== null,
+              });
+          if (!init && !replaced) return;
           this.options.store.batch(() => {
-            const id = this.options.store.addElement(slide.id, init);
+            if (replaced) {
+              for (const r of replaced) this.options.store.addElement(slide.id, r);
+              this.selection.set([]);
+              return;
+            }
+            const id = this.options.store.addElement(slide.id, init!);
             // A host ink stroke stays unselected, so the next stroke (and
             // the tool keys, which stand down on a selection) carry on.
             this.selection.set(hostStroke !== null ? [] : [id]);
@@ -5755,7 +5807,11 @@ class SlidesEditorImpl implements SlidesEditor {
           this.renderer.markDirty();
           this.render();
         },
-        end: (disarm) => this.endInkGesture(disarm),
+        progress: this.options.onInkProgress,
+        end: (disarm) => {
+          this.options.onInkProgress?.(null);
+          this.endInkGesture(disarm);
+        },
       },
     );
   }
@@ -5794,7 +5850,7 @@ class SlidesEditorImpl implements SlidesEditor {
     );
   }
 
-  private inkCaptureHost(kind: InsertKind): InkCaptureHost {
+  private ensureLiveInk(): LiveInkLayer {
     if (this.liveInk === null) {
       this.liveInk = new LiveInkLayer({
         canvas: this.options.canvas,
@@ -5803,11 +5859,62 @@ class SlidesEditorImpl implements SlidesEditor {
         dpr: () => this.options.dpr,
       });
     }
+    return this.liveInk;
+  }
+
+  setPeerInkStroke(key: string, stroke: LiveStroke | null): void {
+    if (stroke === null && this.liveInk === null) return;
+    this.ensureLiveInk().set(`peer:${key}`, stroke);
+  }
+
+  /**
+   * Free-form lasso (`freeLasso` host option): a drawn loop selects the
+   * elements whose centre it encloses and the strokes it crosses, through
+   * the same unselectable / host-filter gates as the rectangle lasso.
+   */
+  private startFreeLasso(clientX: number, clientY: number): void {
+    captureFreeLasso(
+      {
+        overlay: this.options.overlay,
+        clientToLogical: (x, y) => this.clientToLogical(x, y),
+        toOverlay: (p) => {
+          const scale = this.scale();
+          const { panX, panY } = this.overlayPan();
+          return { x: p.x * scale + panX, y: p.y * scale + panY };
+        },
+        scale: () => this.scale(),
+        color: SELECTION_COLOR,
+        fill: LASSO_FILL,
+        setAbort: (abort) => {
+          this.canvasGestureAbort = abort;
+        },
+        click: () => this.selection.clear(),
+        finish: (polygon) => {
+          const slide = this.currentSlide();
+          if (!slide) return;
+          let picked = selectInPolygon(slide.elements, polygon, 2 / this.scale());
+          const unselectable = this.options.getUnselectableIds?.(slide);
+          if (unselectable && unselectable.size > 0) {
+            picked = picked.filter((id) => !unselectable.has(id));
+          }
+          if (this.options.filterLassoSelection) {
+            picked = this.options.filterLassoSelection(picked, slide, polygonBounds(polygon));
+          }
+          this.selection.set(picked);
+        },
+      },
+      clientX,
+      clientY,
+    );
+  }
+
+  private inkCaptureHost(kind: InsertKind): InkCaptureHost {
+    const liveLayer = this.ensureLiveInk();
     const theme = getActiveTheme(this.options.store.read());
     return {
       clientToLogical: (x, y) => this.clientToLogical(x, y),
       scale: () => this.scale(),
-      liveLayer: this.liveInk,
+      liveLayer,
       resolveColor: (color) => resolveStrokeColor(color, theme),
       sticky: this.options.stickyInsertKinds?.includes(kind) ?? false,
     };

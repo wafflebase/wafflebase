@@ -43,6 +43,11 @@ export interface InkCaptureCallbacks {
   /** Commit `points` (world, already simplified) as one undo unit. */
   commit(points: Point[]): void;
   /**
+   * The stroke in progress changed (world points, unsimplified). The
+   * board mirrors it into presence so peers see the line being drawn.
+   */
+  progress?(points: readonly Point[]): void;
+  /**
    * The gesture ended — committed, cancelled, or aborted. `disarm` is
    * whether the editor should drop the insert mode (non-sticky, or Esc
    * in Slides).
@@ -65,12 +70,14 @@ export function captureInkStroke(
   const points: Point[] = [start];
   const color = host.resolveColor(stroke.color);
   const show = (): void => {
+    const snapshot = points.slice();
     host.liveLayer.set(LOCAL_INK_KEY, {
-      points: points.slice(),
+      points: snapshot,
       color,
       width: stroke.width,
       cap: stroke.cap,
     });
+    callbacks.progress?.(snapshot);
   };
   // A dot under the pointer right away, so a press reads as "drawing".
   show();
@@ -118,8 +125,10 @@ export function captureInkStroke(
       callbacks.commit(simplifyStroke(points, INK_SIMPLIFY_SCREEN_PX / host.scale()));
     }
     // Cleared after the commit's repaint, so the stroke never blinks
-    // out between the live layer and the scene.
-    host.liveLayer.clear();
+    // out between the live layer and the scene. Only this client's key:
+    // a peer's stroke in progress on the same layer stays.
+    host.liveLayer.set(LOCAL_INK_KEY, null);
+    host.liveLayer.flush();
     callbacks.end(disarm);
   };
 
@@ -224,7 +233,8 @@ export function captureEraserDrag(
     cleanup();
     if (commit && erased.size > 0) host.remove([...erased]);
     else if (erased.size > 0) host.preview(new Set());
-    host.liveLayer.clear();
+    host.liveLayer.set(LOCAL_INK_KEY, null);
+    host.liveLayer.flush();
     callbacks.end(disarm);
   };
   const onUp = (ev: PointerEvent): void => {
