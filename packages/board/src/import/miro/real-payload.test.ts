@@ -119,6 +119,7 @@ describe('mapMiroItems on verbatim Miro API payload', () => {
   /** The concatenated text of an element, whatever kind of body it carries. */
   const textOf = (init: unknown): string => {
     const data = (init as { data?: any }).data ?? {};
+    if (typeof data.section?.title === 'string') return data.section.title;
     const blocks = data.blocks ?? data.text?.blocks ?? [];
     return blocks
       .flatMap((b: any) => b.inlines ?? [])

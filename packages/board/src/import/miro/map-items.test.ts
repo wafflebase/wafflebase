@@ -553,7 +553,7 @@ describe('mapMiroItems', () => {
     expect(((inits[0] as any).data).src).toBe('https://api.example.test/api/v1/workspaces/w/images/x');
   });
 
-  it('maps a frame to a labelled rectangle and a card to a roundRect', () => {
+  it('maps a frame to a section and a card to a roundRect', () => {
     const { inits } = mapMiroItems({
       items: [
         { id: 'f1', type: 'frame', ...at(0, 0), data: { title: 'Sprint' } },
@@ -565,7 +565,8 @@ describe('mapMiroItems', () => {
     const frame = (inits[0] as any).data;
     const card = (inits[1] as any).data;
     expect(frame.kind).toBe('rect');
-    expect(frame.text.blocks[0].inlines.map((i: any) => i.text).join('')).toBe('Sprint');
+    expect(frame.section).toEqual({ title: 'Sprint' });
+    expect(frame.text).toBeUndefined();
     expect(card.kind).toBe('roundRect');
     const cardText = card.text.blocks.map((b: any) => b.inlines.map((i: any) => i.text).join('')).join(' ');
     expect(cardText).toContain('Task');
@@ -774,10 +775,29 @@ describe('mapMiroItems', () => {
       resolveImageUrl: identity,
     });
 
-    const frameText = (inits[0] as any).data.text.blocks[0].inlines
-      .map((i: any) => i.text).join('');
-    expect(frameText).toBe('Sprint');
+    expect((inits[0] as any).data.section.title).toBe('Sprint');
     expect(inits).toHaveLength(3);
+  });
+
+  it('orders nested frames largest first, so the inner one sits in front', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'inner', type: 'frame', ...at(0, 0, 100, 100), data: { title: 'Inner' } },
+        { id: 'outer', type: 'frame', ...at(0, 0, 900, 900), data: { title: 'Outer' } },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(inits.map((i: any) => i.data.section.title)).toEqual(['Outer', 'Inner']);
+  });
+
+  it('names an untitled frame with the default section title', () => {
+    const { inits } = mapMiroItems({
+      items: [{ id: 'f', type: 'frame', ...at(0, 0, 100, 100) }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect((inits[0] as any).data.section).toEqual({ title: 'Section' });
   });
 
   it('places a framed item at its absolute position, not the frame-local one', () => {
