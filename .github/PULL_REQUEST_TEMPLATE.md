@@ -32,5 +32,5 @@ Skip reason (if applicable):
 
 ## Notes for Reviewers
 
-- UI changes (screenshots/gifs if applicable):
+- UI changes (screenshots/gifs if applicable; mobile UI changes need a Before → After pair at 393×659 — see `packages/frontend/scripts/capture-before-after.mjs`):
 - Follow-up work (if any):
