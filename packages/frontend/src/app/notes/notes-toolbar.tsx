@@ -391,6 +391,17 @@ function MobileOverflowMenu({
           editor.focus();
         }}
       >
+        {/* Strikethrough lives here on a phone so the strip keeps room for
+            undo/redo, heading, bold and italic beside the pinned controls. */}
+        <DropdownMenuCheckboxItem
+          checked={formats.strikethrough}
+          onCheckedChange={() => editor.toggleStrikethrough()}
+          className="gap-2"
+        >
+          <IconStrikethrough size={16} />
+          Strikethrough
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>Lists</DropdownMenuLabel>
         <DropdownMenuCheckboxItem
           checked={formats.list === "bullet"}
@@ -552,9 +563,19 @@ export function NotesToolbar({
   return (
     // `role` makes the label below reachable: `aria-label` on a generic
     // container is not exposed to the accessibility tree.
-    <Toolbar role="toolbar" aria-label="Note toolbar">
+    //
+    // Two strips: the formatting controls scroll sideways in their own
+    // inner strip, while the view-mode toggle and Editor settings stay
+    // pinned at the right. On a phone the whole row used to scroll as one
+    // (~524px in 393px), which put Preview — the primary mode switch —
+    // off screen. The outer strip keeps the coarse-pointer sizing for both.
+    <Toolbar
+      role="toolbar"
+      aria-label="Note toolbar"
+      className="overflow-hidden"
+    >
       {canFormat && editor && (
-        <>
+        <Toolbar className="min-w-0 flex-1 border-b-0 bg-transparent p-0 pointer-coarse:py-0">
           <TooltipButton
             label="Undo"
             disabled={!history.canUndo}
@@ -569,14 +590,14 @@ export function NotesToolbar({
           >
             <IconArrowForwardUp size={16} />
           </TooltipButton>
-          <ToolbarSeparator />
+          {!isMobile && <ToolbarSeparator />}
           <HeadingMenu
             editor={editor}
             level={formats.heading}
             showShortcuts={shortcutsBound}
             compact={isMobile}
           />
-          <ToolbarSeparator />
+          {!isMobile && <ToolbarSeparator />}
           <TooltipToggle
             label="Bold"
             pressed={formats.bold}
@@ -593,33 +614,28 @@ export function NotesToolbar({
           >
             <IconItalic size={16} />
           </TooltipToggle>
-          <TooltipToggle
-            label="Strikethrough"
-            pressed={formats.strikethrough}
-            onToggle={() => editor.toggleStrikethrough()}
-            shortcut={sc(SHORTCUTS.strikethrough)}
-          >
-            <IconStrikethrough size={16} />
-          </TooltipToggle>
-          <ToolbarSeparator />
+          {!isMobile && (
+            <TooltipToggle
+              label="Strikethrough"
+              pressed={formats.strikethrough}
+              onToggle={() => editor.toggleStrikethrough()}
+              shortcut={sc(SHORTCUTS.strikethrough)}
+            >
+              <IconStrikethrough size={16} />
+            </TooltipToggle>
+          )}
+          {!isMobile && <ToolbarSeparator />}
 
           {/* One hidden input for both triggers (button / overflow item). */}
           {editor.canInsertImage() && (
             <ImageFileInput inputRef={imageInputRef} editor={editor} />
           )}
 
-          {isMobile ? (
-            // Eighteen controls do not fit a phone. The strip is
-            // `overflow-x-auto`, so the overflow was never clipped — it
-            // scrolled sideways, taking the right-pinned view-mode and
-            // keymap dropdowns off screen with it. Keeping only undo/redo
-            // and the inline formats inline puts those two back in view.
-            <MobileOverflowMenu
-              editor={editor}
-              formats={formats}
-              onPickImage={() => imageInputRef.current?.click()}
-            />
-          ) : (
+          {/* Eighteen controls do not fit a phone: there only undo/redo,
+              the heading menu and the inline formats stay in the strip, and
+              the rest moves into the overflow menu pinned beside the view
+              toggle below. */}
+          {!isMobile && (
             <>
               {/* List group: the three kinds are toggles (pressed when every
               selected line is of that kind), indent/outdent plain buttons that
@@ -699,10 +715,19 @@ export function NotesToolbar({
               )}
             </>
           )}
-        </>
+        </Toolbar>
       )}
 
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {isMobile && canFormat && editor && (
+          <>
+            <MobileOverflowMenu
+              editor={editor}
+              formats={formats}
+              onPickImage={() => imageInputRef.current?.click()}
+            />
+          </>
+        )}
         {isMobile ? (
           // Split is not offered on a phone (a fixed two-pane split is ~187px
           // a pane at 375px; both mounting routes demote a stored `both` to
@@ -739,7 +764,7 @@ export function NotesToolbar({
             ))}
           </div>
         )}
-        <ToolbarSeparator />
+        {!isMobile && <ToolbarSeparator />}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>

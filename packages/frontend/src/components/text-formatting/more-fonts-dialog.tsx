@@ -179,7 +179,7 @@ export function MoreFontsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[80vh] w-[min(560px,92vw)] flex-col gap-3"
+        className="flex max-h-[80dvh] w-[min(560px,92vw)] flex-col gap-3"
         onCloseAutoFocus={(e) => {
           const family = pendingPickRef.current;
           if (family === null) return;

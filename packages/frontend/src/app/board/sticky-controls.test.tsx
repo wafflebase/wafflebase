@@ -23,10 +23,19 @@ function fakeStore(fills: string[]) {
   return { store, updateElementData, batch };
 }
 
-function renderControls(store: SlidesStore, ids: string[]) {
+function renderControls(
+  store: SlidesStore,
+  ids: string[],
+  variant?: "inline" | "menu",
+) {
   return render(
     <TooltipProvider>
-      <StickyControls editor={{} as SlidesEditor} store={store} ids={ids} />
+      <StickyControls
+        editor={{} as SlidesEditor}
+        store={store}
+        ids={ids}
+        variant={variant}
+      />
     </TooltipProvider>,
   );
 }
@@ -67,5 +76,18 @@ describe("StickyControls", () => {
     expect(updateElementData).toHaveBeenCalledTimes(2);
     expect(updateElementData).toHaveBeenCalledWith("board", "a", { fill: { kind: "srgb", value: blue } });
     expect(updateElementData).toHaveBeenCalledWith("board", "b", { fill: { kind: "srgb", value: blue } });
+  });
+
+  it("folds the swatches behind one trigger naming the current colour (menu)", async () => {
+    const { store, updateElementData } = fakeStore([pink.value]);
+    renderControls(store, ["a"], "menu");
+    expect(screen.queryByRole("button", { name: "Yellow" })).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Sticky note color: Pink" }),
+    );
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Yellow" }));
+    expect(updateElementData).toHaveBeenCalledWith("board", "a", {
+      fill: { kind: "srgb", value: yellow.value },
+    });
   });
 });

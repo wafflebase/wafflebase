@@ -360,7 +360,7 @@ export function LakehouseDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90dvh] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {source ? 'Edit lakehouse connection' : 'New lakehouse connection'}

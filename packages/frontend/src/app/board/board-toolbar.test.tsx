@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BoardToolbar } from "./board-toolbar";
 import { createHandTool } from "./board-hand";
 
+let mobile = false;
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobile }));
+
 /** An idle editor: nothing selected, no text edit, no insert tool. */
 function fakeEditor() {
   return {
@@ -68,5 +71,29 @@ describe("BoardToolbar hand toggle", () => {
     await userEvent.click(screen.getByRole("button", { name: "Select" }));
     expect(hand.get()).toBe(false);
     expect(editor.setInsertMode).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("BoardToolbar on a phone", () => {
+  it("folds the five insert tools into one Insert button", () => {
+    mobile = true;
+    try {
+      renderToolbar(fakeEditor());
+      expect(screen.getByRole("button", { name: "Insert" })).toBeTruthy();
+      for (const name of ["Text box", "Sticky note", "Insert image", "Shape", "Line"]) {
+        expect(screen.queryByRole("button", { name })).toBeNull();
+      }
+      // The view controls and tool picker stay on the row.
+      expect(screen.getByRole("button", { name: "Select" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Hand" })).toBeTruthy();
+    } finally {
+      mobile = false;
+    }
+  });
+
+  it("keeps the inline insert tools on desktop", () => {
+    renderToolbar(fakeEditor());
+    expect(screen.queryByRole("button", { name: "Insert" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Text box" })).toBeTruthy();
   });
 });

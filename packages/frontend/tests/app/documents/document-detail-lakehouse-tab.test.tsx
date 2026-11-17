@@ -70,6 +70,10 @@ vi.mock('@/hooks/use-presence-updater', () => ({
   usePresenceUpdater: () => undefined,
 }));
 
+vi.mock('@/hooks/use-mobile', () => ({
+  useIsMobile: () => false,
+}));
+
 vi.mock('@/components/app-sidebar', () => ({
   AppSidebar: () => null,
 }));

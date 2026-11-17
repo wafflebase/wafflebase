@@ -1806,8 +1806,11 @@ export function DocumentList({
         }}
       >
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Move &ldquo;{moving?.title}&rdquo;</DialogTitle>
+          {/* pr-6 keeps a long title out from under the close button. */}
+          <DialogHeader className="pr-6">
+            <DialogTitle className="[overflow-wrap:anywhere]">
+              Move &ldquo;{moving?.title}&rdquo;
+            </DialogTitle>
             <DialogDescription>
               Choose the workspace and folder to move it to.
               {moving && moving.folderIds.length > 0 && (
@@ -1903,8 +1906,8 @@ export function DocumentList({
         }}
       >
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
+          <DialogHeader className="pr-6">
+            <DialogTitle className="[overflow-wrap:anywhere]">
               {deleting &&
               deleting.docIds.length + deleting.folderIds.length > 1
                 ? `Delete ${

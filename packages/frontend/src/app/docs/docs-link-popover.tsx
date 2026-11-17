@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { createPortal } from "react-dom";
 import { type EditorAPI, normalizeLinkUrl, isSafeUrl } from "@wafflebase/docs";
 import { IconEdit, IconUnlink } from "@tabler/icons-react";
@@ -25,6 +31,30 @@ interface DocsLinkPopoverProps {
    * the document) are hidden. See issue #482.
    */
   readOnly?: boolean;
+}
+
+/** Gap kept between the popover and the window edges. */
+const POPOVER_MARGIN = 8;
+
+/**
+ * Place a `size` box at `anchor` inside `viewport`, `POPOVER_MARGIN` from
+ * every edge. Horizontally it slides left; vertically it flips above the
+ * anchor (its bottom at `flipTop`) when it would run past the bottom,
+ * and is pinned to the top margin if that does not fit either.
+ */
+function clampPopover(
+  anchor: { x: number; top: number; flipTop: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { x: number; y: number } {
+  const m = POPOVER_MARGIN;
+  const x = Math.max(m, Math.min(anchor.x, viewport.width - size.width - m));
+  let y = anchor.top;
+  if (y + size.height + m > viewport.height) {
+    const above = anchor.flipTop - size.height;
+    y = above >= m ? above : viewport.height - size.height - m;
+  }
+  return { x, y: Math.max(m, y) };
 }
 
 /**
@@ -67,6 +97,7 @@ export function DocsLinkPopover({
     height: number;
   } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Wire up the onCursorLinkChange callback from the editor
   useEffect(() => {
@@ -189,26 +220,46 @@ export function DocsLinkPopover({
     [handleApply, editor, close],
   );
 
-  if (!visible) return null;
+  // Anchor: the caret (edit) or the link (view). The popover opens below
+  // it, left-aligned to it.
+  const anchor =
+    mode === "edit" && editPosition
+      ? { x: editPosition.x, y: editPosition.y, height: editPosition.height }
+      : linkInfo
+        ? { x: linkInfo.rect.x, y: linkInfo.rect.y, height: linkInfo.rect.height }
+        : null;
+  const top = anchor ? anchor.y + anchor.height + 4 : 0;
+  const left = anchor ? anchor.x : 0;
 
-  // Determine position based on mode
-  let top: number;
-  let left: number;
+  // Keep the popover inside the window. A caret near the end of a line
+  // on a phone put its left edge past the middle of the screen and the
+  // Apply button off it. Runs after every render (the box's size depends
+  // on mode and the error line) and writes the style directly, so the
+  // clamped position lands before paint.
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el || !anchor) return;
+    const pos = clampPopover(
+      { x: left, top, flipTop: anchor.y - 4 },
+      { width: el.offsetWidth, height: el.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+  });
 
-  if (mode === "edit" && editPosition) {
-    top = editPosition.y + editPosition.height + 4;
-    left = editPosition.x;
-  } else if (linkInfo) {
-    top = linkInfo.rect.y + linkInfo.rect.height + 4;
-    left = linkInfo.rect.x;
-  } else {
-    return null;
-  }
+  if (!visible || !anchor) return null;
 
   return createPortal(
     <div
+      ref={popoverRef}
       className="fixed z-50 flex items-center gap-1.5 rounded-md border bg-popover p-1.5 text-xs text-popover-foreground shadow-md"
-      style={{ top, left, minWidth: 280, maxWidth: 400 }}
+      style={{
+        top,
+        left,
+        minWidth: `min(280px, calc(100vw - ${2 * POPOVER_MARGIN}px))`,
+        maxWidth: `min(400px, calc(100vw - ${2 * POPOVER_MARGIN}px))`,
+      }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {mode === "view" && linkInfo ? (
@@ -217,7 +268,7 @@ export function DocsLinkPopover({
             href={isSafeUrl(linkInfo.href) ? linkInfo.href : "#"}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex h-7 flex-1 items-center truncate rounded border bg-background px-2 text-xs text-link no-underline underline-offset-2 hover:underline"
+            className="flex h-7 min-w-0 flex-1 items-center truncate rounded border bg-background px-2 text-xs text-link no-underline underline-offset-2 hover:underline"
             title={linkInfo.href}
             onClick={(e) => {
               e.stopPropagation();
@@ -250,13 +301,13 @@ export function DocsLinkPopover({
           )}
         </>
       ) : mode === "edit" ? (
-        <div className="flex flex-1 flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center gap-1.5">
             <input
               ref={inputRef}
               type="url"
               aria-label="Link URL"
-              className="h-7 flex-1 rounded border bg-background px-2 text-base md:text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+              className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-base md:text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
               placeholder="Enter URL"
               value={editUrl}
               onChange={(e) => {

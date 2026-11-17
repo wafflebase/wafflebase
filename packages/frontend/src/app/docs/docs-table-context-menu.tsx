@@ -153,14 +153,22 @@ export function DocsTableContextMenu({
   // menu has a zoom-in CSS animation — during the animation the bounding
   // rect reports the scaled size, which would leave the bottom clipped
   // after the animation finishes.
+  //
+  // The menu is also capped at the viewport height and scrolls: with the
+  // phone keyboard up the window is ~400px tall, and the expanded colour
+  // grid makes the menu ~590px — pinning it to the top alone left most
+  // rows cut off and unreachable.
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!position || !el) return;
-    const width = el.offsetWidth;
-    const height = el.offsetHeight;
     const vpW = window.innerWidth;
     const vpH = window.innerHeight;
     const PAD = 8;
+    el.style.maxHeight = `${Math.max(0, vpH - 2 * PAD)}px`;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    // Bring a just-expanded colour grid into the scrolled view.
+    if (showColors) colorsMenuRef.current?.scrollIntoView?.({ block: "nearest" });
 
     let x = position.x;
     let y = position.y;
@@ -210,7 +218,7 @@ export function DocsTableContextMenu({
       role="menu"
       aria-orientation="vertical"
       tabIndex={-1}
-      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
+      className="fixed z-50 min-w-[12rem] overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
       onKeyDown={(e) =>
         handleMenuKeyDown(e, {
@@ -337,13 +345,13 @@ export function DocsTableContextMenu({
             <IconDropletOff size={14} />
             Reset
           </button>
-          <div className="grid grid-cols-5 gap-1">
+          <div className="grid grid-cols-5 gap-1 pointer-coarse:gap-2">
             {BG_COLORS.map((color) => (
               <button
                 key={color}
                 role="menuitem"
                 tabIndex={-1}
-                className="h-5 w-5 cursor-pointer rounded border border-border focus-ring focus:scale-125 transition-transform motion-reduce:transition-none"
+                className="h-5 w-5 cursor-pointer rounded border border-border pointer-coarse:h-8 pointer-coarse:w-8 focus-ring focus:scale-125 transition-transform motion-reduce:transition-none"
                 style={{ backgroundColor: color }}
                 onClick={act(() =>
                   editor.applyTableCellStyle({ backgroundColor: color }),

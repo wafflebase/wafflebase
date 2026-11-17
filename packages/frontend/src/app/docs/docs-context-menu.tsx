@@ -157,11 +157,14 @@ export function DocsContextMenu({
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!open || !el) return;
-    const width = el.offsetWidth;
-    const height = el.offsetHeight;
     const vpW = window.innerWidth;
     const vpH = window.innerHeight;
     const PAD = 8;
+    // Cap at the viewport height (the menu scrolls) so a short window —
+    // a phone with its keyboard up — cannot cut rows off unreachably.
+    el.style.maxHeight = `${Math.max(0, vpH - 2 * PAD)}px`;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
     let x = open.position.x;
     let y = open.position.y;
     if (x + width + PAD > vpW) x = Math.max(PAD, vpW - width - PAD);
@@ -239,7 +242,7 @@ export function DocsContextMenu({
       role="menu"
       aria-orientation="vertical"
       tabIndex={-1}
-      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
+      className="fixed z-50 min-w-[12rem] overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
       onKeyDown={(e) => handleMenuKeyDown(e, { onClose: dismiss })}
       onPointerMove={handleMenuPointerMove}

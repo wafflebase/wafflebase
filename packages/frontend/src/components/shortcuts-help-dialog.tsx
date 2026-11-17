@@ -52,7 +52,7 @@ export function ShortcutsHelpDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
-        className="max-w-2xl max-h-[80vh] overflow-y-auto"
+        className="max-h-[80dvh]"
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

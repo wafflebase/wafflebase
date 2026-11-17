@@ -68,7 +68,7 @@ export function NewFromTemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[85dvh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>New document from a template</DialogTitle>
           <DialogDescription>
