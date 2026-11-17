@@ -61,3 +61,113 @@ export function buildFreeformPath(
   }
   return p;
 }
+
+/** A point in element-local coordinates. */
+export type FlatPoint = { x: number; y: number };
+
+/** Chord segments per curve when flattening (`Q` / `C` / `A`). */
+const FLATTEN_STEPS = 12;
+
+/**
+ * Flatten a freeform path into polylines in element-local coordinates,
+ * one per subpath: the geometry `buildFreeformPath` strokes, as straight
+ * chords. A closed subpath (`Z`) repeats its first point.
+ *
+ * Pure (no `Path2D`), so hit-testing a stroke against its own line and
+ * the eraser (`view/editor/freeform-hit.ts`) need no canvas context and
+ * give the same answer in a test as in the browser.
+ */
+export function flattenFreeformPath(
+  { w, h }: FrameSize,
+  path: FreeformPath,
+): FlatPoint[][] {
+  const out: FlatPoint[][] = [];
+  let cur: FlatPoint[] = [];
+  let pen: FlatPoint = { x: 0, y: 0 };
+  let start: FlatPoint = pen;
+  const flush = (): void => {
+    if (cur.length > 0) out.push(cur);
+    cur = [];
+  };
+  const ensure = (): void => {
+    if (cur.length === 0) cur.push(pen);
+  };
+  for (const cmd of path.commands) {
+    switch (cmd.c) {
+      case 'M':
+        flush();
+        pen = { x: cmd.x * w, y: cmd.y * h };
+        start = pen;
+        cur.push(pen);
+        break;
+      case 'L':
+        ensure();
+        pen = { x: cmd.x * w, y: cmd.y * h };
+        cur.push(pen);
+        break;
+      case 'Q': {
+        ensure();
+        const p0 = pen;
+        const c = { x: cmd.x1 * w, y: cmd.y1 * h };
+        const p1 = { x: cmd.x * w, y: cmd.y * h };
+        for (let i = 1; i <= FLATTEN_STEPS; i++) {
+          const t = i / FLATTEN_STEPS;
+          const u = 1 - t;
+          cur.push({
+            x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x,
+            y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y,
+          });
+        }
+        pen = p1;
+        break;
+      }
+      case 'C': {
+        ensure();
+        const p0 = pen;
+        const c1 = { x: cmd.x1 * w, y: cmd.y1 * h };
+        const c2 = { x: cmd.x2 * w, y: cmd.y2 * h };
+        const p1 = { x: cmd.x * w, y: cmd.y * h };
+        for (let i = 1; i <= FLATTEN_STEPS; i++) {
+          const t = i / FLATTEN_STEPS;
+          const u = 1 - t;
+          const a = u * u * u;
+          const b = 3 * u * u * t;
+          const c = 3 * u * t * t;
+          const d = t * t * t;
+          cur.push({
+            x: a * p0.x + b * c1.x + c * c2.x + d * p1.x,
+            y: a * p0.y + b * c1.y + c * c2.y + d * p1.y,
+          });
+        }
+        pen = p1;
+        break;
+      }
+      case 'A': {
+        // Mirrors `buildFreeformPath`'s `ellipse(...)`: the canvas joins
+        // the pen to the arc start with a line, then draws the arc.
+        const cx = cmd.cx * w;
+        const cy = cmd.cy * h;
+        const rx = cmd.rx * w;
+        const ry = cmd.ry * h;
+        const steps = Math.max(
+          FLATTEN_STEPS,
+          Math.ceil((Math.abs(cmd.sweep) / (Math.PI / 2)) * FLATTEN_STEPS),
+        );
+        ensure();
+        for (let i = 0; i <= steps; i++) {
+          const a = cmd.start + (cmd.sweep * i) / steps;
+          cur.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) });
+        }
+        pen = cur[cur.length - 1];
+        break;
+      }
+      case 'Z':
+        if (cur.length > 0) cur.push(start);
+        flush();
+        pen = start;
+        break;
+    }
+  }
+  flush();
+  return out;
+}
