@@ -77,7 +77,10 @@ import { buildFreeformInit } from './interactions/insert-freeform';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
-import { dragEndpoint } from './interactions/connector-endpoint-drag';
+import {
+  dragEndpoint,
+  endpointGlueOptions,
+} from './interactions/connector-endpoint-drag';
 import {
   allowsSlowDoubleClick,
   commitsAsDrag,
@@ -868,6 +871,13 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private connectorCursor: { x: number; y: number } | null = null;
   /**
+   * Element whose body must not glue the endpoint being placed: the
+   * element the connector's other end is attached to. Set for the
+   * duration of a connector insert / endpoint drag so the overlay's
+   * glue highlight agrees with `snappedEndpoint`'s `excludeBodyOf`.
+   */
+  private connectorGlueExclude: string | null = null;
+  /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
    *   - drag/resize/rotate/lasso interactions are short-circuited
@@ -1427,10 +1437,16 @@ class SlidesEditorImpl implements SlidesEditor {
    * cursor position yet (cursor hasn't entered the canvas).
    */
   private connectorAffordance():
-    | { cursor: { x: number; y: number }; zoom: number }
+    | { cursor: { x: number; y: number }; zoom: number; excludeBodyOf?: string }
     | undefined {
     if (this.connectorCursor === null) return undefined;
-    return { cursor: this.connectorCursor, zoom: this.scale() };
+    return {
+      cursor: this.connectorCursor,
+      zoom: this.scale(),
+      ...(this.connectorGlueExclude !== null
+        ? { excludeBodyOf: this.connectorGlueExclude }
+        : {}),
+    };
   }
 
   /**
@@ -5419,6 +5435,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // drag. The cursor at mousedown seeds the dots so they appear on
     // the very first paint, before any mousemove.
     this.connectorCursor = start;
+    const startEp = snappedEndpoint(start, slide.elements, this.scale());
+    this.connectorGlueExclude =
+      startEp.kind === 'attached' ? startEp.elementId : null;
     const onMove = (ev: MouseEvent) => {
       const raw = this.clientToLogical(ev.clientX, ev.clientY);
       endPoint = ev.shiftKey ? snapEndpointAngle(start, raw) : raw;
@@ -5440,6 +5459,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // tool-armed hover plumbing will refill it on the next mousemove
       // if the user is still in connector mode.
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
     };
     const onUp = () => {
       cleanup();
@@ -6158,6 +6178,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // important when the user clicks the handle directly over a nearby
     // shape and never crosses the move threshold below.
     this.connectorCursor = startCursor;
+    this.connectorGlueExclude =
+      endpointGlueOptions(startConnector, side).excludeBodyOf ?? null;
 
     // World-space position of the OTHER (non-dragging) endpoint. Captured
     // once at mousedown — the opposite endpoint stays fixed for the
@@ -6176,7 +6198,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const candidates = startSlide.elements.filter(
         (e) => e.id !== startConnector.id,
       );
-      liveEndpoint = snappedEndpoint(cur, candidates, this.scale());
+      liveEndpoint = snappedEndpoint(
+        cur,
+        candidates,
+        this.scale(),
+        endpointGlueOptions(startConnector, side),
+      );
       liveCursor = cur;
     };
 
@@ -6257,6 +6284,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // Drop the affordance cursor before repainting so the dots
       // disappear on commit (no drag = no affordance).
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
       if (!moved) {
         // No drag occurred — repaint anyway to clear the seed-time
         // affordance dots we painted on mousedown.

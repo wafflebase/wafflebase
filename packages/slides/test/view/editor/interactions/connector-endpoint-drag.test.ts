@@ -89,14 +89,15 @@ describe('dragEndpoint', () => {
   it('does not attach at zoom=2 when distance > 12 screen px', () => {
     const update = vi.fn();
     const store = { updateConnectorEndpoint: update } as unknown as SlidesStore;
-    // r1 N site at (150, 100); cursor 8 logical units away. At
-    // zoom=2 that's 16 screen px — outside the snap window.
+    // r1 N site at (150, 100); cursor ~8.9 logical units away, just
+    // above the shape (so body glue does not apply). At zoom=2 that's
+    // ~18 screen px — outside the snap window.
     const els = [rect('r1', 100, 100)];
-    dragEndpoint(store, 's1', fakeConnector(), 'end', { x: 158, y: 100 }, els, 2);
+    dragEndpoint(store, 's1', fakeConnector(), 'end', { x: 158, y: 96 }, els, 2);
     expect(update).toHaveBeenCalledWith('s1', 'c1', 'end', {
       kind: 'free',
       x: 158,
-      y: 100,
+      y: 96,
     });
   });
 

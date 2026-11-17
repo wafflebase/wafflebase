@@ -1,7 +1,21 @@
 import type { ConnectorElement } from '../../../model/connector';
 import type { Element } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
-import { snappedEndpoint } from './insert-connector';
+import { snappedEndpoint, type GlueOptions } from './insert-connector';
+
+/**
+ * Glue options for dragging `side` of `connector`: the body of the shape
+ * the OTHER endpoint is attached to does not capture this one, so a drag
+ * across the connector's own source shape cannot collapse it into a
+ * self-loop. Shared by the live preview and the commit.
+ */
+export function endpointGlueOptions(
+  connector: ConnectorElement,
+  side: 'start' | 'end',
+): GlueOptions {
+  const other = side === 'start' ? connector.end : connector.start;
+  return other.kind === 'attached' ? { excludeBodyOf: other.elementId } : {};
+}
 
 /**
  * Move one endpoint of a selected connector. Snaps to a connection
@@ -30,6 +44,11 @@ export function dragEndpoint(
   zoom: number,
 ): void {
   const candidates = elements.filter((e) => e.id !== connector.id);
-  const endpoint = snappedEndpoint(cursor, candidates, zoom);
+  const endpoint = snappedEndpoint(
+    cursor,
+    candidates,
+    zoom,
+    endpointGlueOptions(connector, side),
+  );
   store.updateConnectorEndpoint(slideId, connector.id, side, endpoint);
 }

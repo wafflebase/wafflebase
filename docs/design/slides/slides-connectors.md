@@ -315,10 +315,36 @@ pixel-constant under zoom. It activates only when the user is inside
 | pointer ↔ nearest shape ≤ 24px | Shape's connection points become visible |
 | pointer ↔ nearest site ≤ 12px | Site visually emphasized (target preview) |
 | Release inside 12px | Endpoint becomes `attached` to that site |
-| Release outside 12px | Endpoint stays `free` at pointer position |
+| Release over a shape's body | Shape is outlined; endpoint becomes `attached` to its nearest site |
+| Release elsewhere | Endpoint stays `free` at pointer position |
 
 Only the nearest shape's sites are displayed at a time (prevents
 visual noise when shapes overlap).
+
+**Body glue** (`interactions/connector-glue.ts`). PowerPoint, Google
+Slides and FigJam all treat "released over the shape" as "connect to
+it", so a pointer over a connectable shape's body glues to that
+shape's nearest connection site even when no site is within 12px. The
+precedence is: a site within the snap radius (any element), then the
+topmost connectable shape whose frame contains the pointer, then
+`free`. `findGlueTarget` in `insert-connector.ts` is the one function
+both the commit (`snappedEndpoint`) and the overlay highlight call.
+
+- **Nearest existing site, not a floating "auto" site.** The result is
+  an ordinary `attached` endpoint: no model or CRDT change, a real
+  `<a:stCxn idx>` on PPTX export, and it stays glued when the shape
+  moves because attached endpoints resolve from the target's frame at
+  paint time. The side is fixed at drop time; re-dragging the endpoint
+  re-picks it.
+- **Shapes only.** Text boxes, images, tables, charts and groups keep
+  site-only snapping, because on slides they are routinely slide-sized
+  (body placeholders, full-bleed photos) and would capture almost every
+  endpoint drawn over them. `freeform` strokes and open-path kinds are
+  excluded too: their frame is mostly empty space.
+- **No self-loops by accident.** The body of the shape the other
+  endpoint is attached to does not capture this one (`excludeBodyOf`),
+  so a short drag inside one shape cannot glue both ends to it.
+  Deliberate site snapping still reaches that shape.
 
 **Endpoint handles (selected connector)**:
 
@@ -350,8 +376,9 @@ loop. Routing change away from `'curved'` clears the field in both
    connector` in the shape picker (extending the existing picker
    dropdown).
 2. Cursor enters insert mode. `connection-points-overlay` activates.
-3. `mousedown`: if pointer is within 12px of a site → start endpoint
-   is `attached`. Otherwise → `free` at cursor.
+3. `mousedown`: if pointer is within 12px of a site, or over a
+   connectable shape's body (body glue, above) → start endpoint is
+   `attached`. Otherwise → `free` at cursor.
 4. While dragging: live preview line, snap behavior identical to step
    3 for the end endpoint.
 5. `mouseup`: end endpoint resolves same way as start. Drag distance

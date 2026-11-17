@@ -6,6 +6,7 @@ import {
   siteWorldPos,
 } from '../../canvas/connection-sites';
 import { computeConnectorFrame } from '../../canvas/connector-frame';
+import { findBodyGlue } from './connector-glue';
 
 /**
  * Connector-insert variants exposed to the editor:
@@ -94,19 +95,58 @@ export function findSnapTarget(
   return best;
 }
 
+export interface GlueTarget extends SnapHit {
+  /**
+   * `'site'`: the cursor is within the snap radius of a site.
+   * `'body'`: the cursor is over a shape's body and glues to its
+   * nearest site (see `connector-glue.ts`).
+   */
+  via: 'site' | 'body';
+}
+
+export interface GlueOptions {
+  /**
+   * Element whose BODY must not capture this endpoint: the element the
+   * connector's other endpoint is attached to. Site snapping still
+   * reaches it.
+   */
+  excludeBodyOf?: string;
+}
+
 /**
- * Resolve the cursor to an `Endpoint`. When the cursor is within the
- * snap radius of a connection site, returns an `attached` endpoint;
- * otherwise a `free` endpoint at the raw cursor position. `zoom` is
- * forwarded to `findSnapTarget` so the screen-pixel threshold stays
- * consistent across zoom levels.
+ * Where an endpoint at `cursor` would attach: a connection site within
+ * the snap radius first (unchanged precedence), else the body of the
+ * topmost connectable shape under the cursor, glued to its nearest
+ * site. Shared by the commit path (`snappedEndpoint`) and the overlay's
+ * highlight, so what the user sees is what gets committed.
+ */
+export function findGlueTarget(
+  cursor: { x: number; y: number },
+  elements: readonly Element[],
+  zoom: number,
+  opts: GlueOptions = {},
+): GlueTarget | null {
+  const site = findSnapTarget(cursor, elements, zoom);
+  if (site) return { ...site, via: 'site' };
+  const body = findBodyGlue(cursor, elements, opts.excludeBodyOf);
+  if (body) return { ...body, via: 'body' };
+  return null;
+}
+
+/**
+ * Resolve the cursor to an `Endpoint`. Attaches when `findGlueTarget`
+ * finds a site (within the snap radius, or the nearest site of the shape
+ * whose body is under the cursor); otherwise a `free` endpoint at the
+ * raw cursor position. `zoom` is forwarded so the screen-pixel snap
+ * threshold stays consistent across zoom levels.
  */
 export function snappedEndpoint(
   cursor: { x: number; y: number },
   elements: readonly Element[],
   zoom: number,
+  opts: GlueOptions = {},
 ): Endpoint {
-  const hit = findSnapTarget(cursor, elements, zoom);
+  const hit = findGlueTarget(cursor, elements, zoom, opts);
   if (hit) {
     return { kind: 'attached', elementId: hit.elementId, siteIndex: hit.siteIndex };
   }
@@ -127,7 +167,11 @@ export function buildConnectorInit(
   zoom: number,
 ): Omit<ConnectorElement, 'id'> {
   const startEp = snappedEndpoint(start, elements, zoom);
-  const endEp = snappedEndpoint(end, elements, zoom);
+  // A drag that starts and ends inside one shape must not glue both
+  // ends to it: the end's body glue skips the start's shape.
+  const endEp = snappedEndpoint(end, elements, zoom, {
+    excludeBodyOf: startEp.kind === 'attached' ? startEp.elementId : undefined,
+  });
 
   // Line is the only variant without an end arrowhead — Arrow / Elbow /
   // Curved all get an end arrowhead by default (matches Google Slides).
