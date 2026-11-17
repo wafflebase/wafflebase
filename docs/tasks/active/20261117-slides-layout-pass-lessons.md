@@ -49,3 +49,24 @@ Lesson: a marker attribute is a contract with every hook that reads it.
 Before putting `data-canvas-toolbar` (or any opt-in marker) on a new
 surface, read its consumers — here the marker meant "release focus from
 me", which is wrong for a popover that must keep focus to stay open.
+
+- Round 3 (security / docs / design-doc consistency) — the bound. 3
+  blocking: (a) design-fit: ruler and Format panel now share a unit label
+  but use different scales — ruler 144 px/in (13.333" page, matching PDF
+  and PPTX export), panel 192 px/in (10" page, Google Slides). Real and
+  pre-existing, but this branch made it more misleading (same label,
+  different numbers). The two design docs (`slides-ruler.md` vs
+  `slides-format-options-panel.md`) each commit to a different scale, so
+  picking one is a product decision: deferred to the PR for a human.
+  (b, c) test-adequacy: added tests for the More menu staying open while
+  a folded picker's portalled popup is used, and for keyboard vs click
+  open focus. Mutation check: the keyboard test fails without the
+  `onOpenAutoFocus` branch; the portal test passes even with the
+  `onInteractOutside` guard removed (Radix resolves nested layers through
+  React context), so the guard looks redundant — kept as defensive and
+  flagged in the PR. Loop stopped at the bound, not on a clean round.
+
+Lesson: making two displays agree on a *label* can surface that they
+disagree on the *quantity*. When unifying units, check the conversion
+constants of every surface that shows the unit, not just the unit flag.
+

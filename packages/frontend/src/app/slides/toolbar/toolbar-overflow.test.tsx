@@ -12,6 +12,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToolbarOverflow } from "./toolbar-overflow";
 import { computeFoldIndex, isHiddenInMenu } from "./toolbar-overflow-layout";
@@ -232,6 +237,63 @@ describe("ToolbarOverflow", () => {
     });
     expect(screen.queryByTestId("toolbar-overflow-menu")).not.toBeNull();
     expect(document.activeElement).toBe(control);
+  });
+
+  it("stays open while a folded picker's own portalled popup is used", async () => {
+    // A folded picker renders its menu in a separate Radix portal, outside
+    // the More popover; a click there is not an outside click for More.
+    function PickerSection() {
+      return (
+        <>
+          <button data-w="40">A</button>
+          <button data-w="40">B</button>
+          <Popover modal>
+            <PopoverTrigger data-w="40">Picker</PopoverTrigger>
+            <PopoverContent>
+              <button>Option</button>
+            </PopoverContent>
+          </Popover>
+        </>
+      );
+    }
+    stripWidth = 80;
+    render(
+      <TooltipProvider>
+        <div>
+          <ToolbarOverflow resetKey="idle">
+            <PickerSection />
+          </ToolbarOverflow>
+        </div>
+      </TooltipProvider>,
+    );
+    await act(async () => {});
+    await userEvent.click(moreButton());
+    const menu = await screen.findByTestId("toolbar-overflow-menu");
+    const picker = Array.from(menu.querySelectorAll("button")).find(
+      (b) => b.textContent === "Picker",
+    )!;
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole("button", { name: "Option" }));
+    expect(screen.queryByTestId("toolbar-overflow-menu")).not.toBeNull();
+  });
+
+  it("moves focus into the menu when it is opened from the keyboard", async () => {
+    await renderOverflow(100);
+    const more = moreButton();
+    more.focus();
+    await userEvent.keyboard("{Enter}");
+    const menu = await screen.findByTestId("toolbar-overflow-menu");
+    expect(menu.closest("[data-slot='popover-content']")).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+  });
+
+  it("leaves focus on the trigger when it is opened by a click", async () => {
+    await renderOverflow(100);
+    const more = moreButton();
+    await userEvent.click(more);
+    await screen.findByTestId("toolbar-overflow-menu");
+    expect(document.activeElement).toBe(more);
   });
 
   it("does not mark the trigger or menu as keepalive outside a text edit", async () => {

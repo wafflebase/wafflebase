@@ -43,8 +43,17 @@ investigation).
 
 - [x] `pnpm verify:fast` green
 - [x] Rendered check at 1440 and 1024, light + dark
-- [ ] `/self-review` rounds logged in the lessons file
+- [x] `/self-review` rounds logged in the lessons file (3 rounds, stopped at the bound)
 
 ## Review
 
-(filled in at the end)
+All five items shipped and were checked rendered at 1440 and 1024px in
+light and dark: the sidebar collapses below 1280 (slide ~295 → ~815px at
+1024), overflow folds into ⋮ More with the panel toggles pinned (the
+labelled-idle form kept), the ruler shows the deck unit at 10px in the
+muted token, the Format panel reads as grouped sections, and the current
+thumbnail has a 3px frame.
+
+Open for a human: the ruler (144 px/in) and Format panel (192 px/in)
+measure different physical sizes for the same unit — see lessons,
+round 3.
