@@ -109,6 +109,15 @@ wafflebase comments resolve <id> <thread-id>
 Uploading and downloading arbitrary files (PDF, images, anything) is in
 [references/files-upload-download.md](../../references/files-upload-download.md).
 
+## Boards
+
+Read a board as a compact element list (`wafflebase board elements <id>
+--kind sticky`), and edit it with granular verbs — `board add-stickies`,
+`board add-section` (`--grid` lays the given stickies out inside it),
+`board move`, `board add-text` — never `board set-content`. Clustering a
+brainstorm's stickies by theme and writing a summary is
+[references/recipe-board-cluster.md](../../references/recipe-board-cluster.md).
+
 ## Links
 
 Every document you mention, create or change gets a link:

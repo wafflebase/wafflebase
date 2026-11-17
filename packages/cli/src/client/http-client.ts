@@ -172,6 +172,24 @@ export interface BoardContent {
   elements: Record<string, unknown>[];
 }
 
+/** One board element as `GET .../board/elements` summarizes it. */
+export interface BoardElementSummary {
+  id: string;
+  kind: string;
+  text?: string;
+  color?: string;
+  frame: { x: number; y: number; w: number; h: number; rotation: number };
+  section?: string;
+  title?: string;
+  hidden?: true;
+  locked?: true;
+  from?: string;
+  to?: string;
+  stamps?: Record<string, number>;
+  votes?: number;
+  author?: string;
+}
+
 /** A comment thread as the comments endpoint returns it. */
 export interface CommentThread {
   id: string;
@@ -695,6 +713,42 @@ export class HttpClient {
       'PUT',
       `/documents/${seg(docId)}/content`,
       board,
+    );
+  }
+
+  // Granular board editing — what an agent clusters a brainstorm with.
+  listBoardElements(docId: string) {
+    return this.request<{ elements: BoardElementSummary[] }>(
+      'GET',
+      `/documents/${seg(docId)}/board/elements`,
+    );
+  }
+  addBoardStickies(docId: string, body: unknown) {
+    return this.request<{ ids: string[] }>(
+      'POST',
+      `/documents/${seg(docId)}/board/stickies`,
+      body,
+    );
+  }
+  addBoardSection(docId: string, body: unknown) {
+    return this.request<{ id: string; members: string[]; moved: string[] }>(
+      'POST',
+      `/documents/${seg(docId)}/board/sections`,
+      body,
+    );
+  }
+  moveBoardElements(docId: string, body: unknown) {
+    return this.request<{ moved: string[]; carried: string[] }>(
+      'PATCH',
+      `/documents/${seg(docId)}/board/elements`,
+      body,
+    );
+  }
+  addBoardText(docId: string, body: unknown) {
+    return this.request<{ id: string }>(
+      'POST',
+      `/documents/${seg(docId)}/board/text`,
+      body,
     );
   }
 

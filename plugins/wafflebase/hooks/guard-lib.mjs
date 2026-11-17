@@ -459,6 +459,10 @@ function classifyPath(words, table) {
     const v = positionals[node.localInputArg];
     if (typeof v === 'string' && v !== '-') localReads.push(v);
   }
+  for (const o of node.localInputOptions ?? []) {
+    const v = flags.get(o);
+    if (typeof v === 'string' && v !== '-') localReads.push(v);
+  }
 
   // A read on the server can still write this machine's disk.
   const localWrites = [];

@@ -34,9 +34,70 @@
           "boards"
         ],
         "children": {
+          "add-section": {
+            "valueOptions": [
+              "--at",
+              "--color",
+              "--columns",
+              "--frame",
+              "--ids",
+              "--title"
+            ],
+            "safety": "write",
+            "description": "Add a titled section around --ids (optionally laid out as a --grid), or at --frame"
+          },
+          "add-stickies": {
+            "valueOptions": [
+              "--color",
+              "--columns",
+              "--file",
+              "--near",
+              "--text"
+            ],
+            "safety": "write",
+            "description": "Add stickies, laid out as a grid in free space (one per --text, or per line of --file)",
+            "localInputOptions": [
+              "--file"
+            ]
+          },
+          "add-text": {
+            "valueOptions": [
+              "--file",
+              "--font-size",
+              "--near",
+              "--side",
+              "--text",
+              "--width",
+              "--x",
+              "--y"
+            ],
+            "safety": "write",
+            "description": "Add a text box (a summary, a heading) at --x/--y, beside --near, or beside the content",
+            "localInputOptions": [
+              "--file"
+            ]
+          },
           "content": {
             "safety": "read-only",
             "description": "Read board content as JSON"
+          },
+          "elements": {
+            "valueOptions": [
+              "--kind"
+            ],
+            "safety": "read-only",
+            "description": "List a board's elements: kind, plain text, colour, frame, section membership, stamps, votes"
+          },
+          "move": {
+            "valueOptions": [
+              "--data",
+              "--file"
+            ],
+            "safety": "write",
+            "description": "Move / resize elements from a JSON array of { id, x, y, w?, h? } (a moved section carries its contents)",
+            "localInputOptions": [
+              "--file"
+            ]
           },
           "set-content": {
             "valueOptions": [

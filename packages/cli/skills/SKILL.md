@@ -44,6 +44,12 @@ examples, and safety notes.
 | [slides-author.md](slides-author.md) | destructive | Author a native deck from built-in themes, layouts and placeholders |
 | [deck-author.md](deck-author.md) | destructive | Source folder → native deck through a lint + render verify loop |
 
+## Board Skills
+
+| File | Safety | Description |
+|------|--------|-------------|
+| [recipe-board-cluster.md](recipe-board-cluster.md) | write | Read a board's stickies, cluster them by theme into sections, write a summary |
+
 ## Files Skills
 
 | File | Safety | Description |
@@ -58,6 +64,7 @@ examples, and safety notes.
 | [recipe-data-collect.md](recipe-data-collect.md) | read-only | Collect and compare data across spreadsheet documents |
 | [recipe-docx-to-pdf.md](recipe-docx-to-pdf.md) | write | Round-trip a .docx through Wafflebase to produce a PDF |
 | [recipe-doc-to-markdown.md](recipe-doc-to-markdown.md) | read-only | Pull a doc as Markdown and pipe it to an LLM |
+| [recipe-board-cluster.md](recipe-board-cluster.md) | write | Cluster a board's stickies by theme into sections and write a summary |
 
 ## How Agents Use Skills
 

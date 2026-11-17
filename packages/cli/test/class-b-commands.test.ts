@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/commands/root.js';
 import { registerTabsCommand } from '../src/commands/tabs.js';
@@ -36,6 +39,11 @@ const calls = {
   deleteComment: vi.fn(),
   getBoardContent: vi.fn(),
   putBoardContent: vi.fn(),
+  listBoardElements: vi.fn(),
+  addBoardStickies: vi.fn(),
+  addBoardSection: vi.fn(),
+  moveBoardElements: vi.fn(),
+  addBoardText: vi.fn(),
 };
 
 vi.mock('../src/client/http-client.js', () => ({
@@ -58,6 +66,11 @@ vi.mock('../src/client/http-client.js', () => ({
     deleteComment = (...a: unknown[]) => calls.deleteComment(...a);
     getBoardContent = (...a: unknown[]) => calls.getBoardContent(...a);
     putBoardContent = (...a: unknown[]) => calls.putBoardContent(...a);
+    listBoardElements = (...a: unknown[]) => calls.listBoardElements(...a);
+    addBoardStickies = (...a: unknown[]) => calls.addBoardStickies(...a);
+    addBoardSection = (...a: unknown[]) => calls.addBoardSection(...a);
+    moveBoardElements = (...a: unknown[]) => calls.moveBoardElements(...a);
+    addBoardText = (...a: unknown[]) => calls.addBoardText(...a);
   },
 }));
 
@@ -392,6 +405,127 @@ describe('class B commands', () => {
         url: `${BASE}/documents/doc-1/content`,
         body: { meta: { title: 'Retro' }, elements: [] },
       });
+    });
+  });
+  describe('board editing', () => {
+    const summary = {
+      elements: [
+        {
+          id: 's1',
+          kind: 'section',
+          title: 'Speed',
+          frame: { x: 0, y: 0, w: 400, h: 300, rotation: 0 },
+        },
+        {
+          id: 'a',
+          kind: 'sticky',
+          text: 'Ship\nfaster',
+          color: '#FFF8B8',
+          section: 's1',
+          frame: { x: 10.4, y: 20, w: 180, h: 180, rotation: 0 },
+        },
+      ],
+    };
+
+    it('lists elements as JSON, filtered by --kind', async () => {
+      calls.listBoardElements.mockResolvedValue(ok(summary));
+      await run(['board', 'elements', 'doc-1', '--kind', 'sticky']);
+      expect(calls.listBoardElements).toHaveBeenCalledWith('doc-1');
+      const out = JSON.parse(stdout.join('\n'));
+      expect(out.elements.map((e: { id: string }) => e.id)).toEqual(['a']);
+    });
+
+    it('flattens elements to one row each for a table', async () => {
+      calls.listBoardElements.mockResolvedValue(ok(summary));
+      await run(['board', 'elements', 'doc-1', '--format', 'csv']);
+      const csv = stdout.join('\n');
+      expect(csv).toContain('id,kind,section,text');
+      expect(csv).toContain('a,sticky,s1,Ship / faster,#FFF8B8,10,20,180,180');
+    });
+
+    it('adds stickies from --text and from a --file, one per line', async () => {
+      calls.addBoardStickies.mockResolvedValue(ok({ ids: ['n1', 'n2', 'n3'] }));
+      const dir = mkdtempSync(join(tmpdir(), 'wfb-board-'));
+      const file = join(dir, 'ideas.txt');
+      writeFileSync(file, 'two\n\n  three  \n');
+      await run([
+        'board', 'add-stickies', 'doc-1',
+        '--text', 'one', '--file', file, '--color', 'blue', '--near', 's1', '--columns', '2',
+      ]);
+      expect(calls.addBoardStickies).toHaveBeenCalledWith('doc-1', {
+        texts: ['one', 'two', 'three'],
+        color: 'blue',
+        near: 's1',
+        columns: 2,
+      });
+    });
+
+    it('refuses an empty add-stickies before sending', async () => {
+      await run(['board', 'add-stickies', 'doc-1']);
+      expect(calls.addBoardStickies).not.toHaveBeenCalled();
+      expect(errorMessage()).toMatch(/--text/);
+    });
+
+    it('adds a grid section around ids, previewed by --dry-run', async () => {
+      await run([
+        'board', 'add-section', 'doc-1',
+        '--title', 'Speed', '--ids', 'a, b', '--grid', '--at', '100,-50', '--color', 'green',
+        '--dry-run',
+      ]);
+      expect(calls.addBoardSection).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n'))).toEqual({
+        dry_run: true,
+        method: 'POST',
+        url: `${BASE}/documents/doc-1/board/sections`,
+        body: {
+          title: 'Speed',
+          elementIds: ['a', 'b'],
+          layout: 'grid',
+          at: { x: 100, y: -50 },
+          color: 'green',
+        },
+      });
+    });
+
+    it('refuses --grid without --ids and a malformed --frame', async () => {
+      await run(['board', 'add-section', 'doc-1', '--title', 'T', '--grid']);
+      expect(errorMessage()).toMatch(/--ids/);
+      stderr.length = 0;
+      await run(['board', 'add-section', 'doc-1', '--title', 'T', '--frame', '1,2,3']);
+      expect(errorMessage()).toMatch(/x,y,w,h/);
+      expect(calls.addBoardSection).not.toHaveBeenCalled();
+    });
+
+    it('moves elements from --data and refuses a non-array', async () => {
+      calls.moveBoardElements.mockResolvedValue(ok({ moved: ['a'], carried: [] }));
+      await run(['board', 'move', 'doc-1', '--data', '[{"id":"a","x":1,"y":2}]']);
+      expect(calls.moveBoardElements).toHaveBeenCalledWith('doc-1', [
+        { id: 'a', x: 1, y: 2 },
+      ]);
+      calls.moveBoardElements.mockReset();
+      await run(['board', 'move', 'doc-1', '--data', '{"id":"a"}']);
+      expect(calls.moveBoardElements).not.toHaveBeenCalled();
+      expect(errorMessage()).toMatch(/array/);
+    });
+
+    it('adds a text box beside a section', async () => {
+      calls.addBoardText.mockResolvedValue(ok({ id: 't1' }));
+      await run([
+        'board', 'add-text', 'doc-1',
+        '--text', 'Summary', '--near', 's1', '--side', 'below', '--bold',
+      ]);
+      expect(calls.addBoardText).toHaveBeenCalledWith('doc-1', {
+        text: 'Summary',
+        near: 's1',
+        side: 'below',
+        bold: true,
+      });
+    });
+
+    it('refuses add-text with half a position', async () => {
+      await run(['board', 'add-text', 'doc-1', '--text', 'x', '--x', '5']);
+      expect(calls.addBoardText).not.toHaveBeenCalled();
+      expect(errorMessage()).toMatch(/--x and --y/);
     });
   });
 });
