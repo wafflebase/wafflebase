@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { SIDE_PANEL_CLASS } from "@/components/side-panel-layout";
 import { formatRelativeTime } from "@/lib/utils";
 import type { CommentAnchor, Thread } from "@/types/comments";
 
@@ -55,8 +56,10 @@ export function CommentSidePanel<A extends CommentAnchor>({
   const visible = tab === "open" ? open : resolved;
 
   return (
+    // A docked column on desktop, a bottom sheet on a phone; see
+    // `SIDE_PANEL_CLASS`.
     <aside
-      className="flex h-full w-72 flex-col border-l bg-background"
+      className={SIDE_PANEL_CLASS}
       aria-label="Comments"
     >
       <header className="flex items-center justify-between border-b px-4 py-3">

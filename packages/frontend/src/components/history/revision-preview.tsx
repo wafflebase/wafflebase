@@ -305,7 +305,7 @@ export function RevisionPreview({
         aria-busy={isLoading || undefined}
         className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2 text-sm"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           {meta ? (
             `Viewing ${meta.title} from ${formatRevisionTime(meta.createdAt)}`
           ) : isLoading ? (
@@ -324,7 +324,9 @@ export function RevisionPreview({
             'This version could not be loaded'
           ) : null}
         </span>
-        <div className="flex items-center gap-2">
+        {/* Wraps: on a phone the two buttons alone are ~340px, and with the
+            slide pager they would run past the banner's edge. */}
+        <div className="flex flex-wrap items-center gap-2">
           {slideCount > 1 && (
             <div className="flex items-center gap-1">
               <Button

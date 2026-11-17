@@ -218,6 +218,7 @@ export function LinePicker({
       <DropdownMenuContent
         align="start"
         sideOffset={6}
+        collisionPadding={8}
         className="z-50 w-[200px] p-1"
       >
         <div className="flex flex-col gap-0.5">

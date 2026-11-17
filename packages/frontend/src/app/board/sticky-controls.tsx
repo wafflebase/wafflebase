@@ -5,6 +5,13 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { IconChevronDown } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { STICKY_COLORS } from "./sticky";
 
@@ -13,6 +20,13 @@ export interface StickyControlsProps {
   store: SlidesStore | null;
   /** Selected element ids; the toolbar only mounts this when all are stickies. */
   ids: readonly string[];
+  /**
+   * `"inline"` (default) lays the six swatches out in the toolbar.
+   * `"menu"` folds them behind one trigger showing the current colour —
+   * the phone's toolbar, where six 44px swatches plus Undo/Redo and
+   * Arrange are wider than a 393px row and Arrange ended up off-screen.
+   */
+  variant?: "inline" | "menu";
 }
 
 /**
@@ -29,7 +43,12 @@ export interface StickyControlsProps {
  * The current colour is pressed only when every selected sticky shares
  * it, so a mixed selection shows none pressed rather than lying.
  */
-export function StickyControls({ editor, store, ids }: StickyControlsProps) {
+export function StickyControls({
+  editor,
+  store,
+  ids,
+  variant = "inline",
+}: StickyControlsProps) {
   const slide = store?.read().slides[0];
   const fills = ids.map((id) => {
     const el = slide?.elements.find((e) => e.id === id);
@@ -50,6 +69,49 @@ export function StickyControls({ editor, store, ids }: StickyControlsProps) {
       }
     });
   };
+
+  if (variant === "menu") {
+    const current = STICKY_COLORS.find((c) => c.value.toUpperCase() === shared);
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Sticky note color: ${current?.name ?? "Mixed"}`}
+            disabled={disabled}
+            className="focus-ring inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-1.5 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <span
+              aria-hidden="true"
+              className="size-5 rounded-sm border border-black/15"
+              style={{ backgroundColor: current?.value ?? "transparent" }}
+            />
+            <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          collisionPadding={8}
+          className="flex gap-1 p-1"
+        >
+          {STICKY_COLORS.map((c) => (
+            <DropdownMenuItem
+              key={c.value}
+              aria-label={c.name}
+              title={c.name}
+              className={cn(
+                "size-7 rounded border border-black/15 p-0 pointer-coarse:size-11",
+                shared === c.value.toUpperCase() &&
+                  "ring-2 ring-primary ring-offset-1 ring-offset-background",
+              )}
+              style={{ backgroundColor: c.value }}
+              onSelect={() => apply(c.value)}
+            />
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
   return (
     <div role="group" aria-label="Sticky note color" className="flex items-center gap-0.5">

@@ -115,7 +115,7 @@ const DataSourceView = lazyWithRetry(() =>
  */
 function SharedEmptySpreadsheet({ title }: { title: string }) {
   return (
-    <div className="flex h-screen w-full items-center justify-center p-6 text-center">
+    <div className="flex h-svh w-full items-center justify-center p-6 text-center">
       <div className="max-w-md space-y-2">
         <h2 className="text-sm font-medium">{title}</h2>
         <p className="text-sm text-muted-foreground">
@@ -310,7 +310,7 @@ function SharedDocumentLayout({
   const activeTab = root.tabs[activeTabId];
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-svh w-full flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
@@ -386,7 +386,7 @@ function SharedDocsLayout({
   );
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-svh w-full flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
@@ -436,7 +436,7 @@ function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-svh w-full flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
@@ -519,7 +519,7 @@ function SharedDesktopSlidesLayout({
   }, []);
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-svh w-full flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
@@ -645,7 +645,7 @@ function SharedMobileSlidesLayout({
   }, []);
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-svh w-full flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-base font-medium">{resolved.title}</h1>
@@ -691,7 +691,7 @@ function SharedMobileSlidesLayout({
         >
           <SheetContent
             side="bottom"
-            className="max-h-[80vh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
+            className="max-h-[80dvh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
           >
             <SheetHeader className="border-b">
               <SheetTitle>{panelMeta?.title}</SheetTitle>
@@ -762,7 +762,7 @@ function SharedPdfLayout({
         token={token}
         presenceUser={presenceUser}
       >
-        <div className="flex h-screen w-full flex-col">
+        <div className="flex h-svh w-full flex-col">
           <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
             <div className="flex items-center gap-2">
               <h1 className="text-base font-medium">{resolved.title}</h1>
@@ -1142,7 +1142,7 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
       ? "No share token provided"
       : (error instanceof Error && error.message) || "Invalid or expired link";
     return (
-      <div className="flex h-screen w-full items-center justify-center">
+      <div className="flex h-svh w-full items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-semibold mb-2">Link unavailable</h1>
           <p className="text-muted-foreground">{message}</p>

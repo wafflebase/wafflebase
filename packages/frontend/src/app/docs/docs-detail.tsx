@@ -25,6 +25,8 @@ import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import { useOnePanelOnMobile } from "@/components/side-panel-layout";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   EditingChrome,
   PreviewSurface,
@@ -55,6 +57,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Both panels are bottom sheets on a phone; keep only the latest.
+  useOnePanelOnMobile(
+    useIsMobile(),
+    [commentsPanelOpen, setCommentsPanelOpen],
+    [historyOpen, setHistoryOpen],
+  );
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(
     null,
   );

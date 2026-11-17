@@ -136,3 +136,70 @@ describe("DocsLinkPopover Apply guard", () => {
     expect(calls.insertLink).toHaveBeenCalledWith("https://example.org");
   });
 });
+
+/**
+ * On a 393px phone, a caret near the end of a line opened the popover with
+ * its left edge past the middle of the screen and Apply off it. The
+ * popover is measured after render and kept 8px inside the window.
+ */
+describe("DocsLinkPopover viewport clamp", () => {
+  function withBox(width: number, height: number) {
+    const w = vi
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockReturnValue(width);
+    const h = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockReturnValue(height);
+    return () => {
+      w.mockRestore();
+      h.mockRestore();
+    };
+  }
+
+  function popoverBox() {
+    return screen.getByLabelText("Link URL").closest(".fixed") as HTMLElement;
+  }
+
+  function renderAt(position: { x: number; y: number; height: number }) {
+    const { editor } = makeEditor(undefined);
+    const containerRef = createRef<HTMLDivElement>();
+    (containerRef as { current: HTMLDivElement | null }).current =
+      document.createElement("div");
+    render(
+      <DocsLinkPopover
+        editor={editor}
+        containerRef={containerRef}
+        editRequest={{ initialUrl: "", position }}
+        onEditRequestHandled={() => {}}
+      />,
+    );
+  }
+
+  it("slides left so its right edge stays inside a narrow window", () => {
+    vi.stubGlobal("innerWidth", 393);
+    vi.stubGlobal("innerHeight", 659);
+    const restore = withBox(280, 40);
+    try {
+      renderAt({ x: 300, y: 100, height: 16 });
+      expect(popoverBox().style.left).toBe(`${393 - 280 - 8}px`);
+      expect(popoverBox().style.top).toBe(`${100 + 16 + 4}px`);
+    } finally {
+      restore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("flips above the caret when there is no room below", () => {
+    vi.stubGlobal("innerWidth", 393);
+    vi.stubGlobal("innerHeight", 400);
+    const restore = withBox(280, 40);
+    try {
+      renderAt({ x: 20, y: 370, height: 16 });
+      expect(popoverBox().style.left).toBe("20px");
+      expect(popoverBox().style.top).toBe(`${370 - 4 - 40}px`);
+    } finally {
+      restore();
+      vi.unstubAllGlobals();
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
@@ -43,6 +44,7 @@ import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS, isStickyElement } from "./sticky";
 import { StickyControls } from "./sticky-controls";
+import { BoardInsertSheet } from "./board-insert-sheet";
 import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
@@ -113,6 +115,24 @@ export interface BoardToolbarProps {
  * `ObjectSection`) are deliberately not reused: they hardcode the slides
  * `InsertGroup` (with that table picker) and route a `table` selection
  * into `TableControls`.
+ *
+ * On a phone (`useIsMobile`) the row has to fit ~393px, where the desktop
+ * layout measured 644px idle and 983px with a sticky selected — the
+ * Text box button cut mid-icon, and the sticky colours and Arrange
+ * entirely off-screen with nothing to say so. So the phone gets:
+ *
+ * ```text
+ * idle:      [↶][↷] [Zoom ▾][Grid ▾] [Select][Hand][+]
+ * selection: [↶][↷] │ [Arrange] ‹contextual›
+ * ```
+ *
+ * The five insert tools fold into one "+" bottom sheet
+ * (`BoardInsertSheet`), the separators go (the idle row does not fit with
+ * them), and a selection REPLACES the view/tool block instead of being
+ * appended after it, with Arrange first and a sticky's palette folded into
+ * one swatch menu. The strip is scrolled back to its start whenever the
+ * mode changes, since a strip left scrolled from a wider mode otherwise
+ * opens with Undo off the left edge.
  */
 export function BoardToolbar({
   editor,
@@ -132,6 +152,8 @@ export function BoardToolbar({
     getToolbarState(editor, store),
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   // Color chosen from the palette, applied in `onCloseAutoFocus` (below) so
   // the sticky is created only after Radix has finished closing the menu —
   // and with focus restoration prevented, so the new sticky's text caret
@@ -208,216 +230,278 @@ export function BoardToolbar({
   // Both settings are spoken here: the icon is identical in every mode
   // and says nothing at all about snapping, so the trigger's label is
   // the only place either state is available without opening the menu.
+  // Phone only: a selection replaces the view/tool block (see the doc
+  // comment). Keyed on mode, not on ids, so tapping from one sticky to
+  // another does not yank a strip the user has just scrolled.
+  const compactSelection =
+    isMobile && (state.kind === "object" || state.kind === "text-edit");
+  const modeKey =
+    state.kind === "object" ? `object:${state.selectionType}` : state.kind;
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = toolbarRef.current;
+    if (el) el.scrollLeft = 0;
+  }, [isMobile, modeKey]);
+
+  const arrange = state.kind === "object" && (
+    <ArrangeMenu
+      editor={editor}
+      selectionSize={state.ids.length}
+      canUngroup={canUngroupSelection(editor, store, state.ids)}
+      minAlignSelection={2}
+    />
+  );
+
   const gridLabel =
     (GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None") +
     (gridSnap ? ", snap on" : "");
 
   return (
-    <Toolbar data-canvas-toolbar="">
+    <Toolbar ref={toolbarRef} data-canvas-toolbar="">
       <UndoRedoGroup store={store} />
-      <ToolbarSeparator className="mx-1" />
-      <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
+      {!compactSelection && (
+        <>
+          {!isMobile && <ToolbarSeparator className="mx-1" />}
+          <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
 
-      {/* Grid ▾ — the background grid mode, next to Zoom because both are
-          view controls that change nothing in the document. Deliberately
-          NOT gated on `disabled`/`editor`: it is a per-user view
-          preference, so it stays usable while the workspace is still
-          resolving and on a board the user cannot edit. */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2"
-                // The icon is identical in all three modes (as it is in
-                // Miro), so the current one has to be spoken somewhere —
-                // otherwise a screen-reader user cannot tell whether the
-                // grid is on without opening the menu.
-                aria-label={`Grid: ${gridLabel}`}
+          {/* Grid ▾ — the background grid mode, next to Zoom because both are
+              view controls that change nothing in the document. Deliberately
+              NOT gated on `disabled`/`editor`: it is a per-user view
+              preference, so it stays usable while the workspace is still
+              resolving and on a board the user cannot edit. */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    // The icon is identical in all three modes (as it is in
+                    // Miro), so the current one has to be spoken somewhere —
+                    // otherwise a screen-reader user cannot tell whether the
+                    // grid is on without opening the menu.
+                    aria-label={`Grid: ${gridLabel}`}
+                  >
+                    {/* Dimmed only when the grid does NOTHING. `None` + snap
+                        on is a supported combination, and a dimmed icon there
+                        would be the one always-visible affordance claiming a
+                        feature that is in fact active. */}
+                    <IconGrid3x3
+                      size={16}
+                      className={
+                        gridKind === "none" && !gridSnap ? "opacity-50" : undefined
+                      }
+                    />
+                    <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Grid: {gridLabel}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start" collisionPadding={8}>
+              <DropdownMenuRadioGroup
+                value={gridKind}
+                onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
               >
-                {/* Dimmed only when the grid does NOTHING. `None` + snap
-                    on is a supported combination, and a dimmed icon there
-                    would be the one always-visible affordance claiming a
-                    feature that is in fact active. */}
-                <IconGrid3x3
-                  size={16}
-                  className={
-                    gridKind === "none" && !gridSnap ? "opacity-50" : undefined
-                  }
-                />
-                <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Grid: {gridLabel}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start">
-          <DropdownMenuRadioGroup
-            value={gridKind}
-            onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
-          >
-            {GRID_OPTIONS.map((option) => (
-              <DropdownMenuRadioItem key={option.value} value={option.value}>
-                {option.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-          {/* Below the separator because it is not a fourth mode: snapping
-              is independent of what is drawn, so `None` + snap on is a
-              valid (and useful) combination. */}
-          <DropdownMenuCheckboxItem
-            checked={gridSnap}
-            onCheckedChange={(checked) => onGridSnapChange(checked === true)}
-          >
-            Snap to grid
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                {GRID_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              {/* Below the separator because it is not a fourth mode: snapping
+                  is independent of what is drawn, so `None` + snap on is a
+                  valid (and useful) combination. */}
+              <DropdownMenuCheckboxItem
+                checked={gridSnap}
+                onCheckedChange={(checked) => onGridSnapChange(checked === true)}
+              >
+                Snap to grid
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-      <ToolbarSeparator className="mx-1" />
-      {/* Select — pressed when insertMode === null (Esc/default state).
-          onClick rather than onPressedChange so a second click while
-          already in select mode is a no-op instead of toggling to
-          undefined. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === null && !handOn}
-            onClick={() => {
-              hand?.set(false);
-              editor?.setInsertMode(null);
-            }}
-            aria-label="Select"
-            disabled={disabled || !editor}
-          >
-            <IconPointer size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
-      </Tooltip>
-
-      {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
-          arming it disarms any insert tool, and vice versa. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={handOn}
-            onPressedChange={(pressed) => hand?.set(pressed)}
-            aria-label="Hand"
-            disabled={!hand || !editor}
-          >
-            <IconHandStop size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Hand ({TOOL_HINTS.hand})</TooltipContent>
-      </Tooltip>
-
-      {/* Text box */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === "text"}
-            onPressedChange={(pressed) =>
-              editor?.setInsertMode(pressed ? "text" : null)
-            }
-            aria-label="Text box"
-            disabled={disabled || !editor}
-          >
-            <IconLetterT size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Text box ({TOOL_HINTS.text})</TooltipContent>
-      </Tooltip>
-
-      {/* Sticky note ▾ — main click drops the first (yellow) color;
-          chevron opens the 6-color palette. Placement + text-edit entry
-          is board-local (dropStickyAtViewportCenter), not an editor
-          InsertKind, so the slides editor is untouched. */}
-      <div className="flex items-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2"
-              aria-label="Sticky note"
-              disabled={disabled || !editor}
-              onClick={() => onInsertSticky?.(STICKY_COLORS[0].value)}
-            >
-              <IconNote size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
-        </Tooltip>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 w-5 px-0"
-              aria-label="Sticky note color"
-              disabled={disabled || !editor}
-            >
-              <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="flex gap-1 p-1"
-            onCloseAutoFocus={(e) => {
-              const color = pendingStickyColor.current;
-              if (!color) return;
-              pendingStickyColor.current = null;
-              // Skip Radix's default focus restore to the trigger — otherwise
-              // it steals focus from the sticky's text caret that
-              // `dropStickyAtViewportCenter` (via onInsertSticky) just entered.
-              e.preventDefault();
-              onInsertSticky?.(color);
-            }}
-          >
-            {STICKY_COLORS.map((c) => (
-              <DropdownMenuItem
-                key={c.value}
-                aria-label={c.name}
-                title={c.name}
-                // Rendered into a portal, so the toolbar root's coarse
-                // rule does not reach it. 28px matches every other
-                // toolbar target; coarse pointers get 44px.
-                className="size-7 rounded border border-black/15 p-0 pointer-coarse:size-11"
-                style={{ backgroundColor: c.value }}
-                onSelect={() => {
-                  // Defer the actual insert to onCloseAutoFocus; onSelect just
-                  // records the choice and lets Radix close the menu.
-                  pendingStickyColor.current = c.value;
+          {!isMobile && <ToolbarSeparator className="mx-1" />}
+          {/* Select — pressed when insertMode === null (Esc/default state).
+              onClick rather than onPressedChange so a second click while
+              already in select mode is a no-op instead of toggling to
+              undefined. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={insertMode === null && !handOn}
+                onClick={() => {
+                  hand?.set(false);
+                  editor?.setInsertMode(null);
                 }}
-              />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+                aria-label="Select"
+                disabled={disabled || !editor}
+              >
+                <IconPointer size={16} />
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
+          </Tooltip>
 
-      {/* Image — opens a file picker; upload + insert is board-view's
-          onInsertImage (reuses the slides upload + insert pipeline). */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={false}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Insert image"
-            disabled={disabled || !editor || !onInsertImage}
-          >
-            <IconPhoto size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Insert image</TooltipContent>
-      </Tooltip>
+          {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
+              arming it disarms any insert tool, and vice versa. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={handOn}
+                onPressedChange={(pressed) => hand?.set(pressed)}
+                aria-label="Hand"
+                disabled={!hand || !editor}
+              >
+                <IconHandStop size={16} />
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent>Hand ({TOOL_HINTS.hand})</TooltipContent>
+          </Tooltip>
+
+          {isMobile ? (
+            <BoardInsertSheet
+              disabled={disabled || !editor}
+              onInsertMode={(kind) => {
+                hand?.set(false);
+                editor?.setInsertMode(kind);
+              }}
+              onInsertSticky={onInsertSticky}
+              onPickImage={() => fileInputRef.current?.click()}
+              imageDisabled={!onInsertImage}
+            />
+          ) : (
+            <>
+              {/* Text box */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    pressed={insertMode === "text"}
+                    onPressedChange={(pressed) =>
+                      editor?.setInsertMode(pressed ? "text" : null)
+                    }
+                    aria-label="Text box"
+                    disabled={disabled || !editor}
+                  >
+                    <IconLetterT size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>Text box ({TOOL_HINTS.text})</TooltipContent>
+              </Tooltip>
+
+              {/* Sticky note ▾ — main click drops the first (yellow) color;
+                  chevron opens the 6-color palette. Placement + text-edit entry
+                  is board-local (dropStickyAtViewportCenter), not an editor
+                  InsertKind, so the slides editor is untouched. */}
+              <div className="flex items-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2"
+                      aria-label="Sticky note"
+                      disabled={disabled || !editor}
+                      onClick={() => onInsertSticky?.(STICKY_COLORS[0].value)}
+                    >
+                      <IconNote size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
+                </Tooltip>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-5 px-0"
+                      aria-label="Sticky note color"
+                      disabled={disabled || !editor}
+                    >
+                      <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    collisionPadding={8}
+                    className="flex gap-1 p-1"
+                    onCloseAutoFocus={(e) => {
+                      const color = pendingStickyColor.current;
+                      if (!color) return;
+                      pendingStickyColor.current = null;
+                      // Skip Radix's default focus restore to the trigger — otherwise
+                      // it steals focus from the sticky's text caret that
+                      // `dropStickyAtViewportCenter` (via onInsertSticky) just entered.
+                      e.preventDefault();
+                      onInsertSticky?.(color);
+                    }}
+                  >
+                    {STICKY_COLORS.map((c) => (
+                      <DropdownMenuItem
+                        key={c.value}
+                        aria-label={c.name}
+                        title={c.name}
+                        // Rendered into a portal, so the toolbar root's coarse
+                        // rule does not reach it. 28px matches every other
+                        // toolbar target; coarse pointers get 44px.
+                        className="size-7 rounded border border-black/15 p-0 pointer-coarse:size-11"
+                        style={{ backgroundColor: c.value }}
+                        onSelect={() => {
+                          // Defer the actual insert to onCloseAutoFocus; onSelect just
+                          // records the choice and lets Radix close the menu.
+                          pendingStickyColor.current = c.value;
+                        }}
+                      />
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {/* Image — opens a file picker; upload + insert is board-view's
+                  onInsertImage (reuses the slides upload + insert pipeline). */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    pressed={false}
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Insert image"
+                    disabled={disabled || !editor || !onInsertImage}
+                  >
+                    <IconPhoto size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>Insert image</TooltipContent>
+              </Tooltip>
+
+              {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
+                  not a line-tool kind: connectors / scribble live in Line ▾) */}
+              <ShapePicker
+                activeKind={
+                  insertMode && insertMode !== "text" && !isLineToolKind(insertMode)
+                    ? insertMode
+                    : null
+                }
+                onSelect={(kind) => editor?.setInsertMode(kind)}
+                disabled={disabled || !editor}
+              />
+
+              {/* Line ▾ — connectors + the freehand scribble */}
+              <LinePicker
+                activeKind={isLineToolKind(insertMode) ? insertMode : null}
+                onSelect={(kind) => editor?.setInsertMode(kind)}
+                disabled={disabled || !editor}
+              />
+            </>
+          )}
+        </>
+      )}
+      {/* Rendered in both layouts: the phone's insert sheet opens it too. */}
       <input
         ref={fileInputRef}
         type="file"
@@ -430,30 +514,17 @@ export function BoardToolbar({
         }}
       />
 
-      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
-          not a line-tool kind: connectors / scribble live in Line ▾) */}
-      <ShapePicker
-        activeKind={
-          insertMode && insertMode !== "text" && !isLineToolKind(insertMode)
-            ? insertMode
-            : null
-        }
-        onSelect={(kind) => editor?.setInsertMode(kind)}
-        disabled={disabled || !editor}
-      />
-
-      {/* Line ▾ — connectors + the freehand scribble */}
-      <LinePicker
-        activeKind={isLineToolKind(insertMode) ? insertMode : null}
-        onSelect={(kind) => editor?.setInsertMode(kind)}
-        disabled={disabled || !editor}
-      />
-
       {state.kind === "object" && (
         <>
           <ToolbarSeparator className="mx-1" />
+          {isMobile && arrange}
           {allStickies && (
-            <StickyControls editor={editor} store={store} ids={state.ids} />
+            <StickyControls
+              editor={editor}
+              store={store}
+              ids={state.ids}
+              variant={isMobile ? "menu" : "inline"}
+            />
           )}
           {!allStickies &&
             (state.selectionType === "shape" ||
@@ -482,12 +553,7 @@ export function BoardToolbar({
           {/* `table` renders nothing: a board never creates tables (no
               picker, paste strips them) and `YorkieBoardStore` throws
               `notSupported` on every table op. */}
-          <ArrangeMenu
-            editor={editor}
-            selectionSize={state.ids.length}
-            canUngroup={canUngroupSelection(editor, store, state.ids)}
-            minAlignSelection={2}
-          />
+          {!isMobile && arrange}
         </>
       )}
       {state.kind === "text-edit" && (

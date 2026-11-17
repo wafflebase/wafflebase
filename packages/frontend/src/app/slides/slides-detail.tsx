@@ -836,7 +836,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
         >
           <SheetContent
             side="bottom"
-            className="max-h-[80vh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
+            className="max-h-[80dvh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
           >
             <SheetHeader className="border-b">
               <SheetTitle>{panelMeta?.title}</SheetTitle>

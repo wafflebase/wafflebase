@@ -335,7 +335,9 @@ export default function WorkspaceSettings() {
               {workspace.members.map((member) => (
                 <TableRow key={member.id}>
                   <TableCell>{member.user.username}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  {/* Wraps instead of nowrap so a long address cannot push
+                      the Actions column off a phone-width screen. */}
+                  <TableCell className="text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
                     {member.user.email}
                   </TableCell>
                   <TableCell>
@@ -370,7 +372,7 @@ export default function WorkspaceSettings() {
           <Separator />
 
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold">Invites</h2>
                 <p className="text-sm text-muted-foreground">
@@ -444,7 +446,7 @@ export default function WorkspaceSettings() {
       {/* API Keys */}
       <Separator />
       <section className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">API keys</h2>
             <p className="text-sm text-muted-foreground">
@@ -526,7 +528,7 @@ export default function WorkspaceSettings() {
           <section className="space-y-2">
             <h2 className="text-lg font-semibold text-destructive">Delete workspace</h2>
             <div className="rounded-md border border-destructive/30 p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-medium">Delete this workspace</p>
                   <p className="text-sm text-muted-foreground">

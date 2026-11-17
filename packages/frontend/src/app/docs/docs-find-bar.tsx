@@ -200,18 +200,27 @@ export function DocsFindBar({
   const fixedRight = containerRect
     ? window.innerWidth - containerRect.right + 16
     : 16;
+  // Never wider than the space left of `right` (8px clear of the window's
+  // left edge): on a 393px phone a fixed 320px minimum plus the inputs'
+  // intrinsic width pushed the bar ~40px past the left edge.
+  const maxWidth = `calc(100vw - ${fixedRight + 8}px)`;
 
   return createPortal(
     <div
       className="fixed z-50 flex flex-col gap-1 rounded-b-lg border bg-popover p-2 text-popover-foreground shadow-md"
-      style={{ top: fixedTop, right: fixedRight, minWidth: 320 }}
+      style={{
+        top: fixedTop,
+        right: fixedRight,
+        minWidth: `min(320px, ${maxWidth})`,
+        maxWidth,
+      }}
     >
       {/* Search row */}
       <div className="flex items-center gap-1">
         <input
           ref={searchInputRef}
           type="text"
-          className="flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+          className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Find"
           aria-label="Find"
           value={query}
@@ -297,7 +306,7 @@ export function DocsFindBar({
         <div className="flex items-center gap-1">
           <input
             type="text"
-            className="flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+            className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             placeholder="Replace"
             aria-label="Replace with"
             value={replacement}
