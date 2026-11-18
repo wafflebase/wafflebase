@@ -50,6 +50,7 @@ import {
 } from '../slides/connector-label-yorkie';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
 import { pruneRitualsOnDelete } from './rituals/prune-on-delete';
+import { removeIdsFromYorkieArray } from '../slides/yorkie-array-remove';
 import {
   decodeFreeformData,
   decodeFreeformElements,
@@ -777,11 +778,7 @@ export class YorkieBoardStore implements SlidesStore {
         byParent.get(parentPathKey)!.ids.add(id);
       }
       for (const { parentArray, ids, repPath } of byParent.values()) {
-        for (let i = parentArray.length - 1; i >= 0; i--) {
-          if (ids.has(parentArray[i].id)) {
-            (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
-          }
-        }
+        removeIdsFromYorkieArray(parentArray, ids);
         this.pruneEmptyYorkieAncestorGroups(rootElements, repPath);
       }
     });

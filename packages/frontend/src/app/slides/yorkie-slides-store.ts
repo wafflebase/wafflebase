@@ -3,6 +3,7 @@ import {
   withConnectorLabel,
   writeConnectorLabel,
 } from './connector-label-yorkie';
+import { removeIdsFromYorkieArray } from './yorkie-array-remove';
 import type { TextBody } from '@wafflebase/slides';
 import {
   DEFAULT_MASTER,
@@ -1767,11 +1768,7 @@ export class YorkieSlidesStore implements SlidesStore {
         byParent.get(parentPathKey)!.ids.add(id);
       }
       for (const { parentArray, ids, repPath } of byParent.values()) {
-        for (let i = parentArray.length - 1; i >= 0; i--) {
-          if (ids.has(parentArray[i].id)) {
-            (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
-          }
-        }
+        removeIdsFromYorkieArray(parentArray, ids);
         this.pruneEmptyYorkieAncestorGroups(s, repPath);
       }
       this.pruneYorkieAnimationsFor(s as unknown as YorkieSlide, removedIds);
