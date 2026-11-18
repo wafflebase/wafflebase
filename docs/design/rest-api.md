@@ -599,6 +599,69 @@ routes tighten or relax it with `@Throttle`: the CLI auth endpoints cap
 at 10/min and the image endpoints raise to 600/min. This is coarse
 request throttling, not per-key usage metering or quotas.
 
+#### 5.10 Board (granular editing for agents)
+
+A board's whole content is `GET`/`PUT .../content`, but a `PUT` replaces every
+element, losing whatever a collaborator changed in between. These routes are
+what an agent runs the AI half of a brainstorm with — read the stickies,
+cluster them by theme into sections, write a summary — instead of a model
+built into the app (PRODUCT.md principle 4: agents and people edit the same
+thing; a self-hosted deployment depends on no AI vendor). Implemented by
+`api/v1/board.controller.ts`.
+
+| Method | Route | Body | Response |
+|--------|-------|------|----------|
+| `GET` | `.../documents/:did/board/elements` | — | `{ elements: [{ id, kind, text?, color?, frame, section?, title?, hidden?, locked?, from?, to?, stamps?, votes?, author? }] }` |
+| `POST` | `.../documents/:did/board/stickies` | `[{ text, color?, x?, y? }]` or `{ texts, color?, near?, columns? }` | `{ ids }` |
+| `POST` | `.../documents/:did/board/sections` | `{ title, elementIds?, layout?: 'wrap' \| 'grid', at?, columns?, frame?, color? }` | `{ id, frame, members, moved }` |
+| `PATCH` | `.../documents/:did/board/elements` | `[{ id, x, y, w?, h? }]` or `{ moves }` | `{ moved, carried }` |
+| `POST` | `.../documents/:did/board/text` | `{ text, x?, y?, w?, fontSize?, bold?, near?, side? }` | `{ id, frame }` |
+
+- **Authorization** is the content endpoints': `WorkspaceScopeGuard`,
+  `getDocumentOrThrow` (another workspace or the trash → `404`, never
+  `403`), `ApiKeyWriteScopeGuard` on the four writes. A non-board document is
+  a `400`, checked before Yorkie is opened.
+- **Same elements as the canvas.** Stickies come from `buildStickyInit`
+  (`role: 'sticky'`, author stamped unless `meta.anonymous`), sections from
+  `buildSectionInit` inserted at `sectionInsertIndex`, text boxes are the text
+  tool's `autofit: 'grow'` box. All live in `@wafflebase/board`'s node entry
+  (`src/node.ts`), which the backend imports — so an agent's sticky and a
+  person's are indistinguishable.
+- **One `doc.update` of granular writes per request**: `push` / `splice` for a
+  new element, a `frame` (and a connector's `start` / `end`) assignment for a
+  moved one, never an array or whole-element assignment. Planning runs on a
+  plain snapshot first, so a refused batch writes nothing.
+- **Kinds** reported by `elements`: `sticky`, `section`, `shape`, `freeform`,
+  `text`, `connector`, `image`, `group`, `table`, `chart`. `section` is the
+  innermost section the element lies in, by the board's own geometric
+  membership; `votes` appear only once a dot vote has ended (the UI hides open
+  ballots too); `author` is omitted on an anonymous board. Hidden sections'
+  contents are reported — the API is a member's view, like `content`.
+- **Placement without coordinates.** A batch with no position is laid out as a
+  near-square grid and put in free space: beside `near` (an element id, or
+  centred on `{ x, y }`) or beside the existing content, then stepped by
+  `findFreeRect` off anything it would cover. `layout: 'grid'` on a section
+  does the same with the given elements and wraps the grid — the one-call
+  "cluster these".
+- **Moves are section-aware**, as a drag is: a moved section carries what was
+  inside it (read before the move), a resized one carries nothing, and glued
+  connectors' cached frames are recomputed. All-or-nothing: unknown id `404`,
+  connector `400` (its frame follows its ends), locked section or anything in
+  one `409`.
+- **Limits**: 500 entries per batch, 10,000 characters per text, coordinates
+  within ±10⁷, sizes in (0, 10⁵].
+- **Board size.** `PUT .../content` does not cap a board, and every endpoint
+  here walks all of it on a single-threaded server, so each one bounds its
+  own work (`@wafflebase/board` `agent/membership.ts`). Past 50,000 top-level
+  elements a request is a `400`. Section membership is computed from a
+  uniform grid over element centres, so a section only checks the elements
+  near it. The result is exact, because a member's centre always lies in its
+  section. A board whose sections stack over thousands of elements can still
+  force a long walk, so membership work is capped at 2,000,000 checks per
+  request, also a `400`. Free-space placement marks each box once on the
+  candidate lattice with a 2D difference array, O(boxes + candidates), where
+  it used to test every candidate against every box.
+
 ### 6. Module Structure
 
 ```
@@ -622,6 +685,7 @@ packages/backend/src/
       cells.controller.ts
       worksheet-structure.controller.ts
       docs-content.controller.ts
+      board.controller.ts
       images.controller.ts
       files.controller.ts
       workspace-scope.guard.ts

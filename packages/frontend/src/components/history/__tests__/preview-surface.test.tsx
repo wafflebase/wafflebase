@@ -705,13 +705,16 @@ describe('the preview containment of every wired editor', () => {
   // The avatars are read-only and stay; the two callbacks that make one
   // clickable are what a preview withholds (`UserPresence` disables the
   // trigger and drops the jump hint without them).
+  // The board's peer jump is a follow, not a jump: it pans the LIVE board
+  // hidden under the overlay just the same.
   it.each([
-    { file: 'documents/document-detail.tsx' },
-    { file: 'docs/docs-detail.tsx' },
-  ])('$file withholds the peer jump while previewing', ({ file }) => {
+    { file: 'documents/document-detail.tsx', select: 'handleSelectPeer', hint: 'getJumpHint' },
+    { file: 'docs/docs-detail.tsx', select: 'handleSelectPeer', hint: 'getJumpHint' },
+    { file: 'board/board-detail.tsx', select: 'followBridge.selectPeer', hint: 'followBridge.jumpHint' },
+  ])('$file withholds the peer jump while previewing', ({ file, select, hint }) => {
     const element = jsxElement(readFileSync(path.join(appDir, file), 'utf8'), 'UserPresence');
-    expect(element).toContain('onSelectPeer={previewing ? undefined : handleSelectPeer}');
-    expect(element).toContain('getJumpHint={previewing ? undefined : getJumpHint}');
+    expect(element).toContain(`onSelectPeer={previewing ? undefined : ${select}}`);
+    expect(element).toContain(`getJumpHint={previewing ? undefined : ${hint}}`);
   });
 
   // The other control in the same unaudited header half. Clicking the title

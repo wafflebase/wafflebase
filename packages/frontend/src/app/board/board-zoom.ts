@@ -1,7 +1,8 @@
 import type { Frame } from "@wafflebase/slides";
 import { zoomAt, type Viewport } from "@wafflebase/board";
 import { FIT_ZOOM, type ZoomController } from "../slides/zoom-controller";
-import { fitViewportToScene } from "./fit-to-content";
+import { MAX_FIT_ZOOM, fitViewportToScene } from "./fit-to-content";
+import type { FitInsets } from "./fit-insets";
 import { sceneBounds } from "./minimap-geometry";
 
 /**
@@ -101,10 +102,11 @@ export function applyZoomValue(
   value: number,
   host: { w: number; h: number },
   frames: Frame[],
+  insets?: FitInsets,
 ): Viewport | undefined {
   if (!(host.w > 0) || !(host.h > 0)) return undefined;
   if (value === FIT_ZOOM) {
-    return fitViewportToScene(sceneBounds(frames), host);
+    return fitViewportToScene(sceneBounds(frames), host, MAX_FIT_ZOOM, insets);
   }
   const target = clamp(value);
   // zoomAt takes a multiplicative factor; convert the absolute target.
@@ -125,6 +127,8 @@ export interface BoardZoomBindingOptions {
   getFrames: () => Frame[];
   /** Commit a resolved viewport (viewport + editor + minimap). */
   commit: (next: Viewport) => void;
+  /** Chrome floating over the host that a fit keeps content out of. */
+  getInsets?: () => FitInsets;
 }
 
 export interface BoardZoomBinding {
@@ -143,6 +147,27 @@ export interface BoardZoomBinding {
    * dropdown label tracks it. Label-only: it never commits a viewport.
    */
   reportViewportZoom: (zoom: number) => void;
+  /**
+   * Tell the binding a viewport was committed, by any path. While the
+   * readout says "Fit", a viewport other than the one the fit produced
+   * (a pan, the minimap, a find jump) means the board is no longer
+   * fitted, so the readout moves to the percentage. Label-only.
+   */
+  noteViewport: (vp: Viewport) => void;
+  /**
+   * Record `vp` as a fit the binding did not run itself (the open-time
+   * latch), so committing it does not read as leaving Fit.
+   */
+  markFitted: (vp: Viewport) => void;
+}
+
+function sameViewport(a: Viewport, b: Viewport): boolean {
+  const eps = 1e-6;
+  return (
+    Math.abs(a.zoom - b.zoom) < eps &&
+    Math.abs(a.panX - b.panX) < eps &&
+    Math.abs(a.panY - b.panY) < eps
+  );
 }
 
 /**
@@ -177,19 +202,35 @@ export function createBoardZoomBinding(
   // The ACTION half of a fit: resolve + commit, no label write. Split
   // out so the dropdown branch below (which has already written the
   // value) does not write it a second time.
+  // The viewport the last fit produced. While the value is FIT_ZOOM, any
+  // other committed viewport means the user has moved off the fit.
+  let fitted: Viewport | null = null;
   const applyFit = () => {
     const next = applyZoomValue(
       opts.getViewport(),
       FIT_ZOOM,
       opts.getHost(),
       opts.getFrames(),
+      opts.getInsets?.(),
     );
     // `undefined` means "nothing to commit" (empty scene / unsized
     // host) — leave the viewport where the user put it.
-    if (next) opts.commit(next);
+    if (!next) return;
+    // Recorded BEFORE the commit, which reports back via `noteViewport`.
+    fitted = next;
+    opts.commit(next);
   };
 
   return {
+    markFitted: (vp) => {
+      fitted = vp;
+    },
+    noteViewport: (vp) => {
+      if (controller.get() !== FIT_ZOOM) return;
+      if (fitted && sameViewport(vp, fitted)) return;
+      fitted = null;
+      controller.set(vp.zoom);
+    },
     // Label + action, for callers that did not come through the dropdown
     // (the canvas context menu's "Fit to content").
     fit: () => {
@@ -231,9 +272,10 @@ export function selectionFitViewport(
   elements: ReadonlyArray<{ id: string; frame: Frame }>,
   selectedIds: ReadonlyArray<string>,
   host: { w: number; h: number },
+  insets?: FitInsets,
 ): Viewport | undefined {
   const ids = new Set(selectedIds);
   if (ids.size === 0) return undefined;
   const frames = elements.filter((e) => ids.has(e.id)).map((e) => e.frame);
-  return fitViewportToScene(sceneBounds(frames), host, SELECTION_FIT_MAX_ZOOM);
+  return fitViewportToScene(sceneBounds(frames), host, SELECTION_FIT_MAX_ZOOM, insets);
 }

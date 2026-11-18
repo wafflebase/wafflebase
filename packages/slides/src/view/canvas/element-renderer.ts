@@ -13,6 +13,7 @@ import {
 } from '../../model/group';
 import { drawChart } from './chart-renderer';
 import { drawConnector } from './connector-renderer';
+import { drawConnectorLabel } from './connector-label';
 import { drawShape, paintShapeText } from './shape-renderer';
 import { drawTable } from './table-renderer';
 import { drawText } from './text-renderer';
@@ -199,9 +200,11 @@ function drawElementBody(
       ctx.save();
       ctx.transform(inv.a, inv.b, inv.c, inv.d, inv.tx, inv.ty);
       drawConnector(ctx, worldEl, elementsLookup, theme);
+      drawConnectorLabel(ctx, worldEl, elementsLookup, theme, deckFontScale(doc.meta));
       ctx.restore();
     } else {
       drawConnector(ctx, element, elementsLookup, theme);
+      drawConnectorLabel(ctx, element, elementsLookup, theme, deckFontScale(doc.meta));
     }
     return;
   }

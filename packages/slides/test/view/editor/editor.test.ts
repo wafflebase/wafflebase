@@ -3,7 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
-import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import {
+  initialize,
+  type HostElementMenuContext,
+  type SlidesEditor,
+} from '../../../src/view/editor/editor';
 import { SlidesRuler } from '../../../src/view/editor/ruler/ruler';
 import type {
   MountSlidesTextBoxOptions,
@@ -3373,6 +3377,44 @@ describe('Editor snap to grid (host-supplied step)', () => {
     expect(p2.y - p1.y).toBeGreaterThan(0);
     expect((p2.x - p1.x) / (p2.y - p1.y)).toBeCloseTo(100 / 40);
   });
+
+  it('appends host element items to an element menu, with the clicked point', () => {
+    const { canvas, overlay, store } = withShape();
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Comment', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostElementMenuItems: items,
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 150, clientY: 150, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const lis = [...menu.querySelectorAll('li')];
+    const labels = lis.map((li) => li.textContent?.trim());
+    // Last, after the arrange group.
+    expect(labels[labels.length - 1]).toBe('Comment');
+    expect(labels).toContain('Send to back');
+    lis[lis.length - 1].click();
+    expect(run).toHaveBeenCalledTimes(1);
+    const [{ at, elementId, selectedIds }] = items.mock.calls[0] as unknown as [
+      HostElementMenuContext,
+    ];
+    expect(Number.isFinite(at.x) && Number.isFinite(at.y)).toBe(true);
+    const id = store.read().slides[0].elements[0].id;
+    expect(elementId).toBe(id);
+    expect(selectedIds).toEqual([id]);
+  });
+
+  it('topLevelElementAt names the element under a point, or null', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    const id = store.read().slides[0].elements[0].id;
+    expect(editor.topLevelElementAt(150, 150)).toBe(id);
+    expect(editor.topLevelElementAt(5, 5)).toBeNull();
+  });
 });
 
 describe('Editor snap to grid — gesture gating and multi-selection', () => {
@@ -3795,5 +3837,69 @@ describe('ruler unit follows the deck unit', () => {
     editor!.markDirty();
     editor!.render();
     expect(unit()).toBe('inch');
+  });
+});
+
+describe('Editor host hooks — element menu and shape insert style', () => {
+  let editor: SlidesEditor | null = null;
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+    document.body.innerHTML = '';
+  });
+
+  const openAt = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX, clientY, bubbles: true, cancelable: true,
+    }));
+    return document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+  };
+
+  it('appends host items to an element menu with the right-clicked id', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let id = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Select all of this type', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostElementMenuItems: items,
+    });
+    const menu = openAt(canvas, 150, 150);
+    const li = [...menu.querySelectorAll('li')].find((l) =>
+      l.textContent?.includes('Select all of this type'),
+    ) as HTMLElement;
+    expect(li).toBeTruthy();
+    expect(items).toHaveBeenCalledWith(
+      expect.objectContaining({ elementId: id, selectedIds: [id] }),
+    );
+    li.click();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('styles a canvas-menu rectangle through shapeInsertStyle', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      shapeInsertStyle: () => ({ fill: { kind: 'srgb', value: '#e3ecfa' } }),
+    });
+    const menu = openAt(canvas, 50, 50);
+    const li = [...menu.querySelectorAll('li')].find((l) =>
+      l.textContent?.trim() === 'Insert rectangle',
+    ) as HTMLElement;
+    li.click();
+    const el = store.read().slides[0].elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type === 'shape') {
+      expect(el.data.fill).toEqual({ kind: 'srgb', value: '#e3ecfa' });
+    }
   });
 });

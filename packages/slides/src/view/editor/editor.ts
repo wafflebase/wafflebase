@@ -3,6 +3,7 @@ import type {
   AutofitMode,
   Crop,
   Element,
+  ElementInit,
   Frame,
   ShapeKind,
   Stroke,
@@ -56,6 +57,7 @@ import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-render
 import { screenToWorld, type Viewport } from '../canvas/viewport';
 import {
   alignFrames,
+  arrangeableFrames,
   distributeFrames,
   type AlignDirection,
   type AlignReference,
@@ -71,13 +73,29 @@ import {
 } from './hit-test';
 import {
   buildInsertElement,
+  type ShapeInsertStyleHook,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
-import { buildFreeformInit } from './interactions/insert-freeform';
+import { buildFreeformInit, DEFAULT_FREEFORM_STROKE } from './interactions/insert-freeform';
+import {
+  captureEraserDrag,
+  captureInkStroke,
+  type InkCaptureHost,
+} from './interactions/ink-capture';
+import { LiveInkLayer, type LiveStroke } from './live-ink-layer';
+import { captureFreeLasso, polygonBounds, selectInPolygon } from './interactions/free-lasso';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
-import { dragEndpoint } from './interactions/connector-endpoint-drag';
+import {
+  dragEndpoint,
+  endpointGlueOptions,
+} from './interactions/connector-endpoint-drag';
+import {
+  connectorLabelEditTarget,
+  labelFromEditedBlocks,
+} from './connector-label-edit';
+import { labelKnockoutColor } from '../canvas/connector-label';
 import {
   allowsSlowDoubleClick,
   commitsAsDrag,
@@ -152,7 +170,7 @@ import {
 } from './peers';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
-import { getActiveTheme } from '../canvas/render-context';
+import { getActiveTheme, resolveStrokeColor } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
 import {
   buildElementWorldLookup,
@@ -176,7 +194,12 @@ export type ConnectorInsertKind =
   | 'connector:elbow'
   | 'connector:curved';
 
-export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
+/**
+ * `'eraser'` is the stroke eraser: a drag deletes every freeform it
+ * crosses (`interactions/ink-capture.ts`). Inserts nothing; it is an
+ * insert mode only because it is armed, and disarmed, like one.
+ */
+export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind | 'eraser';
 
 /**
  * Floor for an auto-grown text box's frame height (logical px). Content
@@ -232,6 +255,16 @@ interface PaintSnapshot {
  * unset `showPlaceholderHints` defaulted to `!readOnly`), so pass a fresh
  * object per `initialize()` rather than one shared between mounts.
  */
+/** What `SlidesEditorOptions.hostElementMenuItems` is told about the menu. */
+export interface HostElementMenuContext {
+  /** The right-clicked point, in logical (world) coordinates. */
+  at: { x: number; y: number };
+  /** The element hit at `at`. */
+  elementId: string;
+  /** The selection the menu acts on (already resolved to the click). */
+  selectedIds: readonly string[];
+}
+
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
   overlay: HTMLDivElement;
@@ -360,7 +393,7 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * — board-only menu entries have no reason to each earn their own
    * editor option.
    */
-  hostCanvasMenuItems?: () => ContextMenuItem[];
+  hostCanvasMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
   /**
    * Extra insert entries, listed first in the empty-canvas menu's
    * "Insert …" group so a host object (the board's sticky note) sits with
@@ -368,6 +401,116 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * right-clicked point in logical (world) coordinates.
    */
   hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
+  /**
+   * Whether a single-element corner resize of `element` keeps its aspect
+   * ratio without Shift held (the board's square sticky notes). Absent ⇒
+   * only Shift preserves aspect, as on every slides mount.
+   */
+  lockAspectRatio?: (element: Element) => boolean;
+  /**
+   * Where a Cmd+V / Cmd+D copy lands, given the world bounding box of
+   * what is being pasted. Absent ⇒ the slides `(10, 10)` offset. The
+   * board brings a copy whose source is off-screen to the viewport
+   * instead of pasting it somewhere the user cannot see.
+   */
+  pasteOffset?: (
+    bounds: Frame,
+    kind: 'paste' | 'duplicate',
+  ) => { dx: number; dy: number };
+  /**
+   * Extra items appended to an element's context menu (after the arrange
+   * group), read when the menu opens. The selection has already been
+   * resolved to the clicked element. `ctx.at` is the right-clicked point
+   * in logical (world) coordinates and `ctx.elementId` the element hit
+   * there (a group child when drilled in). The board's section actions
+   * and its "Comment" entry use it; a host that contributes from several
+   * features concatenates their items. A slides mount omits it and the
+   * element menu is unchanged.
+   */
+  hostElementMenuItems?: (ctx: HostElementMenuContext) => ContextMenuItem[];
+  /**
+   * Top-level elements that travel with a move of `movedIds` (drag or
+   * arrow nudge) in the same batch, i.e. one undo step. The board's
+   * sections carry the elements inside them this way. Ids already moving
+   * are ignored. Consulted at the slide root only, never inside a group
+   * drill-in. Omitted on slides: nothing else moves.
+   */
+  getCompanionMoveIds?: (
+    movedIds: readonly string[],
+    slide: Slide,
+  ) => readonly string[];
+  /**
+   * Top-level elements that cannot be picked: a click, hover, lasso or
+   * Mod+A passes over them as if they were absent. The board's locked
+   * sections and the contents of hidden ones. Omitted on slides.
+   */
+  getUnselectableIds?: (slide: Slide) => ReadonlySet<string>;
+  /**
+   * Final say over a lasso's result, given the dragged rect in logical
+   * coordinates. The board keeps a section out of a lasso that does not
+   * enclose it whole. Omitted on slides: the bbox-intersection result
+   * stands.
+   */
+  filterLassoSelection?: (
+    ids: readonly string[],
+    slide: Slide,
+    rect: { x: number; y: number; w: number; h: number },
+  ) => string[];
+  /**
+   * Called on every text-edit entry (double-click, Enter / F2,
+   * type-to-edit) before the text box mounts. Return `true` to claim it:
+   * the editor then mounts nothing. The board renames a section this way,
+   * since a section's title is not its shape text. Omitted on slides.
+   */
+  interceptTextEdit?: (element: Element, initialText?: string) => boolean;
+  /**
+   * Starting fill + stroke for a shape inserted from the toolbar, a tool
+   * key or the canvas menu (see `ShapeInsertStyleHook`). Omitted on a
+   * slides mount, which keeps the theme-accent defaults.
+   */
+  shapeInsertStyle?: ShapeInsertStyleHook;
+  /**
+   * Insert kinds that stay armed after a placement instead of dropping
+   * back to Select — the board's marker (`'freeform'`) and `'eraser'`,
+   * which draw stroke after stroke. Esc mid-stroke then discards only
+   * that stroke; Esc with nothing in progress disarms. Omitted (Slides):
+   * every kind disarms after one placement, as before.
+   */
+  stickyInsertKinds?: readonly InsertKind[];
+  /**
+   * The stroke a new freehand (`'freeform'`) element gets, read at the
+   * start of each stroke — the board's marker / highlighter colour and
+   * width. Also lets a single tap commit a dot, and leaves the new stroke
+   * unselected so the next one can start at once. Omitted or `null`
+   * (Slides): the theme-text 2px scribble, selected after drawing.
+   */
+  getInkStroke?: () => Stroke | null;
+  /**
+   * Called with the world points of the freehand stroke in progress on
+   * every change, and with `null` once it is committed or discarded. The
+   * board mirrors it into presence so peers watch the line being drawn.
+   * Omitted (Slides): nothing is reported.
+   */
+  onInkProgress?: (points: readonly { x: number; y: number }[] | null) => void;
+  /**
+   * Final say over a finished freehand stroke: return the elements to
+   * insert INSTEAD of the stroke, or `null` to keep it. They are added in
+   * the stroke's own batch, so one undo removes them. The board's smart
+   * shapes turn a drawn box into a rectangle this way. Omitted (Slides):
+   * the stroke is always kept.
+   */
+  transformInkStroke?: (
+    points: readonly { x: number; y: number }[],
+    stroke: Stroke,
+  ) => ElementInit[] | null;
+  /**
+   * Whether an empty-canvas drag draws a free-form lasso loop instead of
+   * the rectangle, given the press. The board answers Alt+drag, or its
+   * lasso toggle. A loop picks elements whose centre it encloses and
+   * freehand strokes its outline crosses (`interactions/free-lasso.ts`).
+   * Omitted (Slides): always the rectangle.
+   */
+  freeLasso?: (press: { altKey: boolean }) => boolean;
 }
 
 export interface SlidesEditor {
@@ -732,6 +875,15 @@ export interface SlidesEditor {
   hasContentAt(clientX: number, clientY: number): boolean;
 
   /**
+   * The id of the TOP-LEVEL element under this viewport coordinate (the
+   * outermost group when the hit lands inside one), or `null` over empty
+   * canvas. Same hit-test as {@link hasContentAt}, minus selection
+   * handles. For hosts that annotate whole elements (the board's stamps,
+   * votes and comment pins) and so must not drill into a group.
+   */
+  topLevelElementAt(clientX: number, clientY: number): string | null;
+
+  /**
    * Open the context menu for whatever is at this viewport coordinate,
    * exactly as a right-click there would. The editor calls it itself
    * from `contextmenu` and from its own touch long-press; it is public
@@ -757,6 +909,22 @@ export interface SlidesEditor {
   clearSelectionAndScope(): void;
 
   /**
+   * Discard a freehand stroke or eraser drag in progress, as Esc would,
+   * without disarming a sticky tool. For hosts that take the pointer
+   * stream away mid-gesture: the board's touch layer turns a second
+   * finger into a pinch, and the first finger's half-drawn stroke must
+   * not be committed. No-op when nothing is being drawn.
+   */
+  cancelInkStroke(): void;
+
+  /**
+   * Show (or, with `null`, remove) a collaborator's stroke in progress on
+   * the live-ink layer, under its own key so it never collides with this
+   * client's stroke. The board feeds it from presence.
+   */
+  setPeerInkStroke(key: string, stroke: LiveStroke | null): void;
+
+  /**
    * Preview the current slide's animations on the editor canvas.
    * Auto-plays every step back-to-back (unlike the presenter which
    * waits for clicks). The canvas returns to static render when done.
@@ -779,6 +947,10 @@ interface ListenerEntry<E extends Event = Event> {
 class SlidesEditorImpl implements SlidesEditor {
   readonly selection = new Selection();
   insertKind: InsertKind | null = null;
+  /** Live (uncommitted) ink strokes; created on first stroke. */
+  private liveInk: LiveInkLayer | null = null;
+  /** Aborts the freehand stroke / eraser drag in progress, if any. */
+  private inkAbort: (() => void) | null = null;
   private lastHoverCursor: string = '';
   private renderer: SlideRenderer;
   private listeners: ListenerEntry[] = [];
@@ -867,6 +1039,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * on `document`.
    */
   private connectorCursor: { x: number; y: number } | null = null;
+  /**
+   * Element whose body must not glue the endpoint being placed: the
+   * element the connector's other end is attached to. Set for the
+   * duration of a connector insert / endpoint drag so the overlay's
+   * glue highlight agrees with `snappedEndpoint`'s `excludeBodyOf`.
+   */
+  private connectorGlueExclude: string | null = null;
   /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
@@ -1427,10 +1606,16 @@ class SlidesEditorImpl implements SlidesEditor {
    * cursor position yet (cursor hasn't entered the canvas).
    */
   private connectorAffordance():
-    | { cursor: { x: number; y: number }; zoom: number }
+    | { cursor: { x: number; y: number }; zoom: number; excludeBodyOf?: string }
     | undefined {
     if (this.connectorCursor === null) return undefined;
-    return { cursor: this.connectorCursor, zoom: this.scale() };
+    return {
+      cursor: this.connectorCursor,
+      zoom: this.scale(),
+      ...(this.connectorGlueExclude !== null
+        ? { excludeBodyOf: this.connectorGlueExclude }
+        : {}),
+    };
   }
 
   /**
@@ -1722,6 +1907,9 @@ class SlidesEditorImpl implements SlidesEditor {
       // `SlidesStore` methods (which `YorkieBoardStore` implements as
       // `notSupported()` throws) no-op instead of crashing.
       suppressSlideChrome: this.options.suppressSlideChrome,
+      pasteOffset: this.options.pasteOffset,
+      getCompanionMoveIds: this.options.getCompanionMoveIds,
+      getUnselectableIds: this.options.getUnselectableIds,
     });
   }
 
@@ -1866,6 +2054,8 @@ class SlidesEditorImpl implements SlidesEditor {
     this.options.viewport = viewport;
     this.markDirty();
     this.render();
+    // Live strokes are painted in screen space: re-project them.
+    this.liveInk?.flush();
   }
 
   setSlideOffset(logicalX: number, logicalY: number): void {
@@ -1961,12 +2151,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
-    if (framesMap.size === 0) return;
+    const selectedFrames = this.collectSelectedFrames(slide);
+    if (selectedFrames.size === 0) return;
+    const framesMap = this.arrangeableSelectedFrames(slide, selectedFrames);
     // Multi-select: align to the combined bbox of the selection.
     // Single-select: align to the slide canvas (SLIDE_WIDTH × deck height).
+    // Decided on the whole selection: one shape + a connector aligns the
+    // shape to itself (a no-op), never to the slide.
     let reference: AlignReference;
-    if (framesMap.size >= 2) {
+    if (selectedFrames.size >= 2) {
       reference = combinedBoundingBox(Array.from(framesMap.values()))!;
     } else {
       reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: this.slideHeight() };
@@ -1979,7 +2172,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
-    const framesMap = this.collectSelectedFrames(slide);
+    const framesMap = this.arrangeableSelectedFrames(
+      slide,
+      this.collectSelectedFrames(slide),
+    );
     if (framesMap.size < 3) return;
     const updates = distributeFrames(framesMap, axis);
     this.applyFrameUpdates(slide.id, updates);
@@ -2331,6 +2527,17 @@ class SlidesEditorImpl implements SlidesEditor {
    * the given slide. Defends against ids that were removed remotely
    * between selection and the toolbar action.
    */
+  /** Align / distribute targets: see `arrangeableFrames`. */
+  private arrangeableSelectedFrames(
+    slide: Slide,
+    frames: ReadonlyMap<string, Frame>,
+  ): Map<string, Frame> {
+    return arrangeableFrames(
+      frames,
+      (id) => findElement(slide.elements, id)?.type === 'connector',
+    );
+  }
+
   private collectSelectedFrames(slide: Slide): Map<string, Frame> {
     // Walk the element tree so this works at any drill-in depth — at
     // slide-root scope the elements are top-level; in drill-in, the
@@ -2891,6 +3098,11 @@ class SlidesEditorImpl implements SlidesEditor {
     // An in-flight move-drag or lasso holds document-level listeners
     // that would outlive this editor.
     this.abortCanvasGesture();
+    // So does a stroke or eraser drag; its live layer is a canvas
+    // the editor inserted next to the scene canvas.
+    this.inkAbort?.();
+    this.liveInk?.dispose();
+    this.liveInk = null;
     // Drop any active crop session, its in-flight drag listeners, and its
     // capture-phase key listener so a SlidesView remount starts clean.
     this.cropDragCleanup?.();
@@ -3267,11 +3479,17 @@ class SlidesEditorImpl implements SlidesEditor {
       this.selection.click(hitResult, {});
       this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
-    const items = this.elementContextItems(slide.id);
+    const items = this.elementContextItems(slide.id, {
+      at: { x, y },
+      elementId: hitResult.elementId,
+    });
     showContextMenu(document.body, items, clientX, clientY);
   }
 
-  private elementContextItems(slideId: string): ContextMenuItem[] {
+  private elementContextItems(
+    slideId: string,
+    hit?: Omit<HostElementMenuContext, 'selectedIds'>,
+  ): ContextMenuItem[] {
     // Selection has already been resolved by `onContextMenu` (right-click)
     // through the drill-in state machine. We DO NOT set it here — calling
     // `selection.set([leafId])` would bypass drill-in rules and leave the
@@ -3357,6 +3575,9 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+      ...(hit && this.options.hostElementMenuItems
+        ? this.options.hostElementMenuItems({ ...hit, selectedIds })
+        : []),
     ];
   }
 
@@ -3788,7 +4009,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // slide-scoped block below, so the separator that block opens with
     // still reads as dividing document actions from slide actions.
     if (this.options.hostCanvasMenuItems) {
-      items.push(...this.options.hostCanvasMenuItems());
+      items.push(...this.options.hostCanvasMenuItems({ x, y }));
     }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
@@ -3835,7 +4056,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // triggers buildInsertElement's click branch, which looks up the
     // per-kind default frame (rect → SHAPE_WIDE, ellipse →
     // SHAPE_SQUARE, etc.). Text uses its own fixed default box.
-    const init = buildInsertElement(kind, { x, y }, { x, y });
+    const init = buildInsertElement(kind, { x, y }, { x, y }, this.options.shapeInsertStyle);
     this.options.store.batch(() => {
       const id = this.options.store.addElement(slide.id, init);
       this.selection.set([id]);
@@ -4139,6 +4360,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (e.shiftKey) {
       return;
     }
+    if (this.options.freeLasso?.({ altKey: e.altKey })) {
+      this.startFreeLasso(e.clientX, e.clientY);
+      return;
+    }
     this.startLasso(e.clientX, e.clientY);
   }
 
@@ -4194,6 +4419,21 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hitResult = this.hitTestAt(slide, x, y);
+    // Connector label: a double-click on the selected connector edits its
+    // label at the path midpoint (it used to fall through and deselect).
+    // Top-level only, like crop: grouped connectors keep group drill-in.
+    if (
+      hitResult !== null &&
+      hitResult.ancestorPath.length === 1 &&
+      hitResult.elementId !== this.editingElementId &&
+      slide.elements.find((el) => el.id === hitResult.elementId)?.type ===
+        'connector'
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterEditMode(slide.id, hitResult.elementId);
+      return;
+    }
     if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
@@ -4291,7 +4531,12 @@ class SlidesEditorImpl implements SlidesEditor {
       if (localElement.type !== 'table') return;
     } else if (
       localElement.type !== 'text' &&
-      localElement.type !== 'shape'
+      localElement.type !== 'shape' &&
+      localElement.type !== 'connector'
+    ) {
+      return;
+    } else if (
+      this.options.interceptTextEdit?.(localElement, options?.initialText)
     ) {
       return;
     }
@@ -4327,6 +4572,15 @@ class SlidesEditorImpl implements SlidesEditor {
       // dblclick should silently fall through rather than mount on a
       // bogus rect.
       if (target === null) return;
+    } else if (worldElement.type === 'connector') {
+      target = {
+        kind: 'connector-label',
+        ...connectorLabelEditTarget(
+          worldElement,
+          worldLookup,
+          deckFontScale(doc.meta),
+        ),
+      };
     } else {
       target = buildEditTarget(
         worldElement as TextElement | ShapeElement,
@@ -4417,7 +4671,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // height on entry. Cell rows auto-grow only on commit via the
       // renderer, so the box must stay fixed while editing, just like a
       // shape. Only text elements keep the default auto-grow behavior.
-      growMode: target.kind === 'text' ? 'auto' : 'never',
+      growMode:
+        target.kind === 'text' || target.kind === 'connector-label'
+          ? 'auto'
+          : 'never',
       // Mirror the slide canvas offset so in-place editing keeps the
       // caret and text glyphs aligned with the committed render.
       verticalAnchor: target.verticalAnchor,
@@ -4441,7 +4698,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // auto-grow instead, so they never overflow and keep the frame-sized
       // canvas.
       overflowBounds:
-        target.kind === 'text'
+        target.kind === 'text' || target.kind === 'connector-label'
           ? undefined
           : {
               left: target.editFrame.x,
@@ -4513,6 +4770,13 @@ class SlidesEditorImpl implements SlidesEditor {
                   target!.cell.col,
                   () => next,
                 );
+              } else if (target!.kind === 'connector-label') {
+                // Whole-label write; an emptied label removes the field.
+                this.options.store.updateConnectorLabel(
+                  slideId,
+                  elementId,
+                  labelFromEditedBlocks(next),
+                );
               } else {
                 this.options.store.withShapeText(slideId, elementId, () => next);
               }
@@ -4528,6 +4792,10 @@ class SlidesEditorImpl implements SlidesEditor {
       onCancel: () => {},
     });
     this.editingTextBox = tb;
+    // The label knockout, live: the connector line passes under the box.
+    if (target.kind === 'connector-label') {
+      tb.container.style.background = labelKnockoutColor(getActiveTheme(doc));
+    }
     // See the field's comment: `detach()` flushes a final commit for a
     // focused box, so a teardown that is not an Escape needs a way to say
     // "discard" first.
@@ -4978,7 +5246,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const kind = this.insertKind;
     // Freeform has no fixed-size ghost — the scribble preview is driven
     // by the live capture in `startScribbleInsert`, not a hover preview.
-    if (kind === null || kind === 'text' || kind === 'freeform') return;
+    if (kind === null || kind === 'text' || kind === 'freeform' || kind === 'eraser') return;
     // Connector insert modes: no shape-style hover ghost, but DO drive
     // the Task 13 connection-points affordance so the user sees where
     // their connector will attach before they even click. The live
@@ -5072,7 +5340,7 @@ class SlidesEditorImpl implements SlidesEditor {
       } else if (slide) {
         // Idle hover: highlight the topmost unselected hit element in
         // the current selection scope.
-        const hit = hitTestSlide(slide, x, y, this.hitOptions());
+        const hit = hitTestSlide(slide, x, y, this.hitOptions(slide));
         if (hit !== null) {
           const scopeId = pickScopeId(hit, this.selection.getScope());
           if (scopeId !== null && !this.selection.get().includes(scopeId)) {
@@ -5264,6 +5532,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.hoverPreview.kind,
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
+      this.options.shapeInsertStyle,
     );
     const ghost = { ...init, id: '__hover_preview__' } as Element;
     this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
@@ -5332,6 +5601,11 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
+    if (kind === 'eraser') {
+      this.startEraser(slide, start);
+      return;
+    }
+
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
@@ -5346,7 +5620,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent) => {
       const raw = this.clientToLogical(ev.clientX, ev.clientY);
       endPoint = ev.shiftKey ? constrainToSquare(start, raw) : raw;
-      const init = buildInsertElement(kind, start, endPoint);
+      const init = buildInsertElement(kind, start, endPoint, this.options.shapeInsertStyle);
       const ghost = { ...init, id: '__preview__' } as Element;
       this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
     };
@@ -5362,7 +5636,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // buildInsertElement handles the click-vs-drag distinction: if
       // the pointer barely moved, it returns a per-kind default-sized
       // frame anchored at `start`; otherwise it uses the drag rect.
-      const init = buildInsertElement(kind, start, endPoint);
+      const init = buildInsertElement(kind, start, endPoint, this.options.shapeInsertStyle);
       this.options.store.batch(() => {
         const id = this.options.store.addElement(slide.id, init);
         this.selection.set([id]);
@@ -5419,6 +5693,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // drag. The cursor at mousedown seeds the dots so they appear on
     // the very first paint, before any mousemove.
     this.connectorCursor = start;
+    const startEp = snappedEndpoint(start, slide.elements, this.scale());
+    this.connectorGlueExclude =
+      startEp.kind === 'attached' ? startEp.elementId : null;
     const onMove = (ev: MouseEvent) => {
       const raw = this.clientToLogical(ev.clientX, ev.clientY);
       endPoint = ev.shiftKey ? snapEndpointAngle(start, raw) : raw;
@@ -5440,6 +5717,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // tool-armed hover plumbing will refill it on the next mousemove
       // if the user is still in connector mode.
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
     };
     const onUp = () => {
       cleanup();
@@ -5483,16 +5761,12 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * Freehand-scribble flow for the `'freeform'` insert kind. Captures
-   * pointer positions from mousedown to mouseup, paints a live ghost of
-   * the in-progress polyline through the same `forceRender` channel as
-   * the shape/connector previews, and commits a stroke-only freeform
-   * ShapeElement on release. ESC cancels (capture-phase pre-emption so
-   * the editor's own Esc keyrule doesn't also fire).
-   *
-   * Points are decimated by a small distance threshold so a slow drag
-   * doesn't accumulate hundreds of near-duplicate vertices in the
-   * stored path.
+   * Freehand flow for the `'freeform'` insert kind (Slides' Scribble,
+   * the board's marker / highlighter). The capture loop lives in
+   * `interactions/ink-capture.ts`: it paints the stroke in progress on
+   * the live-ink layer (never re-rendering the scene per move), and on
+   * release hands back the simplified points, committed here as one
+   * stroke-only freeform in one batch. Esc / pointercancel discard it.
    */
   private startScribbleInsert(
     slide: Slide,
@@ -5500,55 +5774,174 @@ class SlidesEditorImpl implements SlidesEditor {
   ): void {
     this.insertDragging = true;
     this.hoverPreview = null;
-    const points: { x: number; y: number }[] = [start];
-    let cancelled = false;
-    // Square of the minimum logical distance between retained points.
-    const MIN_POINT_DISTANCE_SQ = 4;
-    const onMove = (ev: MouseEvent) => {
-      const p = this.clientToLogical(ev.clientX, ev.clientY);
-      const last = points[points.length - 1];
-      const dx = p.x - last.x;
-      const dy = p.y - last.y;
-      if (dx * dx + dy * dy < MIN_POINT_DISTANCE_SQ) return;
-      points.push(p);
-      const init = buildFreeformInit(points);
-      if (!init) return;
-      const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
+    const hostStroke = this.options.getInkStroke?.() ?? null;
+    this.inkAbort = captureInkStroke(
+      this.inkCaptureHost('freeform'),
+      start,
+      this.activePointerId,
+      hostStroke ?? DEFAULT_FREEFORM_STROKE,
+      {
+        commit: (points) => {
+          const replaced = this.options.transformInkStroke?.(
+            points,
+            hostStroke ?? DEFAULT_FREEFORM_STROKE,
+          );
+          const init = replaced
+            ? null
+            : buildFreeformInit(points, {
+                stroke: hostStroke ?? undefined,
+                allowDot: hostStroke !== null,
+              });
+          if (!init && !replaced) return;
+          this.options.store.batch(() => {
+            if (replaced) {
+              for (const r of replaced) this.options.store.addElement(slide.id, r);
+              this.selection.set([]);
+              return;
+            }
+            const id = this.options.store.addElement(slide.id, init!);
+            // A host ink stroke stays unselected, so the next stroke (and
+            // the tool keys, which stand down on a selection) carry on.
+            this.selection.set(hostStroke !== null ? [] : [id]);
+          });
+          this.renderer.markDirty();
+          this.render();
+        },
+        progress: this.options.onInkProgress,
+        end: (disarm) => {
+          this.options.onInkProgress?.(null);
+          this.endInkGesture(disarm);
+        },
+      },
+    );
+  }
+
+  /**
+   * Drag flow for the `'eraser'` insert kind: every top-level freeform
+   * the drag crosses vanishes at once and is deleted on release, in one
+   * batch (one undo). See `captureEraserDrag`.
+   */
+  private startEraser(slide: Slide, start: { x: number; y: number }): void {
+    this.insertDragging = true;
+    this.hoverPreview = null;
+    const doc = this.options.store.read();
+    this.inkAbort = captureEraserDrag(
+      {
+        ...this.inkCaptureHost('eraser'),
+        elements: slide.elements,
+        preview: (hidden) => {
+          this.renderer.forceRender(
+            { ...slide, elements: slide.elements.filter((e) => !hidden.has(e.id)) },
+            doc,
+          );
+        },
+        remove: (ids) => {
+          this.options.store.batch(() => {
+            this.options.store.removeElements(slide.id, ids);
+          });
+          this.selection.set(this.selection.get().filter((id) => !ids.includes(id)));
+          this.renderer.markDirty();
+          this.render();
+        },
+      },
+      start,
+      this.activePointerId,
+      { end: (disarm) => this.endInkGesture(disarm) },
+    );
+  }
+
+  private ensureLiveInk(): LiveInkLayer {
+    if (this.liveInk === null) {
+      this.liveInk = new LiveInkLayer({
+        canvas: this.options.canvas,
+        worldToCanvas: (p) => this.logicalToCanvas(p),
+        scale: () => this.scale(),
+        dpr: () => this.options.dpr,
+      });
+    }
+    return this.liveInk;
+  }
+
+  setPeerInkStroke(key: string, stroke: LiveStroke | null): void {
+    if (stroke === null && this.liveInk === null) return;
+    this.ensureLiveInk().set(`peer:${key}`, stroke);
+  }
+
+  /**
+   * Free-form lasso (`freeLasso` host option): a drawn loop selects the
+   * elements whose centre it encloses and the strokes it crosses, through
+   * the same unselectable / host-filter gates as the rectangle lasso.
+   */
+  private startFreeLasso(clientX: number, clientY: number): void {
+    captureFreeLasso(
+      {
+        overlay: this.options.overlay,
+        clientToLogical: (x, y) => this.clientToLogical(x, y),
+        toOverlay: (p) => {
+          const scale = this.scale();
+          const { panX, panY } = this.overlayPan();
+          return { x: p.x * scale + panX, y: p.y * scale + panY };
+        },
+        scale: () => this.scale(),
+        color: SELECTION_COLOR,
+        fill: LASSO_FILL,
+        setAbort: (abort) => {
+          this.canvasGestureAbort = abort;
+        },
+        click: () => this.selection.clear(),
+        finish: (polygon) => {
+          const slide = this.currentSlide();
+          if (!slide) return;
+          let picked = selectInPolygon(slide.elements, polygon, 2 / this.scale());
+          const unselectable = this.options.getUnselectableIds?.(slide);
+          if (unselectable && unselectable.size > 0) {
+            picked = picked.filter((id) => !unselectable.has(id));
+          }
+          if (this.options.filterLassoSelection) {
+            picked = this.options.filterLassoSelection(picked, slide, polygonBounds(polygon));
+          }
+          this.selection.set(picked);
+        },
+      },
+      clientX,
+      clientY,
+    );
+  }
+
+  private inkCaptureHost(kind: InsertKind): InkCaptureHost {
+    const liveLayer = this.ensureLiveInk();
+    const theme = getActiveTheme(this.options.store.read());
+    return {
+      clientToLogical: (x, y) => this.clientToLogical(x, y),
+      scale: () => this.scale(),
+      liveLayer,
+      resolveColor: (color) => resolveStrokeColor(color, theme),
+      sticky: this.options.stickyInsertKinds?.includes(kind) ?? false,
     };
-    const cleanup = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('keydown', onKey, true);
-      this.insertDragging = false;
+  }
+
+  private endInkGesture(disarm: boolean): void {
+    this.inkAbort = null;
+    this.insertDragging = false;
+    if (disarm) this.setInsertMode(null);
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  cancelInkStroke(): void {
+    this.inkAbort?.();
+  }
+
+  /** Inverse of {@link clientToLogical}, in canvas-local CSS px. */
+  private logicalToCanvas(p: { x: number; y: number }): { x: number; y: number } {
+    const vp = this.options.viewport;
+    if (vp) return { x: p.x * vp.zoom + vp.panX, y: p.y * vp.zoom + vp.panY };
+    const scale = this.scale();
+    return {
+      x: (p.x + (this.options.slideOffsetLogicalX ?? 0)) * scale,
+      y: (p.y + (this.options.slideOffsetLogicalY ?? 0)) * scale,
     };
-    const onUp = () => {
-      cleanup();
-      if (cancelled) return; // ESC pressed mid-draw — discard.
-      const init = buildFreeformInit(points);
-      if (init) {
-        this.options.store.batch(() => {
-          const id = this.options.store.addElement(slide.id, init);
-          this.selection.set([id]);
-        });
-      }
-      this.setInsertMode(null);
-      this.renderer.markDirty();
-      this.render();
-    };
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== 'Escape') return;
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
-      cancelled = true;
-      cleanup();
-      this.setInsertMode(null);
-      this.renderer.markDirty();
-      this.render();
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('keydown', onKey, true);
   }
 
   private startLasso(clientX: number, clientY: number): void {
@@ -5608,7 +6001,15 @@ class SlidesEditorImpl implements SlidesEditor {
         this.selection.clear();
         return;
       }
-      this.selection.set(selectInRect(slide, rect));
+      let picked = selectInRect(slide, rect);
+      const unselectable = this.options.getUnselectableIds?.(slide);
+      if (unselectable && unselectable.size > 0) {
+        picked = picked.filter((id) => !unselectable.has(id));
+      }
+      if (this.options.filterLassoSelection) {
+        picked = this.options.filterLassoSelection(picked, slide, rect);
+      }
+      this.selection.set(picked);
     };
     this.canvasGestureAbort = abort;
     document.addEventListener('pointermove', onMove);
@@ -5642,12 +6043,35 @@ class SlidesEditorImpl implements SlidesEditor {
       originals.set(id, el);
     }
     if (originalWorldFrames.size === 0) return;
+    // The selection's own bbox drives snapping, so it is taken before any
+    // companion joins the moving set.
+    const snapSourceFrames = Array.from(originalWorldFrames.values());
+    // Host companions (a board section's contents) ride along: same
+    // delta, same ghost pass, same batch. Root scope only — a group
+    // drill-in moves children in group-local space.
+    const movingIds = new Set(selectedIds);
+    // Companions the host also marks unselectable (a hidden section's
+    // covered contents) move without a ghost: a translucent preview
+    // painted over the cover would reveal what the cover hides.
+    const unghosted = new Set<string>();
+    if (scope.length === 0 && this.options.getCompanionMoveIds) {
+      const unselectable = this.options.getUnselectableIds?.(startSlide);
+      for (const id of this.options.getCompanionMoveIds([...selectedIds], startSlide)) {
+        if (movingIds.has(id)) continue;
+        const el = startSlide.elements.find((e) => e.id === id);
+        if (!el) continue;
+        movingIds.add(id);
+        originalWorldFrames.set(id, el.frame);
+        originals.set(id, el);
+        if (unselectable?.has(id)) unghosted.add(id);
+      }
+    }
 
     const start = this.clientToLogical(clientX, clientY);
     // Collect snap candidates within the active scope, excluding the
     // dragged elements. Each candidate is an axis-aligned AABB so
     // rotated shapes/groups snap against their visible bbox.
-    const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
+    const otherFrames = collectSnapCandidates(startSlide, [...scope], movingIds);
 
     // Needed when a ghost connector's attached endpoint targets a
     // dragged shape: the ghost line must follow the ghost shape's
@@ -5683,7 +6107,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const locked = lockedAxis
         ? applyAxisLock(lockedAxis, rawDx, rawDy)
         : { dx: rawDx, dy: rawDy };
-      const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
+      const bbox = combinedBoundingBox(snapSourceFrames)!;
       // Single read clone serves both the slide height and the guides.
       const doc = this.options.store.read();
       const snapped = snapDelta(
@@ -5744,7 +6168,7 @@ class SlidesEditorImpl implements SlidesEditor {
         if (ep.kind === 'free') {
           return { kind: 'free', x: ep.x + dx, y: ep.y + dy };
         }
-        if (selectedIds.has(ep.elementId)) {
+        if (movingIds.has(ep.elementId)) {
           const world = resolveEndpoint(ep, slideLookup);
           return { kind: 'free', x: world.x + dx, y: world.y + dy };
         }
@@ -5753,6 +6177,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
       const ghosts: Element[] = [];
       for (const el of originals.values()) {
+        if (unghosted.has(el.id)) continue;
         if (el.type === 'connector') {
           ghosts.push({
             ...el,
@@ -5772,10 +6197,12 @@ class SlidesEditorImpl implements SlidesEditor {
       // Handles anchor to the ORIGINAL world frames so the user reads
       // them as "where it started"; the ghost reads as "where it will
       // land". Build pseudo-elements with the world frame patched in.
-      const handleElements: Element[] = Array.from(originals.values()).map((el) => ({
-        ...el,
-        frame: originalWorldFrames.get(el.id)!,
-      } as Element));
+      const handleElements: Element[] = Array.from(originals.values())
+        .filter((el) => selectedIds.has(el.id))
+        .map((el) => ({
+          ...el,
+          frame: originalWorldFrames.get(el.id)!,
+        } as Element));
 
       this.paintGhostPreview(ghosts, handleElements, guides);
     };
@@ -6046,10 +6473,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * tolerance scales with the editor's zoom so a 6-logical-pixel
    * threshold stays at a roughly-constant 6 viewport pixels.
    */
-  private hitOptions(): { ctx: HitTestCtx; tolerance: number } {
+  private hitOptions(
+    slide?: Slide,
+  ): { ctx: HitTestCtx; tolerance: number; skipIds?: ReadonlySet<string> } {
     return {
       ctx: this.hitCtx,
       tolerance: this.hitTolerance / this.scale(),
+      skipIds: slide ? this.options.getUnselectableIds?.(slide) : undefined,
     };
   }
 
@@ -6072,7 +6502,7 @@ class SlidesEditorImpl implements SlidesEditor {
       if (typeof ctx.setTransform === 'function') {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
-      return hitTestSlide(slide, x, y, this.hitOptions());
+      return hitTestSlide(slide, x, y, this.hitOptions(slide));
     } finally {
       if (hasSave) ctx.restore!();
     }
@@ -6094,6 +6524,15 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return false;
     const { x, y } = this.clientToLogical(clientX, clientY);
     return this.hitTestAt(slide, x, y) !== null;
+  }
+
+  topLevelElementAt(clientX: number, clientY: number): string | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const hit = this.hitTestAt(slide, x, y);
+    if (!hit) return null;
+    return hit.ancestorPath[0] ?? hit.elementId;
   }
 
   private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {
@@ -6158,6 +6597,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // important when the user clicks the handle directly over a nearby
     // shape and never crosses the move threshold below.
     this.connectorCursor = startCursor;
+    this.connectorGlueExclude =
+      endpointGlueOptions(startConnector, side).excludeBodyOf ?? null;
 
     // World-space position of the OTHER (non-dragging) endpoint. Captured
     // once at mousedown — the opposite endpoint stays fixed for the
@@ -6176,7 +6617,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const candidates = startSlide.elements.filter(
         (e) => e.id !== startConnector.id,
       );
-      liveEndpoint = snappedEndpoint(cur, candidates, this.scale());
+      liveEndpoint = snappedEndpoint(
+        cur,
+        candidates,
+        this.scale(),
+        endpointGlueOptions(startConnector, side),
+      );
       liveCursor = cur;
     };
 
@@ -6257,6 +6703,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // Drop the affordance cursor before repainting so the dots
       // disappear on commit (no drag = no affordance).
       this.connectorCursor = null;
+      this.connectorGlueExclude = null;
       if (!moved) {
         // No drag occurred — repaint anyway to clear the seed-time
         // affordance dots we painted on mousedown.
@@ -6926,6 +7373,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // touch" and lets a still tap on a handle commit a value-identical
     // frame, and with it a real undo entry.
     let devicePointerType: string | undefined = this.activePointerType;
+    const aspectLocked = this.options.lockAspectRatio?.(startEl) === true;
     const onMove = (ev: MouseEvent) => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
@@ -6934,16 +7382,19 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      // A host may lock an element's aspect (`lockAspectRatio`); that
+      // reads exactly as Shift held for every step below.
+      const keepAspect = ev.shiftKey || aspectLocked;
+      const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, keepAspect);
       // Skip equal-size snap while Shift is held — Shift means "preserve
       // aspect", which would fight with snapping to a peer's exact w/h.
-      const matched = ev.shiftKey || !isDrag
+      const matched = keepAspect || !isDrag
         ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h, guides: [] as SmartGuide[] }
         : matchSize({ x: raw.x, y: raw.y, w: raw.w, h: raw.h }, handle, otherFrames);
       live.worldFrame = this.gridSizedFrame(
         { ...raw, x: matched.x, y: matched.y, w: matched.w, h: matched.h },
         handle,
-        ev,
+        { altKey: ev.altKey, shiftKey: keepAspect },
         isDrag,
         matched.guides.map((g) => g.axis),
       );
@@ -7485,6 +7936,10 @@ export function maskEditingElement(
         out.push({ ...el, data: rest } as typeof el);
       } else if (el.type === 'table' && cellCoords !== null) {
         out.push(maskTableCellBody(el, cellCoords));
+      } else if (el.type === 'connector') {
+        // Keep the line; the label is being edited in the overlay.
+        const { label: _label, ...rest } = el;
+        out.push(rest);
       } else if (el.type === 'text') {
         // Keep the box fill + border painting under the overlay editor,
         // but clear the text body so it isn't double-painted (once from
@@ -7582,7 +8037,7 @@ function maskTableCellBody(
  *   Google Slides behavior.
  */
 type EditTarget = {
-  kind: 'text' | 'shape' | 'cell';
+  kind: 'text' | 'shape' | 'cell' | 'connector-label';
   blocks: Block[];
   autofit?: AutofitMode;
   verticalAnchor?: VerticalAnchorMode;

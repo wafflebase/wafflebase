@@ -28,6 +28,11 @@ describe("boardToolForKey", () => {
     expect(boardToolForKey(key("T"))).toEqual({ kind: "insert", insert: "text" });
   });
 
+  it("makes Shift+S the section tool, and plain S still the sticky", () => {
+    expect(boardToolForKey(key("S", { shiftKey: true }))).toEqual({ kind: "section" });
+    expect(boardToolForKey(key("s"))).toEqual({ kind: "sticky" });
+  });
+
   it("makes Shift+L the arrow and no other shifted key a tool", () => {
     expect(boardToolForKey(key("L", { shiftKey: true }))).toEqual({ kind: "insert", insert: "connector:arrow" });
     expect(boardToolForKey(key("T", { shiftKey: true }))).toBeNull();
@@ -130,6 +135,48 @@ describe("handleBoardToolKey", () => {
     expect(handleBoardToolKey(s, ctx)).toBe(true);
     expect(ctx.dropSticky).toHaveBeenCalledTimes(1);
     expect(s.defaultPrevented).toBe(true);
+  });
+
+  it("arms the section tool on Shift+S and drops it for any other tool or Esc", () => {
+    const setSection = vi.fn();
+    const ctx = { ...setup(), setSection };
+    expect(handleBoardToolKey(press("S", { shiftKey: true }), ctx)).toBe(true);
+    expect(setSection).toHaveBeenLastCalledWith(true);
+    expect(ctx.editor.setInsertMode).toHaveBeenLastCalledWith(null);
+    expect(handleBoardToolKey(press("r"), ctx)).toBe(true);
+    expect(setSection).toHaveBeenLastCalledWith(false);
+    setSection.mockClear();
+    handleBoardToolKey(press("Escape"), ctx);
+    expect(setSection).toHaveBeenCalledWith(false);
+  });
+
+  it("arms the laser on Shift+K; V, another tool or Esc drops laser and lasso", () => {
+    const setLaser = vi.fn();
+    const setLasso = vi.fn();
+    const ctx = { ...setup(), setLaser, setLasso };
+    expect(handleBoardToolKey(press("K", { shiftKey: true }), ctx)).toBe(true);
+    expect(setLaser).toHaveBeenLastCalledWith(true);
+    expect(ctx.editor.setInsertMode).not.toHaveBeenCalled();
+    // Plain k is not a tool.
+    expect(handleBoardToolKey(press("k"), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("v"), ctx)).toBe(true);
+    expect(setLaser).toHaveBeenLastCalledWith(false);
+    expect(setLasso).toHaveBeenLastCalledWith(false);
+    setLasso.mockClear();
+    handleBoardToolKey(press("Escape"), ctx);
+    expect(setLasso).toHaveBeenCalledWith(false);
+    // With a selection Shift+K stays type-to-edit.
+    const busy = { ...setup({ selection: ["a"] }), setLaser };
+    setLaser.mockClear();
+    expect(handleBoardToolKey(press("K", { shiftKey: true }), busy)).toBe(false);
+    expect(setLaser).not.toHaveBeenCalled();
+  });
+
+  it("leaves Shift+S to type-to-edit while something is selected", () => {
+    const setSection = vi.fn();
+    const ctx = { ...setup({ selection: ["sticky-1"] }), setSection };
+    expect(handleBoardToolKey(press("S", { shiftKey: true }), ctx)).toBe(false);
+    expect(setSection).not.toHaveBeenCalled();
   });
 
   it("leaves letters to type-to-edit while something is selected", () => {

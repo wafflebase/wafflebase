@@ -933,6 +933,27 @@ pivot-output tab or a `datasource`/`lakehouse` tab return `400`.
 
 See [`docs/design/rest-api.md`](../../docs/design/rest-api.md) §5.4.
 
+#### Board
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `.../documents/:did/board/elements` | Compact element list: `id`, `kind` (sticky / section / shape / freeform / text / connector / image / group / …), plain `text`, `color`, `frame`, innermost `section`, `stamps`, ended-vote `votes`, `author` (not on an anonymous board) |
+| `POST` | `.../documents/:did/board/stickies` | Add stickies: `[{ text, color?, x?, y? }]`, or `{ texts, color?, near?, columns? }` laid out as a grid in free space → `{ ids }` |
+| `POST` | `.../documents/:did/board/sections` | Add a section: `{ title, elementIds?, layout?: 'grid', at?, columns?, frame?, color? }` — wraps the elements, grids then wraps them, or fills `frame` → `{ id, frame, members, moved }` |
+| `PATCH` | `.../documents/:did/board/elements` | Batch move / resize `[{ id, x, y, w?, h? }]`; a moved section carries its members, glued connectors follow → `{ moved, carried }` |
+| `POST` | `.../documents/:did/board/text` | Add a text box `{ text, x?, y?, w?, fontSize?, bold?, near?, side? }` → `{ id, frame }` |
+
+What an agent clusters a brainstorm with, through the CLI's `board elements`
+/ `add-stickies` / `add-section` / `move` / `add-text`. Elements are built by
+`@wafflebase/board`'s own factories (its `node` entry, which is why the image
+builds `packages/board`), so they are the elements the canvas makes, and each
+request is one `doc.update` of granular writes rather than a whole-board
+replace. A non-board document is a `400`; an unknown element id a `404`; a
+locked section, or anything in one, a `409` on move. A board past 50,000
+top-level elements, or with sections stacked so deep over its elements that
+membership would cost more than 2,000,000 checks, is a `400`. See
+[`docs/design/rest-api.md`](../../docs/design/rest-api.md) §5.10.
+
 ## Auth Flow
 
 ```

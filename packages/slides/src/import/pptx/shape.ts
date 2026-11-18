@@ -1023,7 +1023,12 @@ function parseShapeStroke(
   // instead would be a key the source deck's XML did not have.
   const prstDash = child(ln, 'prstDash');
   const dash = prstDash ? DASH_BY_PRST.get(attr(prstDash, 'val') ?? '') : undefined;
-  return dash ? { color, width, dash } : { color, width };
+  const stroke: ShapeStroke = dash ? { color, width, dash } : { color, width };
+  // Round caps are what marker ink exports (`export/pptx/shape.ts`
+  // `lineXml`); reading them back keeps the round trip. Other cap values
+  // keep the key off, as the renderer's default is flat.
+  if (attr(ln, 'cap') === 'rnd') stroke.cap = 'round';
+  return stroke;
 }
 
 function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | undefined {

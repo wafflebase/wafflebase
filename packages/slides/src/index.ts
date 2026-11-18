@@ -173,6 +173,18 @@ export {
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
+export {
+  FREEFORM_QUANTUM,
+  decodeFreeformCommands,
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformCommands,
+  encodeFreeformData,
+  encodeFreeformElement,
+  encodeFreeformElements,
+  isPackableFreeform,
+} from './model/freeform-codec';
+export { MAX_GROUP_DEPTH } from './model/group-depth';
 
 export {
   BUILT_IN_LAYOUTS,
@@ -241,7 +253,8 @@ export { hitTestSlide } from './view/editor/hit-test-elements';
 export { collectSnapCandidates } from './view/editor/snap-candidates';
 
 // View — Editor (Phase 3a)
-export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type HostElementMenuContext, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+export type { ShapeInsertStyle, ShapeInsertStyleHook } from './view/editor/interactions/insert';
 export type { PeerView } from './view/editor/peers';
 
 // View — Ruler (H/V rulers + future guides)
@@ -253,6 +266,7 @@ export {
   type SlidesRulerViewport,
 } from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
+export type { LiveStroke } from './view/editor/live-ink-layer';
 export {
   SLIDES_DEFAULT_TEXT_SIZE,
   makeDefaultSlidesTextBlock,
@@ -286,6 +300,19 @@ export {
   type ExportSlidesPdfOptions,
   type SlidesImageFetcher,
 } from './export/pdf';
+// Export — a world region of one slide's plane as PNG / single-page PDF
+// (the board's "Download as PNG / PDF"). Browser-only.
+export {
+  rasterizeSlideRegion,
+  exportSlideRegionPdf,
+  regionRasterSize,
+  regionPageSize,
+  REGION_MAX_SIDE,
+  REGION_MAX_AREA,
+  type WorldRegion,
+  type RasterizeRegionOptions,
+  type RasterizedRegion,
+} from './export/region';
 
 // Export — PPTX (DOM-free; works in both browser and Node)
 export { exportPptx } from './export/pptx/index.js';

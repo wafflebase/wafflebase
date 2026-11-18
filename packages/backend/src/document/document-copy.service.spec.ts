@@ -4,6 +4,7 @@ import {
   DocumentCopyService,
   reviveLongs,
   stripComments,
+  stripStickyAuthors,
 } from './document-copy.service';
 import {
   DocsYorkieRoot,
@@ -461,6 +462,115 @@ describe('DocumentCopyService', () => {
     expect(documentService.deleteDocument).toHaveBeenCalledWith({
       id: 'copy-1',
     });
+  });
+});
+
+describe('DocumentCopyService board rituals', () => {
+  it('copies a board without its stamps, vote, timer or comments', async () => {
+    const sourceRoot = {
+      meta: { title: 'Retro', anonymous: true },
+      elements: [{ id: 'e1', type: 'shape' }],
+      comments: { 'th-1': { anchor: {} } },
+      stamps: { 'e1:u1:plus1': { elementId: 'e1' } },
+      voting: { id: 'v1', status: 'ended', ballots: { u1: ['e1'] } },
+      timer: { endsAt: 1_780_000_000_000, durationMs: 300_000 },
+    };
+    const { service, targetRoot } = makeService({ sourceRoot });
+    await service.copy({ ...SOURCE, type: 'board' } as never, 42);
+    expect(targetRoot).toEqual({
+      meta: { title: 'Retro', anonymous: true },
+      elements: [{ id: 'e1', type: 'shape' }],
+      comments: {},
+      stamps: {},
+    });
+  });
+});
+
+describe('DocumentCopyService board sticky authors', () => {
+  const sticky = (id: string) => ({
+    id,
+    type: 'shape',
+    data: {
+      kind: 'roundRect',
+      role: 'sticky',
+      author: 'Ada Lovelace',
+      showAuthor: true,
+    },
+  });
+  const sourceRoot = () => ({
+    meta: { title: 'Retro' },
+    elements: [
+      sticky('s1'),
+      {
+        id: 'g1',
+        type: 'group',
+        data: {
+          children: [
+            { id: 'g2', type: 'group', data: { children: [sticky('s2')] } },
+          ],
+        },
+      },
+    ],
+  });
+  const authorsIn = (root: Root): unknown[] => {
+    const out: unknown[] = [];
+    const walk = (els: unknown) => {
+      for (const el of (els as Array<{ type: string; data: Root }>) ?? []) {
+        if (el.type === 'group') walk(el.data.children);
+        else out.push(el.data.author ?? el.data.showAuthor);
+      }
+    };
+    walk(root.elements);
+    return out;
+  };
+
+  it('strips sticky authors, nested in groups too, when the copy crosses workspaces', async () => {
+    const { service, targetRoot } = makeService({ sourceRoot: sourceRoot() });
+    await service.copy({ ...SOURCE, type: 'board' } as never, 42, {
+      workspaceId: 'ws-2',
+    });
+    expect(authorsIn(targetRoot)).toEqual([undefined, undefined]);
+    // Everything else about the sticky survives.
+    expect(targetRoot.elements).toEqual(
+      expect.arrayContaining([
+        {
+          id: 's1',
+          type: 'shape',
+          data: { kind: 'roundRect', role: 'sticky' },
+        },
+      ]),
+    );
+  });
+
+  it('keeps them for a copy inside the same workspace', async () => {
+    const { service, targetRoot } = makeService({ sourceRoot: sourceRoot() });
+    await service.copy({ ...SOURCE, type: 'board' } as never, 42);
+    expect(authorsIn(targetRoot)).toEqual(['Ada Lovelace', 'Ada Lovelace']);
+  });
+
+  it('keeps them for a template used inside its own workspace', async () => {
+    const { service, targetRoot } = makeService({ sourceRoot: sourceRoot() });
+    await service.copy({ ...SOURCE, type: 'board' } as never, 42, {
+      workspaceId: SOURCE.workspaceId,
+      title: 'Retro template',
+    });
+    expect(authorsIn(targetRoot)).toEqual(['Ada Lovelace', 'Ada Lovelace']);
+  });
+});
+
+describe('stripStickyAuthors', () => {
+  it('walks a group tree deeper than the call stack without overflowing', () => {
+    let el: Root = {
+      id: 'leaf',
+      type: 'shape',
+      data: { role: 'sticky', author: 'Ada' },
+    };
+    const leaf = el;
+    for (let i = 0; i < 200_000; i++) {
+      el = { id: `g${i}`, type: 'group', data: { children: [el] } };
+    }
+    expect(() => stripStickyAuthors([el])).not.toThrow();
+    expect((leaf.data as Root).author).toBeUndefined();
   });
 });
 

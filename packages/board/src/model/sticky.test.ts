@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STICKY_SHADOW, isStickyData } from './sticky';
+import { STICKY_ROLE, STICKY_SHADOW, isStickyData } from './sticky';
 
 const sticky = () => ({
   kind: 'roundRect',
@@ -29,5 +29,16 @@ describe('isStickyData', () => {
     expect(isStickyData({ ...sticky(), fill: { kind: 'gradient' } })).toBe(false);
     expect(isStickyData(undefined)).toBe(false);
     expect(isStickyData('sticky')).toBe(false);
+  });
+
+  it('keeps a marked sticky a sticky through a gradient, a border or a reshape', () => {
+    const marked = { ...sticky(), role: STICKY_ROLE };
+    expect(isStickyData({ ...marked, fill: { kind: 'gradient' } })).toBe(true);
+    expect(isStickyData({ ...marked, stroke: { color: '#000', width: 1 } })).toBe(true);
+    expect(isStickyData({ ...marked, kind: 'rect', text: { autofit: 'none' } })).toBe(true);
+  });
+
+  it('ignores any other role value', () => {
+    expect(isStickyData({ kind: 'rect', role: 'section' })).toBe(false);
   });
 });

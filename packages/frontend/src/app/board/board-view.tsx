@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_VIEWPORT,
   SYNTHETIC_SLIDE_ID,
+  isSectionElement,
   screenToWorld,
   type Viewport,
 } from "@wafflebase/board";
@@ -27,15 +28,27 @@ import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
 import { attachBoardTouchGestures } from "./board-touch-gestures";
-import { createCursorPublisher } from "./board-cursor-publish";
+import {
+  attachBoardPresence,
+  type BoardPresenceController,
+} from "./board-presence";
+import type { BoardFollowBridge } from "./board-follow-bridge";
+import { allowClickThroughDismiss } from "./board-click-through";
+import { BoardSpotlightToggle, BoardTimerChip, BoardTimerControl } from "./board-collab-controls";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
+import { BoardToolDock } from "./board-tool-dock";
 import {
   STICKY_COLORS,
   dropStickyAt,
   dropStickyAtViewportCenter,
+  isStickyElement,
   visibleWorldRect,
 } from "./sticky";
+import { attachStickyFlow } from "./sticky-flow";
+import { drawStickyAuthor } from "./sticky-author";
+import { MAX_PASTED_STICKIES, boardPasteOffset } from "./sticky-paste";
+import { stickyKeepsAspect } from "./sticky-format";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
@@ -53,6 +66,12 @@ import {
   type BoardMinimap,
 } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
+import {
+  SECTION_TOOL_CURSOR_CSS,
+  createBoardSections,
+  type BoardSections,
+} from "./board-sections";
+import { paintSections } from "./board-section-paint";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
   BOARD_PAN_CURSOR_CSS,
@@ -61,6 +80,20 @@ import {
   panCursor,
   type HandTool,
 } from "./board-hand";
+import {
+  BOARD_STICKY_INSERT_KINDS,
+  armInkPen,
+  createInkTool,
+  inkStroke,
+  isInkArmed,
+  type InkTool,
+} from "./board-ink";
+import {
+  BOARD_LASER_CURSOR_CSS,
+  createBoardDrawingExtras,
+  createDrawingTools,
+  type DrawingTools,
+} from "./board-drawing-extras";
 import {
   captureFromContainer,
   registerThumbnailSource,
@@ -81,6 +114,18 @@ import {
   saveGridSnap,
   type BoardGridKind,
 } from "./board-grid";
+import { BoardRituals, type RitualMenus } from "./rituals/board-rituals";
+import { BoardRitualTools } from "./rituals/board-ritual-controls";
+import { useRitualToolState } from "./rituals/use-ritual-tool-state";
+import { useBoardCollab } from "./rituals/board-collab-hook";
+import { boardShapeInsertStyle } from "./board-shape-style";
+import { selectSimilarMenuItems } from "./board-select-similar";
+import { tidyUpSelection } from "./board-tidy";
+import { measureOverlayInsets } from "./fit-insets";
+import { createViewportSignal, type BoardNav } from "./board-nav";
+import { handleBoardUtilityKey } from "./board-utility-keys";
+import { BoardFindBox } from "./board-find-box";
+import { BoardExportMenu } from "./board-export-menu";
 
 interface BoardViewProps {
   /**
@@ -108,6 +153,10 @@ interface BoardViewProps {
    * stays disabled until it resolves.
    */
   workspaceId?: string;
+  /** Document title, used to name exported files. */
+  title?: string;
+  /** Lets the header's avatars follow / jump to a peer on this board. */
+  followBridge?: BoardFollowBridge;
 }
 
 /**
@@ -136,10 +185,8 @@ function mapBoardPeers(
       label: presence.username || "Anonymous",
       activeSlideId: SYNTHETIC_SLIDE_ID,
       selectedElementIds: presence.selectedElementIds,
-      // SP1 defined `cursor` on BoardPresence but never published or
-      // painted it; SP4 completes both ends. `null` (peer left the
-      // canvas) must become `undefined` so the overlay skips it.
-      cursor: presence.cursor ?? undefined,
+      // No `cursor`: the board draws peer cursors on its own layer
+      // (`board-peer-layer.ts`, peer cursors v2), not the slides dots.
     });
   }
   return views;
@@ -169,13 +216,19 @@ function mapBoardPeers(
  * inside the one `store.batch()` holds open (the selection listener
  * fires synchronously from an insert commit) and reissue that change's
  * `clientSeq`, which strands the document — see the class comment on
- * `YorkieBoardStore.activePresence`. The local pointer is published
- * into `cursor` (rAF-coalesced via `createCursorPublisher`) and peer
- * cursors are read back through `mapBoardPeers` — a bare selection ring
- * is not enough to locate a collaborator working off-screen on an
- * unbounded plane.
+ * `YorkieBoardStore.activePresence`. The local pointer, viewport, cursor
+ * chat and emotes are published, and peer cursors drawn, by
+ * `attachBoardPresence` (`board-presence.ts`) — a bare selection ring is
+ * not enough to locate a collaborator working off-screen on an unbounded
+ * plane.
  */
-export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
+export function BoardView({
+  documentId,
+  readOnly,
+  workspaceId,
+  title,
+  followBridge,
+}: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Toolbar + canvas: what counts as "the board" for its tool keys.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -198,6 +251,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // funnel through the same insert call, centered on the live viewport.
   const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
+  // Stamps / voting / comment pins (`rituals/`): their context-menu entries
+  // and a handle to centre the viewport on a world point, both filled by
+  // the mount effect / the ritual layer.
+  const ritualMenusRef = useRef<RitualMenus | null>(null);
+  const navigateRef = useRef<((world: { x: number; y: number }) => void) | null>(null);
+  const collab = useBoardCollab();
+  const ritualTool = useRitualToolState();
   const [helpOpen, setHelpOpen] = useState(false);
   // Drives the first-run hint; true only once the store says so, so a
   // board that is still loading never flashes it.
@@ -211,6 +271,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // controls and Undo/Redo read element data through the store, so
   // `<BoardToolbar>` must re-render once the mount effect creates it.
   const [store, setStore] = useState<YorkieBoardStore | null>(null);
+  // Peer cursors, follow, spotlight, cursor chat and emotes — lifted for
+  // the toolbar's Spotlight toggle (see `board-presence.ts`).
+  const [presenceCtl, setPresenceCtl] = useState<BoardPresenceController | null>(null);
   // The zoom VALUE holder (label/intent channel only — `vp` above stays
   // the single source of truth for scale). Ref-held so it survives
   // mount-effect re-runs (e.g. `workspaceId` resolving after the first
@@ -227,6 +290,18 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const handRef = useRef<HandTool | null>(null);
   if (handRef.current === null) handRef.current = createHandTool();
   const hand = handRef.current;
+  // The marker / highlighter pen choice, shared by the toolbar, the
+  // M / Shift+M keys and the editor's `getInkStroke` (`board-ink.ts`).
+  const inkRef = useRef<InkTool | null>(null);
+  if (inkRef.current === null) inkRef.current = createInkTool();
+  const ink = inkRef.current;
+  // Laser pointer + lasso select toggles (`board-drawing-extras.ts`).
+  const drawingToolsRef = useRef<DrawingTools | null>(null);
+  if (drawingToolsRef.current === null) drawingToolsRef.current = createDrawingTools();
+  const drawingTools = drawingToolsRef.current;
+  // Read at mount by the drawing extras, which disarm the ritual tools.
+  const ritualToolRef = useRef(collab?.tool ?? null);
+  ritualToolRef.current = collab?.tool ?? null;
   // That value holder bound to the actions it drives (see
   // `createBoardZoomBinding`). Built inside the mount effect — it closes
   // over the live viewport, host size and minimap — and lifted into
@@ -235,7 +310,33 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const [zoomController, setZoomController] = useState<ZoomController | null>(
     null,
   );
+  // Board sections (Shift+S); lifted for the toolbar like `editor`.
+  const [sections, setSections] = useState<BoardSections | null>(null);
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
+  // The section tool and the ritual tools (stamp / comment) come from two
+  // features that each disarm the hand and insert modes; this makes them
+  // disarm each other too, so exactly one board tool is ever live.
+  const ritualToolHandle = collab?.tool ?? null;
+  useEffect(() => {
+    if (!ritualToolHandle || !sections) return;
+    const offRitual = ritualToolHandle.subscribe(() => {
+      if (ritualToolHandle.get().mode !== "none") sections.tool.set(false);
+    });
+    const offSection = sections.tool.subscribe(() => {
+      if (sections.tool.get()) ritualToolHandle.setMode("none");
+    });
+    return () => {
+      offRitual();
+      offSection();
+    };
+  }, [ritualToolHandle, sections]);
+  // Find on board (Mod+F). `findFocus` is bumped on every Mod+F so a find
+  // pressed while the box is open re-focuses its query.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  // The viewport as the floating tools (find) see it; built in the mount
+  // effect around `commitViewport`.
+  const [nav, setNav] = useState<BoardNav | null>(null);
 
   // Held so the grid-mode effect can repaint the minimap's viewport frame
   // without waiting for a pan.
@@ -278,6 +379,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     container.style.position = "relative";
     container.style.overflow = "hidden";
     container.style.touchAction = "none";
+    // A press on the canvas closes an open toolbar popover AND acts, instead
+    // of being swallowed by the modal layer (see `board-click-through.ts`).
+    allowClickThroughDismiss(container);
 
     const dpr = window.devicePixelRatio || 1;
 
@@ -301,11 +405,18 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // pass through to the canvas; handle children opt back in.
     const style = document.createElement("style");
     style.textContent =
-      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS;
+      "[data-handle] { pointer-events: auto !important; }" + BOARD_PAN_CURSOR_CSS + BOARD_LASER_CURSOR_CSS +
+      SECTION_TOOL_CURSOR_CSS;
     document.head.appendChild(style);
 
     const store = new YorkieBoardStore(doc);
     setStore(store);
+    // The name a new sticky records as its author; none on an anonymous
+    // board. Read at creation time, so a rename mid-session is picked up.
+    const stickyAuthor = (): string | undefined =>
+      store.isAnonymous()
+        ? undefined
+        : (doc.getMyPresence() as BoardPresence | undefined)?.username || undefined;
 
     // Host fills the container edge-to-edge — there is no fitted slide
     // rect to center, unlike SlidesView's `computeFitSize`/`refitCanvas`.
@@ -323,7 +434,33 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     };
     sizeCanvas(hostW, hostH);
 
+    // Sections: editor host options + the section tool. Its closures read
+    // `editor` and `fitElement`, declared below; they only run after mount.
+    const sections = createBoardSections({
+      store,
+      container,
+      readOnly: readOnly === true,
+      getEditor: () => editor,
+      getViewport: () => vp.current,
+      fitElement: (id) => fitElement(id),
+      isSceneTarget: (t) =>
+        t === canvas || (t instanceof Node && overlay.contains(t)),
+    });
+    setSections(sections);
+
+    // Live ink, laser, lasso and smart shapes; attached once the editor exists.
+    const drawing = createBoardDrawingExtras({
+      doc,
+      store,
+      readOnly: readOnly === true,
+      ink,
+      tools: drawingTools,
+      getEditor: () => editor,
+    });
+
     const editor = initializeEditor({
+      ...sections.editorOptions,
+      ...drawing.editorOptions,
       canvas,
       overlay,
       store,
@@ -379,26 +516,86 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
                     editor,
                     at,
                     colorValue: STICKY_COLORS[0].value,
-                    occupied: readFrames(),
+                    occupied: readStickyObstacles(),
                     visible: visibleWorldRect(vp.current, hostW, hostH),
+                    author: stickyAuthor(),
+                    reveal: revealBox,
                   });
                 },
               },
+              ...sections.insertMenuItems(at),
             ],
+      // A new rectangle / ellipse starts as a light tint, not the slides
+      // accent block that hides the stickies under it.
+      shapeInsertStyle: boardShapeInsertStyle,
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
-      hostCanvasMenuItems: () => [
+      // Marker and eraser stay armed stroke after stroke (FigJam), and
+      // draw with the pen picked in the toolbar.
+      stickyInsertKinds: BOARD_STICKY_INSERT_KINDS,
+      getInkStroke: () => inkStroke(ink.get()),
+      hostCanvasMenuItems: (at) => [
         { label: "---", run: () => undefined },
         {
           label: "Snap to grid",
           selected: gridSnapRef.current,
           run: () => setGridSnapRef.current(!gridSnapRef.current),
         },
+        // A board-wide document setting, so a read-only viewer cannot
+        // flip it.
+        ...(readOnly
+          ? []
+          : [
+              {
+                label: "Hide sticky authors",
+                selected: store.isAnonymous(),
+                run: () => store.batch(() => store.setAnonymous(!store.isAnonymous())),
+              },
+            ]),
+        ...sections.canvasMenuItems(at),
+        ...(ritualMenusRef.current?.canvasItems(at) ?? []),
       ],
+      // Element menu, one group per feature: section actions, select
+      // similar + Tidy up (for a multi-selection), then the rituals'
+      // "Comment". Spelled out because a key here would otherwise override
+      // the one `sections.editorOptions` spreads in above. Nothing on a
+      // read-only mount (no menu opens).
+      hostElementMenuItems: (ctx) => [
+        ...(sections.editorOptions.hostElementMenuItems?.(ctx) ?? []),
+        ...selectSimilarMenuItems(readTopLevel(), ctx, (ids) =>
+          editor.setSelection(ids),
+        ),
+        ...(ctx.selectedIds.length >= 2
+          ? [{ label: "Tidy up", run: () => tidyUpSelection(editor, store) }]
+          : []),
+        ...(ritualMenusRef.current?.elementItems(ctx.at) ?? []),
+      ],
+      // Sticky notes: the author tag at the bottom edge, square stickies
+      // that stay square on a corner drag, and a paste or duplicate that
+      // lands on screen when its source is not.
+      decorateElement: (ctx, element) =>
+        drawStickyAuthor(ctx, element, store.isAnonymous()),
+      lockAspectRatio: (element) =>
+        isStickyElement(element) && stickyKeepsAspect(element),
+      pasteOffset: (bounds) =>
+        boardPasteOffset(bounds, visibleWorldRect(vp.current, hostW, hostH)),
     });
     editorRef.current = editor;
     setEditor(editor);
+    // Before the pan / touch claims below, so a laser drag wins over both.
+    const detachDrawing = drawing.attach({
+      container,
+      canvas,
+      overlay,
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getCanvasRect: () => canvasRect,
+      dpr,
+      hand,
+      sectionTool: sections.tool,
+      ritualTool: ritualToolRef.current,
+    });
 
     const minimap: BoardMinimap = createBoardMinimap({
       store,
@@ -407,6 +604,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       coarsePointer: isCoarsePointer(),
       getTheme: () => BOARD_PLANE_THEME,
       planeBackground: BOARD_PLANE_BACKGROUND,
+      // A hidden section is covered on the minimap too.
+      paintAfterElements: (ctx, slide, zoom) =>
+        paintSections(ctx, slide.elements, zoom, { titles: false }),
       getHostSize: () => ({ w: hostW, h: hostH }),
       // Forward reference to `commitViewport`, declared below: the
       // dependency is circular (it repaints this minimap), so one side has
@@ -430,6 +630,22 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       return slide ? slide.elements : [];
     };
     const readFrames = (): Frame[] => readTopLevel().map((e) => e.frame);
+    // What a new sticky steps off. A section is a container, not an
+    // obstacle: counting it would push every sticky dropped inside one
+    // out past its edge.
+    const readStickyObstacles = (): Frame[] =>
+      readTopLevel()
+        .filter((e) => !isSectionElement(e))
+        .map((e) => e.frame);
+    // Chrome floating over the canvas (minimap, find box, download button)
+    // that a fit keeps content out from under.
+    const getInsets = () => measureOverlayInsets(container, { w: hostW, h: hostH });
+    // "The viewport just changed", by any path — the zoom readout leaves
+    // "Fit" on it and the find box's outline follows it.
+    const viewportSignal = createViewportSignal();
+    // Set once the zoom binding exists (below); the open-time fit can run
+    // before it does.
+    let markFitted: (fitted: Viewport) => void = () => {};
 
     // THE viewport chokepoint. Every pan/zoom path — minimap navigate,
     // fit-to-content, the zoom dropdown, wheel, space/middle-drag — goes
@@ -438,16 +654,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // once. These used to be three statements copy-pasted at each call
     // site, which is exactly how the grid would have been forgotten on one
     // of them.
+    let stickyFlow: { refresh: () => void; dispose: () => void } | null = null;
+    let presence: BoardPresenceController | null = null;
     const commitViewport = (next: Viewport) => {
       vp.current = next;
       editor.setViewport(vp.current);
       minimap.repaintViewport(vp.current);
+      stickyFlow?.refresh();
+      presence?.onViewportCommitted();
       applyGridBackground(
         container,
         gridKindRef.current,
         vp.current,
         BOARD_PLANE_THEME,
       );
+      viewportSignal.emit(vp.current);
     };
 
     // Initial grid paint. NOT redundant with the mode/theme effect below:
@@ -474,7 +695,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       latch: fitLatch.current,
       getFrames: readFrames,
       getHostSize: () => ({ w: hostW, h: hostH }),
-      apply: (fitted) => commitViewport(fitted),
+      getInsets,
+      apply: (fitted) => {
+        markFitted(fitted);
+        commitViewport(fitted);
+      },
     });
     fitToContentOnce();
 
@@ -487,11 +712,46 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       getHost: () => ({ w: hostW, h: hostH }),
       getFrames: readFrames,
       commit: commitViewport,
+      getInsets,
     });
     setZoomController(zoom.controller);
+    navigateRef.current = (world) =>
+      commitViewport(centerViewportOnWorld(vp.current, world, { w: hostW, h: hostH }));
+
+    // Bring an off-screen world box (a sticky placed past the screen
+    // edge, which then enters text edit) into view, centred.
+    const revealBox = (box: Frame) =>
+      commitViewport(
+        centerViewportOnWorld(
+          vp.current,
+          { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+          { w: hostW, h: hostH },
+        ),
+      );
+    // Frame one element (the sections list's go-to), like Shift+2.
+    const fitElement = (id: string) => {
+      const fitted = selectionFitViewport(readTopLevel(), [id], { w: hostW, h: hostH });
+      if (!fitted) return;
+      commitViewport(fitted);
+      zoom.reportViewportZoom(fitted.zoom);
+    };
+    markFitted = zoom.markFitted;
+    const offZoomNote = viewportSignal.subscribe(zoom.noteViewport);
+    setNav({
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getInsets,
+      commit: commitViewport,
+      subscribe: viewportSignal.subscribe,
+    });
 
     stickyInserterRef.current = (colorValue: string) => {
       hand.set(false);
+      sections.tool.set(false);
+      // A sticky is its own tool: it ends a marker / eraser (which stay
+      // armed stroke after stroke) or any other armed insert, which in
+      // turn disarms the ritual tools.
+      editor.setInsertMode(null);
       dropStickyAtViewportCenter({
         store,
         editor,
@@ -499,9 +759,31 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         hostWidth: hostW,
         hostHeight: hostH,
         colorValue,
-        occupied: readFrames(),
+        occupied: readStickyObstacles(),
+        author: stickyAuthor(),
+        reveal: revealBox,
       });
     };
+
+    // Sticky-first flow: Mod+Enter / Tab adjacent stickies, plain-text
+    // paste as stickies, "+" handles round a selected sticky.
+    stickyFlow = attachStickyFlow({
+      container,
+      store,
+      editor,
+      readOnly: readOnly === true,
+      getViewport: () => vp.current,
+      getHostSize: () => ({ w: hostW, h: hostH }),
+      reveal: revealBox,
+      author: stickyAuthor,
+      isBoardTarget: (target) =>
+        target === document.body ||
+        (target instanceof Node && rootRef.current?.contains(target) === true),
+      onPasteTruncated: (dropped) =>
+        toast.info(
+          `Pasted the first ${MAX_PASTED_STICKIES} as sticky notes; ${dropped} more were left out.`,
+        ),
+    });
 
     // Image input: paste + drag-drop + toolbar button, all funneling to
     // insertImageOnSlide, centered on the current viewport. Disabled in
@@ -563,52 +845,27 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     resizeObserver.observe(container);
 
-    // Broadcast the local pointer so peers can see where this user is
-    // working. A board is unbounded, so a selection ring alone does not
-    // locate a collaborator who is editing off-screen.
-    //
-    // Coalesced to at most one write per animation frame by
-    // `createCursorPublisher` (own testable module, see
-    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
-    // CRDT presence update per mouse sample and flood the channel.
-    // Presence only — the document root is untouched.
-    //
-    // "At most", because a presence write is not free even when the doc
-    // is untouched: it emits a SELF `presence-changed`, which
-    // `@yorkie-js/react` turns into a fresh state object, which
-    // re-renders this component and the whole toolbar tree. So the
-    // publisher drops a frame whose position has not moved, and
-    // `shouldPublish` drops the whole thing when there is nobody to see
-    // it — a solo user waving the mouse must not cost 60 React commits a
-    // second. A dropped write is remembered as undelivered, and
-    // `pushPeers` below replays it via `resend()` the moment the
-    // audience opens.
-    const cursorPublisher = createCursorPublisher({
-      requestFrame: (cb) => requestAnimationFrame(cb),
-      cancelFrame: (handle) => cancelAnimationFrame(handle),
-      shouldPublish: () => doc.getOthersPresences().length > 0,
-      publish: (position) => {
-        store.updatePresence({ cursor: position });
-      },
+    // Peer cursors v2, follow / spotlight, cursor chat and emotes. All
+    // presence writes inside go through `store.updatePresence`, none on a
+    // read-only mount; see `board-presence.ts`.
+    presence = attachBoardPresence({
+      container,
+      doc,
+      store,
+      readOnly: readOnly === true,
+      editor,
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getCanvasRect: () => canvasRect,
+      commitViewport,
+      isBoardTarget: (target) =>
+        target === document.body ||
+        (target instanceof Node && rootRef.current?.contains(target) === true),
+      theme: BOARD_PLANE_THEME,
+      minimap,
     });
-    const onCursorMove = (e: PointerEvent) => {
-      // Reuses the cached `canvasRect` maintained by the ResizeObserver
-      // above rather than calling `getBoundingClientRect()` here — this
-      // handler runs on every pointer sample.
-      cursorPublisher.queue(
-        screenToWorld(vp.current, {
-          x: e.clientX - canvasRect.left,
-          y: e.clientY - canvasRect.top,
-        }),
-      );
-    };
-    // Clear on leave so a departed cursor does not stick on peers'
-    // screens at the last position it was seen.
-    const onCursorLeave = () => cursorPublisher.queue(null);
-    if (!readOnly) {
-      container.addEventListener("pointermove", onCursorMove);
-      container.addEventListener("pointerleave", onCursorLeave);
-    }
+    setPresenceCtl(presence);
+    followBridge?.attach(presence);
 
     // --- presence: peers ---
     //
@@ -616,21 +873,12 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `YorkieSlidesStore.getPeers()` / `onPresenceChange()` verbatim —
     // read directly off `doc` since `YorkieBoardStore` doesn't wrap them
     // (see class doc comment).
-    let hadPeers = false;
     const pushPeers = () => {
       const peers = doc.getOthersPresences().map((p) => ({
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
       editor.setPeers(mapBoardPeers(peers, BOARD_PLANE_THEME));
-      // The audience just opened: hand over the cursor intent the gate
-      // above swallowed while nobody was watching. Without this, a user
-      // who was stationary when the peer joined stays invisible until
-      // they move, and a `pointerleave` that fell while solo leaves a
-      // ghost cursor parked in presence.
-      const hasPeers = peers.length > 0;
-      if (hasPeers && !hadPeers) cursorPublisher.resend();
-      hadPeers = hasPeers;
     };
     const offPeers = doc.subscribe("others", () => pushPeers());
     pushPeers();
@@ -710,8 +958,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // `reportViewportZoom` writes the value channel and nothing else,
       // so this scale — already applied above, anchored at the CURSOR —
       // is never re-resolved and re-committed about the host centre.
-      // Skipped entirely on a pan tick, which changes no scale and must
-      // not flip the readout off "Fit".
+      // Skipped on a pan tick, which changes no scale; leaving "Fit" after
+      // a pan is `zoom.noteViewport`'s job (via `commitViewport`).
       if (zoomed) zoom.reportViewportZoom(vp.current.zoom);
     };
     container.addEventListener("wheel", onWheel, { passive: false });
@@ -744,6 +992,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // and a hand drag is a pan wherever it starts.
     const offHand = hand.subscribe(() => {
       if (hand.get()) {
+        sections.tool.set(false);
         editor.setInsertMode(null);
         if (editor.isTextEditing()) editor.exitTextEditing();
         editor.clearSelectionAndScope();
@@ -760,7 +1009,24 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     };
     container.addEventListener("dblclick", onDoubleClick, { capture: true });
     const offInsertMode = editor.onInsertModeChange(() => {
-      if (editor.getInsertMode() !== null) hand.set(false);
+      if (editor.getInsertMode() !== null) {
+        hand.set(false);
+        sections.tool.set(false);
+      }
+    });
+    // The section tool is one more exclusive tool, with its own cursor.
+    const offSectionTool = sections.tool.subscribe(() => {
+      const on = sections.tool.get();
+      if (on) {
+        hand.set(false);
+        editor.setInsertMode(null);
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      }
+      for (const el of [canvas, overlay]) {
+        if (on) el.dataset.boardSectionTool = "";
+        else delete el.dataset.boardSectionTool;
+      }
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -808,20 +1074,41 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
             readTopLevel(),
             editor.getSelection(),
             { w: hostW, h: hostH },
+            getInsets(),
           );
           if (!fitted) return;
           commitViewport(fitted);
           zoom.reportViewportZoom(fitted.zoom);
         },
         setHand: (on) => hand.set(on),
+        setSection: (on) => sections.tool.set(on),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
+        armInk: (pen) => armInkPen(editor, ink, pen),
+        setLaser: readOnly ? undefined : (on) => drawingTools.laser.set(on),
+        setLasso: (on) => drawingTools.lasso.set(on),
         isBoardTarget: (target) =>
           target === document.body ||
           (target instanceof Node && rootRef.current?.contains(target) === true),
       });
     };
+    // Mod+F (find on board) and Alt+Shift+T (tidy up).
+    const onUtilityKey = (e: KeyboardEvent) => {
+      handleBoardUtilityKey(e, {
+        editor,
+        readOnly: readOnly === true,
+        isBoardTarget: (target) =>
+          target === document.body ||
+          (target instanceof Node && rootRef.current?.contains(target) === true),
+        openFind: () => {
+          setFindOpen(true);
+          setFindFocus((n) => n + 1);
+        },
+        tidyUp: () => tidyUpSelection(editor, store),
+      });
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keydown", onToolKey, true);
+    document.addEventListener("keydown", onUtilityKey, true);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
@@ -882,6 +1169,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       syncPanCursor();
     };
     container.addEventListener("pointerdown", onPointerDown, { capture: true });
+    // After the pan claim, so Space / middle-drag still pan with it armed.
+    const detachSections = sections.attach();
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
@@ -943,6 +1232,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
             return true;
           },
       onZoomChange: (z) => zoom.reportViewportZoom(z),
+      // A finger on the canvas draws / erases while those tools are
+      // armed; a second finger takes the gesture back as a pinch.
+      isInkArmed: readOnly ? () => false : () => isInkArmed(editor.getInsertMode()),
+      onInkInterrupted: () => editor.cancelInkStroke(),
     }, {
       // The minimap is a child of `container` too, and its own
       // drag-to-navigate is a plain bubble-phase listener that a claim
@@ -983,17 +1276,28 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       detachTouch();
       offHand();
       offInsertMode();
+      offSectionTool();
+      detachSections();
+      detachDrawing();
+      sections.tool.set(false);
+      delete canvas.dataset.boardSectionTool;
+      delete overlay.dataset.boardSectionTool;
+      setSections(null);
       container.removeEventListener("dblclick", onDoubleClick, { capture: true });
       delete canvas.dataset.boardPan;
       delete overlay.dataset.boardPan;
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keydown", onToolKey, true);
+      document.removeEventListener("keydown", onUtilityKey, true);
+      offZoomNote();
+      setNav(null);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
-      container.removeEventListener("pointermove", onCursorMove);
-      container.removeEventListener("pointerleave", onCursorLeave);
-      cursorPublisher.dispose();
+      followBridge?.attach(null);
+      presence?.dispose();
+      presence = null;
+      setPresenceCtl(null);
       offSelection();
       offChange();
       offPeers();
@@ -1006,6 +1310,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       setStore(null);
       setZoomController(null);
       stickyInserterRef.current = null;
+      stickyFlow?.dispose();
+      navigateRef.current = null;
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
@@ -1013,7 +1319,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // `zoomValue` is a ref-held singleton with a stable identity for the
     // component's lifetime, so listing it never re-runs this effect — it
     // is here only to satisfy exhaustive-deps.
-  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand]);
+  }, [didMount, doc, readOnly, workspaceId, zoomValue, hand, followBridge, ink, drawingTools]);
 
   // Repaint the grid when the MODE changes — the one input that moves
   // without the viewport moving (the plane never follows the app theme,
@@ -1077,7 +1383,6 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           editor={editor}
           store={store}
           zoomController={zoomController}
-          hand={hand}
           gridKind={gridKind}
           onGridKindChange={(kind) => {
             setGridKind(kind);
@@ -1085,9 +1390,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           }}
           gridSnap={gridSnap}
           onGridSnapChange={(next) => setGridSnapRef.current(next)}
-          onInsertSticky={(color) => stickyInserterRef.current?.(color)}
-          onInsertImage={(file) => imageInserterRef.current?.(file)}
-          disabled={!workspaceId}
+          sections={sections}
+          collabControls={
+            <>
+              <BoardTimerControl store={store} disabled={!editor} />
+              <BoardSpotlightToggle presence={presenceCtl} />
+            </>
+          }
         />
       )}
       <div className="relative flex-1 w-full min-h-0">
@@ -1097,7 +1406,44 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           className="relative w-full h-full"
           style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
         />
-        {isEmpty && !readOnly && <BoardEmptyHint />}
+        <BoardRituals
+          editor={editor}
+          store={store}
+          hand={hand}
+          containerRef={containerRef}
+          vpRef={vp}
+          readOnly={readOnly === true}
+          menuRef={ritualMenusRef}
+          navigateRef={navigateRef}
+        />
+        {isEmpty && !readOnly && <BoardEmptyHint workspaceId={workspaceId} />}
+        {/* The insert tools, floating bottom-centre (FigJam, Miro); hidden
+            for viewers like the toolbar. See `board-tool-dock.tsx`. */}
+        {!readOnly && (
+          <BoardToolDock
+            editor={editor}
+            hand={hand}
+            ink={ink}
+            drawingTools={drawingTools}
+            sections={sections}
+            disabled={!workspaceId}
+            onInsertSticky={(color) => stickyInserterRef.current?.(color)}
+            onInsertImage={(file) => imageInserterRef.current?.(file)}
+            extraTools={<BoardRitualTools store={store} disabled={!workspaceId} />}
+            extraToolArmed={(ritualTool?.mode ?? "none") !== "none"}
+            disarmExtraTools={() => collab?.tool.setMode("none")}
+          />
+        )}
+        <BoardExportMenu store={store} editor={editor} title={title || "Board"} />
+        {findOpen && nav && store && (
+          <BoardFindBox
+            nav={nav}
+            readElements={() => store.read().slides[0]?.elements ?? []}
+            focusRequest={findFocus}
+            onClose={() => setFindOpen(false)}
+          />
+        )}
+        <BoardTimerChip store={store} />
       </div>
       <ShortcutsHelpDialog
         open={helpOpen}

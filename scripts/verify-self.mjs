@@ -299,11 +299,26 @@ const LANES = [
     pkgs: ["frontend"],
     needs: ["frontend:build"],
   },
+  // The backend imports `@wafflebase/board` (the agent board endpoints and
+  // the board template seeds) through its `node` entry, so tsc needs board's
+  // `dist/` the same way it needs slides'.
+  {
+    name: "board:build",
+    cmd: "pnpm --filter @wafflebase/board build",
+    pkgs: ["board"],
+    needs: ["core:build", "docs:build", "slides:build"],
+  },
   {
     name: "backend:build",
     cmd: "pnpm backend build",
     pkgs: ["backend"],
-    needs: ["core:build", "docs:build", "sheets:build", "slides:build"],
+    needs: [
+      "core:build",
+      "docs:build",
+      "sheets:build",
+      "slides:build",
+      "board:build",
+    ],
   },
   {
     name: "cli:build",
@@ -338,6 +353,7 @@ const LANES = [
       "sheets:build",
       "docs:build",
       "slides:build",
+      "board:build",
     ],
   },
 ];

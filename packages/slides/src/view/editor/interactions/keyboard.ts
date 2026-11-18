@@ -1,6 +1,6 @@
-import type { Element } from '../../../model/element';
+import type { Element, Frame } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
-import type { InsertKind } from '../editor';
+import type { InsertKind, SlidesEditorOptions } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
 import { findElementPath } from '../../../model/group';
@@ -106,6 +106,49 @@ export interface KeyboardContext {
    * keyboard behavior unchanged.
    */
   suppressSlideChrome?: boolean;
+  /**
+   * Mirrors `SlidesEditorOptions.pasteOffset`: where a Cmd+V / Cmd+D copy
+   * lands, given the pasted elements' world bounding box. Absent ⇒ the
+   * slides `(10, 10)` offset.
+   */
+  pasteOffset?: (
+    bounds: Frame,
+    kind: 'paste' | 'duplicate',
+  ) => { dx: number; dy: number };
+  /** Mirrors `SlidesEditorOptions.getCompanionMoveIds`, for arrow nudge. */
+  getCompanionMoveIds?: SlidesEditorOptions['getCompanionMoveIds'];
+  /** Mirrors `SlidesEditorOptions.getUnselectableIds`, for Mod+A. */
+  getUnselectableIds?: SlidesEditorOptions['getUnselectableIds'];
+}
+
+/** The slides paste / duplicate offset: just off the source. */
+const PASTE_NUDGE = 10;
+
+/** Union of the elements' axis-aligned frames (rotation ignored). */
+function unionFrame(elements: readonly Element[]): Frame {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const el of elements) {
+    x0 = Math.min(x0, el.frame.x);
+    y0 = Math.min(y0, el.frame.y);
+    x1 = Math.max(x1, el.frame.x + el.frame.w);
+    y1 = Math.max(y1, el.frame.y + el.frame.h);
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, rotation: 0 };
+}
+
+/** The offset a paste / duplicate of `sources` applies. */
+function pasteOffsetFor(
+  ctx: KeyboardContext,
+  sources: readonly Element[],
+  kind: 'paste' | 'duplicate',
+): { dx: number; dy: number } {
+  if (!ctx.pasteOffset || sources.length === 0) {
+    return { dx: PASTE_NUDGE, dy: PASTE_NUDGE };
+  }
+  return ctx.pasteOffset(unionFrame(sources), kind);
 }
 
 const NUDGE = 1;
@@ -249,8 +292,19 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           const slideId = ctx.currentSlideId();
           if (!slideId) return;
           const scope = ctx.selection.getScope();
+          // Host companions (a board section's contents) nudge with the
+          // selection, in the same batch. Root scope only, as for drag.
+          const moving = [...ctx.selection.get()];
+          if (scope.length === 0 && ctx.getCompanionMoveIds) {
+            const root = ctx.store.read().slides.find((s) => s.id === slideId);
+            if (root) {
+              for (const id of ctx.getCompanionMoveIds(moving, root)) {
+                if (!moving.includes(id)) moving.push(id);
+              }
+            }
+          }
           ctx.store.batch(() => {
-            for (const id of ctx.selection.get()) {
+            for (const id of moving) {
               const slide = ctx.store.read().slides.find((s) => s.id === slideId);
               if (!slide) continue;
               // Find element anywhere in the tree (supports drilled-in scope).
@@ -353,9 +407,10 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const pasteSources = ctx.suppressSlideChrome
           ? sources.filter((el) => !containsElementType(el, 'table'))
           : sources;
+        const { dx, dy } = pasteOffsetFor(ctx, pasteSources, 'paste');
         let newIds: string[] = [];
         ctx.store.batch(() => {
-          newIds = pasteElements(ctx.store, slide.id, pasteSources, 10, 10);
+          newIds = pasteElements(ctx.store, slide.id, pasteSources, dx, dy);
         });
         ctx.selection.set(newIds);
         ctx.requestRender();
@@ -390,9 +445,10 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           const pasteSources = ctx.suppressSlideChrome
             ? selected.filter((el) => !containsElementType(el, 'table'))
             : selected;
+          const { dx, dy } = pasteOffsetFor(ctx, pasteSources, 'duplicate');
           let newIds: string[] = [];
           ctx.store.batch(() => {
-            newIds = pasteElements(ctx.store, slide.id, pasteSources, 10, 10);
+            newIds = pasteElements(ctx.store, slide.id, pasteSources, dx, dy);
           });
           ctx.selection.set(newIds);
         }
@@ -507,7 +563,12 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const slide = currentSlide(ctx);
         if (!slide || slide.elements.length === 0) return;
         e.preventDefault();
-        ctx.selection.set(slide.elements.map((el) => el.id));
+        const unselectable = ctx.getUnselectableIds?.(slide);
+        ctx.selection.set(
+          slide.elements
+            .map((el) => el.id)
+            .filter((id) => !unselectable?.has(id)),
+        );
         ctx.requestRender();
       },
     },
@@ -644,7 +705,14 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const selected = ctx.selection.get();
         if (selected.length !== 1) return;
         const element = findElementInTree(slide.elements, selected[0]);
-        if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+        // A connector edits its label (F2 / Enter only; typing on a
+        // selected connector does not start one).
+        if (
+          !element ||
+          (element.type !== 'text' &&
+            element.type !== 'shape' &&
+            element.type !== 'connector')
+        ) {
           return;
         }
         e.preventDefault();

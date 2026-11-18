@@ -23,6 +23,11 @@ export interface HitResult {
 export interface HitTestSlideOptions {
   ctx: HitTestCtx;
   tolerance?: number;
+  /**
+   * Top-level element ids the point passes through, as if absent. The
+   * board uses it for locked sections and the contents of hidden ones.
+   */
+  skipIds?: ReadonlySet<string>;
 }
 
 /**
@@ -52,7 +57,10 @@ export function hitTestSlide(
   // of group depth.
   const lookup = buildElementLookup(slide.elements);
   const tolerance = options.tolerance ?? DEFAULT_HIT_TOLERANCE;
-  return hitTestRecursive(slide.elements, x, y, [], {
+  const elements = options.skipIds && options.skipIds.size > 0
+    ? slide.elements.filter((el) => !options.skipIds!.has(el.id))
+    : slide.elements;
+  return hitTestRecursive(elements, x, y, [], {
     ctx: options.ctx,
     tolerance,
     lookup,

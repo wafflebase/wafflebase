@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
-import { Toggle } from "@/components/ui/toggle";
+import type { SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
@@ -9,19 +8,10 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import {
-  IconPointer,
-  IconHandStop,
-  IconLetterT,
-  IconNote,
-  IconPhoto,
-  IconGrid3x3,
-  IconChevronDown,
-} from "@tabler/icons-react";
+import { IconGrid3x3, IconChevronDown } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
@@ -29,9 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ShapePicker } from "../slides/shape-picker";
-import { LinePicker } from "../slides/line-picker";
-import { isLineToolKind } from "../slides/line-picker-helpers";
 import type { ZoomController } from "../slides/zoom-controller";
 import { getToolbarState, type ToolbarState } from "../slides/toolbar/state";
 import { UndoRedoGroup } from "../slides/toolbar/global-controls";
@@ -42,13 +29,19 @@ import { TextElementControls } from "../slides/toolbar/text-element-controls";
 import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
-import { STICKY_COLORS, isStickyElement } from "./sticky";
+import { isStickyElement } from "./sticky";
 import { StickyControls } from "./sticky-controls";
-import { BoardInsertSheet } from "./board-insert-sheet";
-import { TOOL_HINTS } from "./board-shortcuts";
 import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
-import type { HandTool } from "./board-hand";
+import { isSectionElement } from "@wafflebase/board";
+import { type BoardSections } from "./board-sections";
+import { SectionControls, SectionsListMenu } from "./board-section-toolbar";
+import { BOARD_LINE_NONE_LABEL } from "./board-vocabulary";
+import { TIDY_UP_SHORTCUT, tidyUpSelection } from "./board-tidy";
+
+// Re-exported so a host that lazy-loads the toolbar (the hunt harness) gets
+// the dock from the same chunk.
+export { BoardToolDock } from "./board-tool-dock";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -64,8 +57,6 @@ export interface BoardToolbarProps {
    */
   store?: SlidesStore | null;
   zoomController?: ZoomController | null;
-  /** The hand (drag-to-pan) tool, shared with the board's `H` key. */
-  hand?: HandTool | null;
   /**
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
@@ -85,30 +76,25 @@ export interface BoardToolbarProps {
    */
   gridSnap: boolean;
   onGridSnapChange: (snap: boolean) => void;
-  disabled?: boolean;
-  /** Drop a sticky of the given fill color at the viewport center. */
-  onInsertSticky?: (colorValue: string) => void;
-  /** Upload + insert the picked/pasted/dropped file at the viewport center. */
-  onInsertImage?: (file: File) => void;
+  /** Board sections: the sections list and the section controls. */
+  sections?: BoardSections | null;
+  /** Facilitation controls (timer, Spotlight), after the view controls. */
+  collabControls?: React.ReactNode;
 }
 
 /**
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Hand][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾][Sections ▾] │ [Timer][Spotlight] │ ‹contextual›
  * ```
  *
- * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
- * against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
- * `onInsertModeChange` API, minus the one control that doesn't apply to a
- * board:
- *
- * - Table insert is deliberately never exposed here: `YorkieBoardStore`
- *   throws `notSupported()` on the table-editing ops (`insertTableRow`
- *   etc.) a table element's handlers call, and board paste already
- *   strips tables on the way in. Surfacing `<TablePicker>` would let a
- *   user create a table that then crashes as soon as it's edited.
+ * The insert tools live in the bottom-centre tool dock
+ * (`board-tool-dock.tsx`), FigJam's and Miro's arrangement: this bar keeps
+ * the view and the controls for whatever is selected. Table insert is
+ * offered in neither: `YorkieBoardStore` throws `notSupported()` on the
+ * table-editing ops a table element's handlers call, and board paste
+ * strips tables on the way in.
  *
  * The contextual zone reuses the slides toolbar's LEAF controls, routed
  * off the same `getToolbarState`. The slides SHELLS (`SlidesToolbar` /
@@ -116,49 +102,38 @@ export interface BoardToolbarProps {
  * `InsertGroup` (with that table picker) and route a `table` selection
  * into `TableControls`.
  *
- * On a phone (`useIsMobile`) the row has to fit ~393px, where the desktop
- * layout measured 644px idle and 983px with a sticky selected — the
- * Text box button cut mid-icon, and the sticky colours and Arrange
- * entirely off-screen with nothing to say so. So the phone gets:
+ * On a phone (`useIsMobile`) the row has to fit ~393px. The insert tools
+ * are already out of it (the dock folds its rarer tools under "More"
+ * there), so the phone gets:
  *
  * ```text
- * idle:      [↶][↷] [Zoom ▾][Grid ▾] [Select][Hand][+]
+ * idle:      [↶][↷] [Zoom ▾][Grid ▾][Sections ▾] [Timer][Spotlight]
  * selection: [↶][↷] │ [Arrange] ‹contextual›
  * ```
  *
- * The five insert tools fold into one "+" bottom sheet
- * (`BoardInsertSheet`), the separators go (the idle row does not fit with
- * them), and a selection REPLACES the view/tool block instead of being
- * appended after it, with Arrange first and a sticky's palette folded into
- * one swatch menu. The strip is scrolled back to its start whenever the
- * mode changes, since a strip left scrolled from a wider mode otherwise
- * opens with Undo off the left edge.
+ * The separators go (the idle row does not fit with them), and a
+ * selection REPLACES the view block instead of being appended after it,
+ * with Arrange first and a sticky's palette folded into one swatch menu.
+ * The strip is scrolled back to its start whenever the mode changes,
+ * since a strip left scrolled from a wider mode otherwise opens with Undo
+ * off the left edge.
  */
 export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
-  hand = null,
   gridKind,
   onGridKindChange,
   gridSnap,
   onGridSnapChange,
-  disabled,
-  onInsertSticky,
-  onInsertImage,
+  sections = null,
+  collabControls,
 }: BoardToolbarProps) {
-  const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
   );
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-  // Color chosen from the palette, applied in `onCloseAutoFocus` (below) so
-  // the sticky is created only after Radix has finished closing the menu —
-  // and with focus restoration prevented, so the new sticky's text caret
-  // keeps focus instead of the dropdown trigger stealing it back.
-  const pendingStickyColor = useRef<string | null>(null);
 
   // Hand focus back to the board after a pointer interaction with the
   // toolbar (issue #882), as the slides toolbar does. The hook leaves a
@@ -166,19 +141,6 @@ export function BoardToolbar({
   // still activates it; after a mouse click, Space pans — FigJam's
   // behaviour, and what a board user reaches for.
   useCanvasFocusRelease();
-
-  const [handOn, setHandOn] = useState(() => hand?.get() ?? false);
-  useEffect(() => {
-    if (!hand) return;
-    setHandOn(hand.get());
-    return hand.subscribe(() => setHandOn(hand.get()));
-  }, [hand]);
-
-  useEffect(() => {
-    if (!editor) return;
-    setInsertMode(editor.getInsertMode());
-    return editor.onInsertModeChange(() => setInsertMode(editor.getInsertMode()));
-  }, [editor]);
 
   // Contextual state: which leaf controls the selection/text-edit state
   // calls for. `onCurrentSlideChange` / `onCellSelectionChange` are
@@ -214,23 +176,41 @@ export function BoardToolbar({
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
   // A selection made only of sticky notes gets the sticky palette instead
-  // of the rectangle controls (see `StickyControls`). Recomputed on each
-  // render, which `store.onChange` above already drives.
+  // of the rectangle controls (see `StickyControls`); a MIXED selection
+  // that contains stickies keeps its own controls plus the sticky colour
+  // row for the stickies in it. Recomputed on each render, which
+  // `store.onChange` above already drives.
+  const stickyIds =
+    state.kind === "object"
+      ? (() => {
+          const elements = store?.read().slides[0]?.elements ?? [];
+          return state.ids.filter((id) =>
+            isStickyElement(elements.find((e) => e.id === id)),
+          );
+        })()
+      : [];
   const allStickies =
+    state.kind === "object" &&
+    state.selectionType === "shape" &&
+    state.ids.length > 0 &&
+    stickyIds.length === state.ids.length;
+
+  // Likewise a selection made only of sections gets the section controls.
+  const allSections =
     state.kind === "object" &&
     state.selectionType === "shape" &&
     state.ids.length > 0 &&
     (() => {
       const elements = store?.read().slides[0]?.elements ?? [];
       return state.ids.every((id) =>
-        isStickyElement(elements.find((e) => e.id === id)),
+        isSectionElement(elements.find((e) => e.id === id)),
       );
     })();
 
   // Both settings are spoken here: the icon is identical in every mode
   // and says nothing at all about snapping, so the trigger's label is
   // the only place either state is available without opening the menu.
-  // Phone only: a selection replaces the view/tool block (see the doc
+  // Phone only: a selection replaces the view block (see the doc
   // comment). Keyed on mode, not on ids, so tapping from one sticky to
   // another does not yank a strip the user has just scrolled.
   const compactSelection =
@@ -249,6 +229,10 @@ export function BoardToolbar({
       selectionSize={state.ids.length}
       canUngroup={canUngroupSelection(editor, store, state.ids)}
       minAlignSelection={2}
+      onTidyUp={
+        editor && store ? () => tidyUpSelection(editor, store) : undefined
+      }
+      tidyUpShortcut={TIDY_UP_SHORTCUT}
     />
   );
 
@@ -261,258 +245,80 @@ export function BoardToolbar({
       <UndoRedoGroup store={store} />
       {!compactSelection && (
         <>
-          {!isMobile && <ToolbarSeparator className="mx-1" />}
-          <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
+        {!isMobile && <ToolbarSeparator className="mx-1" />}
+        <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
 
-          {/* Grid ▾ — the background grid mode, next to Zoom because both are
-              view controls that change nothing in the document. Deliberately
-              NOT gated on `disabled`/`editor`: it is a per-user view
-              preference, so it stays usable while the workspace is still
-              resolving and on a board the user cannot edit. */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 px-2"
-                    // The icon is identical in all three modes (as it is in
-                    // Miro), so the current one has to be spoken somewhere —
-                    // otherwise a screen-reader user cannot tell whether the
-                    // grid is on without opening the menu.
-                    aria-label={`Grid: ${gridLabel}`}
-                  >
-                    {/* Dimmed only when the grid does NOTHING. `None` + snap
-                        on is a supported combination, and a dimmed icon there
-                        would be the one always-visible affordance claiming a
-                        feature that is in fact active. */}
-                    <IconGrid3x3
-                      size={16}
-                      className={
-                        gridKind === "none" && !gridSnap ? "opacity-50" : undefined
-                      }
-                    />
-                    <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Grid: {gridLabel}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start" collisionPadding={8}>
-              <DropdownMenuRadioGroup
-                value={gridKind}
-                onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
-              >
-                {GRID_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              {/* Below the separator because it is not a fourth mode: snapping
-                  is independent of what is drawn, so `None` + snap on is a
-                  valid (and useful) combination. */}
-              <DropdownMenuCheckboxItem
-                checked={gridSnap}
-                onCheckedChange={(checked) => onGridSnapChange(checked === true)}
-              >
-                Snap to grid
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {!isMobile && <ToolbarSeparator className="mx-1" />}
-          {/* Select — pressed when insertMode === null (Esc/default state).
-              onClick rather than onPressedChange so a second click while
-              already in select mode is a no-op instead of toggling to
-              undefined. */}
+        {/* Grid ▾ — the background grid mode, next to Zoom because both are
+            view controls that change nothing in the document. Deliberately
+            NOT gated on `disabled`/`editor`: it is a per-user view
+            preference, so it stays usable while the workspace is still
+            resolving and on a board the user cannot edit. */}
+        <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Toggle
-                size="sm"
-                pressed={insertMode === null && !handOn}
-                onClick={() => {
-                  hand?.set(false);
-                  editor?.setInsertMode(null);
-                }}
-                aria-label="Select"
-                disabled={disabled || !editor}
-              >
-                <IconPointer size={16} />
-              </Toggle>
-            </TooltipTrigger>
-            <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
-          </Tooltip>
-
-          {/* Hand — drag to pan. Board-local state (see `board-hand.ts`);
-              arming it disarms any insert tool, and vice versa. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Toggle
-                size="sm"
-                pressed={handOn}
-                onPressedChange={(pressed) => hand?.set(pressed)}
-                aria-label="Hand"
-                disabled={!hand || !editor}
-              >
-                <IconHandStop size={16} />
-              </Toggle>
-            </TooltipTrigger>
-            <TooltipContent>Hand ({TOOL_HINTS.hand})</TooltipContent>
-          </Tooltip>
-
-          {isMobile ? (
-            <BoardInsertSheet
-              disabled={disabled || !editor}
-              onInsertMode={(kind) => {
-                hand?.set(false);
-                editor?.setInsertMode(kind);
-              }}
-              onInsertSticky={onInsertSticky}
-              onPickImage={() => fileInputRef.current?.click()}
-              imageDisabled={!onInsertImage}
-            />
-          ) : (
-            <>
-              {/* Text box */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    pressed={insertMode === "text"}
-                    onPressedChange={(pressed) =>
-                      editor?.setInsertMode(pressed ? "text" : null)
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2"
+                  // The icon is identical in all three modes (as it is in
+                  // Miro), so the current one has to be spoken somewhere —
+                  // otherwise a screen-reader user cannot tell whether the
+                  // grid is on without opening the menu.
+                  aria-label={`Grid: ${gridLabel}`}
+                >
+                  {/* Dimmed only when the grid does NOTHING. `None` + snap
+                      on is a supported combination, and a dimmed icon there
+                      would be the one always-visible affordance claiming a
+                      feature that is in fact active. */}
+                  <IconGrid3x3
+                    size={16}
+                    className={
+                      gridKind === "none" && !gridSnap ? "opacity-50" : undefined
                     }
-                    aria-label="Text box"
-                    disabled={disabled || !editor}
-                  >
-                    <IconLetterT size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>Text box ({TOOL_HINTS.text})</TooltipContent>
-              </Tooltip>
+                  />
+                  <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Grid: {gridLabel}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" collisionPadding={8}>
+            <DropdownMenuRadioGroup
+              value={gridKind}
+              onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
+            >
+              {GRID_OPTIONS.map((option) => (
+                <DropdownMenuRadioItem key={option.value} value={option.value}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            {/* Below the separator because it is not a fourth mode: snapping
+                is independent of what is drawn, so `None` + snap on is a
+                valid (and useful) combination. */}
+            <DropdownMenuCheckboxItem
+              checked={gridSnap}
+              onCheckedChange={(checked) => onGridSnapChange(checked === true)}
+            >
+              Snap to grid
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-              {/* Sticky note ▾ — main click drops the first (yellow) color;
-                  chevron opens the 6-color palette. Placement + text-edit entry
-                  is board-local (dropStickyAtViewportCenter), not an editor
-                  InsertKind, so the slides editor is untouched. */}
-              <div className="flex items-center">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 px-2"
-                      aria-label="Sticky note"
-                      disabled={disabled || !editor}
-                      onClick={() => onInsertSticky?.(STICKY_COLORS[0].value)}
-                    >
-                      <IconNote size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
-                </Tooltip>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-5 px-0"
-                      aria-label="Sticky note color"
-                      disabled={disabled || !editor}
-                    >
-                      <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    collisionPadding={8}
-                    className="flex gap-1 p-1"
-                    onCloseAutoFocus={(e) => {
-                      const color = pendingStickyColor.current;
-                      if (!color) return;
-                      pendingStickyColor.current = null;
-                      // Skip Radix's default focus restore to the trigger — otherwise
-                      // it steals focus from the sticky's text caret that
-                      // `dropStickyAtViewportCenter` (via onInsertSticky) just entered.
-                      e.preventDefault();
-                      onInsertSticky?.(color);
-                    }}
-                  >
-                    {STICKY_COLORS.map((c) => (
-                      <DropdownMenuItem
-                        key={c.value}
-                        aria-label={c.name}
-                        title={c.name}
-                        // Rendered into a portal, so the toolbar root's coarse
-                        // rule does not reach it. 28px matches every other
-                        // toolbar target; coarse pointers get 44px.
-                        className="size-7 rounded border border-black/15 p-0 pointer-coarse:size-11"
-                        style={{ backgroundColor: c.value }}
-                        onSelect={() => {
-                          // Defer the actual insert to onCloseAutoFocus; onSelect just
-                          // records the choice and lets Radix close the menu.
-                          pendingStickyColor.current = c.value;
-                        }}
-                      />
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+        {/* Sections ▾ — frames a section on click: navigation, so it sits
+            with the view controls rather than in the tool dock. */}
+        <SectionsListMenu sections={sections} store={store} />
 
-              {/* Image — opens a file picker; upload + insert is board-view's
-                  onInsertImage (reuses the slides upload + insert pipeline). */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    pressed={false}
-                    onClick={() => fileInputRef.current?.click()}
-                    aria-label="Insert image"
-                    disabled={disabled || !editor || !onInsertImage}
-                  >
-                    <IconPhoto size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>Insert image</TooltipContent>
-              </Tooltip>
-
-              {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
-                  not a line-tool kind: connectors / scribble live in Line ▾) */}
-              <ShapePicker
-                activeKind={
-                  insertMode && insertMode !== "text" && !isLineToolKind(insertMode)
-                    ? insertMode
-                    : null
-                }
-                onSelect={(kind) => editor?.setInsertMode(kind)}
-                disabled={disabled || !editor}
-              />
-
-              {/* Line ▾ — connectors + the freehand scribble */}
-              <LinePicker
-                activeKind={isLineToolKind(insertMode) ? insertMode : null}
-                onSelect={(kind) => editor?.setInsertMode(kind)}
-                disabled={disabled || !editor}
-              />
-            </>
-          )}
+        {collabControls && (
+          <>
+            {!isMobile && <ToolbarSeparator className="mx-1" />}
+            {collabControls}
+          </>
+        )}
         </>
       )}
-      {/* Rendered in both layouts: the phone's insert sheet opens it too. */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onInsertImage?.(file);
-          e.target.value = ""; // allow re-selecting the same file
-        }}
-      />
 
       {state.kind === "object" && (
         <>
@@ -526,7 +332,16 @@ export function BoardToolbar({
               variant={isMobile ? "menu" : "inline"}
             />
           )}
-          {!allStickies &&
+          {!allStickies && stickyIds.length > 0 && (
+            <>
+              <StickyControls editor={editor} store={store} ids={stickyIds} colorsOnly />
+              <ToolbarSeparator className="mx-1" />
+            </>
+          )}
+          {allSections && (
+            <SectionControls sections={sections} store={store} editor={editor} ids={state.ids} />
+          )}
+          {!allStickies && !allSections &&
             (state.selectionType === "shape" ||
             state.selectionType === "connector") && (
             <ShapeControls
@@ -534,11 +349,12 @@ export function BoardToolbar({
               store={store}
               theme={theme}
               ids={state.ids}
+              lineNoneLabel={BOARD_LINE_NONE_LABEL}
             />
           )}
           {state.selectionType === "image" && (
             // No `upload` on purpose: the Replace affordance stays inert
-            // on a board this pass — the insert block's Image button is
+            // on a board this pass — the tool dock's Image button is
             // the board's image path.
             <ImageControls editor={editor} store={store} ids={state.ids} />
           )}

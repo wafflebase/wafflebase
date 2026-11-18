@@ -60,6 +60,10 @@ const SlidesToolbarLazy = lazyWithRetry(() =>
 const BoardToolbarLazy = lazyWithRetry(() =>
   import("@/app/board/board-toolbar").then((m) => ({ default: m.BoardToolbar })),
 );
+// From the toolbar's module, which re-exports it, so the dock adds no chunk of its own.
+const BoardToolDockLazy = lazyWithRetry(() =>
+  import("@/app/board/board-toolbar").then((m) => ({ default: m.BoardToolDock })),
+);
 
 import type { BoardGridKind } from "@/app/board/board-grid";
 import type { YorkieBoardRoot } from "@/types/board-document";
@@ -817,8 +821,16 @@ export default function HuntHarnessPage() {
         </div>
       )}
 
-      <section className="min-h-0 flex-1 overflow-hidden bg-white">
+      <section className="relative min-h-0 flex-1 overflow-hidden bg-white">
         <div className="h-full w-full" data-testid="hunt-harness-host" ref={hostRef} />
+        {/* The board's insert tools float over the canvas, as in `BoardView`. Its optional
+            callbacks are omitted like the toolbar's: `Sticky note` is inert and `Insert
+            image` disabled, and the rubric names both. */}
+        {surface === "board" && (
+          <Suspense fallback={null}>
+            <BoardToolDockLazy editor={board} />
+          </Suspense>
+        )}
       </section>
     </main>
   );

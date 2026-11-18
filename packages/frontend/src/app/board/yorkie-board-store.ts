@@ -38,8 +38,25 @@ import {
 import type { Block } from '@wafflebase/docs';
 import { bandBlockNumerics } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
-import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
+import type {
+  BoardPresence,
+  BoardTimerState,
+  YorkieBoardRoot,
+} from '@/types/board-document';
+import type { TextBody } from '@wafflebase/slides';
+import {
+  withConnectorLabel,
+  writeConnectorLabel,
+} from '../slides/connector-label-yorkie';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
+import { pruneRitualsOnDelete } from './rituals/prune-on-delete';
+import { removeIdsFromYorkieArray } from '../slides/yorkie-array-remove';
+import {
+  MAX_GROUP_DEPTH,
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformElement,
+} from '@wafflebase/slides';
 
 /**
  * YorkieElements array as seen inside a doc.update callback. The Yorkie
@@ -267,6 +284,12 @@ export class YorkieBoardStore implements SlidesStore {
    */
   private cachedDoc: SlidesDocument | null = null;
 
+  /**
+   * Memoized `meta.anonymous`, read by the renderer once per sticky per
+   * paint. Dropped with {@link cachedDoc}.
+   */
+  private cachedAnonymous: boolean | null = null;
+
   constructor(doc: YorkieDocument<YorkieBoardRoot>) {
     this.doc = doc;
     this.undoFloor = this.doc.getUndoStackForTest().length;
@@ -306,6 +329,7 @@ export class YorkieBoardStore implements SlidesStore {
   /** Drop the memoized {@link read} snapshot. See {@link cachedDoc}. */
   private invalidateRead(): void {
     this.cachedDoc = null;
+    this.cachedAnonymous = null;
   }
 
   // --- read ---
@@ -367,7 +391,7 @@ export class YorkieBoardStore implements SlidesStore {
    * `bandElementNumerics` covers the shape branch too (a sticky note is a
    * `roundRect` shape with a body), which falls through to the generic tail.
    */
-  private readElement(e: unknown): ModelElement {
+  private readElement(e: unknown, depth = 0): ModelElement {
     const el = e as {
       id: string;
       type: string;
@@ -420,6 +444,7 @@ export class YorkieBoardStore implements SlidesStore {
           : undefined,
         elbowBend: c.elbowBend,
         curveBend: c.curveBend,
+        ...withConnectorLabel(el),
       } as ModelElement;
     }
     if (el.type === 'group') {
@@ -427,8 +452,9 @@ export class YorkieBoardStore implements SlidesStore {
         children?: unknown[];
         refSize?: unknown;
       };
-      const rawChildren = rawData.children ?? [];
-      const children = rawChildren.map((c) => this.readElement(c));
+      // A peer wrote this tree: stop at the shared group depth cap.
+      const rawChildren = depth < MAX_GROUP_DEPTH ? rawData.children ?? [] : [];
+      const children = rawChildren.map((c) => this.readElement(c, depth + 1));
       const refSize = rawData.refSize
         ? yorkieToPlain<{ w: number; h: number }>(rawData.refSize)
         : undefined;
@@ -444,7 +470,9 @@ export class YorkieBoardStore implements SlidesStore {
       type: el.type,
       frame: yorkieToPlain<Frame>(el.frame),
       placeholderRef,
-      data: yorkieToPlain<object>(el.data),
+      // Ink paths are stored packed (see `encodeFreeformElement` on the
+      // write side); old boards' array commands pass through unchanged.
+      data: decodeFreeformData(yorkieToPlain<object>(el.data)),
     } as ModelElement);
   }
 
@@ -542,6 +570,25 @@ export class YorkieBoardStore implements SlidesStore {
     });
   }
 
+  /** Whether the board is in anonymous mode (`meta.anonymous`). */
+  isAnonymous(): boolean {
+    if (this.cachedAnonymous === null) {
+      const meta = this.doc.getRoot().meta as { anonymous?: unknown } | undefined;
+      this.cachedAnonymous = meta?.anonymous === true;
+    }
+    return this.cachedAnonymous;
+  }
+
+  /** Turn anonymous mode on or off. Off removes the field. */
+  setAnonymous(on: boolean): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const meta = r.meta as { anonymous?: boolean };
+      if (on) meta.anonymous = true;
+      else delete meta.anonymous;
+    });
+  }
+
   pushRecentColor(hex: string): void {
     this.requireBatch();
     this.withUpdate((r) => {
@@ -577,6 +624,40 @@ export class YorkieBoardStore implements SlidesStore {
     } else {
       this.doc.update((_, p) => p.set(presence));
     }
+  }
+
+  // --- facilitation timer (board-timer.ts) ---
+
+  /** The raw `root.timer`, or undefined on a board that never ran one. */
+  readTimer(): BoardTimerState | undefined {
+    return yorkieToPlain<BoardTimerState>(this.doc.getRoot().timer);
+  }
+
+  /**
+   * Replace `root.timer`. Its own change, deliberately kept OUT of the
+   * undo stack: Mod+Z is for the user's edits, and undoing a colleague's
+   * shared countdown along with your last sticky would be a surprise.
+   * The SDK has no per-change history opt-out, so the entry this change
+   * pushed is popped right after. Refused inside a `batch()`, which owns
+   * the open change.
+   */
+  writeTimer(next: BoardTimerState): void {
+    if (this.batchDepth > 0) {
+      throw new Error('[board] writeTimer() must not run inside batch()');
+    }
+    // RISK: `getUndoStackForTest()` is a test hook, not API. This relies on
+    // it returning the SDK's LIVE undo array (checked by
+    // `yorkie-board-store-timer.test.ts`) and on one `update()` pushing at
+    // most one entry. Yorkie 0.7.27 offers no supported alternative
+    // (`clearHistory()` would also drop the user's own undo). Re-check on
+    // every SDK bump; replace once the SDK grows a per-update opt-out.
+    const stack = this.doc.getUndoStackForTest() as unknown[];
+    const top = stack[stack.length - 1];
+    this.doc.update((r) => {
+      r.timer = { ...next };
+    });
+    if (stack.length > 0 && stack[stack.length - 1] !== top) stack.pop();
+    this.notifyChange();
   }
 
   // --- element ops ---
@@ -625,7 +706,33 @@ export class YorkieBoardStore implements SlidesStore {
         (targetArray as unknown as YorkieElement[]).push(next as unknown as YorkieElement);
         return;
       }
-      (targetArray as unknown as YorkieElement[]).push({ ...clone(init), id } as YorkieElement);
+      // Ink is packed into one string per path, not a CRDT object per point.
+      (targetArray as unknown as YorkieElement[]).push(
+        encodeFreeformElement({ ...clone(init), id }) as YorkieElement,
+      );
+    });
+    return id;
+  }
+
+  /**
+   * Board-only: add a top-level shape/image element at z-index `index`
+   * (0 = back) with ONE array insert. `addElement` + `reorderElement` in
+   * the same batch is not equivalent: Yorkie's undo of that change (push,
+   * then a delete and re-insert for the move) leaves the moved element
+   * behind, so a section created that way survived its own undo.
+   */
+  addElementAt(init: ElementInit, index: number): string {
+    this.requireBatch();
+    if (init.type === 'text' || init.type === 'connector') {
+      throw new Error(`[board] addElementAt(): ${init.type} is not supported`);
+    }
+    const id = generateId();
+    this.withUpdate((r) => {
+      const rootElements = r.elements as unknown as ProxyArray;
+      const at = Math.max(0, Math.min(index, rootElements.length));
+      (rootElements as unknown as {
+        splice(at: number, del: number, item: YorkieElement): void;
+      }).splice(at, 0, encodeFreeformElement({ ...clone(init), id }) as YorkieElement);
     });
     return id;
   }
@@ -636,6 +743,7 @@ export class YorkieBoardStore implements SlidesStore {
       const rootElements = r.elements as unknown as ProxyArray;
       const path = yorkieFindElementPath(rootElements, elementId);
       if (!path) throw new Error(`Element not found: ${elementId}`);
+      pruneRitualsOnDelete(r, new Map([[elementId, this.worldFrameOf(path)]]));
       this.detachConnectorsTargeting(r, elementId);
       const parentArray = this.resolveYorkieParentArray(rootElements, path);
       const i = parentArray.findIndex((e) => e.id === elementId);
@@ -654,6 +762,10 @@ export class YorkieBoardStore implements SlidesStore {
         const path = yorkieFindElementPath(rootElements, id);
         if (path) paths.set(id, path);
       }
+      pruneRitualsOnDelete(
+        r,
+        new Map([...paths].map(([id, path]) => [id, this.worldFrameOf(path)])),
+      );
       for (const id of set) {
         this.detachConnectorsTargeting(r, id);
       }
@@ -668,14 +780,34 @@ export class YorkieBoardStore implements SlidesStore {
         byParent.get(parentPathKey)!.ids.add(id);
       }
       for (const { parentArray, ids, repPath } of byParent.values()) {
-        for (let i = parentArray.length - 1; i >= 0; i--) {
-          if (ids.has(parentArray[i].id)) {
-            (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
-          }
-        }
+        removeIdsFromYorkieArray(parentArray, ids);
         this.pruneEmptyYorkieAncestorGroups(rootElements, repPath);
       }
     });
+  }
+
+  /**
+   * A removed element's world frame for `pruneRitualsOnDelete`, or `null`
+   * when it sits inside a group (its frame is group-local, and stamps and
+   * comment pins only anchor top-level elements).
+   */
+  private worldFrameOf(path: ProxyArray): Frame | null {
+    return path.length === 1 ? yorkieToPlain<Frame>(path[0].frame) : null;
+  }
+
+  /**
+   * Write board ritual state (stamps, voting) — the board-only root keys
+   * the `SlidesStore` surface has no verb for. Routed through the same
+   * `withUpdate` choke point as every element mutation, so inside a
+   * `batch()` it joins that batch's single change (one undo unit) and
+   * outside one it opens its own `doc.update`.
+   *
+   * Not part of `SlidesStore`; `BoardView`'s ritual layer holds the
+   * concrete store, as it does for {@link updatePresence}.
+   */
+  updateRituals(fn: (root: YorkieBoardRoot) => void): void {
+    this.requireBatch();
+    this.withUpdate(fn);
   }
 
   updateElementFrame(
@@ -718,6 +850,13 @@ export class YorkieBoardStore implements SlidesStore {
         if (Object.keys(source).length === 0) return;
       }
       const data = (e as { data: Record<string, unknown> }).data;
+      // A new ink path is packed like an inserted one.
+      if (source.path !== undefined && data.kind === 'freeform') {
+        source.path = (encodeFreeformElement({
+          type: 'shape',
+          data: { kind: 'freeform', path: source.path },
+        }) as { data: { path: unknown } }).data.path;
+      }
       for (const [k, v] of Object.entries(source)) {
         if (v === undefined) {
           delete data[k];
@@ -1287,6 +1426,23 @@ export class YorkieBoardStore implements SlidesStore {
     });
   }
 
+  updateConnectorLabel(
+    _slideId: string,
+    elementId: string,
+    label: TextBody | undefined,
+  ): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const path = yorkieFindElementPath(r.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      writeConnectorLabel(e, label);
+    });
+  }
+
   // --- guides: unsupported ---
   //
   // A board has no ruler UI (`initializeEditor` in `board-view.tsx`
@@ -1397,7 +1553,8 @@ export class YorkieBoardStore implements SlidesStore {
     const plainEls = r.elements.map(
       (e) => unwrapElement(e) as unknown as ModelElement,
     );
-    return buildElementWorldLookup(plainEls);
+    // Connector routing may read a freeform's path (body glue).
+    return buildElementWorldLookup(decodeFreeformElements(plainEls));
   }
 
   private detachConnectorsTargeting(r: YorkieBoardRoot, targetId: string): void {

@@ -19,6 +19,7 @@ import type {
   ObjectAnimation,
   PlaceholderRef,
   Stroke,
+  TextBody,
 } from '../model/element';
 import type { Master } from '../model/master';
 import type { Theme } from '../model/theme';
@@ -246,6 +247,11 @@ export class LayoutEditStore implements SlidesStore {
     _slideId: string,
     _elementId: string,
     _bend: number | undefined,
+  ): void {}
+  updateConnectorLabel(
+    _slideId: string,
+    _elementId: string,
+    _label: TextBody | undefined,
   ): void {}
 
   addGuide(_axis: GuideAxis, _position: number): string {

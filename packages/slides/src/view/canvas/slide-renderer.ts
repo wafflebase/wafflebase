@@ -80,6 +80,25 @@ export interface SlideRendererOptions {
    * picker opt in.
    */
   showPlaceholderHints?: boolean;
+  /**
+   * Host paint hook, called right after each top-level element is drawn,
+   * with `ctx` in world (slide-logical) space. The board uses it to paint
+   * a sticky note's author tag; the hook owns any rotation and must leave
+   * `ctx` as it found it (save/restore). Not called for ghosts or for
+   * group children. Absent (every slides mount) ⇒ nothing extra painted.
+   */
+  decorateElement?: (ctx: CanvasRenderingContext2D, element: Element) => void;
+  /**
+   * Host paint pass run after every element and before drag ghosts, with
+   * the world transform still applied (so it draws in slide-logical /
+   * board-world coordinates). The board paints section titles and the
+   * cover of a hidden section here. Omitted on slides, where nothing runs.
+   */
+  paintAfterElements?: (
+    ctx: CanvasRenderingContext2D,
+    slide: Slide,
+    doc: SlidesDocument,
+  ) => void;
 }
 
 /**
@@ -358,6 +377,13 @@ export function drawSlide(
       ctx, element, doc, theme, onAssetLoad, elementsLookup,
       undefined, undefined, animStates?.get(element.id), paintOpts,
     );
+    options.decorateElement?.(ctx, element);
+  }
+
+  if (options.paintAfterElements) {
+    ctx.save();
+    options.paintAfterElements(ctx, slide, doc);
+    ctx.restore();
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {

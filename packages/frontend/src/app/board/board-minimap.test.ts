@@ -161,6 +161,21 @@ describe('createBoardMinimap', () => {
     expect(coarseToggle.style.minWidth).toBe('44px');
     coarse.dispose();
   });
+
+  it('accepts peer dots and draws none while there is no scene to place them on', () => {
+    const mm = createBoardMinimap({
+      store: fakeStore(),
+      getHostSize: () => ({ w: 800, h: 600 }),
+      onNavigate: vi.fn(),
+      dpr: 1,
+    });
+    const contexts = (HTMLCanvasElement.prototype.getContext as any).mock.results
+      .map((r: { value: any }) => r.value);
+    expect(() => mm.setPeers([{ x: 10, y: 10, color: '#f00' }])).not.toThrow();
+    for (const ctx of contexts) expect(ctx.fill).not.toHaveBeenCalled();
+    expect(contexts.length).toBeGreaterThan(0);
+    mm.dispose();
+  });
 });
 
 describe('viewportStrokeColor', () => {

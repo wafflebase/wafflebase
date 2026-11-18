@@ -23,9 +23,15 @@ import {
   type BoardPresence,
 } from "@/types/board-document";
 import { BoardView } from "./board-view";
+import { createBoardFollowBridge } from "./board-follow-bridge";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { PreviewSurface } from "@/components/history/preview-surface";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
+import { BoardCollabProvider } from "./rituals/board-collab-context";
+import {
+  BoardCommentsPanel,
+  BoardCommentsToggle,
+} from "./rituals/board-comments-panel";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -67,6 +73,8 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const doc = useBoardDocSelector((s) => s.doc);
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Header avatar click → follow that peer on the board.
+  const [followBridge] = useState(createBoardFollowBridge);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount BoardView, dropping its local selection
   // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
@@ -141,6 +149,12 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const previewing = Boolean(previewRevisionId && currentUser);
 
   return (
+    <BoardCollabProvider
+      doc={doc}
+      documentId={documentId}
+      workspaceId={documentData?.workspaceId}
+      currentUser={currentUser}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -160,6 +174,9 @@ function BoardLayout({ documentId }: { documentId: string }) {
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
           actions={{
+            // Withheld during a revision preview, like the title: a
+            // comment written there would land on the LIVE board.
+            comments: previewing ? null : <BoardCommentsToggle />,
             history: (
               <HeaderPanelToggle
                 icon={IconHistory}
@@ -169,7 +186,14 @@ function BoardLayout({ documentId }: { documentId: string }) {
               />
             ),
             share: <ShareDialog documentId={documentId} />,
-            presence: <UserPresence />,
+            presence: (
+              <UserPresence
+                // Withheld during a preview, as in docs and sheets: following
+                // a peer would move the LIVE board hidden under the overlay.
+                onSelectPeer={previewing ? undefined : followBridge.selectPeer}
+                getJumpHint={previewing ? undefined : followBridge.jumpHint}
+              />
+            ),
           }}
         />
         <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -196,6 +220,8 @@ function BoardLayout({ documentId }: { documentId: string }) {
               key={historyResetToken}
               documentId={documentId}
               workspaceId={documentData?.workspaceId}
+              title={documentData?.title}
+              followBridge={followBridge}
             />
           </PreviewSurface>
           {historyOpen && currentUser && (
@@ -207,9 +233,11 @@ function BoardLayout({ documentId }: { documentId: string }) {
               refreshKey={historyResetToken}
             />
           )}
+          {!previewing && <BoardCommentsPanel />}
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </BoardCollabProvider>
   );
 }
 

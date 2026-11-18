@@ -280,6 +280,51 @@ describe('PPTX round-trip (model equivalence)', () => {
     expect(dashes).toEqual(['dashed', 'dotted', undefined]);
   });
 
+  it('marker ink (smoothed path, round cap, translucent colour) survives', async () => {
+    // What the board's marker / highlighter writes: a `Q`-smoothed open
+    // freeform with `cap: 'round'` and an alpha colour.
+    const base = (await importPptx(await buildMinimalPptx())).document;
+    const deckA: SlidesDocument = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          elements: [
+            {
+              id: 'ink',
+              type: 'shape' as const,
+              frame: { x: 10, y: 20, w: 300, h: 150, rotation: 0 },
+              data: {
+                kind: 'freeform' as const,
+                path: {
+                  commands: [
+                    { c: 'M' as const, x: 0, y: 1 },
+                    { c: 'Q' as const, x1: 0.5, y1: 0, x: 1, y: 1 },
+                  ],
+                },
+                stroke: {
+                  color: { kind: 'srgb' as const, value: 'FFC53D', alpha: 0.35 },
+                  width: 20,
+                  cap: 'round' as const,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const b = (await importPptx(toArrayBuffer(bytes))).document;
+    const el = b.slides[0].elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    expect(el.data.kind).toBe('freeform');
+    expect(el.data.path?.commands.map((c) => c.c)).toEqual(['M', 'Q']);
+    expect(el.data.stroke?.cap).toBe('round');
+    const color = el.data.stroke?.color;
+    expect(typeof color === 'object' && color.kind === 'srgb' ? color.alpha : null).toBeCloseTo(0.35);
+  });
+
   it('connector dash survives export and re-import', async () => {
     // `parseCxnSp` shares `parseShapeStroke` with shapes, so teaching the
     // importer to read `<a:prstDash>` gave connectors a `dash` the connector

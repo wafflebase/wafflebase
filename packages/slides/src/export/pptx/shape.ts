@@ -136,7 +136,8 @@ export function lineXml(
   const dash = dashXml(stroke.dash);
   const head = arrowXml('headEnd', arrowheads?.start);
   const tail = arrowXml('tailEnd', arrowheads?.end);
-  return `<a:ln w="${w}">${fill}${dash}${head}${tail}</a:ln>`;
+  const cap = stroke.cap === 'round' ? ' cap="rnd"' : '';
+  return `<a:ln w="${w}"${cap}>${fill}${dash}${head}${tail}</a:ln>`;
 }
 
 /**

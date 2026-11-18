@@ -14,6 +14,7 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
 COPY packages/slides/package.json ./packages/slides/
+COPY packages/board/package.json ./packages/board/
 
 # Copy Prisma schema (needed by postinstall: prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
@@ -26,6 +27,7 @@ COPY packages/core/ ./packages/core/
 COPY packages/sheets/ ./packages/sheets/
 COPY packages/docs/ ./packages/docs/
 COPY packages/slides/ ./packages/slides/
+COPY packages/board/ ./packages/board/
 COPY packages/backend/ ./packages/backend/
 
 # Build core → shared design tokens + geometry (JS + CSS) consumed by
@@ -46,6 +48,12 @@ RUN pnpm run build
 # `tsconfig.build.json` clears `paths`, so resolution falls back to the
 # workspace symlink + slides' `types` entry under `dist/`.
 WORKDIR /app/packages/slides
+RUN pnpm run build
+
+# Build board → its `node` entry carries the sticky factory and section rules
+# the `/api/v1` board endpoints build elements with (`@wafflebase/slides` stays
+# an external import, resolved through slides' own `node` condition).
+WORKDIR /app/packages/board
 RUN pnpm run build
 
 # Build backend → platform-independent JS via SWC
@@ -74,6 +82,7 @@ COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
 COPY packages/slides/package.json ./packages/slides/
+COPY packages/board/package.json ./packages/board/
 
 # Copy Prisma schema (needed for prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
@@ -105,6 +114,7 @@ RUN npx prisma@6.6.0 generate
 COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
 COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
 COPY --from=builder /app/packages/slides/dist /app/packages/slides/dist
+COPY --from=builder /app/packages/board/dist /app/packages/board/dist
 COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
 
 # Pre-bundle the DuckDB extensions the lakehouse connector needs, for THIS

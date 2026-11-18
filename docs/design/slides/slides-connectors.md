@@ -315,10 +315,36 @@ pixel-constant under zoom. It activates only when the user is inside
 | pointer ↔ nearest shape ≤ 24px | Shape's connection points become visible |
 | pointer ↔ nearest site ≤ 12px | Site visually emphasized (target preview) |
 | Release inside 12px | Endpoint becomes `attached` to that site |
-| Release outside 12px | Endpoint stays `free` at pointer position |
+| Release over a shape's body | Shape is outlined; endpoint becomes `attached` to its nearest site |
+| Release elsewhere | Endpoint stays `free` at pointer position |
 
 Only the nearest shape's sites are displayed at a time (prevents
 visual noise when shapes overlap).
+
+**Body glue** (`interactions/connector-glue.ts`). PowerPoint, Google
+Slides and FigJam all treat "released over the shape" as "connect to
+it", so a pointer over a connectable shape's body glues to that
+shape's nearest connection site even when no site is within 12px. The
+precedence is: a site within the snap radius (any element), then the
+topmost connectable shape whose frame contains the pointer, then
+`free`. `findGlueTarget` in `insert-connector.ts` is the one function
+both the commit (`snappedEndpoint`) and the overlay highlight call.
+
+- **Nearest existing site, not a floating "auto" site.** The result is
+  an ordinary `attached` endpoint: no model or CRDT change, a real
+  `<a:stCxn idx>` on PPTX export, and it stays glued when the shape
+  moves because attached endpoints resolve from the target's frame at
+  paint time. The side is fixed at drop time; re-dragging the endpoint
+  re-picks it.
+- **Shapes only.** Text boxes, images, tables, charts and groups keep
+  site-only snapping, because on slides they are routinely slide-sized
+  (body placeholders, full-bleed photos) and would capture almost every
+  endpoint drawn over them. `freeform` strokes and open-path kinds are
+  excluded too: their frame is mostly empty space.
+- **No self-loops by accident.** The body of the shape the other
+  endpoint is attached to does not capture this one (`excludeBodyOf`),
+  so a short drag inside one shape cannot glue both ends to it.
+  Deliberate site snapping still reaches that shape.
 
 **Endpoint handles (selected connector)**:
 
@@ -350,8 +376,9 @@ loop. Routing change away from `'curved'` clears the field in both
    connector` in the shape picker (extending the existing picker
    dropdown).
 2. Cursor enters insert mode. `connection-points-overlay` activates.
-3. `mousedown`: if pointer is within 12px of a site → start endpoint
-   is `attached`. Otherwise → `free` at cursor.
+3. `mousedown`: if pointer is within 12px of a site, or over a
+   connectable shape's body (body glue, above) → start endpoint is
+   `attached`. Otherwise → `free` at cursor.
 4. While dragging: live preview line, snap behavior identical to step
    3 for the end endpoint.
 5. `mouseup`: end endpoint resolves same way as start. Drag distance
@@ -379,6 +406,52 @@ The store's `updateElementFrame` rejects connectors precisely to
 prevent the derived cached frame from drifting out of sync with the
 endpoints; `commitTranslate` is the only sanctioned write path for
 "translate this element by `(dx, dy)`."
+
+**Align and distribute skip connectors** (`arrangeableFrames` in
+`view/editor/align.ts`). A connector's frame is derived from its
+endpoints, so treating it as an object box made distribute translate it
+(detaching a glued end) and count its bbox as a gap participant, which
+left the real objects unevenly spaced. In a mixed selection only the
+non-connector elements are arranged, and glued connectors re-route
+because their shapes moved. The single-vs-multi reference is still
+decided on the whole selection, so one shape plus a connector aligns
+the shape to itself (a no-op), never to the slide. A selection of only
+connectors keeps the old behaviour and arranges them by their frames.
+
+**Labels** (`label?: TextBody` on `ConnectorElement`). An optional text
+label, centred on the path midpoint by arc length (so an elbow's label
+sits on the line, not in the empty corner) over a knockout filled with
+the theme `background` role, as FigJam, Miro and Visio draw them.
+
+- **Model.** The same `TextBody` a shape's text uses, so the in-place
+  rich-text editor is reused unchanged; only `blocks` is read (the box
+  is sized to its content, so autofit / anchor / inset do not apply).
+  Additive and optional: a deck or board without labels reads as before.
+- **Geometry.** `layoutConnectorLabel` (`view/canvas/connector-label.ts`)
+  lays the text out at up to 320 px, then again at the widest line, and
+  centres the padded box on the midpoint. The renderer, hit-testing
+  (clicking the label selects the connector), the editor and the PPTX
+  exporter all call it, so they agree on where the label is.
+- **Editing.** Double-click a top-level connector, or F2 / Enter on a
+  selected one, to edit its label in a box at the midpoint (an
+  `EditTarget` of kind `connector-label`; the box gets the knockout
+  colour and the canvas masks only the label, so the line stays). A new
+  label starts as a centred 14 pt paragraph. Commit writes the whole
+  body through `store.updateConnectorLabel`; clearing the text removes
+  the field. Typing on a selected connector does not start a label.
+- **Collaboration.** Both Yorkie stores keep `label` as a plain JSON
+  field on the connector object (`app/slides/connector-label-yorkie.ts`),
+  written whole: last writer wins, the same on-blur granularity shape
+  text has. Paste / duplicate / group copy the element wholesale, so the
+  label travels with it.
+- **Export.** PDF rasterises through `drawSlide`, so labels appear. PPTX
+  has no connector text (`<p:cxnSp>` has no `<p:txBody>`), so a labelled
+  connector exports as the connector followed by a background-filled
+  text box at the label's place (`export/pptx/connector-label.ts`, laid
+  out with the Node-safe width estimate). PowerPoint shows the same
+  picture, but the round trip is lossy: re-importing gives a separate
+  text box that no longer follows the line. PPTX import never creates a
+  label.
 
 ### 6. Store Layer
 

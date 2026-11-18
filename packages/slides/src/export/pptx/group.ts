@@ -20,7 +20,13 @@
  * therefore do not export it either; round-trip correctness requires
  * exporting only what the importer reads.
  */
-import type { Element, Frame, GroupElement, ImageElement } from '../../model/element.js';
+import type {
+  Element,
+  Frame,
+  GroupElement,
+  ImageElement,
+  TextElement,
+} from '../../model/element.js';
 import type { ConnectorElement } from '../../model/connector.js';
 import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
 import { shapeToXml, textElementToXml } from './shape.js';
@@ -43,6 +49,11 @@ export interface ElementXmlCtx {
   resolveImageSize?(el: ImageElement): { w: number; h: number } | null;
   /** Compute the bounding frame for a connector (from its start/end endpoints). */
   connectorFrame(el: ConnectorElement): Frame;
+  /**
+   * The text box a labelled connector exports alongside itself (PPTX
+   * connectors carry no text), or null. Optional: absent ⇒ labels drop.
+   */
+  connectorLabel?(el: ConnectorElement): TextElement | null;
   /**
    * Resolve a text run's `href` to a slide-local external relationship ID
    * for `<a:hlinkClick>`. Threaded into every text-bearing serializer
@@ -72,8 +83,13 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
     }
     case 'table':
       return tableToXml(el, ctx.resolveHyperlinkRId);
-    case 'connector':
-      return connectorToXml(el, ctx.connectorFrame(el));
+    case 'connector': {
+      const label = ctx.connectorLabel?.(el) ?? null;
+      return (
+        connectorToXml(el, ctx.connectorFrame(el)) +
+        (label ? textElementToXml(label, ctx.resolveHyperlinkRId) : '')
+      );
+    }
     case 'group':
       return groupToXml(el, ctx);
     case 'chart':

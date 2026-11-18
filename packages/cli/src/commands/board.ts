@@ -9,14 +9,14 @@ import {
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import { registerBoardSetContentCommand } from './content-write.js';
+import { registerBoardEditCommand } from './board-edit.js';
 
 /**
  * `board` — the infinite-canvas document type.
  *
- * Only content read and write live here, because that is what was missing:
- * the content endpoint accepted `doc` / `slides` / `note` and rejected a
- * board, so a board document could be created and copied but never read or
- * edited without a browser. Listing, renaming and deleting a board are the
+ * Whole-content read and write live here, plus the granular verbs in
+ * `board-edit.ts` an agent clusters a brainstorm with (elements, add-stickies,
+ * add-section, move, add-text). Listing, renaming and deleting a board are the
  * type-agnostic `docs` commands, which have always worked on one.
  *
  * A board's content is one flat `elements` array in world coordinates — there
@@ -56,4 +56,5 @@ export function registerBoardCommand(program: Command) {
     });
 
   registerBoardSetContentCommand(board);
+  registerBoardEditCommand(board);
 }

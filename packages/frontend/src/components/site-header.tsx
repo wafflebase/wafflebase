@@ -25,8 +25,8 @@ import { userFacingError } from "@/api/http-error";
  * Editors fill slots instead of passing a free-form row, so the order is
  * decided here once and is the same in every document type: the sync chip,
  * then these in `ACTION_ORDER`, then the notifications bell. A type without a
- * capability leaves its slot empty (slides and board have no comments system,
- * so they pass no `comments`); it never moves the others.
+ * capability leaves its slot empty (slides has no comments system, so it
+ * passes no `comments`); it never moves the others.
  */
 export interface HeaderActions {
   /** The document type's own primary action, e.g. slides' Present. */

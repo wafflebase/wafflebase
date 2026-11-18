@@ -170,6 +170,20 @@ export interface LinePickerProps {
    * (forwarded refs + event handlers); `ReactNode` would allow text
    * nodes or fragments that the slot can't bind to. */
   trigger?: React.ReactElement;
+  /**
+   * Per-kind label overrides, for a host whose users speak a different
+   * vocabulary (the board calls Scribble "Marker"). Kinds not listed keep
+   * the Google Slides label from `LINE_PICKER_ENTRIES`.
+   */
+  labels?: Partial<Record<LineToolKind, string>>;
+  /**
+   * Kinds left out of the menu, for a host that offers them elsewhere
+   * (the board's dedicated Marker tool owns Scribble). Omitted: every
+   * entry in `LINE_PICKER_ENTRIES`.
+   */
+  exclude?: readonly LineToolKind[];
+  /** The trigger's tooltip. Omitted: "Line". */
+  tooltip?: string;
 }
 
 /**
@@ -186,6 +200,9 @@ export function LinePicker({
   onSelect,
   disabled,
   trigger,
+  labels,
+  exclude,
+  tooltip = "Line",
 }: LinePickerProps) {
   // Controlled open state so we can close the dropdown as soon as the
   // user picks an entry. Mirrors the pattern in `<ShapePicker />`.
@@ -212,7 +229,7 @@ export function LinePicker({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>{defaultTrigger}</DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Line</TooltipContent>
+          <TooltipContent>{tooltip}</TooltipContent>
         </Tooltip>
       )}
       <DropdownMenuContent
@@ -222,11 +239,11 @@ export function LinePicker({
         className="z-50 w-[200px] p-1"
       >
         <div className="flex flex-col gap-0.5">
-          {LINE_PICKER_ENTRIES.map((entry) => (
+          {LINE_PICKER_ENTRIES.filter((entry) => !exclude?.includes(entry.kind)).map((entry) => (
             <IconButton
               key={entry.kind}
               kind={entry.kind}
-              label={entry.label}
+              label={labels?.[entry.kind] ?? entry.label}
               active={entry.kind === activeKind}
               onSelect={(k) => {
                 onSelect(k);

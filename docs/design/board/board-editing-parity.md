@@ -355,6 +355,14 @@ Board side (`board-view.tsx`):
 - `pointerleave` publishes `null` so a departed cursor does not stick.
 - `mapBoardPeers` forwards `presence.cursor` into `PeerView.cursor`.
 
+> **Superseded by peer cursors v2** ([board-figjam-parity.md](board-figjam-parity.md)
+> § Second pass B). The send is now a 40 ms throttle with a dead-band and a
+> 100 ms rest send (`board-cursor-publish.ts`), peers are drawn on a
+> board-local spring-animated layer (`board-peer-layer.ts`) wired by
+> `board-presence.ts`, and `mapBoardPeers` no longer forwards
+> `presence.cursor` to the slides overlay. The write path and the audience
+> gate / `resend()` rules below are unchanged.
+
 Both writes go through `YorkieBoardStore.updatePresence()`, never
 `doc.update` directly. `batch()` holds one `doc.update` open for the
 whole batch, and the selection listener fires synchronously from inside

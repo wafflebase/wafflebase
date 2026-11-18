@@ -14,6 +14,31 @@ export interface AlignReference {
 }
 
 /**
+ * The frames align / distribute should move.
+ *
+ * Connectors are dropped from a mixed selection. A connector's frame is
+ * derived from its endpoints, so treating it as an object box meant
+ * distribute translated it (detaching any glued end) and counted its
+ * bbox as a gap participant, leaving the real objects unevenly spaced.
+ * PowerPoint and Google Slides likewise arrange the shapes; glued
+ * connectors follow because their endpoints resolve from the moved
+ * shapes' frames.
+ *
+ * A selection of ONLY connectors keeps today's behaviour (every frame
+ * is returned), so lines can still be aligned among themselves.
+ */
+export function arrangeableFrames(
+  frames: ReadonlyMap<string, Frame>,
+  isConnector: (id: string) => boolean,
+): Map<string, Frame> {
+  const objects = new Map<string, Frame>();
+  for (const [id, frame] of frames) {
+    if (!isConnector(id)) objects.set(id, frame);
+  }
+  return objects.size > 0 ? objects : new Map(frames);
+}
+
+/**
  * Compute new frames for align. Returns id→new-frame ONLY for frames
  * that need to move (skip no-ops to keep store batches tight).
  *

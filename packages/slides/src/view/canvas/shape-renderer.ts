@@ -257,9 +257,11 @@ function strokeShapePath(
   ctx.strokeStyle = resolveStrokeColor(stroke.color, theme);
   ctx.lineWidth = stroke.width;
   ctx.lineJoin = 'round';
+  ctx.lineCap = stroke.cap === 'round' ? 'round' : 'butt';
   ctx.setLineDash(dashArray(stroke.dash, stroke.width));
   ctx.stroke(path);
   ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
 }
 
 type Pt = { x: number; y: number };

@@ -61,6 +61,18 @@ export interface BoardGestureHost {
    * the gesture's timing is drivable from a test without fake timers.
    */
   setTimer?(fn: () => void, ms: number): () => void;
+  /**
+   * Whether a draw / erase tool is armed. Then a single finger anywhere on
+   * the scene is conceded to the editor, which draws with it, instead of
+   * panning on empty canvas — and the press is still watched, so a second
+   * finger can take the gesture back as a pinch. Omitted: never.
+   */
+  isInkArmed?(): boolean;
+  /**
+   * A second finger turned a conceded drawing press into a pinch: the
+   * first finger's half-drawn stroke must be discarded, not committed.
+   */
+  onInkInterrupted?(): void;
 }
 
 /**
@@ -70,7 +82,7 @@ export interface BoardGestureHost {
  * menu — the same defect the editor's `abortCanvasGesture` closes on
  * the slides side.
  */
-type Mode = "idle" | "pending" | "pan" | "pinch" | "menu";
+type Mode = "idle" | "pending" | "pan" | "pinch" | "menu" | "ink";
 
 interface Tracked {
   x: number;
@@ -182,6 +194,14 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
     const isFirst = active.size === 0;
     active.add(p.id);
     if (isFirst) {
+      // Ink armed: the finger draws. Conceded like a press on content,
+      // but tracked, so a second finger can still become a pinch.
+      if (host.isInkArmed?.()) {
+        owned = false;
+        mode = "ink";
+        pointers.set(p.id, { x: p.clientX, y: p.clientY });
+        return false;
+      }
       owned = !host.hasContentAt(p.clientX, p.clientY);
       if (!owned) {
         mode = "idle";
@@ -208,6 +228,15 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
       }, LONG_PRESS_DELAY_MS);
       return true;
     }
+    if (!owned && mode === "ink") {
+      // Two fingers while drawing: the user means to navigate. Take the
+      // gesture over and drop the stroke the first finger started.
+      host.onInkInterrupted?.();
+      owned = true;
+      pointers.set(p.id, { x: p.clientX, y: p.clientY });
+      beginPinch();
+      return true;
+    }
     if (!owned) return false;
     // Tracked BEFORE the menu-mode return: a pointer we swallow is
     // still a pointer that is down. Skipping it here would let the
@@ -225,6 +254,16 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
   };
 
   const move = (p: GesturePointer): void => {
+    if (!owned && mode === "ink") {
+      // Keep the drawing finger's position current, so a pinch that
+      // takes over starts from where it is now.
+      const t = pointers.get(p.id);
+      if (t) {
+        t.x = p.clientX;
+        t.y = p.clientY;
+      }
+      return;
+    }
     if (!owned || mode === "menu") return;
     const tracked = pointers.get(p.id);
     if (!tracked) return;

@@ -90,9 +90,29 @@ export type {
   TextElement,
 } from './model/element';
 export { generateId, isBlocksEmpty, isElementEmpty } from './model/element';
+// The empty-paragraph seed every new text body starts from. It lives under
+// `view/editor/` but is pure data (its only import is the docs block style),
+// and `@wafflebase/board`'s sticky factory needs it on its node entry, which
+// the backend's `/api/v1` board endpoints build stickies with.
+export {
+  SLIDES_DEFAULT_TEXT_SIZE,
+  makeDefaultSlidesTextBlock,
+} from './view/editor/default-text';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
+export {
+  FREEFORM_QUANTUM,
+  decodeFreeformCommands,
+  decodeFreeformData,
+  decodeFreeformElements,
+  encodeFreeformCommands,
+  encodeFreeformData,
+  encodeFreeformElement,
+  encodeFreeformElements,
+  isPackableFreeform,
+} from './model/freeform-codec';
+export { MAX_GROUP_DEPTH } from './model/group-depth';
 
 // Group geometry / transform math — pure functions over the data model
 // (no DOM). Re-exported for `YorkieSlidesStore` running under Node.
@@ -126,6 +146,13 @@ export {
   computeConnectorFrame,
   resolveEndpoint,
 } from './view/canvas/connector-frame';
+export type {
+  ArrowheadKind,
+  ArrowheadStyle,
+  ConnectorElement,
+  ConnectorRouting,
+  Endpoint,
+} from './model/connector';
 
 // Curve-bend clamp constants — `YorkieSlidesStore.updateConnectorCurveBend`
 // clamps incoming bend through these, so the integration suite (which

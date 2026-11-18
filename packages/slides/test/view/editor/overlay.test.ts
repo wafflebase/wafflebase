@@ -432,15 +432,15 @@ describe('renderOverlay — connection-points affordance', () => {
   it('uses default 8px dot size when cursor is outside snap radius but inside hover radius', () => {
     const overlay = makeOverlay();
     const rect = rectAt('r1', 200, 200, 100, 100);
-    // N site at (250, 200); cursor 18px below it — outside the 12px snap
-    // radius but inside the 24px hover radius. Affordance fires with no
-    // highlighted dots.
+    // N site at (250, 200); cursor 18px above it (outside the shape, so
+    // no body glue) — outside the 12px snap radius but inside the 24px
+    // hover radius. Affordance fires with no highlighted dots.
     renderOverlay(overlay, [], {
       scale: 1,
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 250, y: 218 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 250, y: 182 }, zoom: 1 },
     });
     const dots = overlay.querySelectorAll<HTMLDivElement>(
       '[data-connection-site]',
@@ -548,7 +548,8 @@ describe('renderOverlay — connection-points affordance', () => {
 
   it('zoom in expands the hover-radius logical reach (24 host px / zoom)', () => {
     const overlay = makeOverlay();
-    // Rect centre at (300, 300); cursor at (270, 270) → distance ≈ 42 px.
+    // W site at (250, 300); cursor at (220, 300), outside the shape (no
+    // body glue) → distance 30 px.
     // At zoom=1, hover radius is 24 logical → too far, no dots.
     // At zoom=0.5, hover radius is 48 logical → in range, dots render.
     const rect = rectAt('r1', 250, 250, 100, 100);
@@ -557,7 +558,7 @@ describe('renderOverlay — connection-points affordance', () => {
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 270, y: 270 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 220, y: 300 }, zoom: 1 },
     });
     expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
 
@@ -567,9 +568,52 @@ describe('renderOverlay — connection-points affordance', () => {
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 270, y: 270 }, zoom: 0.5 },
+      connectorAffordance: { cursor: { x: 220, y: 300 }, zoom: 0.5 },
     });
     expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(4);
+  });
+
+  it('body glue: cursor inside a shape outlines it and highlights its nearest site', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 400, 200);
+    // Cursor deep inside the body, far (> hover radius) from any site,
+    // nearest to the E site at (600, 300).
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 520, y: 290 }, zoom: 1 },
+    });
+    expect(
+      overlay.querySelector('[data-slides-glue-target="r1"]'),
+    ).not.toBeNull();
+    const highlighted = overlay.querySelectorAll<HTMLDivElement>(
+      '.wfb-slides-connection-site-highlighted',
+    );
+    expect(highlighted.length).toBe(1);
+    // fourCardinal order is N, E, S, W.
+    expect(highlighted[0].dataset.connectionSite).toBe('1');
+  });
+
+  it('body glue honours excludeBodyOf (no outline on the source shape)', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 400, 200);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: {
+        cursor: { x: 520, y: 290 },
+        zoom: 1,
+        excludeBodyOf: 'r1',
+      },
+    });
+    expect(overlay.querySelector('[data-slides-glue-target]')).toBeNull();
+    expect(
+      overlay.querySelectorAll('.wfb-slides-connection-site-highlighted').length,
+    ).toBe(0);
   });
 
   it('connection-site dots have pointer-events: none so they do not block dragging', () => {

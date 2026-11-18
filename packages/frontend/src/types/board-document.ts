@@ -1,12 +1,58 @@
 import type { YorkieElement } from './slides-document';
+import type { BoardAnchor, Thread } from './comments';
+import type { BoardStamps, BoardVoting } from '@/app/board/rituals/types';
 
 export interface YorkieBoardRoot {
-  meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] };
+  meta: {
+    title: string;
+    unit?: 'in' | 'cm';
+    recentColors?: string[];
+    /**
+     * Anonymous mode: hide every sticky author name on the board and
+     * record none on new stickies. Absent ⇒ off.
+     */
+    anonymous?: boolean;
+  };
   elements: YorkieElement[];
+  /** Stamps on elements (additive; see `app/board/rituals/types.ts`). */
+  stamps?: BoardStamps;
+  /** The dot-voting session, when one is running or its results are shown. */
+  voting?: BoardVoting;
+  /** Comment threads, keyed by thread id (same shape as pdf/docs). */
+  comments?: { [threadId: string]: Thread<BoardAnchor> };
+  /**
+   * The shared facilitation timer. Optional and additive: a board that
+   * never ran one has no key, and a viewer attaches with `{}`. See
+   * `app/board/board-timer.ts`.
+   */
+  timer?: BoardTimerState;
 }
 
+/**
+ * A board's countdown timer, in document state so a late joiner sees it.
+ * Running: `endsAt` is an epoch ms and `pausedRemaining` is null. Paused:
+ * `endsAt` is null and `pausedRemaining` holds the ms left. Idle (reset):
+ * both null.
+ */
+export type BoardTimerState = {
+  endsAt: number | null;
+  pausedRemaining: number | null;
+  durationMs: number;
+};
+
+/**
+ * `stamps` and `comments` are seeded empty so two users' first writes
+ * merge into one shared container instead of racing to create it (Yorkie
+ * resolves a same-key object assignment by LWW). The SDK seeds absent
+ * keys on every editor attach, so existing boards gain them too.
+ */
 export function initialBoardRoot(): Partial<YorkieBoardRoot> {
-  return { meta: { title: 'Untitled board' }, elements: [] };
+  return {
+    meta: { title: 'Untitled board' },
+    elements: [],
+    stamps: {},
+    comments: {},
+  };
 }
 
 /**
@@ -35,4 +81,45 @@ export type BoardPresence = {
   photo: string;
   selectedElementIds?: string[];
   cursor?: { x: number; y: number } | null; // world coords
+  /**
+   * What this user is looking at: the WORLD point at the centre of their
+   * canvas and their zoom. Centre + zoom rather than pan, so a follower
+   * with a different window size frames the same place.
+   */
+  viewport?: { x: number; y: number; zoom: number } | null;
+  /** Non-null while spotlighting: the epoch ms it started (a re-spotlight is a new value). */
+  spotlight?: number | null;
+  /** Cursor chat text, shown beside this user's cursor; null when closed. */
+  chat?: string | null;
+  /** The latest emote burst, at a world point. `at` (epoch ms) identifies it. */
+  emote?: { emoji: string; x: number; y: number; at: number } | null;
+  /** The stroke being drawn right now; null when not drawing. See `board-live-ink.ts`. */
+  stroke?: BoardLiveStroke | null;
+  /** The laser pointer trail being drawn; null otherwise. See `board-laser.ts`. */
+  laser?: BoardLaserTrail | null;
+};
+
+/**
+ * A stroke in progress, carried in presence (never in the document). A
+ * bounded window: the last ≤64 points, starting at index `base` of the
+ * whole stroke, as delta-encoded world points (`board-live-ink.ts`).
+ */
+export type BoardLiveStroke = {
+  /** This client's stroke counter; a new id starts a new stroke. */
+  id: number;
+  tool: 'marker' | 'highlighter';
+  /** `#RRGGBB`. */
+  color: string;
+  /** World units. */
+  width: number;
+  alpha: number;
+  base: number;
+  points: string;
+};
+
+/** A laser pointer trail in presence: the same window as {@link BoardLiveStroke}. */
+export type BoardLaserTrail = {
+  id: number;
+  base: number;
+  points: string;
 };

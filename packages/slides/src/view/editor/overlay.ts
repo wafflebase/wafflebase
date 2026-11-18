@@ -24,8 +24,8 @@ import {
   defaultAdjustmentsFor,
 } from './interactions/adjustment';
 import {
+  findGlueTarget,
   SHAPE_HOVER_RADIUS,
-  SITE_SNAP_RADIUS,
 } from './interactions/insert-connector';
 import {
   RESIZE_HANDLE_CURSORS,
@@ -106,6 +106,8 @@ export interface OverlayOptions {
   connectorAffordance?: {
     cursor: { x: number; y: number };
     zoom: number;
+    /** See `GlueOptions.excludeBodyOf`; mirrors the commit-side rule. */
+    excludeBodyOf?: string;
   };
   /**
    * Click handler for the autofit mode toggle. When provided AND a
@@ -1427,10 +1429,12 @@ function findNearestConnectorTarget(
  * the affordance triggers exactly where snap will commit — even on
  * the edge of a large shape.
  *
- * Highlight rule: a dot is highlighted (larger) when the cursor is
- * within `SITE_SNAP_RADIUS / zoom` of the site's world position —
- * matches the snap rule in `findSnapTarget` so the affordance always
- * agrees with what the live drag will commit.
+ * Highlight rule: the dot `findGlueTarget` picks is highlighted
+ * (larger) — a site within `SITE_SNAP_RADIUS / zoom`, or, with the
+ * cursor over a connectable shape's body, that shape's nearest site
+ * plus an outline around the shape. It is the same function
+ * `snappedEndpoint` commits through, so the affordance always agrees
+ * with what the live drag will commit.
  *
  * `SHAPE_HOVER_RADIUS` and `SITE_SNAP_RADIUS` are screen-pixel
  * distances; dividing by zoom converts them to slide-logical for the
@@ -1448,17 +1452,33 @@ function renderConnectionPointsOverlay(
   if (elements.length === 0) return;
 
   const { cursor, zoom } = aff;
-  const nearest = findNearestConnectorTarget(cursor, elements, zoom);
+  // The glue target is exactly what `snappedEndpoint` would commit (a
+  // site in snap range, else the body of the shape under the cursor);
+  // without one, fall back to the hover-radius preview of nearby dots.
+  const glue = findGlueTarget(cursor, elements, zoom, {
+    excludeBodyOf: aff.excludeBodyOf,
+  });
+  const nearest = glue
+    ? (elements.find((e) => e.id === glue.elementId) ?? null)
+    : findNearestConnectorTarget(cursor, elements, zoom);
   if (!nearest) return;
 
   const px = options.panX ?? 0;
   const py = options.panY ?? 0;
-  const snapRadiusLogical = SITE_SNAP_RADIUS / zoom;
+  if (glue?.via === 'body') {
+    // Body glue: outline the whole shape so the user sees it will
+    // connect even though the cursor is nowhere near a dot.
+    const outline = makeHoverHighlight(
+      nearest.id, nearest.frame, options.scale, px, py,
+    );
+    outline.style.border = `2px solid ${SELECTION_COLOR}`;
+    outline.dataset.slidesGlueTarget = nearest.id;
+    overlay.appendChild(outline);
+  }
   const sites = getConnectionSites(nearest);
   for (let i = 0; i < sites.length; i++) {
     const w = siteWorldPos(nearest, sites[i]);
-    const cursorD = Math.hypot(w.x - cursor.x, w.y - cursor.y);
-    const highlighted = cursorD < snapRadiusLogical;
+    const highlighted = glue !== null && i === glue.siteIndex;
     overlay.appendChild(
       makeConnectionSiteDot(
         i,

@@ -45,6 +45,44 @@ experimentation risky.
   (`stripComments`). The maps are emptied rather than deleted, because
   `createWorksheet` seeds `comments: {}` so that concurrent first comments
   merge instead of LWW-clobbering each other.
+- **Board facilitation state.** A board's stamps (`root.stamps`), dot-voting
+  session (`root.voting`, with each participant's ballot) and countdown timer
+  (`root.timer`) are not carried over either, and neither are its comments
+  (`root.comments`, emptied by `stripComments`). They record what one audience
+  did on the source — reactions, votes, a running clock — and a copy or a
+  document started from a template is a new board for a new audience;
+  carrying a vote's ballots would also hand the source's participant keys to
+  whoever holds the copy. `stripBoardRituals` empties `stamps` (seeded `{}`
+  for the same concurrent-first-write reason as comments) and deletes the
+  optional `voting` and `timer` keys. The template "use" path runs the same
+  copy, so it inherits this. Board `meta` (title, `anonymous`) is content
+  and is kept.
+- **Sticky author names across a workspace boundary.** A sticky records its
+  creator's display name (`data.author`, painted unless `data.showAuthor` is
+  `false`). Those names are members of the source workspace. The policy turns
+  on who reads the copy, and the copy service keys it on the same test it uses
+  for image re-hosting, `dest.workspaceId !== source.workspaceId`:
+  - **Same workspace** ("Make a copy", or a template used by a member of the
+    workspace that published it): the names are kept. The people reading the
+    copy can already read the source and see the same names there.
+  - **Another workspace** (a template used elsewhere): `stripStickyAuthors`
+    deletes `author` and `showAuthor` from every sticky, including stickies
+    nested inside groups. It walks the tree with an explicit stack, not
+    recursion, because the tree is stored content of any depth. The new
+    workspace's own members get author tags on the stickies they add.
+
+  A **template preview** is different. It shows the original through the
+  `viewer` share link that publishing mints, so its author tags show there
+  as they do in the source. That is the publisher's own choice, in the same
+  way as minting any viewer link: publishing is gated at the
+  `isDocumentManager` tier, and a publisher who does not want names seen can
+  turn the board's anonymous mode on (`meta.anonymous` hides every tag) or
+  hide the tags before publishing. Both hide the names in the app only: the
+  name is still in the document data, which a preview visitor's client
+  receives. A publisher who must not expose names should publish a board
+  that never recorded them. Stripping names from the preview would
+  need a frozen, scrubbed copy behind the listing, which the gallery does not
+  have yet (template-gallery.md).
 - **Copying elsewhere.** The copy always lands beside its source. Moving it is
   Move's job, and Move is already manager-gated.
 - **REST v1 / CLI copy.** Not exposed there; the web list is the only caller.

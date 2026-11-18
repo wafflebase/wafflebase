@@ -555,6 +555,23 @@ wafflebase
   │     │     [--replace <doc-id> --yes]      (destructive; required together)
   │     └── set-content <doc-id>             [--data <json>] (replaces the whole note)
   │
+  ├── board (alias: boards)                  Infinite-canvas documents
+  │     ├── content <doc-id>                 Whole board as JSON
+  │     ├── set-content <doc-id>             [--data <json>] (replaces the whole board)
+  │     ├── elements <doc-id>                Compact element list (agent read)
+  │     │     [--kind sticky|section|…]      (table/csv: one flat row each)
+  │     ├── add-stickies <doc-id>            Grid of stickies in free space
+  │     │     [--text <t>]…  [--file <path>|-] (one sticky per line)
+  │     │     [--color <c>] [--near <id>] [--columns <n>]
+  │     ├── add-section <doc-id> --title <t> Wrap --ids, grid them first, or fill --frame
+  │     │     [--ids a,b,c] [--grid] [--at x,y] [--columns <n>]
+  │     │     [--frame x,y,w,h] [--color <c>]
+  │     ├── move <doc-id>                    --file <path>|- or --data <json>:
+  │     │                                    [{ id, x, y, w?, h? }] (sections carry contents)
+  │     └── add-text <doc-id>                --text <t> | --file <path>|-
+  │           [--near <id> --side right|left|below|above] [--x <x> --y <y>]
+  │           [--width <w>] [--font-size <n>] [--bold]
+  │
   ├── files (alias: file)
   │     ├── upload <file>                    Upload any file as a document
   │     │     [--title <title>]               (default: filename, with ext)
@@ -898,6 +915,13 @@ wafflebase templates publish abc-123 \
   --visibility workspace                        # default tier is `unlisted`
 wafflebase templates use tpl-uuid               # → a new doc in this workspace
 wafflebase templates use tpl-uuid --into other-workspace
+
+# Boards: cluster a brainstorm's stickies (recipe-board-cluster.md)
+wafflebase board elements abc-123 --kind sticky        # { elements: [{ id, text, section?, … }] }
+wafflebase board add-section abc-123 --title "Speed" --ids s1,s2,s3 --grid --color green
+wafflebase board add-text abc-123 --near <section-id> --side above --bold --text "Summary: …"
+wafflebase board move abc-123 --data '[{"id":"<section-id>","x":0,"y":1200}]'
+wafflebase board add-stickies abc-123 --file ideas.txt --near <section-id>
 ```
 
 ### 6. Docs Pipeline Internals
@@ -1735,6 +1759,13 @@ Schema entries by command (canonical plural names):
 | `notes.export`           | read-only     | file write is local; Markdown only                     |
 | `notes.import`           | write         | `safety` becomes `destructive` with `--replace`        |
 | `notes.set-content`      | destructive   | whole-note replace                                     |
+| `board.content`          | read-only     | whole board JSON                                       |
+| `board.set-content`      | destructive   | whole-board replace                                    |
+| `board.elements`         | read-only     | compact summary for agents                             |
+| `board.add-stickies`     | write         | `--file` reads a local file and sends it (the plugin guard asks) |
+| `board.add-section`      | write         | `--grid` also moves the listed elements                 |
+| `board.move`             | write         | all-or-nothing; `--file` like `add-stickies`           |
+| `board.add-text`         | write         | `--file` like `add-stickies`                           |
 | `files.upload`           | write         | stores bytes verbatim; never parses                    |
 | `files.download`         | read-only     | file write is local                                    |
 | `files.list`             | read-only     | filtered to `file`/`pdf`/`image`                       |

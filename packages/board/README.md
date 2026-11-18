@@ -18,6 +18,11 @@ as "one unbounded slide" via a single-synthetic-slide adapter, and a
   `SlidesDocument` (`SYNTHETIC_SLIDE_ID = 'board'`, blank layout, default
   master, default-light theme) so the reused slides renderer/editor operate on
   a board unchanged.
+- **Sections** (`model/section.ts`) — a section is a `rect` shape with a
+  `data.section = { title, hidden?, locked? }` marker. Membership is geometric
+  (an element's bbox mostly inside), never stored; the file holds the
+  membership, companion-move, unselectable, lasso and z-order rules as pure
+  functions. See [board-sections.md](../../docs/design/board/board-sections.md).
 - **Viewport** (`view/viewport.ts`) — re-exports the slides `Viewport` type and
   `worldToScreen`/`screenToWorld`, and adds `DEFAULT_VIEWPORT`, `zoomAt`
   (zoom about a screen anchor, keeping the world point under the cursor fixed),
@@ -31,6 +36,12 @@ Exports from `src/index.ts`:
 // Model
 type BoardModel
 SYNTHETIC_SLIDE_ID, boardToSlidesDocument
+
+// Sections
+type SectionMeta, type SectionColor, SECTION_COLORS
+sectionOf, isSectionElement, buildSectionInit, sectionMemberIds,
+companionMoveIds, unselectableIds, filterSectionLasso, sectionInsertIndex,
+listSections, sectionsAt, frameAround, isMostlyInside
 
 // Viewport
 type Viewport

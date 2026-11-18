@@ -39,6 +39,11 @@ export interface BorderPickerProps {
   /** Recently used srgb hex colors, forwarded to the color picker. */
   recentColors?: readonly string[];
   disabled?: boolean;
+  /**
+   * Label for the zero weight. "No border" fits a shape; a host editing
+   * lines passes "None", since a line has no border.
+   */
+  noneLabel?: string;
 }
 
 const BORDER_WEIGHTS = [0, 1, 2, 4, 8, 16] as const;
@@ -62,6 +67,7 @@ export function BorderPicker({
   onChange,
   recentColors,
   disabled,
+  noneLabel = 'No border',
 }: BorderPickerProps) {
   // Controlled open state so the palette closes after a swatch click — the
   // color swatches are plain <button>s, not DropdownMenuItem, so Radix can't
@@ -169,10 +175,10 @@ export function BorderPicker({
               onClick={() => onWeightChange(w)}
               // The preview is `aria-hidden`, so each item carries its
               // own accessible name.
-              aria-label={w === 0 ? 'No border' : `${w}px`}
+              aria-label={w === 0 ? noneLabel : `${w}px`}
             >
               {/* "No border" has no line to draw — say it in words. */}
-              {w === 0 ? 'No border' : <StrokePreview dash={value?.dash} width={w} />}
+              {w === 0 ? noneLabel : <StrokePreview dash={value?.dash} width={w} />}
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>

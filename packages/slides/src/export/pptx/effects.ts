@@ -14,9 +14,9 @@ export function effectsToXml(e: Effects | undefined): string {
     const s = e.shadow;
     // Angle stored as radians → OOXML 60000ths of a degree.
     const dir = Math.round(((s.angle * (180 / Math.PI)) % 360 + 360) % 360 * 60_000);
-    // Opacity stored as [0,1] → OOXML 100000ths.
-    const alpha = Math.round(s.opacity * 100_000);
-    const colorWithAlpha = { ...colorFromStringOrTheme(s.color), alpha };
+    // Opacity stored as [0,1], the model's alpha unit too;
+    // `colorChildXml` scales it to OOXML 100000ths.
+    const colorWithAlpha = { ...colorFromStringOrTheme(s.color), alpha: s.opacity };
     parts.push(
       `<a:outerShdw blurRad="${pxToEmu(s.blur)}" dist="${pxToEmu(s.distance)}" dir="${dir}">` +
         `${colorChildXml(colorWithAlpha)}</a:outerShdw>`,

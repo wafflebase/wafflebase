@@ -10,7 +10,8 @@ import {
   type ThemeColor,
 } from '@wafflebase/slides';
 import { resolveMiroFrames, resizeAboutCentre } from './geometry';
-import { STICKY_SHADOW } from '../../model/sticky';
+import { STICKY_ROLE, STICKY_SHADOW } from '../../model/sticky';
+import { DEFAULT_SECTION_TITLE, buildSectionInit } from '../../model/section';
 import { parsePercent, pickConnectorSite, siteAnchor } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
@@ -429,13 +430,18 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
   // --- pass 2: build the elements ---
   const inits: (ElementInit & { __id?: string })[] = [];
 
-  // Frames first. A board has no container concept, so a Miro frame becomes an
-  // ordinary opaque rectangle — and z-order here is array order. Emitting them
-  // in `/items` order meant a frame that happened to arrive after the items it
-  // contains painted straight over them, hiding the content it is supposed to
-  // delimit. Frames are backdrops, so they go at the bottom.
+  // Frames first. A Miro frame becomes a board section, and z-order here is
+  // array order. Emitting them in `/items` order meant a frame that happened
+  // to arrive after the items it contains painted straight over them, hiding
+  // the content it is supposed to delimit. Frames are backdrops, so they go at
+  // the bottom — largest first, so a nested frame sits in front of the one
+  // around it, the order the board's own section tool keeps.
+  const frameArea = (i: MiroItemLike) => {
+    const f = frames.get(i.id)!;
+    return f.w * f.h;
+  };
   const ordered = [
-    ...mappable.filter((i) => i.type === 'frame'),
+    ...mappable.filter((i) => i.type === 'frame').sort((a, b) => frameArea(b) - frameArea(a)),
     ...mappable.filter((i) => i.type !== 'frame'),
   ];
 
@@ -452,6 +458,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
         frame,
         data: {
           kind: 'roundRect',
+          // Explicit identity, so restyling it later never demotes it.
+          role: STICKY_ROLE,
           fill: { kind: 'srgb', value: stickyHex(str(style.fillColor)) },
           // The board's sticky preset, so an imported sticky looks and
           // behaves like one made on the board (its own colour controls).
@@ -537,25 +545,21 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     }
 
     if (item.type === 'frame') {
-      // A board has no container concept — a frame becomes a labelled region.
+      // A frame becomes a section: the board's titled container, which moves
+      // the items inside it and shows in the sections list.
+      //
+      // The title is NOT escaped, unlike the card branch below. Miro delivers
+      // a frame title ALREADY HTML-escaped ("Creating Document &amp; Auth
+      // Webhook"), so parsing it is what decodes it; escaping it first would
+      // put the literal entity on the canvas. 35 of the reference board's 145
+      // frame titles contain one.
+      const title = miroHtmlToBlocks(str(data.title))
+        .map((b) => b.inlines.map((i) => i.text).join(''))
+        .join(' ')
+        .trim();
       inits.push({
         __id,
-        type: 'shape',
-        frame,
-        data: {
-          kind: 'rect',
-          fill: { kind: 'srgb', value: '#FFFFFF' },
-          stroke: { color: '#B0B7C3', width: 1 },
-          text: {
-            // NOT escaped, unlike the card branch below. Miro delivers a frame
-            // title ALREADY HTML-escaped ("Creating Document &amp; Auth
-            // Webhook"), so parsing it is what decodes it; escaping it first
-            // would put the literal entity on the canvas. 35 of the reference
-            // board's 145 frame titles contain one.
-            blocks: miroHtmlToBlocks(str(data.title)),
-            verticalAnchor: 'top',
-          },
-        },
+        ...buildSectionInit(frame, { title: title || DEFAULT_SECTION_TITLE }),
       } as ElementInit & { __id: string });
       continue;
     }

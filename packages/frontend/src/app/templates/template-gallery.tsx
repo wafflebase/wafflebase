@@ -62,6 +62,7 @@ export function TemplateGallery({
   selectLabel,
   emptyHint,
   skin = "app",
+  initialType,
 }: {
   scope: "workspace" | "public";
   workspaceId?: string;
@@ -69,6 +70,11 @@ export function TemplateGallery({
   selectLabel: string;
   emptyHint?: string;
   skin?: GallerySkin;
+  /**
+   * The document-type facet to open on, e.g. `"board"` from the empty
+   * board's "Start from a template". Ignored unless it is a known type.
+   */
+  initialType?: string | null;
 }) {
   // The gallery is a brand surface wherever it mounts — the public
   // /templates page, the workspace Templates tab, the new-from-template
@@ -76,7 +82,11 @@ export function TemplateGallery({
   // the route.
   useBrandFonts();
   const marketing = skin === "marketing";
-  const [type, setType] = useState(ANY);
+  const [type, setType] = useState(() =>
+    initialType && (TYPE_OPTIONS as readonly string[]).includes(initialType)
+      ? initialType
+      : ANY,
+  );
   const [category, setCategory] = useState(ANY);
   const [sort, setSort] = useState<"popular" | "recent">("popular");
   const [q, setQ] = useState("");
