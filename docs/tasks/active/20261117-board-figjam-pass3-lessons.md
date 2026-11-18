@@ -58,3 +58,13 @@ The conflicts that took real work were semantic, not textual:
   - One new blast-radius finding: the board's peer follow stayed live
     under a revision preview. Fixed by withholding `onSelectPeer` /
     `getJumpHint` while previewing, and added to the containment test.
+- Round 3, the bound:
+  - design-fit ran and passed.
+  - The three rebuttals were adjudicated in our favour.
+  - Five new findings came in: export skipped section paint (hidden
+    content leaked), a mislabelled agent test, no test for
+    `board-rituals.tsx`, sticky authors kept in copies and templates, and
+    O(sections × elements) agent endpoints.
+  - All five were judged real and fixed after the loop, without a fourth
+    round. The loop is bounded, so a human review of the PR is the next
+    gate.

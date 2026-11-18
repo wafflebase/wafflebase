@@ -241,6 +241,30 @@ in [slides-connectors.md](../slides/slides-connectors.md).
 | **Find** (Mod+F) over sticky, shape, text and connector-label text. | `board-find.ts` | |
 | **Export** to PNG or PDF, for the whole board or the selection, with size caps. Read-only viewers can export too. | `board-export.ts`, slides `export/region.ts` | |
 
+#### Wave 2: live ink, the dock, agents
+
+| Change | Where | Why |
+| --- | --- | --- |
+| **Live stroke in presence.** `presence.stroke` carries the last 64 points, quantised and delta-encoded, with a `base` index. Throttled to 40 ms and gated on peers. A peer splices each window in at `base` and draws it on its `LiveInkLayer`; the peer's cursor shows a pen. | `board-live-ink.ts` | A sliding window keeps each write about 0.5 KB, and the overlap heals a lost write. Sending the whole stroke grows without bound; sending only the new points tears when a write is lost. |
+| **Laser** `Shift+K`. Presence only; the trail fades over 1.5 s, timed by when each client received each point. | `board-laser.ts` | No clocks need to agree, and nothing is persisted. |
+| **Packed stroke storage.** A freeform path of M/L/Q commands is stored as one `q1:` string. Every reader decodes it: the store, the revision snapshot adapter, the backend `readBoardRoot` and the agent API. A 200-point stroke shrinks from 60,750 to 6,410 bytes of document. | slides `model/freeform-codec.ts` | One CRDT object per point dominated the document's size. Old array paths still read. |
+| **Free lasso** (Alt+drag, or the dock toggle) and opt-in **smart shapes**. Smart shapes is a geometric recognizer: closure, corner count and fit error, no ML. A recognised stroke becomes a rect, ellipse, line or arrow in the same batch. | slides `free-lasso.ts`; `board-smart-shapes.ts` | |
+| **Bottom tool dock** with the insert tools and 12 curated shapes. It folds into "More" when it does not fit its canvas. The top bar keeps view and contextual controls. | `board-tool-dock.tsx`, `board-dock-layout.ts`, `board-shapes.ts` | Phase 2. The top bar had grown to about 15 insert controls. |
+| **Board templates**: Retro, Brainstorm, Weekly sync. Built with the board's own factories. The empty-board hint links to them. | backend `seed/catalog/boards.ts` | |
+| **Agent clustering** through `/api/v1/.../board/*` and `wafflebase board elements \| add-stickies \| add-section \| move \| add-text`, plus a plugin recipe. Moves are granular field writes, section-aware, and refuse locked sections. | backend `board.controller.ts`, cli `board-edit.ts`, board `src/agent/` | PRODUCT.md principle 4. The "AI" half of a FigJam brainstorm belongs to whatever agent the team runs, not a vendor model built into a self-hosted app. |
+
+#### Fixed during verification
+
+- **Undo of a multi-delete.** This covered the eraser and multi-select Delete, on boards and decks. It threw `cant find the given node` once the delete had synced.
+  - Cause: deleting back to front anchored each re-insert on an element deleted in the same change. Yorkie undo resolves that anchor by its old `createdAt`, which is gone after GC.
+  - Fix: `yorkie-array-remove.ts` deletes front to back, for both stores.
+- **A late joiner saw "No votes were cast"**, because the tally was memoised on the vote alone.
+- **Ending a vote** now restores the tool used before it.
+- **Copies and template use** drop `stamps`, `voting` and `timer` (`stripBoardRituals`).
+- **A content PUT** keeps meta fields it does not own, such as `anonymous`.
+- **Group-tree walks** are bounded by `MAX_GROUP_DEPTH`.
+- **The peer follow** is withheld during a revision preview, as in docs and sheets.
+
 #### Engine host options added
 
 All of these default to today's Slides behaviour:
@@ -325,6 +349,10 @@ docs before they start.
 - A mobile board shell, following `slides/slides-mobile.md`.
 
 ### Risks and Mitigation
+
+- **The timer sits outside undo through a test hook.** `writeTimer` pops its own undo entry through `getUndoStackForTest()`, because Yorkie 0.7.28 has no per-update opt-out from history. *Mitigation:* a RISK comment and a test (`yorkie-board-store-timer.test.ts`). Re-check on every SDK bump.
+- **Hidden votes are hidden in the UI only.** Every attached client can read the CRDT. *Mitigation:* the start dialog says so.
+- **Sections are LWW objects.** A concurrent rename and hide by two peers keeps one of them. See [board-sections.md](board-sections.md).
 
 - **The shared engine is Slides' engine too.** The Esc change is the one
   deliberate behaviour change to Slides in this pass, and it moves Slides
