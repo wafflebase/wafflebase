@@ -4,11 +4,12 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type ComponentType,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { IconDotsVertical } from "@tabler/icons-react";
+import { IconDotsVertical, IconLoader2 } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -29,8 +30,10 @@ import { userFacingError } from "@/api/http-error";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   HEADER_CONTROL_SIZE,
+  HeaderBusyContext,
   HeaderPlacementContext,
   useHeaderPlacement,
+  type HeaderBusy,
 } from "@/components/header-placement";
 
 /**
@@ -195,6 +198,17 @@ export function SiteHeader({
   // The app's mobile branch (768px), the same one the slides shell and the
   // sidebar switch on.
   const isMobile = useIsMobile();
+  const [busy, setBusySet] = useState<ReadonlySet<string>>(() => new Set());
+  const setBusy = useCallback((key: string, on: boolean) => {
+    setBusySet((prev) => {
+      if (prev.has(key) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  const headerBusy = useMemo<HeaderBusy>(() => ({ busy, setBusy }), [busy, setBusy]);
   const hasMenu =
     isMobile &&
     !!actions &&
@@ -333,6 +347,7 @@ export function SiteHeader({
           {/* Left of the per-editor controls, so it reads as a property of the
               document rather than as one more button. */}
           {syncStatus && <SyncStatusChip />}
+          <HeaderBusyContext.Provider value={headerBusy}>
           {actions && (
             <HeaderPlacementContext.Provider value={isMobile ? "compact" : "bar"}>
               {ACTION_ORDER.map((slot) =>
@@ -352,7 +367,10 @@ export function SiteHeader({
               )}
             </HeaderPlacementContext.Provider>
           )}
-          {hasMenu && actions && <HeaderMoreMenu actions={actions} />}
+          {hasMenu && actions && (
+            <HeaderMoreMenu actions={actions} busy={busy.size > 0} />
+          )}
+          </HeaderBusyContext.Provider>
           {children}
           {/* One mount point for the whole app: this header is used by the
               documents shell and by every editor. Renders nothing for
@@ -367,11 +385,17 @@ export function SiteHeader({
 /**
  * The phone header's overflow: `primary` (for what it moved out of the row)
  * and the `MENU_SLOTS`, each rendered as menu rows through the `menu`
- * placement. The content mounts only while open, so a slot's own state lives
- * no longer than the menu does — an export already running keeps reporting
- * through its toast.
+ * placement. The content mounts only while open, so work a slot starts there
+ * keeps its in-flight flag in `HeaderBusyContext`, not in the slot.
  */
-function HeaderMoreMenu({ actions }: { actions: HeaderActions }) {
+function HeaderMoreMenu({
+  actions,
+  busy,
+}: {
+  actions: HeaderActions;
+  /** Something started from the menu is still running (an export). */
+  busy: boolean;
+}) {
   return (
     <DropdownMenu>
       <Tooltip>
@@ -380,9 +404,16 @@ function HeaderMoreMenu({ actions }: { actions: HeaderActions }) {
             <button
               type="button"
               aria-label="More document actions"
+              aria-busy={busy || undefined}
               className={`focus-ring inline-flex ${HEADER_CONTROL_SIZE} shrink-0 cursor-pointer items-center justify-center rounded-md border hover:bg-muted`}
             >
-              <IconDotsVertical size={16} />
+              {/* The menu's rows are gone once it closes, so the spinner an
+                  export trigger shows on a wide screen shows here instead. */}
+              {busy ? (
+                <IconLoader2 size={16} className="animate-spin" />
+              ) : (
+                <IconDotsVertical size={16} />
+              )}
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

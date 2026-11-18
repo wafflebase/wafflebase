@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { IconDownload, IconLoader2, IconFileDownload } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { userFacingError } from "@/api/http-error";
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   HEADER_CONTROL_SIZE,
+  useHeaderBusy,
   useHeaderPlacement,
 } from "@/components/header-placement";
 import type { Document as DocsDocument } from "@wafflebase/docs";
@@ -41,7 +41,7 @@ interface DocsExportButtonProps {
  * because they walk the document in one synchronous pass.
  */
 export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useHeaderBusy("docs-export");
   const placement = useHeaderPlacement();
   // Inset in the menu so the rows line up with its checked panel rows.
   const inMenu = placement === "menu";

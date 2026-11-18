@@ -53,7 +53,5 @@ size, and export moved into the menu.
 Known limits:
 - `useIsMobile` resolves after the first paint, so a phone renders the wide
   header for one frame (the sidebar has the same behaviour).
-- The More menu unmounts its rows on close, so an export's `exporting` guard
-  lives only as long as the menu; the toast still reports progress.
 - The bell stays in the row: it carries the unread badge, and the sidebar is
   hidden behind its trigger on a phone.

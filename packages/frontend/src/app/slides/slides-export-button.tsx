@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconFileTypePdf,
   IconFileTypePpt,
@@ -23,6 +22,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   HEADER_CONTROL_SIZE,
+  useHeaderBusy,
   useHeaderPlacement,
 } from "@/components/header-placement";
 import { exportSlidesPdfAndDownload } from "./pdf-actions";
@@ -46,7 +46,7 @@ export function SlidesExportButton({
   title,
   disabled,
 }: SlidesExportButtonProps) {
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useHeaderBusy("slides-export");
   const placement = useHeaderPlacement();
   // Inset in the menu so the rows line up with its checked panel rows.
   const inMenu = placement === "menu";

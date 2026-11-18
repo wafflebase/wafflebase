@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 
 /**
  * Where a `SiteHeader` slot is being rendered, so one slot node can draw
@@ -27,3 +27,27 @@ export function useHeaderPlacement(): HeaderPlacement {
  * 44×44, 34×44, 32×32 and 58×34 boxes in one row.
  */
 export const HEADER_CONTROL_SIZE = "size-8 pointer-coarse:size-11";
+
+/**
+ * Work a header control has in flight (an export), held by `SiteHeader`
+ * rather than by the control. On a phone a control in the More menu unmounts
+ * when the menu closes, so a flag in its own state would be gone by the next
+ * tap and a second export could start over the first.
+ */
+export interface HeaderBusy {
+  busy: ReadonlySet<string>;
+  setBusy: (key: string, on: boolean) => void;
+}
+
+export const HeaderBusyContext = createContext<HeaderBusy | null>(null);
+
+/**
+ * A busy flag that outlives the control: kept by the enclosing `SiteHeader`,
+ * or in the control's own state when it is rendered outside one.
+ */
+export function useHeaderBusy(key: string): [boolean, (on: boolean) => void] {
+  const header = useContext(HeaderBusyContext);
+  const [local, setLocal] = useState(false);
+  if (!header) return [local, setLocal];
+  return [header.busy.has(key), (on) => header.setBusy(key, on)];
+}
