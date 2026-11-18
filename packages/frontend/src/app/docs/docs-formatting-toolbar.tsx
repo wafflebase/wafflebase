@@ -382,6 +382,26 @@ interface DocsFormattingToolbarProps {
   uploadImage?: DocsImageUpload;
 }
 
+/**
+ * On a phone, the formatting controls scroll sideways in their own inner
+ * strip so the controls after it (the overflow menu) stay pinned on
+ * screen. Elsewhere it renders its children straight into the toolbar.
+ */
+function ScrollingStrip({
+  enabled,
+  children,
+}: {
+  enabled: boolean;
+  children: React.ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <Toolbar className="min-w-0 flex-1 border-b-0 bg-transparent p-0 pointer-coarse:py-0">
+      {children}
+    </Toolbar>
+  );
+}
+
 export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImage }: DocsFormattingToolbarProps) {
   const isMobile = useIsMobile();
   // Controlled open state for the header/footer slim color palettes — the
@@ -752,7 +772,8 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
   };
 
   return (
-    <Toolbar>
+    <Toolbar className={isMobile ? "overflow-hidden" : undefined}>
+      <ScrollingStrip enabled={isMobile}>
       {/* ── Undo / Redo ── */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -844,7 +865,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
         </>
       )}
 
-      {/* ── Mobile overflow menu ── */}
+      </ScrollingStrip>
+
+      {/* ── Mobile overflow menu ── pinned outside the scrolling strip so
+          the entry to everything the phone toolbar leaves out is always on
+          screen, not a sideways swipe away. */}
       {isMobile && (
         <>
           <ToolbarSeparator />

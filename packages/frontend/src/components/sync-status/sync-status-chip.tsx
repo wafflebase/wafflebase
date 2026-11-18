@@ -281,7 +281,9 @@ export function SyncStatusChip({ className }: { className?: string }) {
             )}
           >
             <Icon size={14} aria-hidden />
-            {LABELS[state]}
+            {/* Icon-only on a phone, where the header has no room for a word;
+                the tooltip and the screen-reader text still carry it. */}
+            <span className="max-sm:sr-only">{LABELS[state]}</span>
           </span>
         </TooltipTrigger>
         <TooltipContent>{tooltipFor(state, pendingSince)}</TooltipContent>

@@ -9,6 +9,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -40,6 +41,13 @@ export interface StickyControlsProps {
    * where the rest of the toolbar belongs to the other elements.
    */
   colorsOnly?: boolean;
+  /**
+   * `"inline"` (default) lays the six swatches out in the toolbar.
+   * `"menu"` folds them behind one trigger showing the current colour —
+   * the phone's toolbar, where six 44px swatches plus Undo/Redo and
+   * Arrange are wider than a 393px row and Arrange ended up off-screen.
+   */
+  variant?: "inline" | "menu";
 }
 
 const BUTTON =
@@ -71,7 +79,13 @@ function shared<T>(values: readonly T[]): T | undefined {
  * so a mixed selection shows nothing pressed rather than lying. Every
  * change is one batch, so one undo.
  */
-export function StickyControls({ editor, store, ids, colorsOnly }: StickyControlsProps) {
+export function StickyControls({
+  editor,
+  store,
+  ids,
+  colorsOnly,
+  variant = "inline",
+}: StickyControlsProps) {
   const elements: readonly Element[] = store?.read().slides[0]?.elements ?? [];
   const selected = ids
     .map((id) => elements.find((e) => e.id === id))
@@ -95,7 +109,7 @@ export function StickyControls({ editor, store, ids, colorsOnly }: StickyControl
     });
   };
 
-  const colors = (
+  const inlineColors = (
     <div role="group" aria-label="Sticky note color" className="flex items-center gap-0.5">
       {STICKY_COLORS.map((c) => {
         const pressed = sharedFill === c.value.toUpperCase();
@@ -126,6 +140,47 @@ export function StickyControls({ editor, store, ids, colorsOnly }: StickyControl
       })}
     </div>
   );
+  const current = STICKY_COLORS.find((c) => c.value.toUpperCase() === sharedFill);
+  const menuColors = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Sticky note color: ${current?.name ?? "Mixed"}`}
+          disabled={disabled}
+          className="focus-ring inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-1.5 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+        >
+          <span
+            aria-hidden="true"
+            className="size-5 rounded-sm border border-black/15"
+            style={{ backgroundColor: current?.value ?? "transparent" }}
+          />
+          <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        className="flex gap-1 p-1"
+      >
+        {STICKY_COLORS.map((c) => (
+          <DropdownMenuItem
+            key={c.value}
+            aria-label={c.name}
+            title={c.name}
+            className={cn(
+              "size-7 rounded border border-black/15 p-0 pointer-coarse:size-11",
+              sharedFill === c.value.toUpperCase() &&
+                "ring-2 ring-primary ring-offset-1 ring-offset-background",
+            )}
+            style={{ backgroundColor: c.value }}
+            onSelect={() => apply(c.value)}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const colors = variant === "menu" ? menuColors : inlineColors;
   if (colorsOnly) return colors;
 
   const sizePreset = shared(selected.map((el) => (el.frame ? stickySizePresetOf(el.frame)?.id : undefined)));

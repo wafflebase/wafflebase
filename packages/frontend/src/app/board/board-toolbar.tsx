@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
@@ -100,6 +101,22 @@ export interface BoardToolbarProps {
  * `ObjectSection`) are deliberately not reused: they hardcode the slides
  * `InsertGroup` (with that table picker) and route a `table` selection
  * into `TableControls`.
+ *
+ * On a phone (`useIsMobile`) the row has to fit ~393px. The insert tools
+ * are already out of it (the dock folds its rarer tools under "More"
+ * there), so the phone gets:
+ *
+ * ```text
+ * idle:      [↶][↷] [Zoom ▾][Grid ▾][Sections ▾] [Timer][Spotlight]
+ * selection: [↶][↷] │ [Arrange] ‹contextual›
+ * ```
+ *
+ * The separators go (the idle row does not fit with them), and a
+ * selection REPLACES the view block instead of being appended after it,
+ * with Arrange first and a sticky's palette folded into one swatch menu.
+ * The strip is scrolled back to its start whenever the mode changes,
+ * since a strip left scrolled from a wider mode otherwise opens with Undo
+ * off the left edge.
  */
 export function BoardToolbar({
   editor,
@@ -115,6 +132,8 @@ export function BoardToolbar({
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
   );
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   // Hand focus back to the board after a pointer interaction with the
   // toolbar (issue #882), as the slides toolbar does. The hook leaves a
@@ -191,91 +210,127 @@ export function BoardToolbar({
   // Both settings are spoken here: the icon is identical in every mode
   // and says nothing at all about snapping, so the trigger's label is
   // the only place either state is available without opening the menu.
+  // Phone only: a selection replaces the view block (see the doc
+  // comment). Keyed on mode, not on ids, so tapping from one sticky to
+  // another does not yank a strip the user has just scrolled.
+  const compactSelection =
+    isMobile && (state.kind === "object" || state.kind === "text-edit");
+  const modeKey =
+    state.kind === "object" ? `object:${state.selectionType}` : state.kind;
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = toolbarRef.current;
+    if (el) el.scrollLeft = 0;
+  }, [isMobile, modeKey]);
+
+  const arrange = state.kind === "object" && (
+    <ArrangeMenu
+      editor={editor}
+      selectionSize={state.ids.length}
+      canUngroup={canUngroupSelection(editor, store, state.ids)}
+      minAlignSelection={2}
+      onTidyUp={
+        editor && store ? () => tidyUpSelection(editor, store) : undefined
+      }
+      tidyUpShortcut={TIDY_UP_SHORTCUT}
+    />
+  );
+
   const gridLabel =
     (GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None") +
     (gridSnap ? ", snap on" : "");
 
   return (
-    <Toolbar data-canvas-toolbar="">
+    <Toolbar ref={toolbarRef} data-canvas-toolbar="">
       <UndoRedoGroup store={store} />
-      <ToolbarSeparator className="mx-1" />
-      <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
-
-      {/* Grid ▾ — the background grid mode, next to Zoom because both are
-          view controls that change nothing in the document. Deliberately
-          NOT gated on `disabled`/`editor`: it is a per-user view
-          preference, so it stays usable while the workspace is still
-          resolving and on a board the user cannot edit. */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2"
-                // The icon is identical in all three modes (as it is in
-                // Miro), so the current one has to be spoken somewhere —
-                // otherwise a screen-reader user cannot tell whether the
-                // grid is on without opening the menu.
-                aria-label={`Grid: ${gridLabel}`}
-              >
-                {/* Dimmed only when the grid does NOTHING. `None` + snap
-                    on is a supported combination, and a dimmed icon there
-                    would be the one always-visible affordance claiming a
-                    feature that is in fact active. */}
-                <IconGrid3x3
-                  size={16}
-                  className={
-                    gridKind === "none" && !gridSnap ? "opacity-50" : undefined
-                  }
-                />
-                <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Grid: {gridLabel}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start">
-          <DropdownMenuRadioGroup
-            value={gridKind}
-            onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
-          >
-            {GRID_OPTIONS.map((option) => (
-              <DropdownMenuRadioItem key={option.value} value={option.value}>
-                {option.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-          {/* Below the separator because it is not a fourth mode: snapping
-              is independent of what is drawn, so `None` + snap on is a
-              valid (and useful) combination. */}
-          <DropdownMenuCheckboxItem
-            checked={gridSnap}
-            onCheckedChange={(checked) => onGridSnapChange(checked === true)}
-          >
-            Snap to grid
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Sections ▾ — frames a section on click: navigation, so it sits
-          with the view controls rather than in the tool dock. */}
-      <SectionsListMenu sections={sections} store={store} />
-
-      {collabControls && (
+      {!compactSelection && (
         <>
-          <ToolbarSeparator className="mx-1" />
-          {collabControls}
+        {!isMobile && <ToolbarSeparator className="mx-1" />}
+        <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
+
+        {/* Grid ▾ — the background grid mode, next to Zoom because both are
+            view controls that change nothing in the document. Deliberately
+            NOT gated on `disabled`/`editor`: it is a per-user view
+            preference, so it stays usable while the workspace is still
+            resolving and on a board the user cannot edit. */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2"
+                  // The icon is identical in all three modes (as it is in
+                  // Miro), so the current one has to be spoken somewhere —
+                  // otherwise a screen-reader user cannot tell whether the
+                  // grid is on without opening the menu.
+                  aria-label={`Grid: ${gridLabel}`}
+                >
+                  {/* Dimmed only when the grid does NOTHING. `None` + snap
+                      on is a supported combination, and a dimmed icon there
+                      would be the one always-visible affordance claiming a
+                      feature that is in fact active. */}
+                  <IconGrid3x3
+                    size={16}
+                    className={
+                      gridKind === "none" && !gridSnap ? "opacity-50" : undefined
+                    }
+                  />
+                  <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Grid: {gridLabel}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" collisionPadding={8}>
+            <DropdownMenuRadioGroup
+              value={gridKind}
+              onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
+            >
+              {GRID_OPTIONS.map((option) => (
+                <DropdownMenuRadioItem key={option.value} value={option.value}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            {/* Below the separator because it is not a fourth mode: snapping
+                is independent of what is drawn, so `None` + snap on is a
+                valid (and useful) combination. */}
+            <DropdownMenuCheckboxItem
+              checked={gridSnap}
+              onCheckedChange={(checked) => onGridSnapChange(checked === true)}
+            >
+              Snap to grid
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Sections ▾ — frames a section on click: navigation, so it sits
+            with the view controls rather than in the tool dock. */}
+        <SectionsListMenu sections={sections} store={store} />
+
+        {collabControls && (
+          <>
+            {!isMobile && <ToolbarSeparator className="mx-1" />}
+            {collabControls}
+          </>
+        )}
         </>
       )}
 
       {state.kind === "object" && (
         <>
           <ToolbarSeparator className="mx-1" />
+          {isMobile && arrange}
           {allStickies && (
-            <StickyControls editor={editor} store={store} ids={state.ids} />
+            <StickyControls
+              editor={editor}
+              store={store}
+              ids={state.ids}
+              variant={isMobile ? "menu" : "inline"}
+            />
           )}
           {!allStickies && stickyIds.length > 0 && (
             <>
@@ -314,16 +369,7 @@ export function BoardToolbar({
           {/* `table` renders nothing: a board never creates tables (no
               picker, paste strips them) and `YorkieBoardStore` throws
               `notSupported` on every table op. */}
-          <ArrangeMenu
-            editor={editor}
-            selectionSize={state.ids.length}
-            canUngroup={canUngroupSelection(editor, store, state.ids)}
-            minAlignSelection={2}
-            onTidyUp={
-              editor && store ? () => tidyUpSelection(editor, store) : undefined
-            }
-            tidyUpShortcut={TIDY_UP_SHORTCUT}
-          />
+          {!isMobile && arrange}
         </>
       )}
       {state.kind === "text-edit" && (

@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { formatCombo } from "@wafflebase/slides";
 import { semantic } from "@wafflebase/core/tokens";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { isCoarsePointer } from "@/hooks/use-coarse-pointer";
 
 /*
  * Colours are pinned to the LIGHT tokens, not the theme-flipping classes:
@@ -47,14 +49,29 @@ function Key({ children }: { children: string }) {
  * which offers a board template instead of a blank plane.
  */
 export function BoardEmptyHint({ workspaceId }: { workspaceId?: string }) {
+  // A phone has no S/T keys, no right button and no Mod+/, so it is told
+  // about the tool dock along the bottom and the long-press menu
+  // (`board-touch-gestures.ts` opens it on an empty-canvas hold) instead.
+  // Both conditions: a narrow desktop window still has a keyboard.
+  const isMobile = useIsMobile();
+  const touch = isMobile && isCoarsePointer();
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
       <p className="max-w-xs text-center text-sm leading-relaxed" style={{ color: MUTED }}>
-        Press <Key>S</Key> for a sticky note or <Key>T</Key> for text, or
-        right-click to add something. <Key>{formatCombo("Mod+/", isMac)}</Key>{" "}
-        shows every shortcut.
+        {touch ? (
+          <>
+            Tap a tool in the bar below for a sticky note, text or shape, or
+            press and hold the board to add something.
+          </>
+        ) : (
+          <>
+            Press <Key>S</Key> for a sticky note or <Key>T</Key> for text, or
+            right-click to add something. <Key>{formatCombo("Mod+/", isMac)}</Key>{" "}
+            shows every shortcut.
+          </>
+        )}
         <br />
         <Link
           to={boardTemplatesHref(workspaceId)}

@@ -8,6 +8,10 @@ import { YorkieBoardStore } from "./yorkie-board-store";
 import { makeYorkieBoardDoc } from "./__testkit__";
 import { buildStickyInit } from "./sticky";
 
+// jsdom has no matchMedia; the toolbar's phone layout is tested in
+// board-toolbar.test.tsx.
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
+
 /** An editor with `ids` selected and nothing else going on. */
 function editorSelecting(ids: string[]) {
   return {

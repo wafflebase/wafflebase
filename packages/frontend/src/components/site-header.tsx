@@ -213,11 +213,16 @@ export function SiteHeader({
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
       <div className="flex w-full items-center justify-between gap-1 px-4 lg:gap-2 lg:px-6 min-h-[3.5rem]">
-        <div className="flex min-w-0 flex-1 items-center gap-1 lg:gap-2">
+        {/* Below `sm` the title keeps ~96px (the trigger takes the rest of
+            the 8rem floor) and the action cluster below gives way instead:
+            with every control `shrink-0`, a 393px phone squeezed the title to
+            "M." and let the cluster paint over the sidebar trigger. The
+            decorative separator is the first thing dropped. */}
+        <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:min-w-32 lg:gap-2">
           <SidebarTrigger className="-ml-1 shrink-0" />
           <Separator
             orientation="vertical"
-            className="mx-2 shrink-0 data-[orientation=vertical]:h-4"
+            className="mx-2 shrink-0 max-sm:hidden data-[orientation=vertical]:h-4"
           />
           {leading}
           {editing ? (
@@ -267,8 +272,12 @@ export function SiteHeader({
           )}
         </div>
 
-        {/* Always reserve space for the controls to prevent layout shift */}
-        <div className="flex shrink-0 items-center gap-2">
+        {/* Always reserve space for the controls to prevent layout shift.
+            On a phone the cluster tightens its gaps, drops the presence
+            avatars (the lowest-priority slot), and — as a last resort, e.g.
+            while the sync chip is showing — scrolls rather than overlapping
+            the title. `py-1` keeps focus rings clear of that scroll box. */}
+        <div className="flex shrink-0 items-center gap-2 max-sm:min-w-0 max-sm:shrink max-sm:gap-1 max-sm:overflow-x-auto max-sm:py-1 max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden">
           {/* Left of the per-editor controls, so it reads as a property of the
               document rather than as one more button. */}
           {syncStatus && <SyncStatusChip />}
@@ -278,7 +287,11 @@ export function SiteHeader({
                 // `contents`, so a slot adds no box of its own: one whose
                 // control renders nothing (comments withheld during a
                 // revision preview) leaves no stray gap.
-                <div key={slot} data-header-slot={slot} className="contents">
+                <div
+                  key={slot}
+                  data-header-slot={slot}
+                  className={slot === "presence" ? "contents max-sm:hidden" : "contents"}
+                >
                   {actions[slot]}
                 </div>
               ) : null,

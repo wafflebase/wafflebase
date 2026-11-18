@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { SIDE_PANEL_CLASS } from "@/components/side-panel-layout";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -207,8 +208,10 @@ export function HistoryPanel({
   };
 
   return (
+    // A docked column on desktop, a bottom sheet on a phone; see
+    // `SIDE_PANEL_CLASS`.
     <aside
-      className="flex h-full w-72 flex-col border-l bg-background"
+      className={SIDE_PANEL_CLASS}
       aria-label="Version history"
     >
       <header className="flex items-center justify-between border-b px-4 py-3">

@@ -155,7 +155,8 @@ export function ShapePicker({
       <DropdownMenuContent
         align="start"
         sideOffset={6}
-        className="z-50 max-h-[480px] w-[280px] overflow-y-auto p-2"
+        collisionPadding={8}
+        className="z-50 max-h-[min(480px,var(--radix-dropdown-menu-content-available-height))] w-[280px] overflow-y-auto p-2"
       >
         {featured && !showAll ? (
           <>

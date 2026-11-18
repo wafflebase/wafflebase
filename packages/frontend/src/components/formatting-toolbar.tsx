@@ -358,8 +358,8 @@ export function FormattingToolbar({
   const currentVAlign = style?.va || "top";
   const CurrentVAlignIcon = VALIGN_ICONS[currentVAlign];
 
-  return (
-    <Toolbar>
+  const toolbar = (
+    <Toolbar className={isMobile ? "min-w-0 flex-1 border-b-0" : undefined}>
       <input
         ref={imageInputRef}
         type="file"
@@ -867,152 +867,162 @@ export function FormattingToolbar({
         </>
       )}
 
-      {isMobile && (
-        <>
-          <ToolbarSeparator />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <ToolbarButton aria-label="More formatting options">
-                <IconDotsVertical size={16} />
-              </ToolbarButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Format</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
-                <CurrencyIcon size={16} className="mr-2" />
-                {currencyLabel}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
-                <IconPercentage size={16} className="mr-2" />
-                Percent
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDecreaseDecimals}>
-                <IconDecimal size={16} className="mr-2" />
-                Decrease decimals
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleIncreaseDecimals}>
-                <IconDecimal size={16} className="mr-2" />
-                Increase decimals
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
-                <IconAbc size={16} className="mr-2" />
-                Plain text
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
-                <IconHash size={16} className="mr-2" />
-                Number ({presetById.get("number")?.preview})
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
-                <IconCalendar size={16} className="mr-2" />
-                Date ({presetById.get("date")?.preview})
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  void handleToggleFilter();
-                }}
-              >
-                <IconFilter size={16} className="mr-2" />
-                {hasFilter ? "Clear filter" : "Create filter"}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Align</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleAlign("left")}>
-                <IconAlignLeft size={16} className="mr-2" />
-                Left
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("center")}>
-                <IconAlignCenter size={16} className="mr-2" />
-                Center
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("right")}>
-                <IconAlignRight size={16} className="mr-2" />
-                Right
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
-                <IconAlignBoxTopCenter size={16} className="mr-2" />
-                Top
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
-                <IconAlignBoxCenterMiddle size={16} className="mr-2" />
-                Middle
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
-                <IconAlignBoxBottomCenter size={16} className="mr-2" />
-                Bottom
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Borders</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleBorders("all")}>
-                <IconBorderAll size={14} className="mr-2" />
-                All borders
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("outer")}>
-                <IconBorderOuter size={14} className="mr-2" />
-                Outer border
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("inner")}>
-                <IconBorderInner size={14} className="mr-2" />
-                Inner borders
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("top")}>
-                <IconBorderTop size={14} className="mr-2" />
-                Top border
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("bottom")}>
-                <IconBorderBottom size={14} className="mr-2" />
-                Bottom border
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("left")}>
-                <IconBorderLeft size={14} className="mr-2" />
-                Left border
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("right")}>
-                <IconBorderRight size={14} className="mr-2" />
-                Right border
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBorders("clear")}>
-                <IconBorderNone size={14} className="mr-2" />
-                Clear borders
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleToggle("u")}>
-                <IconUnderline size={16} className="mr-2" />
-                Underline
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleToggle("st")}>
-                <IconStrikethrough size={16} className="mr-2" />
-                Strikethrough
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleToggleFunctionBrowser}>
-                <IconMathFunction size={16} className="mr-2" />
-                Functions
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleInsertChart}>
-                <IconChartBar size={16} className="mr-2" />
-                Insert chart
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
-                <IconPhoto size={16} className="mr-2" />
-                Insert image
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onOpenDataValidation}>
-                <IconListCheck size={16} className="mr-2" />
-                Data validation
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleTogglePaintFormat}>
-                <IconPaint size={16} className="mr-2" />
-                {paintFormatActive ? "Cancel paint format" : "Paint format"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenConditionalFormat}>
-                <IconPalette size={16} className="mr-2" />
-                Conditional formatting
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </>
-      )}
     </Toolbar>
+  );
+
+  if (!isMobile) return toolbar;
+
+  // On a phone the strip scrolls (507px of content in a 393px row), and
+  // ⋮ is the only mobile entry to number formats, borders, alignment,
+  // validation, conditional formatting and charts — so it is pinned
+  // outside the scroller rather than being the last thing in it, where
+  // it started 60px past the right edge.
+  return (
+    <div className="flex items-center border-b bg-background">
+      {toolbar}
+      <div className="flex shrink-0 items-center border-l px-1 pointer-coarse:[&_button]:min-h-11 pointer-coarse:[&_button]:min-w-11">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarButton aria-label="More formatting options">
+              <IconDotsVertical size={16} />
+            </ToolbarButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" collisionPadding={8}>
+            <DropdownMenuLabel>Format</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+              <CurrencyIcon size={16} className="mr-2" />
+              {currencyLabel}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
+              <IconPercentage size={16} className="mr-2" />
+              Percent
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDecreaseDecimals}>
+              <IconDecimal size={16} className="mr-2" />
+              Decrease decimals
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleIncreaseDecimals}>
+              <IconDecimal size={16} className="mr-2" />
+              Increase decimals
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
+              <IconAbc size={16} className="mr-2" />
+              Plain text
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
+              <IconHash size={16} className="mr-2" />
+              Number ({presetById.get("number")?.preview})
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
+              <IconCalendar size={16} className="mr-2" />
+              Date ({presetById.get("date")?.preview})
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                void handleToggleFilter();
+              }}
+            >
+              <IconFilter size={16} className="mr-2" />
+              {hasFilter ? "Clear filter" : "Create filter"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Align</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => handleAlign("left")}>
+              <IconAlignLeft size={16} className="mr-2" />
+              Left
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleAlign("center")}>
+              <IconAlignCenter size={16} className="mr-2" />
+              Center
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleAlign("right")}>
+              <IconAlignRight size={16} className="mr-2" />
+              Right
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
+              <IconAlignBoxTopCenter size={16} className="mr-2" />
+              Top
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
+              <IconAlignBoxCenterMiddle size={16} className="mr-2" />
+              Middle
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
+              <IconAlignBoxBottomCenter size={16} className="mr-2" />
+              Bottom
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Borders</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => handleBorders("all")}>
+              <IconBorderAll size={14} className="mr-2" />
+              All borders
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("outer")}>
+              <IconBorderOuter size={14} className="mr-2" />
+              Outer border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("inner")}>
+              <IconBorderInner size={14} className="mr-2" />
+              Inner borders
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("top")}>
+              <IconBorderTop size={14} className="mr-2" />
+              Top border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("bottom")}>
+              <IconBorderBottom size={14} className="mr-2" />
+              Bottom border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("left")}>
+              <IconBorderLeft size={14} className="mr-2" />
+              Left border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("right")}>
+              <IconBorderRight size={14} className="mr-2" />
+              Right border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("clear")}>
+              <IconBorderNone size={14} className="mr-2" />
+              Clear borders
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleToggle("u")}>
+              <IconUnderline size={16} className="mr-2" />
+              Underline
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleToggle("st")}>
+              <IconStrikethrough size={16} className="mr-2" />
+              Strikethrough
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleToggleFunctionBrowser}>
+              <IconMathFunction size={16} className="mr-2" />
+              Functions
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleInsertChart}>
+              <IconChartBar size={16} className="mr-2" />
+              Insert chart
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+              <IconPhoto size={16} className="mr-2" />
+              Insert image
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onOpenDataValidation}>
+              <IconListCheck size={16} className="mr-2" />
+              Data validation
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleTogglePaintFormat}>
+              <IconPaint size={16} className="mr-2" />
+              {paintFormatActive ? "Cancel paint format" : "Paint format"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleOpenConditionalFormat}>
+              <IconPalette size={16} className="mr-2" />
+              Conditional formatting
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }

@@ -79,6 +79,8 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import { useOnePanelOnMobile } from "@/components/side-panel-layout";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   EditingChrome,
   PreviewSurface,
@@ -175,6 +177,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Both panels are bottom sheets on a phone; keep only the latest.
+  useOnePanelOnMobile(
+    useIsMobile(),
+    [commentsPanelOpen, setCommentsPanelOpen],
+    [historyOpen, setHistoryOpen],
+  );
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount the active tab's view, dropping its local
   // selection/caret state. `doc.clearHistory()` (below) separately drops the

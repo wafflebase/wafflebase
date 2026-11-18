@@ -287,7 +287,7 @@ export function TemplateShareSection({
                     : `used ${listing.useCount} times`}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -400,7 +400,7 @@ export function TemplateShareSection({
                 disabled={!canManage}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={publishVisibility}
                 onValueChange={(v) =>
@@ -409,7 +409,7 @@ export function TemplateShareSection({
                 disabled={!canManage}
               >
                 <SelectTrigger
-                  className="flex-1"
+                  className="min-w-0 flex-1 basis-48"
                   aria-label="Template visibility"
                 >
                   <SelectValue />
