@@ -521,9 +521,14 @@ export class DocumentCopyService {
     // write, and the copy's editor seeds it on first open exactly as it would
     // for a brand-new document.
     if (Object.keys(snapshot).length === 0) return rehost ? report : null;
+    // A sticky's author tag names a member of the source workspace. Kept for
+    // a copy that stays inside it (the same people read both), stripped when
+    // the copy crosses into another — which is exactly when `rehost` is set.
     const stripped =
       type === 'board'
-        ? stripBoardRituals(stripComments(snapshot))
+        ? stripBoardRituals(stripComments(snapshot), {
+            stripAuthors: rehost !== undefined,
+          })
         : stripComments(snapshot);
     // Re-hosting happens between reading the source and writing the target, on
     // the snapshot rather than on the live document: the source is somebody
@@ -598,12 +603,46 @@ export function stripComments(snapshot: JsonRoot): JsonRoot {
  * merge instead of one LWW-clobbering the other. `voting` and `timer` are
  * optional keys a board without them already handles, so they are removed.
  */
-export function stripBoardRituals(snapshot: JsonRoot): JsonRoot {
+export function stripBoardRituals(
+  snapshot: JsonRoot,
+  opts: { stripAuthors?: boolean } = {},
+): JsonRoot {
   const out: JsonRoot = { ...snapshot };
   if (isPlainObject(out.stamps)) out.stamps = {};
   delete out.voting;
   delete out.timer;
+  if (opts.stripAuthors) stripStickyAuthors(out.elements);
   return out;
+}
+
+/**
+ * Remove every sticky's creator name (`data.author`) and its display toggle
+ * (`data.showAuthor`) from a board's `elements`, inside groups too.
+ *
+ * Run when a board copy crosses a workspace boundary (a template used in
+ * another workspace): the names are the source workspace's members, and the
+ * copy's readers are not that audience. A same-workspace "Make a copy" keeps
+ * them. See docs/design/document-copy.md.
+ *
+ * Mutates in place — the input is the freshly parsed snapshot nobody else
+ * holds — and walks with an explicit stack rather than recursion, because the
+ * group tree is stored content a collaborator wrote and may be nested deeper
+ * than the call stack. Every element is visited once, so a cycle-free JSON
+ * tree costs O(elements).
+ */
+export function stripStickyAuthors(elements: unknown): void {
+  if (!Array.isArray(elements)) return;
+  const stack: unknown[] = (elements as unknown[]).slice();
+  while (stack.length > 0) {
+    const el = stack.pop();
+    if (!isPlainObject(el) || !isPlainObject(el.data)) continue;
+    if (el.type === 'shape') {
+      delete el.data.author;
+      delete el.data.showAuthor;
+    } else if (el.type === 'group' && Array.isArray(el.data.children)) {
+      for (const child of el.data.children as unknown[]) stack.push(child);
+    }
+  }
 }
 
 const INT32_MIN = -2147483648;
