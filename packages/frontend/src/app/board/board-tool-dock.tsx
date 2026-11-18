@@ -98,8 +98,12 @@ function useDockLayout(dockRef: React.RefObject<HTMLDivElement | null>): DockLay
     const dock = dockRef.current;
     const host = dock?.parentElement;
     if (!dock || !host || typeof ResizeObserver === "undefined") return;
+    // The expanded dock's natural width, kept while it is folded: a folded
+    // dock is narrower, and deciding on that width would unfold it again.
+    let expandedW = 0;
     const measure = () => {
-      const next = dockLayout(host.clientWidth, dock.scrollWidth);
+      if (dock.dataset.compact !== "true") expandedW = dock.scrollWidth;
+      const next = dockLayout(host.clientWidth, dock.scrollWidth, expandedW);
       setLayout((prev) =>
         prev.compact === next.compact &&
         prev.align === next.align &&
@@ -415,6 +419,7 @@ export function BoardToolDock({
       aria-label="Board tools"
       aria-orientation="horizontal"
       data-canvas-toolbar=""
+      data-compact={layout.compact ? "true" : "false"}
       {...{ [BOARD_OVERLAY_ATTR]: "" }}
       onKeyDown={onDockKeyDown}
       className={cn(

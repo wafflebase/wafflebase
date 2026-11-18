@@ -36,6 +36,21 @@ describe("dockLayout", () => {
     });
     expect(dockLayout(DOCK_COMPACT_BELOW, 240).compact).toBe(false);
   });
+
+  it("folds on a desktop-wide host the full dock no longer fits, e.g. beside the comments panel", () => {
+    // A 1280 window minus a 360px side panel leaves a 920px canvas; the
+    // full dock is 760px, more than the 920 - 12 - 224 that clears the minimap.
+    const folded = dockLayout(920, 760);
+    expect(folded.compact).toBe(true);
+    // Folded, the dock is narrower; its remembered expanded width keeps it folded.
+    expect(dockLayout(920, 480, 760)).toEqual({
+      compact: true,
+      align: "start",
+      maxWidth: `calc(100% - ${DOCK_EDGE + MINIMAP_CLEARANCE}px)`,
+    });
+    // Close the panel: the expanded dock fits again.
+    expect(dockLayout(1280, 480, 760)).toMatchObject({ compact: false, align: "center" });
+  });
 });
 
 describe("BOARD_SHAPES", () => {

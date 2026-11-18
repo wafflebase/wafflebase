@@ -1,6 +1,7 @@
 /**
- * Where the board's tool dock sits, from the host width and the dock's
- * natural (unclipped) width. Pure, so the placement rules are testable
+ * Where the board's tool dock sits, from the host width, the dock's
+ * current natural (unclipped) width, and its natural width when expanded
+ * (which a folded dock no longer shows, so the caller remembers it). Pure, so the placement rules are testable
  * without a layout engine.
  *
  * The dock shares the bottom edge with the minimap, which sits in the
@@ -11,7 +12,10 @@
  * minimap, scrolling sideways if it still does not fit.
  */
 
-/** Below this host width the dock folds its rarer tools under "More". */
+/**
+ * Below this host width the dock folds its rarer tools under "More". It
+ * also folds on a wider host whose expanded dock would not fit.
+ */
 export const DOCK_COMPACT_BELOW = 640;
 
 /** Inset of the dock from the host's bottom/left edge, in px. */
@@ -39,14 +43,24 @@ export interface DockLayout {
   maxWidth: string;
 }
 
-export function dockLayout(hostW: number, dockW: number): DockLayout {
+export function dockLayout(
+  hostW: number,
+  dockW: number,
+  expandedW: number = dockW,
+): DockLayout {
   // Not laid out yet (first render, jsdom): the wide default.
   if (!(hostW > 0)) {
     return { compact: false, align: "center", maxWidth: `calc(100% - ${2 * MINIMAP_CLEARANCE}px)` };
   }
-  const compact = hostW < DOCK_COMPACT_BELOW;
-  const clearance = compact ? COLLAPSED_MINIMAP_CLEARANCE : MINIMAP_CLEARANCE;
-  if (!compact && (hostW - dockW) / 2 >= clearance) {
+  // A narrow host is a phone, whose minimap starts collapsed; any wider
+  // host (a desktop window, even one a side panel has narrowed) keeps it open.
+  const narrow = hostW < DOCK_COMPACT_BELOW;
+  const clearance = narrow ? COLLAPSED_MINIMAP_CLEARANCE : MINIMAP_CLEARANCE;
+  // Fold too when the full dock would not fit beside the minimap, e.g. the
+  // comments panel narrowed the canvas: otherwise the trailing tools
+  // (Stamp, Comment) end up clipped past the dock's edge.
+  const compact = narrow || expandedW > hostW - DOCK_EDGE - clearance;
+  if (!narrow && (hostW - dockW) / 2 >= clearance) {
     return { compact, align: "center", maxWidth: `calc(100% - ${2 * clearance}px)` };
   }
   return {
