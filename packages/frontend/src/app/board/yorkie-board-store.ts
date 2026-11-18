@@ -52,6 +52,7 @@ import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document'
 import { pruneRitualsOnDelete } from './rituals/prune-on-delete';
 import { removeIdsFromYorkieArray } from '../slides/yorkie-array-remove';
 import {
+  MAX_GROUP_DEPTH,
   decodeFreeformData,
   decodeFreeformElements,
   encodeFreeformElement,
@@ -390,7 +391,7 @@ export class YorkieBoardStore implements SlidesStore {
    * `bandElementNumerics` covers the shape branch too (a sticky note is a
    * `roundRect` shape with a body), which falls through to the generic tail.
    */
-  private readElement(e: unknown): ModelElement {
+  private readElement(e: unknown, depth = 0): ModelElement {
     const el = e as {
       id: string;
       type: string;
@@ -451,8 +452,9 @@ export class YorkieBoardStore implements SlidesStore {
         children?: unknown[];
         refSize?: unknown;
       };
-      const rawChildren = rawData.children ?? [];
-      const children = rawChildren.map((c) => this.readElement(c));
+      // A peer wrote this tree: stop at the shared group depth cap.
+      const rawChildren = depth < MAX_GROUP_DEPTH ? rawData.children ?? [] : [];
+      const children = rawChildren.map((c) => this.readElement(c, depth + 1));
       const refSize = rawData.refSize
         ? yorkieToPlain<{ w: number; h: number }>(rawData.refSize)
         : undefined;

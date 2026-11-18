@@ -1,4 +1,4 @@
-import type { Element, Frame } from '@wafflebase/slides';
+import { MAX_GROUP_DEPTH, type Element, type Frame } from '@wafflebase/slides';
 import { isStickyData } from '../model/sticky';
 import { isSectionElement, sectionMemberIds, sectionOf } from '../model/section';
 
@@ -73,7 +73,7 @@ function blocksText(body: TextLike): string | undefined {
 }
 
 /** An element's text as plain characters, or `undefined` when it has none. */
-export function plainText(el: Element): string | undefined {
+export function plainText(el: Element, depth = 0): string | undefined {
   switch (el.type) {
     case 'text':
       return blocksText(el.data as TextLike);
@@ -82,8 +82,11 @@ export function plainText(el: Element): string | undefined {
     case 'connector':
       return blocksText((el as { label?: TextLike }).label);
     case 'group': {
+      // The tree is stored content a peer wrote: stop at the shared group
+      // depth cap rather than recursing as deep as it goes.
+      if (depth >= MAX_GROUP_DEPTH) return undefined;
       const parts = el.data.children
-        .map((c) => plainText(c))
+        .map((c) => plainText(c, depth + 1))
         .filter((t): t is string => t !== undefined);
       return parts.length > 0 ? parts.join('\n') : undefined;
     }

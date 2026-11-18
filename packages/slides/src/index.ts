@@ -184,6 +184,7 @@ export {
   encodeFreeformElements,
   isPackableFreeform,
 } from './model/freeform-codec';
+export { MAX_GROUP_DEPTH } from './model/group-depth';
 
 export {
   BUILT_IN_LAYOUTS,

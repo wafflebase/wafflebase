@@ -1,4 +1,5 @@
 import type { FreeformCommand } from './element';
+import { MAX_GROUP_DEPTH } from './group-depth';
 
 /**
  * Compact storage for ink paths.
@@ -161,15 +162,22 @@ export function encodeFreeformData<T>(data: T): T {
  * shape (and every group child, recursively) gets its path decoded.
  * Returns new objects only along the branches that changed.
  */
-export function decodeFreeformElements<T>(elements: readonly T[]): T[] {
+export function decodeFreeformElements<T>(elements: readonly T[], depth = 0): T[] {
   return elements.map((el) => {
     const e = el as { type?: unknown; data?: { children?: unknown } };
     if (e.type === 'shape') {
       const data = decodeFreeformData(e.data);
       return data === e.data ? el : ({ ...el, data } as T);
     }
-    if (e.type === 'group' && e.data && Array.isArray(e.data.children)) {
-      const children = decodeFreeformElements(e.data.children as unknown[]);
+    // Past MAX_GROUP_DEPTH a group is returned as stored: the tree is
+    // untrusted (a peer wrote it), and the walk must not blow the stack.
+    if (
+      e.type === 'group' &&
+      depth < MAX_GROUP_DEPTH &&
+      e.data &&
+      Array.isArray(e.data.children)
+    ) {
+      const children = decodeFreeformElements(e.data.children as unknown[], depth + 1);
       return { ...el, data: { ...e.data, children } } as T;
     }
     return el;
@@ -177,19 +185,24 @@ export function decodeFreeformElements<T>(elements: readonly T[]): T[] {
 }
 
 /** {@link encodeFreeformData} applied to an element tree; the write twin of {@link decodeFreeformElements}. */
-export function encodeFreeformElements<T>(elements: readonly T[]): T[] {
-  return elements.map((el) => encodeFreeformElement(el));
+export function encodeFreeformElements<T>(elements: readonly T[], depth = 0): T[] {
+  return elements.map((el) => encodeFreeformElement(el, depth));
 }
 
 /** {@link encodeFreeformData} for one element (and a group's children). */
-export function encodeFreeformElement<T>(el: T): T {
+export function encodeFreeformElement<T>(el: T, depth = 0): T {
   const e = el as { type?: unknown; data?: { children?: unknown } };
   if (e.type === 'shape') {
     const data = encodeFreeformData(e.data);
     return data === e.data ? el : ({ ...el, data } as T);
   }
-  if (e.type === 'group' && e.data && Array.isArray(e.data.children)) {
-    const children = encodeFreeformElements(e.data.children as unknown[]);
+  if (
+    e.type === 'group' &&
+    depth < MAX_GROUP_DEPTH &&
+    e.data &&
+    Array.isArray(e.data.children)
+  ) {
+    const children = encodeFreeformElements(e.data.children as unknown[], depth + 1);
     return { ...el, data: { ...e.data, children } } as T;
   }
   return el;

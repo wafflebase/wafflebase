@@ -122,3 +122,24 @@ describe('buildTextBoxInit', () => {
     expect(estimateTextHeight('x'.repeat(500))).toBeGreaterThan(estimateTextHeight('x'));
   });
 });
+
+describe('plainText on an untrusted group tree', () => {
+  it('stops at the shared group depth cap instead of overflowing the stack', () => {
+    let el = {
+      id: 'leaf',
+      type: 'text',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      data: { blocks: [{ id: 'b', type: 'paragraph', inlines: [{ text: 'hi', style: {} }], style: {} }] },
+    } as unknown as Element;
+    for (let i = 0; i < 200_000; i++) {
+      el = {
+        id: `g${i}`,
+        type: 'group',
+        frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+        data: { children: [el] },
+      } as unknown as Element;
+    }
+    expect(() => plainText(el)).not.toThrow();
+    expect(plainText(el)).toBeUndefined();
+  });
+});

@@ -6,6 +6,7 @@ import {
   type Block,
 } from '@wafflebase/docs';
 import { DEFAULT_MASTER } from './master';
+import { MAX_GROUP_DEPTH } from './group-depth';
 import type { SlidesDocument } from './presentation';
 
 /**
@@ -31,13 +32,6 @@ import type { SlidesDocument } from './presentation';
  * nothing else observing it.
  */
 
-/**
- * Nesting cap for the group walk, matching the element walk's own limit — a
- * `data.children` chain a peer wrote can be arbitrarily deep (or, through a
- * concurrent edit, cyclic), and a band that blew the stack would be its own
- * denial of service.
- */
-const MAX_GROUP_DEPTH = 32;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)

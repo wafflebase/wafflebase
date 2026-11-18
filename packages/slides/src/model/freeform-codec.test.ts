@@ -8,7 +8,9 @@ import {
   encodeFreeformCommands,
   encodeFreeformData,
   encodeFreeformElement,
+  encodeFreeformElements,
 } from './freeform-codec';
+import { MAX_GROUP_DEPTH } from './group-depth';
 
 const ink: FreeformCommand[] = [
   { c: 'M', x: 0, y: 0.5 },
@@ -97,5 +99,43 @@ describe('freeform codec', () => {
     expect(typeof child).toBe('string');
     const [read] = decodeFreeformElements([packed]);
     close((read.data.children[0] as typeof stroke).data.path.commands, ink);
+  });
+});
+
+describe('freeform element walks on an untrusted group tree', () => {
+  /** A chain of `depth` nested groups around one packed stroke. */
+  function chain(depth: number): unknown {
+    let el: unknown = {
+      id: 'leaf',
+      type: 'shape',
+      data: {
+        kind: 'freeform',
+        path: {
+          commands: encodeFreeformCommands([
+            { c: 'M', x: 0, y: 0 },
+            { c: 'L', x: 1, y: 1 },
+          ]),
+        },
+      },
+    };
+    for (let i = 0; i < depth; i++) {
+      el = { id: `g${i}`, type: 'group', data: { children: [el] } };
+    }
+    return el;
+  }
+
+  it('stops at MAX_GROUP_DEPTH instead of overflowing the stack', () => {
+    const deep = [chain(200_000)];
+    expect(() => decodeFreeformElements(deep)).not.toThrow();
+    expect(() => encodeFreeformElements(deep)).not.toThrow();
+  });
+
+  it('still decodes a stroke nested within the limit', () => {
+    let el = decodeFreeformElements([chain(MAX_GROUP_DEPTH)])[0] as {
+      type: string;
+      data: { children?: unknown[]; path?: { commands: unknown } };
+    };
+    while (el.type === 'group') el = el.data.children![0] as typeof el;
+    expect(Array.isArray(el.data.path!.commands)).toBe(true);
   });
 });

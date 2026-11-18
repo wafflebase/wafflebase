@@ -112,6 +112,7 @@ export {
   encodeFreeformElements,
   isPackableFreeform,
 } from './model/freeform-codec';
+export { MAX_GROUP_DEPTH } from './model/group-depth';
 
 // Group geometry / transform math — pure functions over the data model
 // (no DOM). Re-exported for `YorkieSlidesStore` running under Node.
