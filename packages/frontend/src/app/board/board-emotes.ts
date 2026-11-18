@@ -1,9 +1,9 @@
 /**
  * Emote picker (FigJam-style reactions, key `E`): a small row of emoji at
  * the local pointer. Picking one plays a burst at that point locally and
- * sends it to peers as `presence.emote` (see `board-peer-layer.ts`). The
- * picker stays open so a user can send several; Esc, `E` again, or a
- * click elsewhere closes it.
+ * sends it to peers as `presence.emote` (see `board-peer-layer.ts`), and
+ * closes the picker: one `E`, one reaction. Esc, `E` again, or a click
+ * elsewhere closes it without sending.
  */
 
 export const BOARD_EMOTES = ["👍", "❤️", "😂", "🎉", "🤔", "👀"] as const;
@@ -17,6 +17,8 @@ export interface EmotePickerDeps {
 export interface EmotePicker {
   isOpen(): boolean;
   open(at: { x: number; y: number }): void;
+  /** Send `emoji` from where the picker was opened, then close it. */
+  pick(emoji: string): void;
   close(): void;
   dispose(): void;
 }
@@ -33,6 +35,11 @@ export function createEmotePicker(deps: EmotePickerDeps): EmotePicker {
   ].join(";");
   let anchor = { x: 0, y: 0 };
   let open = false;
+  const pick = (emoji: string) => {
+    const at = anchor;
+    close();
+    deps.onPick(emoji, at);
+  };
 
   BOARD_EMOTES.forEach((emoji, i) => {
     const b = document.createElement("button");
@@ -52,7 +59,7 @@ export function createEmotePicker(deps: EmotePickerDeps): EmotePicker {
     b.addEventListener("mousedown", (e) => e.preventDefault());
     b.addEventListener("click", (e) => {
       e.stopPropagation();
-      deps.onPick(emoji, anchor);
+      pick(emoji);
     });
     root.appendChild(b);
   });
@@ -80,6 +87,7 @@ export function createEmotePicker(deps: EmotePickerDeps): EmotePicker {
       if (!open) document.addEventListener("pointerdown", onOutside, true);
       open = true;
     },
+    pick,
     close,
     dispose() {
       close();

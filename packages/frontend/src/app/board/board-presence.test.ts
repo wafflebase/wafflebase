@@ -182,8 +182,15 @@ describe("attachBoardPresence", () => {
       .click();
     const emote = updatePresence.mock.calls.find((c) => "emote" in c[0])?.[0].emote;
     expect(emote).toMatchObject({ emoji: "🎉" });
-    key("Escape");
-    expect(container.querySelector<HTMLElement>("[data-board-emote-picker]")!.style.display).toBe("none");
+    // Picking one closes the picker.
+    const picker = container.querySelector<HTMLElement>("[data-board-emote-picker]")!;
+    expect(picker.style.display).toBe("none");
+    // So does sending one by its number key.
+    key("e");
+    expect(picker.style.display).toBe("flex");
+    key("2");
+    expect(updatePresence.mock.calls.filter((c) => "emote" in c[0])).toHaveLength(2);
+    expect(picker.style.display).toBe("none");
     ctl.dispose();
   });
 

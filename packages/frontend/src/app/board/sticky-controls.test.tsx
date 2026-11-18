@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { StickyControls } from "./sticky-controls";
+import { STICKY_SIZE_TRIGGER, StickyControls } from "./sticky-controls";
 import { STICKY_COLORS } from "./sticky";
 
 /** A store holding shapes with the given srgb fills, ids `a`, `b`, … */
@@ -128,5 +128,25 @@ describe("StickyControls", () => {
     const toggle = screen.getByRole("button", { name: "Show author" });
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps the size trigger one fixed width whatever preset it names", () => {
+    const classesFor = (w: number) => {
+      const { store } = fakeStore([yellow.value]);
+      const el = (store.read() as unknown as { slides: { elements: { frame: { w: number; h: number } }[] }[] })
+        .slides[0].elements[0];
+      el.frame.w = w;
+      el.frame.h = w;
+      const view = renderControls(store, ["a"]);
+      const trigger = screen.getByRole("button", { name: /^Sticky size:/ });
+      const cls = trigger.className;
+      view.unmount();
+      return cls;
+    };
+    const small = classesFor(120);
+    const medium = classesFor(180);
+    expect(small).toBe(medium);
+    for (const c of STICKY_SIZE_TRIGGER.split(" ")) expect(small.split(/\s+/)).toContain(c);
+    expect(small).toMatch(/(^|\s)w-\d+/);
   });
 });

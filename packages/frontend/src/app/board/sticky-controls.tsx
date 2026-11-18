@@ -45,6 +45,12 @@ export interface StickyControlsProps {
 const BUTTON =
   "focus-ring inline-flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
 
+/**
+ * The size-preset trigger, one width for every label ("Small" … "Medium",
+ * "Size"), so the controls after it never shift when the preset changes.
+ */
+export const STICKY_SIZE_TRIGGER = "h-8 w-20 shrink-0 justify-between gap-1 px-2";
+
 /** `values[0]` when every value equals it, else `undefined`. */
 function shared<T>(values: readonly T[]): T | undefined {
   return values.length > 0 && values.every((v) => v === values[0]) ? values[0] : undefined;
@@ -145,13 +151,16 @@ export function StickyControls({ editor, store, ids, colorsOnly }: StickyControl
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 gap-1 px-2"
+                // Fixed width: "Small" and "Medium" differ, and a trigger that
+                // resizes with its label moves the A−/A+ buttons after it, so
+                // a second click lands on the next control over.
+                className={STICKY_SIZE_TRIGGER}
                 disabled={disabled}
                 aria-label={`Sticky size: ${
                   STICKY_SIZE_PRESETS.find((p) => p.id === sizePreset)?.label ?? "Custom"
                 }`}
               >
-                <span className="text-xs">
+                <span className="truncate text-xs">
                   {STICKY_SIZE_PRESETS.find((p) => p.id === sizePreset)?.label ?? "Size"}
                 </span>
                 <IconChevronDown aria-hidden="true" className="size-3" />

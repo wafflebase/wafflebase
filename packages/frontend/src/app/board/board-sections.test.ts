@@ -259,6 +259,17 @@ describe("sections in the editor", () => {
     expect(sectionOf(byId(store, id))?.title).toBe("Keep");
   });
 
+  it("keeps the rename input's selected text dark in the dark app theme", () => {
+    const store = makeStore();
+    const id = createSection(store, { x: 0, y: 0, w: 1000, h: 800 }, { title: "Ink" });
+    const { container, sections } = mount(store);
+    sections.rename(id);
+    const input = container.querySelector<HTMLInputElement>("input[data-board-section-title]")!;
+    // `::selection` takes `var(--foreground)`; the input is on white.
+    expect(input.style.getPropertyValue("--foreground")).toBe("#18181B");
+    expect(input.style.color).toBe("rgb(24, 24, 27)");
+  });
+
   it("draws a section with the armed tool and disarms it", () => {
     const store = makeStore();
     const { canvas, container, sections, editor } = mount(store);

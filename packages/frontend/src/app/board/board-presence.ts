@@ -356,6 +356,7 @@ export function attachBoardPresence(deps: BoardPresenceDeps): BoardPresenceContr
             emote: { emoji: BOARD_EMOTES[n - 1], x: world.x, y: world.y, at: lastEmoteAt },
           });
         }
+        emotes.close();
         return;
       }
     }

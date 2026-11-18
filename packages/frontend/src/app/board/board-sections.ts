@@ -300,6 +300,11 @@ export function createBoardSections(deps: BoardSectionsDeps): BoardSections {
       zIndex: "20",
       boxSizing: "border-box",
     } satisfies Partial<CSSStyleDeclaration>);
+    // The board plane stays light in both app themes, but the global
+    // `::selection` rule paints selected text in `--foreground`, which is
+    // near-white in the dark theme: the pre-selected title read as white
+    // on white. Pin the input's own foreground to its ink.
+    input.style.setProperty("--foreground", "#18181B");
     let done = false;
     const finish = (commit: boolean) => {
       if (done) return;
