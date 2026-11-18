@@ -21,7 +21,12 @@ needs already exists in the reused engine:
 - A **sticky note is a preset shape** — a `roundRect` `ShapeElement` with a
   solid fill, drop shadow, and a middle-anchored shrink-autofit text body. Every
   field already exists on `ShapeElement.data`; no new element type, no slides
-  model change.
+  model change. The preset also pins a small corner radius
+  (`adjustments: [STICKY_CORNER_ADJ]`, ~4px at 180px — the `roundRect`
+  default is a 30px button) and an even text inset (`STICKY_TEXT_INSET`, ~12px
+  per side with the preset's own text rect). Stickies stored before that carry
+  neither; `withStickyDefaults` fills them on read in `YorkieBoardStore`, so
+  old and new stickies look the same without a migration write.
 - **Image paste** reuses the shipped upload pipeline (`uploadImageFile` →
   `POST /api/v1/workspaces/:wid/images` → `wafflebase-files` bucket) and the
   shipped clipboard/drag-drop handler `setupSlidesImagePaths`, both funneling to
