@@ -91,12 +91,67 @@ function offsetRank(k: number): number {
   return k === 0 ? 0 : k > 0 ? 2 * k - 1 : -2 * k;
 }
 
+/** Candidate offsets ring by ring, each ring in reading order (nearest first). */
+function ringOrder(rings: number): { i: number; j: number }[] {
+  const out: { i: number; j: number }[] = [];
+  for (let r = 0; r <= rings; r++) {
+    const ring: { i: number; j: number }[] = [];
+    for (let j = -r; j <= r; j++) {
+      for (let i = -r; i <= r; i++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) === r) ring.push({ i, j });
+      }
+    }
+    ring.sort(
+      (a, b) => offsetRank(a.j) - offsetRank(b.j) || offsetRank(a.i) - offsetRank(b.i),
+    );
+    out.push(...ring);
+  }
+  return out;
+}
+
+const RING_ORDER = ringOrder(MAX_RINGS);
+
+/**
+ * The candidate steps `k` in `[-MAX_RINGS, MAX_RINGS]` along one axis whose
+ * span `[aim + k·step, aim + k·step + len]` comes within `gap` of
+ * `[b0, b0 + bLen]` — the one-axis half of {@link overlaps}, evaluated with
+ * the same float expressions. Both conditions are monotone in `k`, so the
+ * blocked steps are one range: estimated arithmetically, then settled
+ * against the exact predicate (a bounded walk). `null` when none is blocked.
+ */
+function blockedSteps(
+  aim: number,
+  step: number,
+  len: number,
+  b0: number,
+  bLen: number,
+  gap: number,
+): [number, number] | null {
+  const R = MAX_RINGS;
+  const before = (k: number) => aim + k * step < b0 + bLen + gap;
+  const after = (k: number) => b0 < aim + k * step + len + gap;
+  let lo = Math.min(R + 1, Math.max(-R, Math.ceil((b0 - len - gap - aim) / step)));
+  let hi = Math.min(R, Math.max(-R - 1, Math.floor((b0 + bLen + gap - aim) / step)));
+  if (Number.isNaN(lo) || Number.isNaN(hi)) return null;
+  while (lo > -R && after(lo - 1)) lo--;
+  while (lo <= R && !after(lo)) lo++;
+  while (hi < R && before(hi + 1)) hi++;
+  while (hi >= -R && !before(hi)) hi--;
+  return lo <= hi ? [lo, hi] : null;
+}
+
 /**
  * Where a `size` box aimed at top-left `aim` goes so that it covers
  * nothing in `occupied` (keeping `gap` clear around it). Tries `aim`, then
  * rings of box-sized steps around it in reading order — the search the
  * sticky flow runs, with the whole batch as the unit. Past the last ring it
  * lands just right of everything.
+ *
+ * Every candidate sits on one lattice (`aim` + whole steps), so each box
+ * marks the rectangle of candidates it blocks in a 2D difference array
+ * instead of being tested against every candidate: O(boxes + candidates),
+ * not their product, on a board of any size. The result is the same as
+ * testing each candidate against each box.
  */
 export function findFreeRect(
   occupied: readonly Frame[],
@@ -107,24 +162,51 @@ export function findFreeRect(
   const boxes = occupied.map((f) => boundingBox(f));
   const stepX = size.w + gap;
   const stepY = size.h + gap;
-  const free = (p: Point) => {
+  if (!(stepX > 0 && stepY > 0 && Number.isFinite(aim.x) && Number.isFinite(aim.y))) {
+    return findFreeRectBrute(boxes, size, aim, gap);
+  }
+  const R = MAX_RINGS;
+  const D = 2 * R + 1;
+  const W = D + 1;
+  const diff = new Int32Array(W * W);
+  for (const b of boxes) {
+    const xs = blockedSteps(aim.x, stepX, size.w, b.x, b.w, gap);
+    if (!xs) continue;
+    const ys = blockedSteps(aim.y, stepY, size.h, b.y, b.h, gap);
+    if (!ys) continue;
+    const [i0, i1] = [xs[0] + R, xs[1] + R + 1];
+    const [j0, j1] = [ys[0] + R, ys[1] + R + 1];
+    diff[j0 * W + i0]++;
+    diff[j0 * W + i1]--;
+    diff[j1 * W + i0]--;
+    diff[j1 * W + i1]++;
+  }
+  // 2D prefix sum: diff[j][i] becomes how many boxes block candidate (i, j).
+  for (let j = 0; j < D; j++) {
+    for (let i = 0; i < D; i++) {
+      const k = j * W + i;
+      if (i > 0) diff[k] += diff[k - 1];
+      if (j > 0) diff[k] += diff[k - W];
+      if (i > 0 && j > 0) diff[k] -= diff[k - W - 1];
+    }
+  }
+  for (const { i, j } of RING_ORDER) {
+    if (diff[(j + R) * W + (i + R)] === 0) {
+      return { x: aim.x + i * stepX, y: aim.y + j * stepY };
+    }
+  }
+  const right = boxes.reduce((m, b) => Math.max(m, b.x + b.w), aim.x);
+  return { x: right + AGENT_PLACE_GAP, y: aim.y };
+}
+
+/** The candidate-by-box search, for a degenerate size or aim the lattice cannot index. */
+function findFreeRectBrute(boxes: readonly Box[], size: Size, aim: Point, gap: number): Point {
+  const stepX = size.w + gap;
+  const stepY = size.h + gap;
+  for (const { i, j } of RING_ORDER) {
+    const p = { x: aim.x + i * stepX, y: aim.y + j * stepY };
     const box: Box = { x: p.x, y: p.y, w: size.w, h: size.h };
-    return !boxes.some((b) => overlaps(box, b, gap));
-  };
-  for (let r = 0; r <= MAX_RINGS; r++) {
-    const ring: { i: number; j: number }[] = [];
-    for (let j = -r; j <= r; j++) {
-      for (let i = -r; i <= r; i++) {
-        if (Math.max(Math.abs(i), Math.abs(j)) === r) ring.push({ i, j });
-      }
-    }
-    ring.sort(
-      (a, b) => offsetRank(a.j) - offsetRank(b.j) || offsetRank(a.i) - offsetRank(b.i),
-    );
-    for (const { i, j } of ring) {
-      const p = { x: aim.x + i * stepX, y: aim.y + j * stepY };
-      if (free(p)) return p;
-    }
+    if (!boxes.some((b) => overlaps(box, b, gap))) return p;
   }
   const right = boxes.reduce((m, b) => Math.max(m, b.x + b.w), aim.x);
   return { x: right + AGENT_PLACE_GAP, y: aim.y };

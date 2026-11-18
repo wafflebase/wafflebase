@@ -650,6 +650,17 @@ thing; a self-hosted deployment depends on no AI vendor). Implemented by
   one `409`.
 - **Limits**: 500 entries per batch, 10,000 characters per text, coordinates
   within ±10⁷, sizes in (0, 10⁵].
+- **Board size.** `PUT .../content` does not cap a board, and every endpoint
+  here walks all of it on a single-threaded server, so each one bounds its
+  own work (`@wafflebase/board` `agent/membership.ts`). Past 50,000 top-level
+  elements a request is a `400`. Section membership is computed from a
+  uniform grid over element centres, so a section only checks the elements
+  near it. The result is exact, because a member's centre always lies in its
+  section. A board whose sections stack over thousands of elements can still
+  force a long walk, so membership work is capped at 2,000,000 checks per
+  request, also a `400`. Free-space placement marks each box once on the
+  candidate lattice with a 2D difference array, O(boxes + candidates), where
+  it used to test every candidate against every box.
 
 ### 6. Module Structure
 

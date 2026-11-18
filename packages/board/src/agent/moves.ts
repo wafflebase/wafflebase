@@ -9,7 +9,6 @@ import {
 import {
   frameAround,
   isSectionElement,
-  sectionMemberIds,
   sectionOf,
   SECTION_PADDING,
 } from '../model/section';
@@ -21,6 +20,7 @@ import {
   gridOrigins,
   gridSize,
 } from './layout';
+import { createSectionMembership, type SectionMembership } from './membership';
 
 /**
  * Batch move / resize of top-level board elements, planned on plain data
@@ -67,12 +67,15 @@ export type MovePlan =
     };
 
 /** Ids a locked section freezes: the section and everything inside it. */
-export function lockedIds(elements: readonly Element[]): Set<string> {
+export function lockedIds(
+  elements: readonly Element[],
+  membership: SectionMembership = createSectionMembership(elements),
+): Set<string> {
   const out = new Set<string>();
   for (const el of elements) {
     if (!sectionOf(el)?.locked) continue;
     out.add(el.id);
-    for (const id of sectionMemberIds(elements, el)) out.add(id);
+    for (const id of membership.membersOf(el)) out.add(id);
   }
   return out;
 }
@@ -106,7 +109,10 @@ export function planMoves(
   if (missing.length > 0) return { ok: false, reason: 'not_found', ids: missing };
   if (duplicate.length > 0) return { ok: false, reason: 'duplicate', ids: duplicate };
   if (connectors.length > 0) return { ok: false, reason: 'connector', ids: connectors };
-  const locked = lockedIds(elements);
+  // One index for the whole plan: membership is read from the board BEFORE
+  // the batch, for the locked check and for every moved section alike.
+  const membership = createSectionMembership(elements);
+  const locked = lockedIds(elements, membership);
   const frozen = moves.map((m) => m.id).filter((id) => locked.has(id));
   if (frozen.length > 0) return { ok: false, reason: 'locked', ids: frozen };
 
@@ -127,7 +133,7 @@ export function planMoves(
     if (!isSectionElement(el) || (dx === 0 && dy === 0)) continue;
     // Membership is read from the board BEFORE the batch, so a section
     // carries what was inside it, like a drag that began there.
-    for (const id of sectionMemberIds(elements, el)) {
+    for (const id of membership.membersOf(el)) {
       if (seen.has(id) || next.has(id)) continue;
       next.set(id, translate(byId.get(id)!, dx, dy));
       carried.push(id);

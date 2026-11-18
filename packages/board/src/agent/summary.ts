@@ -1,6 +1,7 @@
 import { MAX_GROUP_DEPTH, type Element, type Frame } from '@wafflebase/slides';
 import { isStickyData } from '../model/sticky';
-import { isSectionElement, sectionMemberIds, sectionOf } from '../model/section';
+import { isSectionElement, sectionOf } from '../model/section';
+import { createSectionMembership, type SectionMembership } from './membership';
 
 /**
  * A compact, agent-readable view of a board: what an agent needs to run the
@@ -122,14 +123,17 @@ function area(f: Frame): number {
  * For every element inside at least one section, the innermost (smallest)
  * one. A nested section is reported inside its parent.
  */
-export function innermostSections(elements: readonly Element[]): Map<string, string> {
+export function innermostSections(
+  elements: readonly Element[],
+  membership: SectionMembership = createSectionMembership(elements),
+): Map<string, string> {
   const sections = elements
     .filter((el) => isSectionElement(el))
     // Largest first, so a smaller section later overwrites its parent.
     .sort((a, b) => area(b.frame) - area(a.frame));
   const out = new Map<string, string>();
   for (const s of sections) {
-    for (const id of sectionMemberIds(elements, s)) out.set(id, s.id);
+    for (const id of membership.membersOf(s)) out.set(id, s.id);
   }
   return out;
 }

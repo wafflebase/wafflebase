@@ -949,7 +949,9 @@ What an agent clusters a brainstorm with, through the CLI's `board elements`
 builds `packages/board`), so they are the elements the canvas makes, and each
 request is one `doc.update` of granular writes rather than a whole-board
 replace. A non-board document is a `400`; an unknown element id a `404`; a
-locked section, or anything in one, a `409` on move. See
+locked section, or anything in one, a `409` on move. A board past 50,000
+top-level elements, or with sections stacked so deep over its elements that
+membership would cost more than 2,000,000 checks, is a `400`. See
 [`docs/design/rest-api.md`](../../docs/design/rest-api.md) §5.10.
 
 ## Auth Flow

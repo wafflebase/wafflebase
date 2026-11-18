@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  MAX_AGENT_ELEMENTS,
   SECTION_PADDING,
   STICKY_ROLE,
   buildSectionInit,
@@ -107,6 +108,63 @@ describe('ApiV1BoardController', () => {
     expect(withDocument.mock.calls[0][2]).toEqual({
       docKeyPrefix: 'board-',
       syncMode: 'readonly',
+    });
+  });
+
+  describe('board size caps', () => {
+    const shape = (id: string, x: number, y: number): Element =>
+      ({
+        id,
+        type: 'shape',
+        frame: { x, y, w: 200, h: 200, rotation: 0 },
+        data: { kind: 'rect' },
+      }) as unknown as Element;
+
+    it('refuses a board past the element cap with a 400, not a long walk', async () => {
+      const elements = Array.from({ length: MAX_AGENT_ELEMENTS + 1 }, (_, i) =>
+        shape(`e${i}`, i, 0),
+      );
+      const { controller } = harness({ elements });
+      await expect(controller.elements(WS, DOC)).rejects.toThrow(
+        new BadRequestException(
+          `The board has ${MAX_AGENT_ELEMENTS + 1} top-level elements; board API ` +
+            `requests process at most ${MAX_AGENT_ELEMENTS}.`,
+        ),
+      );
+    });
+
+    it('refuses stacked locked sections over many elements with a 400 and writes nothing', async () => {
+      // A move has to know what every locked section freezes, which here is
+      // every element 500 times over.
+      const elements: Element[] = [];
+      for (let s = 0; s < 500; s++) {
+        elements.push(
+          section(
+            `s${s}`,
+            {
+              x: -s,
+              y: -s,
+              w: 60_000 + 2 * s,
+              h: 60_000 + 2 * s,
+            },
+            { locked: true },
+          ),
+        );
+      }
+      for (let i = 0; i < 20_000; i++) {
+        elements.push(
+          shape(`e${i}`, (i % 200) * 250, Math.floor(i / 200) * 250),
+        );
+      }
+      const root: Root = { elements };
+      const { controller } = harness(root);
+      await expect(controller.elements(WS, DOC)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      await expect(
+        controller.moveElements(WS, DOC, [{ id: 'e0', x: 5, y: 5 }]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(byId(root, 'e0').frame.x).toBe(0);
     });
   });
 

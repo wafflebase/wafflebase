@@ -13,10 +13,12 @@ import {
 } from '@nestjs/common';
 import {
   AGENT_GRID_GAP,
+  BoardTooLargeError,
   DEFAULT_SECTION_SIZE,
   DEFAULT_STICKY_SIZE,
   SECTION_COLORS,
   STICKY_COLORS,
+  assertAgentBoardSize,
   besideContent,
   besideFrame,
   buildSectionInit,
@@ -150,7 +152,7 @@ export class ApiV1BoardController {
       documentId,
       (doc) => {
         const state = readState(doc.getRoot());
-        return summarizeBoard(state.elements, state.rituals);
+        return sized(() => summarizeBoard(state.elements, state.rituals));
       },
       { docKeyPrefix: BOARD_KEY_PREFIX, syncMode: 'readonly' },
     );
@@ -259,8 +261,8 @@ export class ApiV1BoardController {
         let plan: Extract<MovePlan, { ok: true }> | undefined;
 
         if (input.elementIds) {
-          const known = new Set(elements.map((el) => el.id));
-          const missing = input.elementIds.filter((id) => !known.has(id));
+          const byId = new Map(elements.map((el) => [el.id, el]));
+          const missing = input.elementIds.filter((id) => !byId.has(id));
           if (missing.length > 0) {
             throw new NotFoundException(
               `Element not found: ${missing.join(', ')}`,
@@ -268,7 +270,7 @@ export class ApiV1BoardController {
           }
           if (input.grid) {
             const nested = input.elementIds.filter((id) =>
-              isSectionElement(elements.find((el) => el.id === id)),
+              isSectionElement(byId.get(id)),
             );
             if (nested.length > 0) {
               throw new BadRequestException(
@@ -280,7 +282,7 @@ export class ApiV1BoardController {
               at: input.at,
               columns: input.columns,
             });
-            plan = requirePlan(planMoves(elements, grid.moves));
+            plan = requirePlan(sized(() => planMoves(elements, grid.moves)));
             frame = grid.frame;
           } else {
             frame = frameAroundIds(elements, input.elementIds);
@@ -343,7 +345,7 @@ export class ApiV1BoardController {
       documentId,
       (doc) => {
         const state = readState(doc.getRoot());
-        const plan = requirePlan(planMoves(state.elements, moves));
+        const plan = requirePlan(sized(() => planMoves(state.elements, moves)));
         doc.update((root) => writePlan(ensureElements(root), plan));
         return { moved: plan.moved, carried: plan.carried };
       },
@@ -421,13 +423,32 @@ export class ApiV1BoardController {
 
 // --- reading -----------------------------------------------------------------
 
+/**
+ * Run board work that walks section membership, turning the board's own
+ * "too large for one request" refusal into a 400 (the repo's answer to a
+ * request past a structural cap, as `MaxAxisEntries` is for sheets). Without
+ * it a board `PUT .../content` grew without bound would hold the event loop
+ * for every request here (`@wafflebase/board` `membership.ts`).
+ */
+function sized<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof BoardTooLargeError) {
+      throw new BadRequestException(err.message);
+    }
+    throw err;
+  }
+}
+
 function readState(root: BoardRoot): BoardState {
   const meta = unwrapJson<BoardRoot['meta']>(root.meta);
+  const raw = unwrapJson<Element[]>(root.elements) ?? [];
+  // Checked before decoding: every endpoint here walks all of them.
+  sized(() => assertAgentBoardSize(raw));
   return {
     // Board ink paths may be packed into one string (`freeform-codec.ts`).
-    elements: decodeFreeformElements(
-      unwrapJson<Element[]>(root.elements) ?? [],
-    ),
+    elements: decodeFreeformElements(raw),
     rituals: {
       stamps: unwrapJson<BoardRitualsView['stamps']>(root.stamps),
       voting: unwrapJson<BoardRitualsView['voting']>(root.voting),

@@ -8,4 +8,5 @@ export * from './model/section';
 export * from './agent/summary';
 export * from './agent/layout';
 export * from './agent/moves';
+export * from './agent/membership';
 export * from './agent/text';
