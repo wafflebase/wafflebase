@@ -1,4 +1,11 @@
 import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
+import {
+  SECTION_COLORS,
+  STICKY_COLORS,
+  STICKY_SIZE,
+  buildSectionInit,
+  buildStickyInit,
+} from '@wafflebase/board';
 import type { SlidesElement } from '../../../yorkie/yorkie.types';
 import type { TemplateSeed } from '../types';
 
@@ -8,57 +15,41 @@ import type { TemplateSeed } from '../types';
  * dock pass). Everything here is original to this repository (see
  * README.md).
  *
- * The backend does not depend on `@wafflebase/board`, so the two markers a
- * board client recognizes are written out here and pinned by
- * `boards.spec.ts`:
- *
- * - a sticky is a `roundRect` shape whose data carries `role: 'sticky'`
- *   (`STICKY_ROLE`), a drop shadow and middle-anchored shrink-to-fit text
- *   (`buildStickyInit` in the frontend's `sticky.ts`);
- * - a section is a `rect` shape whose data carries `section: { title }`,
- *   painted in one of `SECTION_COLORS`' fill/stroke pairs
- *   (`packages/board/src/model/section.ts`). Membership is geometric: a
- *   sticky belongs to the section whose frame holds most of it.
+ * Stickies and sections come out of the same `@wafflebase/board`
+ * factories the canvas and the `/api/v1` board endpoints use
+ * (`buildStickyInit`, `buildSectionInit`), so a template's sticky is the
+ * element a person makes, and a change to either marker reaches the
+ * templates with it. Membership is geometric: a sticky belongs to the
+ * section whose frame holds most of it.
  *
  * Sections come first in each element list, so they paint behind the
  * stickies on them.
  */
 
-/** `STICKY_COLORS` in the frontend's `sticky.ts`. */
-const STICKY = {
-  yellow: '#FFF8B8',
-  green: '#CDEFC4',
-  blue: '#C7E5FF',
-  pink: '#FFD6E7',
-  orange: '#FFE0B2',
-  purple: '#E5D4FF',
-} as const;
+type StickyColor = 'yellow' | 'green' | 'blue' | 'pink' | 'orange' | 'purple';
+type SectionColorName =
+  | 'gray'
+  | 'yellow'
+  | 'green'
+  | 'blue'
+  | 'pink'
+  | 'purple';
 
-/** `SECTION_COLORS` in `packages/board/src/model/section.ts`. */
-const SECTION = {
-  gray: { fill: '#F4F4F5', stroke: '#71717A' },
-  yellow: { fill: '#FEF9C3', stroke: '#A16207' },
-  green: { fill: '#DCFCE7', stroke: '#15803D' },
-  blue: { fill: '#DBEAFE', stroke: '#1D4ED8' },
-  pink: { fill: '#FCE7F3', stroke: '#BE185D' },
-  purple: { fill: '#EDE9FE', stroke: '#6D28D9' },
-} as const;
+function byName<T extends { name: string }>(
+  list: readonly T[],
+  name: string,
+): T {
+  const found = list.find((c) => c.name.toLowerCase() === name);
+  if (!found) throw new Error(`board template: unknown colour ${name}`);
+  return found;
+}
 
-/** `STICKY_SHADOW` in `packages/board/src/model/sticky.ts`. */
-const STICKY_SHADOW = {
-  color: '#000000',
-  opacity: 0.18,
-  angle: Math.PI / 2,
-  distance: 3,
-  blur: 8,
-};
-
-/** `DEFAULT_STICKY_SIZE` in the frontend's `sticky.ts`. */
-const STICKY_SIZE = 180;
 const GAP = 24;
 /** Room above a section's first row for its title pill. */
 const SECTION_HEAD = 72;
 const SECTION_PAD = 40;
+/** Sticky text size in the templates. */
+const STICKY_FONT_SIZE = 18;
 
 /** The theme's text colour, as the slides editor seeds new text. */
 const TEXT_COLOR = { kind: 'role', role: 'text' } as const;
@@ -117,19 +108,13 @@ function section(
   w: number,
   h: number,
   heading: string,
-  color: keyof typeof SECTION,
+  color: SectionColorName,
 ): SlidesElement {
-  return {
-    id,
-    type: 'shape',
-    frame: { x, y, w, h, rotation: 0 },
-    data: {
-      kind: 'rect',
-      fill: { kind: 'srgb', value: SECTION[color].fill },
-      stroke: { color: SECTION[color].stroke, width: 2 },
-      section: { title: heading },
-    },
-  } as SlidesElement;
+  const init = buildSectionInit(
+    { x, y, w, h },
+    { title: heading, color: byName(SECTION_COLORS, color) },
+  );
+  return { ...init, id } as unknown as SlidesElement;
 }
 
 /** A sticky note whose top-left corner is (x, y); `text` may be empty. */
@@ -137,25 +122,15 @@ function sticky(
   id: string,
   x: number,
   y: number,
-  color: keyof typeof STICKY,
+  color: StickyColor,
   text = '',
 ): SlidesElement {
-  return {
-    id,
-    type: 'shape',
-    frame: { x, y, w: STICKY_SIZE, h: STICKY_SIZE, rotation: 0 },
-    data: {
-      kind: 'roundRect',
-      role: 'sticky',
-      fill: { kind: 'srgb', value: STICKY[color] },
-      effects: { shadow: { ...STICKY_SHADOW } },
-      text: {
-        blocks: [paragraph(`${id}-p`, text, { fontSize: 18 }, 'center')],
-        verticalAnchor: 'middle',
-        autofit: 'shrink',
-      },
-    },
-  } as SlidesElement;
+  const init = buildStickyInit(
+    byName(STICKY_COLORS, color).value,
+    { x: x + STICKY_SIZE / 2, y: y + STICKY_SIZE / 2 },
+    { text, fontSize: STICKY_FONT_SIZE },
+  );
+  return { ...init, id } as unknown as SlidesElement;
 }
 
 /** Width of a section that holds `cols` stickies side by side. */
@@ -177,7 +152,7 @@ function stickiesIn(
   sx: number,
   sy: number,
   cols: number,
-  color: keyof typeof STICKY,
+  color: StickyColor,
   texts: string[],
 ): SlidesElement[] {
   return texts.map((text, i) =>

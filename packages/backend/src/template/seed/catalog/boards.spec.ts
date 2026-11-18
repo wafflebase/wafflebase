@@ -1,3 +1,8 @@
+import {
+  SECTION_COLORS,
+  buildSectionInit,
+  buildStickyInit,
+} from '@wafflebase/board';
 import type { SlidesElement } from '../../../yorkie/yorkie.types';
 import { TEMPLATE_CATALOG } from './index';
 import {
@@ -47,9 +52,9 @@ function overlapRatio(
 }
 
 /*
- * `boards.ts` writes out the two markers a board client keys on, because
- * the backend does not depend on `@wafflebase/board`. These values are the
- * board package's and the frontend's own; a change there must change both.
+ * The markers a board client keys on, written out independently of the
+ * `@wafflebase/board` factories `boards.ts` builds with: a palette change
+ * there is a change to every existing board, so it should fail here too.
  */
 const SECTION_PAIRS = new Set([
   '#F4F4F5/#71717A',
@@ -149,4 +154,32 @@ describe('board templates', () => {
       }
     }
   });
+
+  it.each(BOARD_TEMPLATES.map((s) => [s.slug, s] as const))(
+    '%s builds its stickies and sections with the board factories',
+    (_slug, seed) => {
+      for (const el of elementsOf(seed)) {
+        const d = dataOf(el);
+        const { x, y, w, h } = el.frame;
+        if (isSticky(el)) {
+          const text = (d.text as { blocks: { inlines: { text: string }[] }[] })
+            .blocks[0].inlines[0].text;
+          const init = buildStickyInit(
+            String(d.fill?.value),
+            { x: x + w / 2, y: y + h / 2 },
+            { text, fontSize: 18 },
+          );
+          expect({ ...el, id: undefined }).toEqual({ ...init, id: undefined });
+        }
+        if (isSection(el)) {
+          const color = SECTION_COLORS.find((c) => c.fill === d.fill?.value)!;
+          const init = buildSectionInit(
+            { x, y, w, h },
+            { title: String(d.section?.title), color },
+          );
+          expect({ ...el, id: undefined }).toEqual({ ...init, id: undefined });
+        }
+      }
+    },
+  );
 });
