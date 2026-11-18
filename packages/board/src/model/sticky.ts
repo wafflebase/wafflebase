@@ -20,6 +20,22 @@ export const STICKY_SHADOW = {
 } as const;
 
 /**
+ * Corner radius of a sticky, as the `roundRect` adjustment (OOXML
+ * thousandths of the short side): ~4px on the default 180px note. The
+ * shape's own default (16667, a 30px radius there) reads as a rounded
+ * button, not a sheet of paper.
+ */
+export const STICKY_CORNER_ADJ = 2222;
+
+/**
+ * Text padding of a sticky, on top of the `roundRect` preset's own text
+ * rectangle (~4.9% per side, ~8.8px at 180px) — together ~12px on every
+ * side. Without it the shape default padding (14.4 / 7.2px) applies, so
+ * the side margins reached ~23px and shrink-to-fit text got small fast.
+ */
+export const STICKY_TEXT_INSET = { left: 4, top: 4, right: 4, bottom: 4 } as const;
+
+/**
  * The explicit sticky marker, written into a sticky's shape `data` as
  * `role: 'sticky'` by every path that creates one (the board toolbar, the
  * `S` key, adjacent / pasted stickies, the Miro importer).
@@ -75,6 +91,33 @@ export function isStickyData(data: unknown): boolean {
 }
 
 /**
+ * `data` with the sticky's corner radius and text padding filled in where
+ * a sticky lacks them — what a board reads, so stickies written before
+ * those values were part of the preset look like new ones. Values the
+ * sticky carries (a radius someone dragged, an imported inset) win; the
+ * input is never mutated, and anything that is not a sticky is returned
+ * as is.
+ */
+export function withStickyDefaults<T>(data: T): T {
+  if (!isStickyData(data)) return data;
+  const d = data as {
+    kind?: unknown;
+    adjustments?: unknown;
+    text?: { inset?: unknown };
+  };
+  // Only a `roundRect` reads adjustment 0 as a corner radius; a sticky
+  // reshaped into another kind would read it as something else.
+  const needsCorner = d.kind === 'roundRect' && d.adjustments === undefined;
+  const needsInset = d.text !== undefined && d.text.inset === undefined;
+  if (!needsCorner && !needsInset) return data;
+  return {
+    ...data,
+    ...(needsCorner ? { adjustments: [STICKY_CORNER_ADJ] } : {}),
+    ...(needsInset ? { text: { ...d.text, inset: { ...STICKY_TEXT_INSET } } } : {}),
+  };
+}
+
+/**
  * Six pastel sticky fills. Kept light so the default dark slides text
  * color stays legible on top — a sticky is a preset `roundRect` shape,
  * not a distinct element type, so it inherits the shape text renderer.
@@ -115,8 +158,8 @@ export interface StickyOptions {
 
 /**
  * Build the `ElementInit` for a sticky note: a `roundRect` shape with a
- * solid srgb fill, a soft drop shadow, and a middle-anchored,
- * shrink-autofit, center-aligned text body, centered on `center`. It
+ * solid srgb fill, a small corner radius, a soft drop shadow, and a
+ * middle-anchored, shrink-autofit, center-aligned, evenly padded text body, centered on `center`. It
  * carries the explicit `role: 'sticky'` marker, so restyling it later
  * (a gradient, a border) never demotes it to a plain shape.
  *
@@ -160,12 +203,14 @@ export function buildStickyInit(
     data: {
       kind: 'roundRect',
       role: STICKY_ROLE,
+      adjustments: [STICKY_CORNER_ADJ],
       fill: { kind: 'srgb', value: colorValue },
       effects: { shadow: { ...STICKY_SHADOW } },
       text: {
         blocks: [block],
         verticalAnchor: 'middle',
         autofit: 'shrink',
+        inset: { ...STICKY_TEXT_INSET },
       },
       ...(author ? { author } : {}),
       ...(options.showAuthor === false ? { showAuthor: false } : {}),

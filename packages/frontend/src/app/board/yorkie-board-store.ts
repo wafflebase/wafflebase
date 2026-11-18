@@ -37,7 +37,7 @@ import {
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import { bandBlockNumerics } from '@wafflebase/docs';
-import { boardToSlidesDocument } from '@wafflebase/board';
+import { boardToSlidesDocument, withStickyDefaults } from '@wafflebase/board';
 import type {
   BoardPresence,
   BoardTimerState,
@@ -472,7 +472,9 @@ export class YorkieBoardStore implements SlidesStore {
       placeholderRef,
       // Ink paths are stored packed (see `encodeFreeformElement` on the
       // write side); old boards' array commands pass through unchanged.
-      data: decodeFreeformData(yorkieToPlain<object>(el.data)),
+      // Stickies written before the preset carried a corner radius and
+      // text padding get them here, so every sticky looks the same.
+      data: withStickyDefaults(decodeFreeformData(yorkieToPlain<object>(el.data))),
     } as ModelElement);
   }
 
