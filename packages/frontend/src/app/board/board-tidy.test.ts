@@ -22,6 +22,26 @@ describe("rowBands", () => {
     ]);
   });
 
+  it("keeps a hand-placed 2x3 sticky grid with vertical jitter as two rows of three", () => {
+    // 180px stickies, 24px apart, nudged up to 10px off the grid line.
+    const s = (id: string, x: number, y: number) => item(id, x, y, 180, 180);
+    const bands = rowBands([
+      s("a", 0, 0),
+      s("b", 204, 10),
+      s("c", 408, -8),
+      s("d", 4, 212),
+      s("e", 206, 220),
+      s("f", 410, 206),
+    ]);
+    expect(bands.map((r) => r.map((i) => i.id))).toEqual([
+      ["a", "b", "c"],
+      ["d", "e", "f"],
+    ]);
+    const layout = tidyLayout(bands.flat());
+    expect(new Set([...layout.values()].map((p) => p.y)).size).toBe(2);
+    expect(new Set([...layout.values()].map((p) => p.x)).size).toBe(3);
+  });
+
   it("keeps two stickies that merely touch vertically in separate rows", () => {
     const bands = rowBands([item("a", 0, 0), item("b", 0, 90)]);
     expect(bands).toHaveLength(2);
