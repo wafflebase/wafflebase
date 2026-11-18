@@ -2,13 +2,13 @@ import { worldToScreen, type Frame, type Viewport } from "@wafflebase/slides";
 import type { BoardAnchor, Thread } from "@/types/comments";
 import { frameFractionToWorld } from "./frame-fraction";
 import { resolveBoardAnchor } from "./board-anchor";
-import { stampGlyph, stampsByElement } from "./stamps";
+import { stampsByElement } from "./stamps";
 import type { BoardStamp, BoardStamps } from "./types";
 
 /** Screen size of a stamp at zoom 1, and its clamp at other zooms. */
-const STAMP_BASE = 28;
-const STAMP_MIN = 14;
-const STAMP_MAX = 44;
+const STAMP_BASE = 32;
+const STAMP_MIN = 16;
+const STAMP_MAX = 48;
 /** Own-vote dots and result badges are screen-sized. */
 export const VOTE_DOT = 16;
 export const RESULT_BADGE = 26;
@@ -21,7 +21,6 @@ export function stampSize(zoom: number): number {
 export interface StampItem {
   key: string;
   stamp: BoardStamp;
-  glyph: string;
   /** Centre, in host-relative screen px. */
   x: number;
   y: number;
@@ -110,7 +109,6 @@ export function layoutRituals(input: RitualLayoutInput): RitualLayout {
       stamps.push({
         key,
         stamp,
-        glyph: stampGlyph(stamp.kind),
         x: p.x,
         y: p.y,
         size,

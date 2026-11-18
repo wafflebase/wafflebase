@@ -101,6 +101,6 @@ describe("stampKeysForElements / stampsByElement", () => {
 
   it("describes who stamped what", () => {
     const list = stampsByElement(stamps, new Set(["e1"])).get("e1")!;
-    expect(describeStamps(list)).toBe("⭐ bob · 👍 alice");
+    expect(describeStamps(list)).toBe("Star: bob · +1: alice");
   });
 });

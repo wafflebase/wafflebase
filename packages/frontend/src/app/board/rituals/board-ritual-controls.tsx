@@ -33,7 +33,8 @@ import type { YorkieBoardStore } from "../yorkie-board-store";
 import { useBoardCollab } from "./board-collab-hook";
 import { useRitualToolState } from "./use-ritual-tool-state";
 import { writeStartVoting } from "./ritual-writes";
-import { STAMP_KINDS, stampGlyph } from "./stamps";
+import { STAMP_KINDS } from "./stamps";
+import { StampBadge } from "./stamp-badge";
 import type { BoardStampKind } from "./types";
 import { useBoardVoting } from "./use-board-voting";
 import {
@@ -89,9 +90,7 @@ export function BoardRitualTools({
                   <span className="text-xs tabular-nums">{left}</span>
                 </>
               ) : (
-                <span className="text-base leading-none" aria-hidden="true">
-                  {stampGlyph(state.stampKind)}
-                </span>
+                <StampBadge kind={state.stampKind} />
               )}
             </Toggle>
           </TooltipTrigger>
@@ -123,10 +122,8 @@ export function BoardRitualTools({
             >
               {STAMP_KINDS.map((s) => (
                 <DropdownMenuRadioItem key={s.kind} value={s.kind}>
-                  <span className="mr-2" aria-hidden="true">
-                    {s.glyph}
-                  </span>
-                  {s.label}
+                  <StampBadge kind={s.kind} size={16} />
+                  <span className="ml-2">{s.label}</span>
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>

@@ -1,21 +1,20 @@
 import type { BoardStamp, BoardStampKind, BoardStamps } from "./types";
 
-/** Toolbar order, with the glyph painted for each kind and its label. */
+/** Toolbar order, with each kind's label. How each is drawn: `stamp-art.ts`. */
 export const STAMP_KINDS: ReadonlyArray<{
   kind: BoardStampKind;
-  glyph: string;
   label: string;
 }> = [
-  { kind: "plus1", glyph: "👍", label: "+1" },
-  { kind: "heart", glyph: "❤️", label: "Heart" },
-  { kind: "star", glyph: "⭐", label: "Star" },
-  { kind: "question", glyph: "❓", label: "Question" },
-  { kind: "check", glyph: "✅", label: "Check" },
-  { kind: "cross", glyph: "❌", label: "Cross" },
+  { kind: "plus1", label: "+1" },
+  { kind: "heart", label: "Heart" },
+  { kind: "star", label: "Star" },
+  { kind: "question", label: "Question" },
+  { kind: "check", label: "Check" },
+  { kind: "cross", label: "Cross" },
 ];
 
-export function stampGlyph(kind: BoardStampKind): string {
-  return STAMP_KINDS.find((s) => s.kind === kind)?.glyph ?? "👍";
+export function stampLabel(kind: BoardStampKind): string {
+  return STAMP_KINDS.find((s) => s.kind === kind)?.label ?? kind;
 }
 
 export function isStampKind(value: unknown): value is BoardStampKind {
@@ -127,7 +126,7 @@ export function stampsByElement(
   return out;
 }
 
-/** "👍 alice, bob · ❤️ carol" — who stamped what, for the hover card. */
+/** "+1: alice, bob · Heart: carol" — who stamped what, for the hover card. */
 export function describeStamps(list: ReadonlyArray<{ stamp: BoardStamp }>): string {
   const byKind = new Map<BoardStampKind, string[]>();
   for (const { stamp } of list) {
@@ -136,6 +135,6 @@ export function describeStamps(list: ReadonlyArray<{ stamp: BoardStamp }>): stri
     byKind.set(stamp.kind, names);
   }
   return [...byKind.entries()]
-    .map(([kind, names]) => `${stampGlyph(kind)} ${names.join(", ")}`)
+    .map(([kind, names]) => `${stampLabel(kind)}: ${names.join(", ")}`)
     .join(" · ");
 }
