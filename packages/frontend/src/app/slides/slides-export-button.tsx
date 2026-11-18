@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   IconFileTypePdf,
   IconFileTypePpt,
@@ -10,6 +11,7 @@ import type { SlidesStore } from "@wafflebase/slides";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -50,6 +52,7 @@ export function SlidesExportButton({
   const placement = useHeaderPlacement();
   // Inset in the menu so the rows line up with its checked panel rows.
   const inMenu = placement === "menu";
+  const labelId = useId();
 
   const runExport = async (
     label: string,
@@ -113,9 +116,16 @@ export function SlidesExportButton({
   if (inMenu) {
     return (
       <>
-        <DropdownMenuSeparator className="first:hidden" />
-        <DropdownMenuLabel inset>Export</DropdownMenuLabel>
-        {formats}
+        {/* Hidden when it would open the menu or follow the primary's. */}
+        <DropdownMenuSeparator className="first:hidden [[role=separator]+&]:hidden" />
+        {/* A group named by its label, so a screen reader hears "Export"
+            with the rows rather than a bare "PDF (.pdf)". */}
+        <DropdownMenuGroup aria-labelledby={labelId}>
+          <DropdownMenuLabel inset id={labelId}>
+            Export
+          </DropdownMenuLabel>
+          {formats}
+        </DropdownMenuGroup>
       </>
     );
   }

@@ -4,7 +4,7 @@
  * the More menu — whose content unmounts on close, so an export started there
  * must keep its in-flight guard somewhere that outlives it.
  */
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -31,11 +31,18 @@ vi.mock('@/app/slides/pdf-actions', () => ({
 vi.mock('@/app/slides/pptx-actions', () => ({
   exportSlidesPptxAndDownload: vi.fn(),
 }));
+vi.mock('@/app/docs/docx-actions', () => ({ exportDocxAndDownload: vi.fn() }));
+vi.mock('@/app/docs/pdf-actions', () => ({ exportPdfAndDownload: vi.fn() }));
+vi.mock('@/app/docs/text-actions', () => ({
+  exportMarkdownAndDownload: vi.fn(),
+  exportTextAndDownload: vi.fn(),
+}));
 
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SiteHeader } from '../site-header';
 import { PresentButton } from '@/app/slides/slides-present-button';
 import { SlidesExportButton } from '@/app/slides/slides-export-button';
+import { DocsExportButton } from '@/app/docs/docs-export-button';
 import type { SlidesStore } from '@wafflebase/slides';
 
 const store = { read: () => ({}) } as unknown as SlidesStore;
@@ -121,5 +128,52 @@ describe('Export in the phone More menu', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'PDF (.pdf)' }),
     ).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('releases the guard once the export settles', async () => {
+    let finish!: () => void;
+    pdfExport.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderSlidesHeader();
+
+    await openMore();
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'PDF (.pdf)' }));
+    const more = screen.getByRole('button', { name: 'More document actions' });
+    expect(more).toHaveAttribute('aria-busy', 'true');
+
+    await act(async () => finish());
+    expect(more).not.toHaveAttribute('aria-busy');
+    await openMore();
+    expect(
+      await screen.findByRole('menuitem', { name: 'PDF (.pdf)' }),
+    ).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('groups the Docs formats under their label, disabled until the editor mounts', async () => {
+    render(
+      <TooltipProvider>
+        <SiteHeader
+          title="Plan"
+          actions={{
+            export: <DocsExportButton editor={null} title="Plan" />,
+            share: <span>share</span>,
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    await openMore();
+    const group = await screen.findByRole('group', { name: 'Export' });
+    const rows = within(group).getAllByRole('menuitem');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'Word (.docx)',
+      'PDF (.pdf)',
+      'Markdown (.md)',
+      'Plain text (.txt)',
+    ]);
+    for (const row of rows) expect(row).toHaveAttribute('aria-disabled', 'true');
   });
 });

@@ -20,3 +20,12 @@
   the fix.
 - Reverting a file to prove a test fails: back it up and restore from the
   backup — `git checkout` restores HEAD and silently drops uncommitted work.
+- Round 2 (design fit + `superpowers:requesting-code-review`) — panel
+  blocked on 1: no test that the busy flag clears after an export settles.
+  Fixed with a test. The independent reviewer found no blockers; took its
+  minors: Export rows grouped under a labelled `DropdownMenuGroup` (screen
+  readers heard a bare "PDF (.pdf)"), no shortcut hint in the phone menu, a
+  separator after the primary's rows (never doubled), `HeaderPanelToggle`
+  on `HEADER_CONTROL_SIZE`, a Docs menu test. Deferred: the `primary`
+  slot's placement contract is a doc comment, not enforced (one primary
+  today).

@@ -45,9 +45,12 @@ export function PresentButton({ disabled, onStart }: PresentButtonProps) {
       onSelect={() => onStart("first")}
     >
       Present from beginning
-      <span className="ml-auto pl-4 text-xs text-muted-foreground">
-        {modKey}⇧↵
-      </span>
+      {/* A phone has no keyboard to take the hint. */}
+      {placement !== "menu" && (
+        <span className="ml-auto pl-4 text-xs text-muted-foreground">
+          {modKey}⇧↵
+        </span>
+      )}
     </DropdownMenuItem>
   );
 

@@ -14,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
@@ -126,7 +127,7 @@ export function HeaderPanelToggle({
       <TooltipTrigger asChild>
         <Toggle
           size="sm"
-          className="h-8 w-8 min-w-8 cursor-pointer border p-0 pointer-coarse:min-w-11"
+          className={`${HEADER_CONTROL_SIZE} min-w-8 cursor-pointer border p-0`}
           aria-label={name}
           pressed={pressed}
           onPressedChange={onPressedChange}
@@ -422,6 +423,11 @@ function HeaderMoreMenu({
       <DropdownMenuContent align="end" className="min-w-56">
         <HeaderPlacementContext.Provider value="menu">
           {actions.primary}
+          {/* Splits the type's own action from the panels; hidden when the
+              primary drew nothing or nothing follows it. */}
+          {actions.primary && (
+            <DropdownMenuSeparator className="first:hidden last:hidden" />
+          )}
           {/* Fragments, not the row's `contents` boxes: a slot's leading
               separator hides itself with `first:`, which a wrapper would
               make true of every slot. */}

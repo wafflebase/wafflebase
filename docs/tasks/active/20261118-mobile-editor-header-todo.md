@@ -55,3 +55,6 @@ Known limits:
   header for one frame (the sidebar has the same behaviour).
 - The bell stays in the row: it carries the unread badge, and the sidebar is
   hidden behind its trigger on a phone.
+- `primary` renders in the row and again in the More menu, so it must read
+  `useHeaderPlacement()`. Only a doc comment enforces that; `PresentButton`
+  is the one primary today.

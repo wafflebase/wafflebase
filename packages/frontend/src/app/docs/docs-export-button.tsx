@@ -1,9 +1,11 @@
+import { useId } from "react";
 import { IconDownload, IconLoader2, IconFileDownload } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { userFacingError } from "@/api/http-error";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -45,6 +47,7 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   const placement = useHeaderPlacement();
   // Inset in the menu so the rows line up with its checked panel rows.
   const inMenu = placement === "menu";
+  const labelId = useId();
 
   type ExportAction = (
     doc: DocsDocument,
@@ -127,9 +130,16 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   if (inMenu) {
     return (
       <>
-        <DropdownMenuSeparator className="first:hidden" />
-        <DropdownMenuLabel inset>Export</DropdownMenuLabel>
-        {formats}
+        {/* Hidden when it would open the menu or follow the primary's. */}
+        <DropdownMenuSeparator className="first:hidden [[role=separator]+&]:hidden" />
+        {/* A group named by its label, so a screen reader hears "Export"
+            with the rows rather than a bare "PDF (.pdf)". */}
+        <DropdownMenuGroup aria-labelledby={labelId}>
+          <DropdownMenuLabel inset id={labelId}>
+            Export
+          </DropdownMenuLabel>
+          {formats}
+        </DropdownMenuGroup>
       </>
     );
   }
