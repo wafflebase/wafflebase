@@ -171,6 +171,7 @@ export function BoardRitualTools({
                 userName: user.name,
               }),
             );
+            tool.beginVoting();
             tool.setMode("stamp");
             setStartOpen(false);
           }}

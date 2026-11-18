@@ -7,7 +7,7 @@ import {
   type SlidesEditor,
   type Viewport,
 } from "@wafflebase/slides";
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { toast } from "sonner";
 
 import { CommentComposer } from "@/components/comments/components/CommentComposer";
@@ -36,6 +36,8 @@ import { writeBallot, writeStampEdit } from "./ritual-writes";
 import { describeStamps, planStampClick } from "./stamps";
 import type { BoardStamps, BoardVoting } from "./types";
 import { useBoardDoc, useBoardVoting } from "./use-board-voting";
+import { useVotingTally } from "./use-voting-tally";
+import { useVotingToolRestore } from "./use-voting-tool-restore";
 import {
   ballotOf,
   canVote,
@@ -404,11 +406,8 @@ export function BoardRituals({
   }, [editor, store, doc, hand, containerRef, vpRef, readOnly, menuRef, navigateRef, canAct]);
 
   const pending = collab?.pending ?? null;
-  const tally = useMemo(
-    () => (voting?.status === "ended" ? tallyVotes(voting, new Set(framesRef.current.keys())) : []),
-    // `framesRef` is read at render; the voting change is what matters.
-    [voting],
-  );
+  const tally = useVotingTally(voting, store);
+  useVotingToolRestore(voting, collab?.tool ?? null);
 
   return (
     <>

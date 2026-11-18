@@ -25,11 +25,24 @@ export interface RitualTool {
   get(): RitualToolState;
   setMode(mode: RitualMode): void;
   setStampKind(kind: BoardStampKind): void;
+  /**
+   * A vote opened: remember the tool in hand, so {@link endVoting} can
+   * give it back. Call before arming the stamp for the vote. Idempotent
+   * for one session (the local start and the observed start both call it).
+   */
+  beginVoting(): void;
+  /**
+   * The vote ended (here or on a peer): if the stamp is still armed, put
+   * back the tool from before the vote, normally Select (`"none"`). A tool
+   * the user picked during the vote is left alone.
+   */
+  endVoting(): void;
   subscribe(cb: () => void): () => void;
 }
 
 export function createRitualTool(): RitualTool {
   let state: RitualToolState = { mode: "none", stampKind: "plus1" };
+  let beforeVoting: RitualMode | null = null;
   const listeners = new Set<() => void>();
   const emit = () => {
     for (const cb of listeners) cb();
@@ -45,6 +58,18 @@ export function createRitualTool(): RitualTool {
       if (stampKind === state.stampKind) return;
       state = { ...state, stampKind };
       emit();
+    },
+    beginVoting: () => {
+      if (beforeVoting === null) beforeVoting = state.mode;
+    },
+    endVoting: () => {
+      const before = beforeVoting;
+      beforeVoting = null;
+      if (before === null || state.mode !== "stamp") return;
+      if (before !== state.mode) {
+        state = { ...state, mode: before };
+        emit();
+      }
     },
     subscribe: (cb) => {
       listeners.add(cb);
