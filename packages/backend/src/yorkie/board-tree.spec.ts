@@ -76,6 +76,17 @@ describe('writeBoardRoot', () => {
     writeBoardRoot(root, { meta: { title: 'Roadmap' }, elements: [] });
     expect(root.meta).toEqual({ title: 'Roadmap' });
   });
+
+  it('keeps meta fields the content JSON does not carry, like anonymous mode', () => {
+    const root: BoardYorkieRoot = {
+      meta: { title: 'Retro', unit: 'cm', anonymous: true } as never,
+      elements: [],
+    };
+    writeBoardRoot(root, { meta: { title: 'Retro 2' }, elements: [] });
+    // `unit` is the writer's own field and goes; `anonymous` is not and stays,
+    // or a content PUT would re-reveal every sticky's author.
+    expect(root.meta).toEqual({ title: 'Retro 2', anonymous: true });
+  });
 });
 
 describe('initialBoardRoot', () => {

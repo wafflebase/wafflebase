@@ -73,10 +73,23 @@ export function readBoardRoot(root: BoardYorkieRoot): BoardDocument {
   return out;
 }
 
+/** The `meta` fields the content JSON carries, and so the writer owns. */
+const CONTENT_META_KEYS: ReadonlySet<string> = new Set([
+  'title',
+  'unit',
+  'recentColors',
+]);
+
 /**
  * Destructive replace of a board's content, matching the slides writer: the
  * incoming fields overwrite the root, and `meta` is rewritten as a fresh
- * object so a stale field cannot survive a write that omitted it.
+ * object so a stale field the content JSON owns (`title`, `unit`,
+ * `recentColors`) cannot survive a write that omitted it.
+ *
+ * Any other `meta` field is board state the content JSON does not carry —
+ * `anonymous`, which hides sticky authors — and is kept as it is: a content
+ * PUT that rebuilt `meta` from the owned fields alone would silently turn
+ * anonymous mode off.
  *
  * Must be called inside `doc.update`.
  */
@@ -84,7 +97,14 @@ export function writeBoardRoot(
   root: BoardYorkieRoot,
   document: BoardDocument,
 ): void {
-  const meta: BoardMeta = { title: document.meta.title };
+  const kept: Record<string, unknown> = {};
+  const previous = unwrapJson<Record<string, unknown>>(root.meta);
+  if (previous && typeof previous === 'object') {
+    for (const [key, value] of Object.entries(previous)) {
+      if (!CONTENT_META_KEYS.has(key)) kept[key] = value;
+    }
+  }
+  const meta: BoardMeta = { ...kept, title: document.meta.title };
   if (document.meta.unit !== undefined) meta.unit = document.meta.unit;
   if (document.meta.recentColors !== undefined) {
     meta.recentColors = document.meta.recentColors;
