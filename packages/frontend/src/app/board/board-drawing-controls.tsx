@@ -38,33 +38,49 @@ export function BoardLassoToggle({
 }
 
 /**
- * The marker popover's extra rows: the laser pointer and the smart-shapes
- * switch. Smart shapes is remembered with the pen choice (`board-ink.ts`).
+ * The laser pointer (Shift+K): a fading trail peers see, nothing saved.
+ * A presenting tool rather than a drawing one, so it sits in the top
+ * bar's Facilitate group (`board-facilitate-controls.tsx`).
+ */
+export function BoardLaserToggle({
+  tool,
+  disabled,
+}: {
+  tool: ToggleTool | null;
+  disabled?: boolean;
+}) {
+  const on = useToggleOn(tool);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          pressed={on}
+          onPressedChange={(pressed) => tool?.set(pressed)}
+          aria-label="Laser pointer"
+          disabled={disabled || !tool}
+        >
+          <IconPointerBolt size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>Laser pointer ({DRAWING_HINTS.laser})</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * The marker popover's extra row: the smart-shapes switch, remembered
+ * with the pen choice (`board-ink.ts`).
  */
 export function BoardInkExtras({
-  laser,
   ink,
   smartShapes,
 }: {
-  laser: ToggleTool | null;
   ink: InkTool | null;
   smartShapes: boolean;
 }) {
-  const laserOn = useToggleOn(laser);
   return (
     <div className="flex flex-col gap-1 border-t pt-2">
-      <Button
-        size="sm"
-        variant={laserOn ? "secondary" : "ghost"}
-        aria-pressed={laserOn}
-        className="h-8 justify-start gap-2 px-2"
-        disabled={!laser}
-        onClick={() => laser?.set(!laserOn)}
-      >
-        <IconPointerBolt size={14} />
-        Laser pointer
-        <span className="text-muted-foreground ml-auto text-xs">{DRAWING_HINTS.laser}</span>
-      </Button>
       <Button
         size="sm"
         variant={smartShapes ? "secondary" : "ghost"}

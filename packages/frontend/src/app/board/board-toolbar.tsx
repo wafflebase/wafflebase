@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconGrid3x3, IconChevronDown } from "@tabler/icons-react";
+import { IconGridDots, IconChevronDown } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,7 +78,10 @@ export interface BoardToolbarProps {
   onGridSnapChange: (snap: boolean) => void;
   /** Board sections: the sections list and the section controls. */
   sections?: BoardSections | null;
-  /** Facilitation controls (timer, Spotlight), after the view controls. */
+  /**
+   * The Facilitate group (timer, vote, Spotlight, laser; see
+   * `board-facilitate-controls.tsx`), after the view controls.
+   */
   collabControls?: React.ReactNode;
 }
 
@@ -86,7 +89,7 @@ export interface BoardToolbarProps {
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾][Grid ▾][Sections ▾] │ [Timer][Spotlight] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾][Sections ▾] │ [Timer][Vote][Spotlight][Laser] │ ‹contextual›
  * ```
  *
  * The insert tools live in the bottom-centre tool dock
@@ -107,7 +110,7 @@ export interface BoardToolbarProps {
  * there), so the phone gets:
  *
  * ```text
- * idle:      [↶][↷] [Zoom ▾][Grid ▾][Sections ▾] [Timer][Spotlight]
+ * idle:      [↶][↷] [Zoom ▾][Grid ▾][Sections ▾] [Facilitate]
  * selection: [↶][↷] │ [Arrange] ‹contextual›
  * ```
  *
@@ -242,7 +245,12 @@ export function BoardToolbar({
 
   return (
     <Toolbar ref={toolbarRef} data-canvas-toolbar="">
-      <UndoRedoGroup store={store} />
+      {/* `UndoRedoGroup` draws Slides' 28px `ToolbarButton`s; every other
+          board control is 32px, so they are sized up here. `contents`
+          keeps the two buttons direct flex items of the strip. */}
+      <div className="contents [&>button]:size-8">
+        <UndoRedoGroup store={store} />
+      </div>
       {!compactSelection && (
         <>
         {!isMobile && <ToolbarSeparator className="mx-1" />}
@@ -271,13 +279,13 @@ export function BoardToolbar({
                       on is a supported combination, and a dimmed icon there
                       would be the one always-visible affordance claiming a
                       feature that is in fact active. */}
-                  <IconGrid3x3
+                  <IconGridDots
                     size={16}
                     className={
                       gridKind === "none" && !gridSnap ? "opacity-50" : undefined
                     }
                   />
-                  <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
+                  <IconChevronDown size={12} aria-hidden="true" className="size-3 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>

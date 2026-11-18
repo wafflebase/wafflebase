@@ -25,14 +25,18 @@ const VIEWPORT_STROKE = 1.5;
  * whose `border` shorthand carries a var().
  */
 const TOGGLE_CSS = [
-  'display:inline-flex', 'align-items:center', 'justify-content:center', 'gap:2px',
-  // 16px line + 2px padding + 1px border measures 22px; the floor lifts it
-  // to the 24px minimum target (WCAG 2.5.8). Coarse pointers get 44px below.
-  'min-height:24px', 'box-sizing:border-box',
+  'display:inline-flex', 'align-items:center', 'justify-content:center', 'gap:4px',
+  // The same floating-control surface as the Download button and the tool
+  // dock (`bg-background text-foreground border rounded-lg shadow-md`), so
+  // the controls over the plane read as one family. 32px tall like the
+  // Download button; coarse pointers get 44px below.
+  'min-height:32px', 'box-sizing:border-box',
   'font:500 12px/16px var(--font-body, system-ui, sans-serif)',
-  'padding:2px 6px 2px 8px', 'border-radius:calc(var(--radius, 4.8px) - 2px)',
-  'background:var(--popover, oklch(1 0 0))', 'color:var(--muted-foreground, oklch(0.552 0.016 285.938))',
-  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))', 'cursor:pointer',
+  'padding:0 8px 0 10px', 'border-radius:var(--radius, 4.8px)',
+  'background:var(--background, oklch(1 0 0))', 'color:var(--foreground, oklch(0.141 0.005 285.823))',
+  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))',
+  'box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+  'cursor:pointer',
 ].join(';');
 
 const PANEL_CSS = [
@@ -51,7 +55,7 @@ const PANEL_CSS = [
  * A fingertip target for the toggle. Inline styles cannot carry the
  * `pointer: coarse` media query, so the mount decides once and passes it in.
  */
-const TOGGLE_COARSE_CSS = ['min-height:44px', 'min-width:44px', 'padding:0 10px 0 12px'].join(';');
+const TOGGLE_COARSE_CSS = ['min-height:44px', 'min-width:44px', 'padding:0 12px 0 14px'].join(';');
 
 /*
  * The viewport rectangle is a selection-like frame over the scene, so it is
@@ -77,16 +81,23 @@ export function defaultMinimapVisible(): boolean {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/** Tabler `chevron-down` / `chevron-right`, drawn in the toggle text color. */
-function chevron(expanded: boolean): SVGSVGElement {
+/**
+ * Tabler `chevron-down` at its 16px / stroke-2 size, in the toggle text
+ * colour. One direction in both states: it marks the toggle as a disclosure,
+ * and `aria-expanded` plus the panel itself say which way it is. Switching to
+ * a right chevron while collapsed (the old drawing) made the same control
+ * look like two different ones on desktop, where it starts open, and on a
+ * phone, where it starts closed.
+ */
+function chevron(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   for (const [k, v] of Object.entries({
-    width: '14', height: '14', viewBox: '0 0 24 24', fill: 'none',
+    width: '16', height: '16', viewBox: '0 0 24 24', fill: 'none',
     stroke: 'currentColor', 'stroke-width': '2',
     'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
   })) svg.setAttribute(k, v);
   const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', expanded ? 'M6 9l6 6l6 -6' : 'M9 6l6 6l-6 6');
+  path.setAttribute('d', 'M6 9l6 6l6 -6');
   svg.appendChild(path);
   return svg;
 }
@@ -125,6 +136,8 @@ export interface BoardMinimap {
    * edge, so a peer working off the map still shows which way they are.
    */
   setPeers(dots: readonly MinimapPeerDot[]): void;
+  /** Match the panel to the plane when the host's plane colour changes. */
+  setPlaneBackground(color: string): void;
   dispose(): void;
 }
 
@@ -200,7 +213,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   const applyVisibility = () => {
     panel.style.display = visible ? 'block' : 'none';
-    toggle.replaceChildren(document.createTextNode('Map'), chevron(visible));
+    toggle.replaceChildren(document.createTextNode('Map'), chevron());
     toggle.setAttribute('aria-expanded', String(visible));
   };
 
@@ -337,6 +350,9 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
     setPeers: (dots: readonly MinimapPeerDot[]) => {
       peerDots = dots;
       if (visible) blit();
+    },
+    setPlaneBackground: (color: string) => {
+      panel.style.background = color;
     },
     dispose: () => {
       disposed = true;

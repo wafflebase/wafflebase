@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react";
 import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
 import {
-  IconChevronDown,
   IconEraser,
   IconHighlight,
   IconPencil,
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -29,7 +24,7 @@ import {
   type InkWidth,
 } from "./board-ink";
 import { BoardInkExtras } from "./board-drawing-controls";
-import type { ToggleTool } from "./board-drawing-extras";
+import { SplitToolChevron } from "./board-split-tool-button";
 
 const PEN_LABEL: Record<InkPen, string> = {
   marker: "Marker",
@@ -47,8 +42,6 @@ export interface BoardInkControlsProps {
   ink: InkTool | null;
   insertMode: InsertKind | null;
   disabled?: boolean;
-  /** The laser pointer (Shift+K), toggled from the popover. */
-  laser?: ToggleTool | null;
   /**
    * Whether the Eraser toggle follows the pen. Omitted: it does. The
    * dock's compact (phone) layout sets it false and offers
@@ -70,7 +63,6 @@ export function BoardInkControls({
   ink,
   insertMode,
   disabled,
-  laser = null,
   withEraser = true,
 }: BoardInkControlsProps) {
   const [state, setState] = useState(() => ink?.get() ?? null);
@@ -111,22 +103,7 @@ export function BoardInkControls({
           </TooltipContent>
         </Tooltip>
         <Popover>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-0.5"
-                  aria-label="Pen, colour and width"
-                  disabled={off}
-                >
-                  <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-                </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Pen, colour and width</TooltipContent>
-          </Tooltip>
+          <SplitToolChevron menu="popover" label="Pen, colour and width" disabled={off} />
           <PopoverContent align="start" className="w-auto p-2">
             {state && style && (
               <div className="flex flex-col gap-2">
@@ -200,7 +177,6 @@ export function BoardInkControls({
                   ))}
                 </div>
                 <BoardInkExtras
-                  laser={laser}
                   ink={ink}
                   smartShapes={state.smartShapes === true}
                 />

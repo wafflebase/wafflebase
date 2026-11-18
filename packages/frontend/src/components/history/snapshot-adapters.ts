@@ -8,7 +8,7 @@ import {
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import type { Element, SlidesDocument } from '@wafflebase/slides';
 import { bandSlidesDocumentNumerics, decodeFreeformElements } from '@wafflebase/slides';
-import { boardToSlidesDocument } from '@wafflebase/board';
+import { boardToSlidesDocument, withStickyDefaultsDeep } from '@wafflebase/board';
 import type { YorkieBoardRoot } from '@/types/board-document';
 import { unwrapYsonScalars } from './unwrap-yson';
 
@@ -86,7 +86,11 @@ export function parseBoardSnapshot(snapshot: string): SlidesDocument {
     // model wants — every `frame` number a number, no proxy left to detach.
     // Ink paths are stored packed (`YorkieBoardStore`); decode them as the
     // live store does, so a preview paints them.
-    elements: decodeFreeformElements((root.elements ?? []) as unknown as Element[]),
+    // Stickies stored before the preset pinned a radius and padding get
+    // them here as well, so a preview matches the live board beside it.
+    elements: withStickyDefaultsDeep(
+      decodeFreeformElements((root.elements ?? []) as unknown as Element[]),
+    ),
   }));
 }
 

@@ -1,21 +1,20 @@
 import type { BoardStamp, BoardStampKind, BoardStamps } from "./types";
 
-/** Toolbar order, with the glyph painted for each kind and its label. */
+/** Toolbar order, with each kind's label. How each is drawn: `stamp-art.ts`. */
 export const STAMP_KINDS: ReadonlyArray<{
   kind: BoardStampKind;
-  glyph: string;
   label: string;
 }> = [
-  { kind: "plus1", glyph: "👍", label: "+1" },
-  { kind: "heart", glyph: "❤️", label: "Heart" },
-  { kind: "star", glyph: "⭐", label: "Star" },
-  { kind: "question", glyph: "❓", label: "Question" },
-  { kind: "check", glyph: "✅", label: "Check" },
-  { kind: "cross", glyph: "❌", label: "Cross" },
+  { kind: "plus1", label: "+1" },
+  { kind: "heart", label: "Heart" },
+  { kind: "star", label: "Star" },
+  { kind: "question", label: "Question" },
+  { kind: "check", label: "Check" },
+  { kind: "cross", label: "Cross" },
 ];
 
-export function stampGlyph(kind: BoardStampKind): string {
-  return STAMP_KINDS.find((s) => s.kind === kind)?.glyph ?? "👍";
+export function stampLabel(kind: BoardStampKind): string {
+  return STAMP_KINDS.find((s) => s.kind === kind)?.label ?? kind;
 }
 
 export function isStampKind(value: unknown): value is BoardStampKind {
@@ -103,10 +102,30 @@ export function stampKeysForElements(
 }
 
 /**
+ * Whether a stamp read from the CRDT has the shape the overlay draws. Any
+ * collaborator can write `root.stamps`, so a kind this client does not know
+ * (a newer client's, or a crafted one) or a non-string owner would otherwise
+ * reach code that indexes the stamp art by kind every frame, and a stamp
+ * without a finite position has nowhere to be drawn. `name` is display-only
+ * and is not checked: readers fall back (see {@link stamperName}) rather
+ * than hide a stamp over a missing name.
+ */
+function isDrawableStamp(stamp: BoardStamp | undefined): stamp is BoardStamp {
+  return (
+    !!stamp &&
+    isStampKind(stamp.kind) &&
+    typeof stamp.by === "string" &&
+    Number.isFinite(stamp.u) &&
+    Number.isFinite(stamp.v)
+  );
+}
+
+/**
  * Stamps grouped by element, restricted to elements that still exist at
  * the top level. An orphan (its element deleted by an undo, or by a client
  * that predates the cleanup) is simply not drawn — garbage collection on
- * read, so a missed cleanup can never paint a stamp in mid-air.
+ * read, so a missed cleanup can never paint a stamp in mid-air. A stamp
+ * that fails {@link isDrawableStamp} is skipped the same way.
  */
 export function stampsByElement(
   stamps: BoardStamps | undefined,
@@ -115,7 +134,7 @@ export function stampsByElement(
   const out = new Map<string, Array<{ key: string; stamp: BoardStamp }>>();
   if (!stamps) return out;
   for (const [key, stamp] of Object.entries(stamps)) {
-    if (!stamp || !liveIds.has(stamp.el)) continue;
+    if (!isDrawableStamp(stamp) || !liveIds.has(stamp.el)) continue;
     let list = out.get(stamp.el);
     if (!list) {
       list = [];
@@ -127,15 +146,21 @@ export function stampsByElement(
   return out;
 }
 
-/** "👍 alice, bob · ❤️ carol" — who stamped what, for the hover card. */
+/** A stamp's display name, or a stand-in when a peer wrote none. */
+export function stamperName(name: unknown): string {
+  return typeof name === "string" && name.trim() !== "" ? name.trim() : "Someone";
+}
+
+/** "+1: alice, bob · Heart: carol" — who stamped what, for the hover card. */
 export function describeStamps(list: ReadonlyArray<{ stamp: BoardStamp }>): string {
   const byKind = new Map<BoardStampKind, string[]>();
   for (const { stamp } of list) {
     const names = byKind.get(stamp.kind) ?? [];
-    if (!names.includes(stamp.name)) names.push(stamp.name);
+    const name = stamperName(stamp.name);
+    if (!names.includes(name)) names.push(name);
     byKind.set(stamp.kind, names);
   }
   return [...byKind.entries()]
-    .map(([kind, names]) => `${stampGlyph(kind)} ${names.join(", ")}`)
+    .map(([kind, names]) => `${stampLabel(kind)}: ${names.join(", ")}`)
     .join(" · ");
 }

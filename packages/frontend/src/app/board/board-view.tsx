@@ -34,7 +34,8 @@ import {
 } from "./board-presence";
 import type { BoardFollowBridge } from "./board-follow-bridge";
 import { allowClickThroughDismiss } from "./board-click-through";
-import { BoardSpotlightToggle, BoardTimerChip, BoardTimerControl } from "./board-collab-controls";
+import { BoardTimerChip } from "./board-collab-controls";
+import { BoardFacilitateControls } from "./board-facilitate-controls";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import { BoardToolDock } from "./board-tool-dock";
@@ -52,7 +53,8 @@ import { stickyKeepsAspect } from "./sticky-format";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
-import { BOARD_PLANE_BACKGROUND, BOARD_PLANE_THEME } from "./board-plane";
+import { BOARD_PLANE_THEME, boardPlaneBackground } from "./board-plane";
+import { useTheme } from "@/components/theme-provider";
 import {
   BOARD_SHORTCUTS,
   BOARD_SHORTCUT_CATEGORIES,
@@ -347,6 +349,13 @@ export function BoardView({
   // mount effect's viewport closures must read the CURRENT mode without
   // the whole board remounting whenever it changes.
   const [gridKind, setGridKind] = useState<BoardGridKind>(loadGridKind);
+  // The plane dims in dark mode (`board-plane.ts`); everything painted ON it
+  // keeps the light theme. Mirrored into a ref so the mount effect builds
+  // the minimap with the current colour without remounting on a toggle.
+  const { resolvedTheme } = useTheme();
+  const planeBackground = boardPlaneBackground(resolvedTheme);
+  const planeBackgroundRef = useRef(planeBackground);
+  planeBackgroundRef.current = planeBackground;
   const gridKindRef = useRef(gridKind);
   gridKindRef.current = gridKind;
 
@@ -398,6 +407,12 @@ export function BoardView({
     overlay.style.left = "0";
     overlay.style.top = "0";
     overlay.style.pointerEvents = "none";
+    // Above the ritual layer (stamps, vote dots, comment pins — a later,
+    // unstacked sibling): those annotate content, so a selection's frame
+    // and handles must draw over them, not be covered by a stamp sitting
+    // on the element's corner. Still under the laser (3) and the canvas
+    // chrome (5).
+    overlay.style.zIndex = "2";
     container.appendChild(overlay);
 
     // Inject pointer-events for handles (overlay-level CSS). The
@@ -603,7 +618,7 @@ export function BoardView({
       initialVisible: defaultMinimapVisible(),
       coarsePointer: isCoarsePointer(),
       getTheme: () => BOARD_PLANE_THEME,
-      planeBackground: BOARD_PLANE_BACKGROUND,
+      planeBackground: planeBackgroundRef.current,
       // A hidden section is covered on the minimap too.
       paintAfterElements: (ctx, slide, zoom) =>
         paintSections(ctx, slide.elements, zoom, { titles: false }),
@@ -1328,6 +1343,10 @@ export function BoardView({
   // Deliberately a separate effect: listing `gridKind` on the mount effect
   // would tear down and rebuild the whole editor on every toggle.
   useEffect(() => {
+    minimapRef.current?.setPlaneBackground(planeBackground);
+  }, [planeBackground]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     applyGridBackground(container, gridKind, vp.current, BOARD_PLANE_THEME);
@@ -1392,10 +1411,13 @@ export function BoardView({
           onGridSnapChange={(next) => setGridSnapRef.current(next)}
           sections={sections}
           collabControls={
-            <>
-              <BoardTimerControl store={store} disabled={!editor} />
-              <BoardSpotlightToggle presence={presenceCtl} />
-            </>
+            <BoardFacilitateControls
+              store={store}
+              editor={editor}
+              presence={presenceCtl}
+              laser={drawingTools.laser}
+              disabled={!workspaceId}
+            />
           }
         />
       )}
@@ -1404,7 +1426,7 @@ export function BoardView({
           ref={containerRef}
           data-document-id={documentId}
           className="relative w-full h-full"
-          style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+          style={{ backgroundColor: planeBackground }}
         />
         <BoardRituals
           editor={editor}

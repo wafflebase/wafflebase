@@ -212,7 +212,46 @@ describe("BoardToolDock pickers", () => {
   });
 });
 
+describe("BoardToolDock split tools and commands", () => {
+  it("builds the Sticky and Marker chevrons from one primitive, each with a tooltip", async () => {
+    renderDock();
+    for (const name of ["Sticky note color", "Pen, colour and width"]) {
+      const chevron = screen.getByRole("button", { name });
+      expect(chevron.hasAttribute("data-split-chevron")).toBe(true);
+      expect(chevron.className).toContain("w-5");
+    }
+    await userEvent.hover(screen.getByRole("button", { name: "Sticky note color" }));
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Sticky note color");
+  });
+
+  it("gives one-shot commands no pressed state", () => {
+    renderDock();
+    // A sticky is dropped at once and an image is picked from a dialog;
+    // neither has an armed state for a screen reader to announce.
+    expect(pressed("Sticky note")).toBeNull();
+    expect(pressed("Insert image")).toBeNull();
+  });
+
+  it("marks the menu-opening Shape and Line with a corner caret", () => {
+    renderDock();
+    const caretOf = (name: string) =>
+      screen.getByRole("button", { name }).nextElementSibling?.hasAttribute("data-menu-caret");
+    expect(caretOf("Shape")).toBe(true);
+    expect(caretOf("Line")).toBe(true);
+    // A plain tool does not get one.
+    expect(caretOf("Text box")).toBeFalsy();
+  });
+});
+
 describe("BoardToolDock on a narrow board", () => {
+  it("keeps the dock's group separators inside More", async () => {
+    renderDock(fakeEditor(), { hostWidth: 375 });
+    await userEvent.click(screen.getByRole("button", { name: "More tools" }));
+    const more = screen.getByRole("dialog", { name: "More tools" });
+    // lasso hand | line | eraser | section image
+    expect(more.querySelectorAll('[data-slot="separator"]')).toHaveLength(3);
+  });
+
   it("folds the rarer tools under More", async () => {
     renderDock(fakeEditor(), { hostWidth: 375 });
     for (const name of ["Select", "Sticky note", "Text box", "Shape", "Marker"]) {

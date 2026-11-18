@@ -58,9 +58,9 @@ describe("layoutRituals", () => {
   });
 
   it("scales stamps with zoom inside a clamp", () => {
-    expect(stampSize(1)).toBe(28);
-    expect(stampSize(0.1)).toBe(14);
-    expect(stampSize(8)).toBe(44);
+    expect(stampSize(1)).toBe(32);
+    expect(stampSize(0.1)).toBe(16);
+    expect(stampSize(8)).toBe(48);
   });
 
   it("hit-tests only the viewer's own stamps for removal", () => {

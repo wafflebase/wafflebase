@@ -93,6 +93,27 @@ describe("stampKeysForElements / stampsByElement", () => {
     expect(stampKeysForElements(undefined, new Set(["e1"]))).toEqual([]);
   });
 
+  it("skips stamps a peer wrote with an unknown kind or a malformed owner", () => {
+    const peerWritten = {
+      ok: stamp(),
+      future: stamp({ kind: "confetti" as BoardStamp["kind"] }),
+      noOwner: stamp({ by: 7 as unknown as string }),
+      nowhere: stamp({ u: Number.NaN }),
+    } satisfies BoardStamps;
+    const grouped = stampsByElement(peerWritten, new Set(["e1"]));
+    expect(grouped.get("e1")?.map((s) => s.key)).toEqual(["ok"]);
+  });
+
+  it("keeps a stamp a peer wrote without a name, under a stand-in", () => {
+    const grouped = stampsByElement(
+      { nameless: stamp({ name: null as unknown as string }) },
+      new Set(["e1"]),
+    );
+    const list = grouped.get("e1") ?? [];
+    expect(list.map((s) => s.key)).toEqual(["nameless"]);
+    expect(describeStamps(list)).toBe("+1: Someone");
+  });
+
   it("groups by live element, oldest first, and drops orphans", () => {
     const grouped = stampsByElement(stamps, new Set(["e1"]));
     expect([...grouped.keys()]).toEqual(["e1"]);
@@ -101,6 +122,6 @@ describe("stampKeysForElements / stampsByElement", () => {
 
   it("describes who stamped what", () => {
     const list = stampsByElement(stamps, new Set(["e1"])).get("e1")!;
-    expect(describeStamps(list)).toBe("⭐ bob · 👍 alice");
+    expect(describeStamps(list)).toBe("Star: bob · +1: alice");
   });
 });

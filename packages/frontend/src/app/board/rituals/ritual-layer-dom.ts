@@ -1,4 +1,14 @@
 import {
+  STAMP_ART,
+  STAMP_BADGE_MIN_SIZE,
+  createStampIconSvg,
+  shouldPopStamp,
+  stampIconRatio,
+  stamperColor,
+  stamperInitial,
+} from "./stamp-art";
+import type { BoardStamp } from "./types";
+import {
   PIN_SIZE,
   RESULT_BADGE,
   VOTE_DOT,
@@ -48,6 +58,69 @@ function sync<T extends { key: string }>(
   }
 }
 
+/**
+ * A stamp sticker: a coloured disc with a white rim and icon, and the
+ * stamper's initial in their colour at its lower right. Built once per
+ * stamp — kind, stamper and name never change for a key — and only
+ * resized and moved afterwards.
+ */
+function createStampNode(stamp: BoardStamp): HTMLElement {
+  const el = document.createElement("span");
+  el.dataset.boardStamp = "";
+  el.dataset.kind = stamp.kind;
+  el.className = "pointer-events-none absolute left-0 top-0 select-none";
+
+  // The pop animates this wrapper, since the root's transform places it.
+  const body = document.createElement("span");
+  body.className = "absolute inset-0";
+
+  const disc = document.createElement("span");
+  disc.className =
+    "absolute inset-0 flex items-center justify-center rounded-full shadow-md";
+  disc.style.background = STAMP_ART[stamp.kind].color;
+  disc.style.border = "0.08em solid #ffffff";
+  const icon = createStampIconSvg(stamp.kind);
+  const iconSize = `${stampIconRatio(stamp.kind)}em`;
+  icon.style.width = iconSize;
+  icon.style.height = iconSize;
+  disc.appendChild(icon);
+  body.appendChild(disc);
+
+  const badge = document.createElement("span");
+  badge.dataset.boardStampBadge = "";
+  badge.className =
+    "absolute flex items-center justify-center rounded-full font-semibold leading-none text-white";
+  // The badge's own font size is the initial's; the rest of its box is
+  // in `em` of that, so ~0.46 of the stamp across.
+  badge.style.fontSize = "0.27em";
+  badge.style.width = badge.style.height = "1.7em";
+  badge.style.right = badge.style.bottom = "-0.35em";
+  badge.style.border = "0.12em solid #ffffff";
+  badge.style.background = stamperColor(stamp.by);
+  badge.textContent = stamperInitial(stamp.name);
+  body.appendChild(badge);
+  el.appendChild(body);
+
+  if (shouldPopStamp(stamp.at, Date.now()) && !prefersReducedMotion()) {
+    body.animate(
+      [
+        { transform: "scale(0.2) rotate(-18deg)", opacity: 0 },
+        { transform: "scale(1.18) rotate(4deg)", opacity: 1, offset: 0.6 },
+        { transform: "scale(1) rotate(0deg)", opacity: 1 },
+      ],
+      { duration: 280, easing: "cubic-bezier(0.2, 0.9, 0.3, 1.2)" },
+    );
+  }
+  return el;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 function place(el: HTMLElement, x: number, y: number): void {
   el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
 }
@@ -74,18 +147,14 @@ export function createRitualLayerDom(
         root,
         stampPool,
         layout.stamps,
-        () => {
-          const el = document.createElement("span");
-          el.dataset.boardStamp = "";
-          el.className =
-            "pointer-events-none absolute left-0 top-0 flex select-none items-center justify-center leading-none drop-shadow";
-          return el;
-        },
+        (s) => createStampNode(s.stamp),
         (el, s) => {
-          el.textContent = s.glyph;
+          // Every inner size is in `em`, so a zoom only resizes the root.
           el.style.width = `${s.size}px`;
           el.style.height = `${s.size}px`;
-          el.style.fontSize = `${Math.round(s.size * 0.8)}px`;
+          el.style.fontSize = `${s.size}px`;
+          const badge = el.querySelector<HTMLElement>("[data-board-stamp-badge]");
+          if (badge) badge.hidden = s.size < STAMP_BADGE_MIN_SIZE;
           place(el, s.x - s.size / 2, s.y - s.size / 2);
         },
       );

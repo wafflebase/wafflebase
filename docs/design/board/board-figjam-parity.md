@@ -47,7 +47,7 @@ without forking the shared scene engine.
 | Change | Where | Why |
 | --- | --- | --- |
 | **Esc keeps the text it leaves.** Slides and board both commit on Esc; `exitEditMode('cancel')`, crop and drag still cancel. | `slides/src/view/editor/editor.ts` (`enterEditMode`) | Esc discarded a typed sticky, under a comment calling that the Google convention. It is not: Google Slides, FigJam and Miro all keep it. |
-| **Board plane** stays light in dark mode; grid, minimap and peer cursors use the light variant. | `frontend/src/app/board/board-plane.ts` | Content resolves against the pinned `defaultLight` deck theme. A dark plane drew default text near-black on near-black, and invited fixes invisible to light-mode peers. |
+| **Board plane** stays light in dark mode — dimmed to a neutral grey (`#BBBCB8`) rather than white, so it does not glare inside dark chrome; grid, minimap and peer cursors use the light variant, and exports stay white. | `frontend/src/app/board/board-plane.ts` | Content resolves against the pinned `defaultLight` deck theme. A dark plane drew default text near-black on near-black, and invited fixes invisible to light-mode peers. A dimmed light plane keeps default text at 9.1:1 and every viewer's board the same. |
 | **Sticky placement** steps right off an occupied centre. | `sticky.ts` `freeStickyCenter` | The second sticky covered the first exactly, and read as the first vanishing. |
 | **Sticky controls**: a sticky-only selection shows the six sticky colours inline; "Insert sticky note" leads the canvas menu's insert group at the clicked point. | `sticky-controls.tsx`, `isStickyElement`, `hostInsertMenuItems` | A sticky got the rectangle's border/dash/gradient controls; recolouring took two clicks into a 40-swatch picker. |
 | **Minimap frame** clipped to the panel; panel no longer crops its canvas. | `minimap-geometry.ts` `clipToMini`, `board-minimap.ts` | Zoomed out past the content, the frame was drawn off-canvas and showed as a stray line. |
@@ -226,10 +226,25 @@ in [slides-connectors.md](../slides/slides-connectors.md).
 | **Follow** from a header avatar, and **Spotlight me**. A local pan or Esc stops following. | `board-follow.ts`, presence `viewport` / `spotlight` | |
 | **Cursor chat** `/` and **emotes** `E`. Both are presence only. | `board-cursor-chat.ts`, `board-emotes.ts` | |
 | **Shared timer** in `root.timer`. It is kept out of undo. | `board-timer.ts` | Late joiners need the running countdown, so it is document state, not presence. |
-| **Stamps** in `root.stamps`, as a flat map keyed per element, user and nonce, so concurrent stamps never touch one key. | `rituals/stamps.ts` | |
+| **Stamps** in `root.stamps`, as a flat map keyed per element, user and nonce, so concurrent stamps never touch one key. | `rituals/stamps.ts`, `rituals/stamp-art.ts` | Drawn as stickers, not OS emoji: a coloured disc with a lucide icon and the stamper's initial in their colour (keyed on the stable user key), popping in when placed within the last 2s. All render-side; the stored stamp is unchanged. |
 | **Dot voting** in `root.voting`: vote limits, your own votes only until the end, Done, then ranked results. | `rituals/voting.ts` | Votes are hidden in the UI only: every client can read the CRDT. The start dialog says so. |
 | **Board comments** through the shared comments module (`root.comments`). Threads anchor to an element or to a world point. | `rituals/board-comment-store.ts` | PRODUCT.md promises comments on every type. |
 | **A canvas click closes a modal popover and also acts.** | `board-click-through.ts` | Radix sets `body { pointer-events: none }`, so the press that dismissed a popover never reached the canvas. |
+
+**The Facilitate group.** The tools for running a session sit together in
+the top bar as `[Timer][Vote][Spotlight][Laser]`
+(`board-facilitate-controls.tsx`). They used to be scattered: Start voting
+hid under the Stamp ▾ menu with the +1 stamp's thumbs-up glyph, and the
+laser hid in the Marker ▾ popover. Vote is the *session* control: idle, it
+opens the Start voting form (`rituals/start-voting-dialog.tsx`); while a
+vote is open it wears the selected wash and picks the vote tool back up.
+Casting stays on the dock's Stamp tool, which already turns into Vote with
+your votes left, so the top bar repeats no count. Spotlight takes
+`IconFocus2` and Vote `IconChecklist`, so neither reads as a stamp. On a
+phone (`useIsMobile`) the group folds into one Facilitate trigger, washed
+while any of its tools is live. Vote keeps the dock rituals' gates (a
+collab provider, a signed-in editor, a workspace); the whole bar is still
+withheld from viewers.
 
 #### Polish
 

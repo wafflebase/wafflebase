@@ -9,7 +9,7 @@ import {
 import {
   IconEye,
   IconEyeOff,
-  IconFrame,
+  IconLayoutNavbar,
   IconListDetails,
   IconLock,
   IconPencil,
@@ -59,7 +59,9 @@ export function SectionToolToggle({
           aria-label="Section"
           disabled={disabled || !sections}
         >
-          <IconFrame size={16} />
+          {/* A frame with a title bar, which is what a section is.
+              IconFrame's crossed crop marks read as "#", like the grid. */}
+          <IconLayoutNavbar size={16} />
         </Toggle>
       </TooltipTrigger>
       <TooltipContent>Section (Shift+S)</TooltipContent>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useBoardTimer, type TimerStore } from "./use-board-timer";
 import {
-  IconBroadcast,
+  IconFocus2,
   IconPlayerPause,
   IconPlayerPlay,
   IconRefresh,
@@ -22,6 +22,7 @@ import {
   startTimer,
 } from "./board-timer";
 import type { BoardPresenceController } from "./board-presence";
+import { useSpotlighting } from "./use-spotlighting";
 
 const PULSE_CSS = `
 @keyframes wfb-board-timer-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
@@ -101,7 +102,7 @@ export function BoardTimerControl({
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 gap-1 px-2 tabular-nums"
+              className="h-8 min-w-8 gap-1 px-1.5 tabular-nums has-[>svg]:px-1.5"
               aria-label={label}
               disabled={disabled || !store}
             >
@@ -182,12 +183,7 @@ export function BoardSpotlightToggle({
 }: {
   presence: BoardPresenceController | null;
 }) {
-  const [on, setOn] = useState(() => presence?.isSpotlighting() ?? false);
-  useEffect(() => {
-    if (!presence) return;
-    setOn(presence.isSpotlighting());
-    return presence.subscribe(() => setOn(presence.isSpotlighting()));
-  }, [presence]);
+  const on = useSpotlighting(presence);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -198,7 +194,7 @@ export function BoardSpotlightToggle({
           aria-label="Spotlight me"
           disabled={!presence}
         >
-          <IconBroadcast size={16} />
+          <IconFocus2 size={16} />
         </Toggle>
       </TooltipTrigger>
       <TooltipContent>
