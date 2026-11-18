@@ -521,7 +521,10 @@ export class DocumentCopyService {
     // write, and the copy's editor seeds it on first open exactly as it would
     // for a brand-new document.
     if (Object.keys(snapshot).length === 0) return rehost ? report : null;
-    const stripped = stripComments(snapshot);
+    const stripped =
+      type === 'board'
+        ? stripBoardRituals(stripComments(snapshot))
+        : stripComments(snapshot);
     // Re-hosting happens between reading the source and writing the target, on
     // the snapshot rather than on the live document: the source is somebody
     // else's and must not be touched, and the target does not exist yet.
@@ -579,6 +582,27 @@ export function stripComments(snapshot: JsonRoot): JsonRoot {
         : worksheet;
   }
   out.sheets = sheets;
+  return out;
+}
+
+/**
+ * Drop a board's facilitation state from a whole-root snapshot: the stamps
+ * (each one a participant's reaction), the dot-voting session (its per-user
+ * ballots and results) and the countdown timer. A copy, and a document started
+ * from a template, is a new board for a new audience — the source's reactions,
+ * votes and running clock describe a session that board never held, and a
+ * vote's ballots name the source's participants.
+ *
+ * `stamps` is emptied rather than deleted, for the reason `stripComments`
+ * empties its maps: the board seeds `stamps: {}` so two users' first stamps
+ * merge instead of one LWW-clobbering the other. `voting` and `timer` are
+ * optional keys a board without them already handles, so they are removed.
+ */
+export function stripBoardRituals(snapshot: JsonRoot): JsonRoot {
+  const out: JsonRoot = { ...snapshot };
+  if (isPlainObject(out.stamps)) out.stamps = {};
+  delete out.voting;
+  delete out.timer;
   return out;
 }
 

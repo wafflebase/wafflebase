@@ -464,6 +464,27 @@ describe('DocumentCopyService', () => {
   });
 });
 
+describe('DocumentCopyService board rituals', () => {
+  it('copies a board without its stamps, vote, timer or comments', async () => {
+    const sourceRoot = {
+      meta: { title: 'Retro', anonymous: true },
+      elements: [{ id: 'e1', type: 'shape' }],
+      comments: { 'th-1': { anchor: {} } },
+      stamps: { 'e1:u1:plus1': { elementId: 'e1' } },
+      voting: { id: 'v1', status: 'ended', ballots: { u1: ['e1'] } },
+      timer: { endsAt: 1_780_000_000_000, durationMs: 300_000 },
+    };
+    const { service, targetRoot } = makeService({ sourceRoot });
+    await service.copy({ ...SOURCE, type: 'board' } as never, 42);
+    expect(targetRoot).toEqual({
+      meta: { title: 'Retro', anonymous: true },
+      elements: [{ id: 'e1', type: 'shape' }],
+      comments: {},
+      stamps: {},
+    });
+  });
+});
+
 describe('stripComments', () => {
   it('empties a root-level comments map', () => {
     expect(stripComments({ comments: { 'th-1': {} }, a: 1 })).toEqual({

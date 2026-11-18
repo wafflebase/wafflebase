@@ -45,6 +45,18 @@ experimentation risky.
   (`stripComments`). The maps are emptied rather than deleted, because
   `createWorksheet` seeds `comments: {}` so that concurrent first comments
   merge instead of LWW-clobbering each other.
+- **Board facilitation state.** A board's stamps (`root.stamps`), dot-voting
+  session (`root.voting`, with each participant's ballot) and countdown timer
+  (`root.timer`) are not carried over either, and neither are its comments
+  (`root.comments`, emptied by `stripComments`). They record what one audience
+  did on the source — reactions, votes, a running clock — and a copy or a
+  document started from a template is a new board for a new audience;
+  carrying a vote's ballots would also hand the source's participant keys to
+  whoever holds the copy. `stripBoardRituals` empties `stamps` (seeded `{}`
+  for the same concurrent-first-write reason as comments) and deletes the
+  optional `voting` and `timer` keys. The template "use" path runs the same
+  copy, so it inherits this. Board `meta` (title, `anonymous`) is content
+  and is kept.
 - **Copying elsewhere.** The copy always lands beside its source. Moving it is
   Move's job, and Move is already manager-gated.
 - **REST v1 / CLI copy.** Not exposed there; the web list is the only caller.
