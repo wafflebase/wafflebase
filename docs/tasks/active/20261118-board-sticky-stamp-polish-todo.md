@@ -56,7 +56,7 @@ scattered, floating chrome small and low-contrast.
 
 ## Verify
 
-- [ ] `pnpm verify:fast`
+- [x] `pnpm verify:fast`
 - [x] Visual check in `pnpm dev`
 
 ## Review

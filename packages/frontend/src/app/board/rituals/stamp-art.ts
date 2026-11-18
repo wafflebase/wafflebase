@@ -103,6 +103,10 @@ export function createStampIconSvg(kind: BoardStampKind): SVGSVGElement {
  * The stamper's colour, keyed on their stable user key so the same person
  * gets the same colour on every stamp and every device. The board plane is
  * pinned light in both app themes, so the light palette always applies.
+ *
+ * Deliberately NOT the peer-cursor key: cursors hash the Yorkie clientID,
+ * which changes per tab and session, so a stamp keyed on it would change
+ * colour on reload. A person's badge and live cursor can therefore differ.
  */
 export function stamperColor(userKey: string): string {
   return getPeerCursorColor("light", userKey);

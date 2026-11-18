@@ -7,6 +7,7 @@ import {
   buildStickyInit,
   isStickyData,
   withStickyDefaults,
+  withStickyDefaultsDeep,
 } from './sticky';
 
 const sticky = () => ({
@@ -106,5 +107,34 @@ describe('buildStickyInit', () => {
     };
     expect(init.data.adjustments).toEqual([STICKY_CORNER_ADJ]);
     expect(init.data.text.inset).toEqual(STICKY_TEXT_INSET);
+  });
+});
+
+describe('withStickyDefaultsDeep', () => {
+  const legacy = () => ({ type: 'shape', data: { ...sticky(), role: STICKY_ROLE } });
+  const adjOf = (el: unknown) => (el as { data: { adjustments?: number[] } }).data.adjustments;
+
+  it('fills stickies at the top level and inside groups', () => {
+    const [top, group] = withStickyDefaultsDeep([
+      legacy(),
+      { type: 'group', data: { children: [legacy()] } },
+    ]) as [unknown, { data: { children: unknown[] } }];
+    expect(adjOf(top)).toEqual([STICKY_CORNER_ADJ]);
+    expect(adjOf(group.data.children[0])).toEqual([STICKY_CORNER_ADJ]);
+  });
+
+  it('passes a peer-written malformed group through instead of throwing', () => {
+    const broken = [
+      { type: 'group', data: null },
+      { type: 'group' },
+      { type: 'group', data: { children: 'nope' } },
+    ];
+    expect(withStickyDefaultsDeep(broken)).toEqual(broken);
+  });
+
+  it('stops descending past the group depth cap', () => {
+    let tree: unknown = legacy();
+    for (let i = 0; i < 40; i++) tree = { type: 'group', data: { children: [tree] } };
+    expect(() => withStickyDefaultsDeep([tree])).not.toThrow();
   });
 });

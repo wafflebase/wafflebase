@@ -1,4 +1,9 @@
-import { makeDefaultSlidesTextBlock, type ElementInit, type Point } from '@wafflebase/slides';
+import {
+  MAX_GROUP_DEPTH,
+  makeDefaultSlidesTextBlock,
+  type ElementInit,
+  type Point,
+} from '@wafflebase/slides';
 
 /**
  * The sticky-note preset, shared by every path that creates one — the
@@ -118,6 +123,34 @@ export function withStickyDefaults<T>(data: T): T {
     ...(needsCorner ? { adjustments: [STICKY_CORNER_ADJ] } : {}),
     ...(needsInset ? { text: { ...d.text, inset: { ...STICKY_TEXT_INSET } } } : {}),
   };
+}
+
+/**
+ * {@link withStickyDefaults} over a list of elements, group members
+ * included — for a reader that gets the board's elements as one plain tree
+ * (a revision snapshot) rather than node by node. The tree is untrusted (a
+ * peer wrote it), so it walks the way `decodeFreeformElements` does: a group
+ * whose `children` is not an array, or one past `MAX_GROUP_DEPTH`, is
+ * returned as stored instead of throwing or blowing the stack.
+ */
+export function withStickyDefaultsDeep<T>(elements: readonly T[], depth = 0): T[] {
+  return elements.map((el) => {
+    const e = el as { type?: unknown; data?: { children?: unknown } | null };
+    if (e.type === 'shape') {
+      const data = withStickyDefaults(e.data);
+      return data === e.data ? el : ({ ...el, data } as T);
+    }
+    if (
+      e.type === 'group' &&
+      depth < MAX_GROUP_DEPTH &&
+      e.data &&
+      Array.isArray(e.data.children)
+    ) {
+      const children = withStickyDefaultsDeep(e.data.children as unknown[], depth + 1);
+      return { ...el, data: { ...e.data, children } } as T;
+    }
+    return el;
+  });
 }
 
 /**
