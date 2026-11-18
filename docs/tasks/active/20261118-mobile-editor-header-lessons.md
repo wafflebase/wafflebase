@@ -29,3 +29,4 @@
   on `HEADER_CONTROL_SIZE`, a Docs menu test. Deferred: the `primary`
   slot's placement contract is a doc comment, not enforced (one primary
   today).
+- Round 3 (security / docs) — clean: all six lenses passed. Loop stopped.
