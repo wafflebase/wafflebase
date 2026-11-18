@@ -20,6 +20,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./active/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./active/20261118-mobile-before-after-lessons.md) |
 | mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./active/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./active/20261118-mobile-clipping-lessons.md) |
+| mobile editor header (2026-11-18) | [20261118-mobile-editor-header-todo.md](./active/20261118-mobile-editor-header-todo.md) | [20261118-mobile-editor-header-lessons.md](./active/20261118-mobile-editor-header-lessons.md) |
+| board figjam pass3 (2026-11-17) | [20261117-board-figjam-pass3-todo.md](./active/20261117-board-figjam-pass3-todo.md) | [20261117-board-figjam-pass3-lessons.md](./active/20261117-board-figjam-pass3-lessons.md) |
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
 | board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./active/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./active/20261116-board-navigation-feel-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |

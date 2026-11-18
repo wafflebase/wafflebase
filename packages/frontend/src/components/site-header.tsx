@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useState,
   useRef,
   useEffect,
@@ -7,6 +8,13 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { IconDotsVertical } from "@tabler/icons-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Toggle } from "@/components/ui/toggle";
@@ -18,6 +26,12 @@ import {
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { SyncStatusChip } from "@/components/sync-status/sync-status-chip";
 import { userFacingError } from "@/api/http-error";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  HEADER_CONTROL_SIZE,
+  HeaderPlacementContext,
+  useHeaderPlacement,
+} from "@/components/header-placement";
 
 /**
  * The document-level controls every editor puts in its header, by role.
@@ -29,7 +43,12 @@ import { userFacingError } from "@/api/http-error";
  * passes no `comments`); it never moves the others.
  */
 export interface HeaderActions {
-  /** The document type's own primary action, e.g. slides' Present. */
+  /**
+   * The document type's own primary action, e.g. slides' Present. On a
+   * phone it renders twice — once in the row (`compact` placement) and once
+   * in the More menu (`menu`) for whatever it moved out of the row — so it
+   * must read `useHeaderPlacement()` and return menu items or nothing there.
+   */
   primary?: ReactNode;
   /** Show/hide the comments panel. */
   comments?: ReactNode;
@@ -53,6 +72,18 @@ const ACTION_ORDER = [
 ] as const satisfies readonly (keyof HeaderActions)[];
 
 /**
+ * The slots a phone header moves into its More menu. What stays in the row
+ * is what a phone user reaches for from the header: the document type's own
+ * action and Share. The panels and export are one tap further, as in the
+ * Google suite's phone apps, and the title gets the room back.
+ */
+const MENU_SLOTS = [
+  "comments",
+  "history",
+  "export",
+] as const satisfies readonly (keyof HeaderActions)[];
+
+/**
  * The header's panel toggle (comments, version history): one size, one
  * pressed treatment and one "Show … / Hide …" naming rule for every editor,
  * where each used to hand-build its own and the sheet editor's carried no
@@ -66,12 +97,26 @@ export function HeaderPanelToggle({
   pressed,
   onPressedChange,
 }: {
-  icon: ComponentType<{ size?: number }>;
+  icon: ComponentType<{ size?: number; className?: string }>;
   /** What the panel holds, lower case: "comments", "version history". */
   label: string;
   pressed: boolean;
   onPressedChange: (pressed: boolean) => void;
 }) {
+  const placement = useHeaderPlacement();
+  if (placement === "menu") {
+    // A checked row rather than "Show … / Hide …": the check mark carries
+    // the state, the way a menu says it.
+    return (
+      <DropdownMenuCheckboxItem
+        checked={pressed}
+        onCheckedChange={onPressedChange}
+      >
+        <Icon size={16} className="text-muted-foreground" />
+        {label.charAt(0).toUpperCase() + label.slice(1)}
+      </DropdownMenuCheckboxItem>
+    );
+  }
   const name = `${pressed ? "Hide" : "Show"} ${label}`;
   return (
     <Tooltip>
@@ -147,6 +192,13 @@ export function SiteHeader({
   // committed straight back on blur.
   const [dirty, setDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The app's mobile branch (768px), the same one the slides shell and the
+  // sidebar switch on.
+  const isMobile = useIsMobile();
+  const hasMenu =
+    isMobile &&
+    !!actions &&
+    (!!actions.primary || MENU_SLOTS.some((slot) => actions[slot]));
 
   // Follow the title while the input is closed, and also while it is open but
   // untouched. Peers' renames arrive live (`useDocumentRename`), and one
@@ -281,21 +333,26 @@ export function SiteHeader({
           {/* Left of the per-editor controls, so it reads as a property of the
               document rather than as one more button. */}
           {syncStatus && <SyncStatusChip />}
-          {actions &&
-            ACTION_ORDER.map((slot) =>
-              actions[slot] ? (
-                // `contents`, so a slot adds no box of its own: one whose
-                // control renders nothing (comments withheld during a
-                // revision preview) leaves no stray gap.
-                <div
-                  key={slot}
-                  data-header-slot={slot}
-                  className={slot === "presence" ? "contents max-sm:hidden" : "contents"}
-                >
-                  {actions[slot]}
-                </div>
-              ) : null,
-            )}
+          {actions && (
+            <HeaderPlacementContext.Provider value={isMobile ? "compact" : "bar"}>
+              {ACTION_ORDER.map((slot) =>
+                actions[slot] &&
+                !(isMobile && (MENU_SLOTS as readonly string[]).includes(slot)) ? (
+                  // `contents`, so a slot adds no box of its own: one whose
+                  // control renders nothing (comments withheld during a
+                  // revision preview) leaves no stray gap.
+                  <div
+                    key={slot}
+                    data-header-slot={slot}
+                    className={slot === "presence" ? "contents max-sm:hidden" : "contents"}
+                  >
+                    {actions[slot]}
+                  </div>
+                ) : null,
+              )}
+            </HeaderPlacementContext.Provider>
+          )}
+          {hasMenu && actions && <HeaderMoreMenu actions={actions} />}
           {children}
           {/* One mount point for the whole app: this header is used by the
               documents shell and by every editor. Renders nothing for
@@ -304,5 +361,44 @@ export function SiteHeader({
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * The phone header's overflow: `primary` (for what it moved out of the row)
+ * and the `MENU_SLOTS`, each rendered as menu rows through the `menu`
+ * placement. The content mounts only while open, so a slot's own state lives
+ * no longer than the menu does — an export already running keeps reporting
+ * through its toast.
+ */
+function HeaderMoreMenu({ actions }: { actions: HeaderActions }) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="More document actions"
+              className={`focus-ring inline-flex ${HEADER_CONTROL_SIZE} shrink-0 cursor-pointer items-center justify-center rounded-md border hover:bg-muted`}
+            >
+              <IconDotsVertical size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>More</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <HeaderPlacementContext.Provider value="menu">
+          {actions.primary}
+          {/* Fragments, not the row's `contents` boxes: a slot's leading
+              separator hides itself with `first:`, which a wrapper would
+              make true of every slot. */}
+          {MENU_SLOTS.map((slot) => (
+            <Fragment key={slot}>{actions[slot]}</Fragment>
+          ))}
+        </HeaderPlacementContext.Provider>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

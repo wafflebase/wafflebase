@@ -386,7 +386,7 @@ Spacing follows a 4px base (`xs` 4, `sm` 8, `md` 12, `lg` 16, `xl` 24). Cards an
 
 Brand surfaces are single-column scrolls centred at ~920px for the hero and wider for feature grids (3 columns at ≥768px, 1 below), with 64–80px vertical section padding.
 
-Responsive behavior branches at 768px. Below it, Slides switches to a dedicated mobile shell (bottom sheets, FABs); Sheets keeps its layout but hides the formula bar, adds a mobile edit bar and folds toolbar controls into a "More" menu; Docs folds controls into an overflow menu and scales the page to fit. Floating editor panels cap at the viewport width.
+Responsive behavior branches at 768px. Below it, Slides switches to a dedicated mobile shell (bottom sheets, FABs); Sheets keeps its layout but hides the formula bar, adds a mobile edit bar and folds toolbar controls into a "More" menu; Docs folds controls into an overflow menu and scales the page to fit. Floating editor panels cap at the viewport width. Every editor's header keeps only its own primary action (Slides' play button) and Share in the row below 768px, with comments, version history and export in a `⋮` More menu (`SiteHeader`, `header-placement.ts`); every square header control is 32px on a fine pointer and 44px on a coarse one.
 
 ## Elevation & Depth
 

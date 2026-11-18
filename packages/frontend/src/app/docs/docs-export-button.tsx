@@ -6,6 +6,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -13,6 +15,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  HEADER_CONTROL_SIZE,
+  useHeaderPlacement,
+} from "@/components/header-placement";
 import type { Document as DocsDocument } from "@wafflebase/docs";
 import type { EditorAPI } from "./docs-view";
 import { exportDocxAndDownload } from "./docx-actions";
@@ -36,6 +42,9 @@ interface DocsExportButtonProps {
  */
 export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   const [exporting, setExporting] = useState(false);
+  const placement = useHeaderPlacement();
+  // Inset in the menu so the rows line up with its checked panel rows.
+  const inMenu = placement === "menu";
 
   type ExportAction = (
     doc: DocsDocument,
@@ -70,6 +79,61 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
     }
   };
 
+  // The menu placement has no trigger to disable, so the rows carry it.
+  const unavailable = !editor || exporting;
+  const formats = (
+    <>
+      <DropdownMenuItem
+        className="cursor-pointer"
+        inset={inMenu}
+        disabled={unavailable}
+        onSelect={() => runExport("docx", exportDocxAndDownload)}
+      >
+        <IconFileDownload size={16} />
+        Word (.docx)
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer"
+        inset={inMenu}
+        disabled={unavailable}
+        onSelect={() => runExport("pdf", exportPdfAndDownload)}
+      >
+        <IconFileDownload size={16} />
+        PDF (.pdf)
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer"
+        inset={inMenu}
+        disabled={unavailable}
+        onSelect={() => runExport("markdown", exportMarkdownAndDownload)}
+      >
+        <IconFileDownload size={16} />
+        Markdown (.md)
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer"
+        inset={inMenu}
+        disabled={unavailable}
+        onSelect={() => runExport("text", exportTextAndDownload)}
+      >
+        <IconFileDownload size={16} />
+        Plain text (.txt)
+      </DropdownMenuItem>
+    </>
+  );
+
+  // On a phone the formats are rows of the header's More menu: a flat
+  // labelled group rather than a submenu, which is fiddly to open by touch.
+  if (inMenu) {
+    return (
+      <>
+        <DropdownMenuSeparator className="first:hidden" />
+        <DropdownMenuLabel inset>Export</DropdownMenuLabel>
+        {formats}
+      </>
+    );
+  }
+
   return (
     <DropdownMenu>
       <Tooltip>
@@ -79,7 +143,7 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
               type="button"
               disabled={!editor || exporting}
               aria-label="Export document"
-              className="focus-ring inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className={`focus-ring inline-flex ${HEADER_CONTROL_SIZE} cursor-pointer items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50`}
             >
               {exporting ? (
                 <IconLoader2 size={16} className="animate-spin" />
@@ -91,40 +155,7 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
         </TooltipTrigger>
         <TooltipContent>Export</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          className="cursor-pointer"
-          disabled={exporting}
-          onSelect={() => runExport("docx", exportDocxAndDownload)}
-        >
-          <IconFileDownload size={16} className="mr-2" />
-          Word (.docx)
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer"
-          disabled={exporting}
-          onSelect={() => runExport("pdf", exportPdfAndDownload)}
-        >
-          <IconFileDownload size={16} className="mr-2" />
-          PDF (.pdf)
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer"
-          disabled={exporting}
-          onSelect={() => runExport("markdown", exportMarkdownAndDownload)}
-        >
-          <IconFileDownload size={16} className="mr-2" />
-          Markdown (.md)
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer"
-          disabled={exporting}
-          onSelect={() => runExport("text", exportTextAndDownload)}
-        >
-          <IconFileDownload size={16} className="mr-2" />
-          Plain text (.txt)
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <DropdownMenuContent align="end">{formats}</DropdownMenuContent>
     </DropdownMenu>
   );
 }

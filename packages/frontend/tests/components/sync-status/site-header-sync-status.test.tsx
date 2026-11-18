@@ -9,6 +9,9 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 // SiteHeader's own furniture, stubbed so the header can render standalone.
+vi.mock('@/hooks/use-mobile', () => ({
+  useIsMobile: () => false,
+}));
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarTrigger: () => <button type="button">sidebar</button>,
 }));

@@ -195,7 +195,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 min-w-8 cursor-pointer has-[>svg]:px-2 md:has-[>svg]:px-2.5"
+              className="h-8 min-w-8 cursor-pointer pointer-coarse:min-w-11 has-[>svg]:px-2 md:has-[>svg]:px-2.5"
               aria-label="Share"
             >
               <IconShare className="h-4 w-4" aria-hidden="true" />
