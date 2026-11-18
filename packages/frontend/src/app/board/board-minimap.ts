@@ -125,6 +125,8 @@ export interface BoardMinimap {
    * edge, so a peer working off the map still shows which way they are.
    */
   setPeers(dots: readonly MinimapPeerDot[]): void;
+  /** Match the panel to the plane when the host's plane colour changes. */
+  setPlaneBackground(color: string): void;
   dispose(): void;
 }
 
@@ -337,6 +339,9 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
     setPeers: (dots: readonly MinimapPeerDot[]) => {
       peerDots = dots;
       if (visible) blit();
+    },
+    setPlaneBackground: (color: string) => {
+      panel.style.background = color;
     },
     dispose: () => {
       disposed = true;
