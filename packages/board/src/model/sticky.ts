@@ -103,12 +103,15 @@ export function withStickyDefaults<T>(data: T): T {
   const d = data as {
     kind?: unknown;
     adjustments?: unknown;
-    text?: { inset?: unknown };
+    text?: { inset?: unknown } | null;
   };
   // Only a `roundRect` reads adjustment 0 as a corner radius; a sticky
   // reshaped into another kind would read it as something else.
   const needsCorner = d.kind === 'roundRect' && d.adjustments === undefined;
-  const needsInset = d.text !== undefined && d.text.inset === undefined;
+  // `text` comes out of the CRDT, where a peer can write anything — a null
+  // or non-object body gets no inset rather than a TypeError on read.
+  const needsInset =
+    typeof d.text === 'object' && d.text !== null && d.text.inset === undefined;
   if (!needsCorner && !needsInset) return data;
   return {
     ...data,

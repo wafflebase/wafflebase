@@ -93,6 +93,18 @@ describe("stampKeysForElements / stampsByElement", () => {
     expect(stampKeysForElements(undefined, new Set(["e1"]))).toEqual([]);
   });
 
+  it("skips stamps a peer wrote with an unknown kind or a malformed owner", () => {
+    const peerWritten = {
+      ok: stamp(),
+      future: stamp({ kind: "confetti" as BoardStamp["kind"] }),
+      noOwner: stamp({ by: 7 as unknown as string }),
+      noName: stamp({ name: null as unknown as string }),
+      nowhere: stamp({ u: Number.NaN }),
+    } satisfies BoardStamps;
+    const grouped = stampsByElement(peerWritten, new Set(["e1"]));
+    expect(grouped.get("e1")?.map((s) => s.key)).toEqual(["ok"]);
+  });
+
   it("groups by live element, oldest first, and drops orphans", () => {
     const grouped = stampsByElement(stamps, new Set(["e1"]));
     expect([...grouped.keys()]).toEqual(["e1"]);

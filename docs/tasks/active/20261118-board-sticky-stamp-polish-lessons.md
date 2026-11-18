@@ -24,3 +24,4 @@
   with `git apply --3way` and expect conflicts.
 - A test file that empties `document.body` in `afterEach` must `cleanup()`
   first, or React and any open Radix portal remove nodes that are gone.
+- Self-review round 1: blocked on two read-path crashes from peer-written CRDT data — an unknown `stamp.kind` indexed `STAMP_ART` every frame, and `withStickyDefaults` dereferenced a null `text`. Fixed both at the read boundary (`stampsByElement` drops undrawable stamps; `text` must be a non-null object) with tests.

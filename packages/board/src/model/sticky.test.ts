@@ -81,6 +81,17 @@ describe('withStickyDefaults', () => {
     expect(out.text.inset).toEqual(STICKY_TEXT_INSET);
   });
 
+  it('tolerates a peer-written null or non-object text body', () => {
+    for (const text of [null, 'x', 3]) {
+      const out = withStickyDefaults({ ...sticky(), role: STICKY_ROLE, text }) as {
+        adjustments?: number[];
+        text: unknown;
+      };
+      expect(out.text).toBe(text);
+      expect(out.adjustments).toEqual([STICKY_CORNER_ADJ]);
+    }
+  });
+
   it('returns non-stickies untouched', () => {
     const shape = { kind: 'roundRect', fill: { kind: 'srgb', value: '#fff' } };
     expect(withStickyDefaults(shape)).toBe(shape);

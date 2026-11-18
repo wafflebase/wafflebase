@@ -102,10 +102,28 @@ export function stampKeysForElements(
 }
 
 /**
+ * Whether a stamp read from the CRDT has the shape the overlay draws. Any
+ * collaborator can write `root.stamps`, so a kind this client does not know
+ * (a newer client's, or a crafted one) or a non-string owner would otherwise
+ * reach code that indexes the stamp art by kind every frame.
+ */
+function isDrawableStamp(stamp: BoardStamp | undefined): stamp is BoardStamp {
+  return (
+    !!stamp &&
+    isStampKind(stamp.kind) &&
+    typeof stamp.by === "string" &&
+    typeof stamp.name === "string" &&
+    Number.isFinite(stamp.u) &&
+    Number.isFinite(stamp.v)
+  );
+}
+
+/**
  * Stamps grouped by element, restricted to elements that still exist at
  * the top level. An orphan (its element deleted by an undo, or by a client
  * that predates the cleanup) is simply not drawn — garbage collection on
- * read, so a missed cleanup can never paint a stamp in mid-air.
+ * read, so a missed cleanup can never paint a stamp in mid-air. A stamp
+ * that fails {@link isDrawableStamp} is skipped the same way.
  */
 export function stampsByElement(
   stamps: BoardStamps | undefined,
@@ -114,7 +132,7 @@ export function stampsByElement(
   const out = new Map<string, Array<{ key: string; stamp: BoardStamp }>>();
   if (!stamps) return out;
   for (const [key, stamp] of Object.entries(stamps)) {
-    if (!stamp || !liveIds.has(stamp.el)) continue;
+    if (!isDrawableStamp(stamp) || !liveIds.has(stamp.el)) continue;
     let list = out.get(stamp.el);
     if (!list) {
       list = [];
