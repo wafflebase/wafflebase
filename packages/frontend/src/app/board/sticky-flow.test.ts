@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import type { Element, SlidesEditor } from "@wafflebase/slides";
+import type { Element, Frame, SlidesEditor } from "@wafflebase/slides";
 import { SYNTHETIC_SLIDE_ID } from "@wafflebase/board";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { makeYorkieBoardDoc, makeShapeInit } from "./__testkit__";
 import { STICKY_GAP, buildStickyInit, isStickyElement } from "./sticky";
+import { createSection } from "./board-sections";
 import {
   addAdjacentSticky,
   handleStickyFlowKey,
@@ -90,6 +91,23 @@ describe("addAdjacentSticky", () => {
   });
 });
 
+describe("addAdjacentSticky inside a section", () => {
+  it("steps off stickies, not off the section that contains them", () => {
+    const { store, ctx } = setup();
+    createSection(store, { x: -400, y: -400, w: 1200, h: 800 }, { title: "Ideas" });
+    let src = "";
+    store.batch(() => {
+      src = store.addElement(SYNTHETIC_SLIDE_ID, buildStickyInit("#FFF8B8", { x: 0, y: 0 }));
+    });
+    const id = addAdjacentSticky(ctx, src, "right")!;
+    const source = els(store).find((e) => e.id === src)!;
+    const added = els(store).find((e) => e.id === id)!;
+    // The neighbouring cell, still inside the section.
+    expect(added.frame.x).toBe(source.frame.x + source.frame.w + STICKY_GAP);
+    expect(added.frame.y).toBe(source.frame.y);
+  });
+});
+
 describe("pasteTextAsStickies", () => {
   it("makes one selected sticky per line in a single batch", () => {
     const { store, editor, ctx } = setup();
@@ -114,6 +132,30 @@ describe("pasteTextAsStickies", () => {
     pasteTextAsStickies(ctx, "solo");
     const [first, second] = els(store);
     expect(second.frame.x).toBeGreaterThanOrEqual(first.frame.x + first.frame.w);
+  });
+
+  it("places a multi-line grid in free space, not over the stickies at the centre", () => {
+    const { store, ctx } = setup();
+    // A 2x2 block of stickies around the viewport centre (0, 0).
+    store.batch(() => {
+      for (const x of [-120, 120]) {
+        for (const y of [-120, 120]) {
+          store.addElement(SYNTHETIC_SLIDE_ID, buildStickyInit("#FFF8B8", { x, y }));
+        }
+      }
+    });
+    const before = els(store).map((e) => e.frame);
+    const { ids } = pasteTextAsStickies(ctx, "one\ntwo\nthree\nfour");
+    const pasted = els(store).filter((e) => ids.includes(e.id)).map((e) => e.frame);
+    expect(pasted).toHaveLength(4);
+    const hit = (a: Frame, b: Frame) =>
+      a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    for (const p of pasted) {
+      for (const b of before) expect(hit(p, b)).toBe(false);
+    }
+    // Still a 2x2 grid.
+    expect(new Set(pasted.map((f) => f.x)).size).toBe(2);
+    expect(new Set(pasted.map((f) => f.y)).size).toBe(2);
   });
 });
 

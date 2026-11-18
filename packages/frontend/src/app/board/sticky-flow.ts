@@ -1,5 +1,11 @@
 import type { Element, Frame, SlidesEditor, SlidesStore } from "@wafflebase/slides";
-import { SYNTHETIC_SLIDE_ID, type StickyDataExtras, type Viewport } from "@wafflebase/board";
+import {
+  SYNTHETIC_SLIDE_ID,
+  findFreeRect,
+  isSectionElement,
+  type StickyDataExtras,
+  type Viewport,
+} from "@wafflebase/board";
 import {
   DEFAULT_STICKY_SIZE,
   STICKY_COLORS,
@@ -34,6 +40,16 @@ export interface StickyFlowContext {
   author: () => string | undefined;
 }
 
+/**
+ * What a new sticky steps off: every top-level frame but a section's. A
+ * section is a container, not an obstacle (the `S` key's rule, see
+ * `readStickyObstacles` in `board-view.tsx`); counting it would push a
+ * sticky added inside one out past its edge.
+ */
+function stickyObstacles(elements: readonly Element[]): Frame[] {
+  return elements.filter((e) => !isSectionElement(e)).map((e) => e.frame);
+}
+
 /** The first inline font size in a sticky's text body, if any. */
 function bodyFontSize(el: Element): number | undefined {
   if (el.type !== "shape") return undefined;
@@ -65,7 +81,7 @@ export function addAdjacentSticky(
     fill && "kind" in fill && fill.kind === "srgb" ? fill.value : STICKY_COLORS[0].value;
   const visible = ctx.visible();
   const center = adjacentStickyCenter(
-    elements.map((e) => e.frame),
+    stickyObstacles(elements),
     source.frame,
     direction,
     visible,
@@ -88,8 +104,8 @@ export function addAdjacentSticky(
 }
 
 /**
- * Turn pasted plain text into stickies centred in the viewport (see
- * `parsePastedCells`): one batch, all selected, none in text edit. A
+ * Turn pasted plain text into stickies on free space nearest the viewport
+ * centre (see `parsePastedCells`): one batch, all selected, none in text edit. A
  * single line becomes one sticky on the nearest free spot instead.
  * Returns the new ids and how many cells were dropped over the cap.
  */
@@ -109,7 +125,7 @@ export function pasteTextAsStickies(
             {
               text: grid.flat().find((c) => c !== "")!,
               center: freeStickyCenter(
-                ctx.readElements().map((e) => e.frame),
+                stickyObstacles(ctx.readElements()),
                 center,
                 visible,
               ),
@@ -117,7 +133,11 @@ export function pasteTextAsStickies(
           ],
           dropped: 0,
         }
-      : layoutPastedStickies(grid, center, DEFAULT_STICKY_SIZE, STICKY_GAP);
+      : layoutInFreeSpace(
+          ctx,
+          layoutPastedStickies(grid, center, DEFAULT_STICKY_SIZE, STICKY_GAP),
+          visible,
+        );
   const author = ctx.author();
   const ids: string[] = [];
   ctx.store.batch(() => {
@@ -132,6 +152,49 @@ export function pasteTextAsStickies(
   });
   ctx.editor.setSelection(ids);
   return { ids, dropped: placed.dropped };
+}
+
+/**
+ * Move a pasted grid, as one block, to the nearest spot around the
+ * viewport centre where it covers nothing (`findFreeRect`, the search the
+ * agent's batch placement runs), and bring it into view if that spot is
+ * off screen. Dropped on the centre as is, a paste lands on top of the
+ * stickies already there.
+ */
+function layoutInFreeSpace(
+  ctx: StickyFlowContext,
+  placed: ReturnType<typeof layoutPastedStickies>,
+  visible: Frame,
+): ReturnType<typeof layoutPastedStickies> {
+  if (placed.stickies.length === 0) return placed;
+  const { w, h } = DEFAULT_STICKY_SIZE;
+  const xs = placed.stickies.map((s) => s.center.x);
+  const ys = placed.stickies.map((s) => s.center.y);
+  const left = Math.min(...xs) - w / 2;
+  const top = Math.min(...ys) - h / 2;
+  const size = { w: Math.max(...xs) + w / 2 - left, h: Math.max(...ys) + h / 2 - top };
+  const at = findFreeRect(
+    stickyObstacles(ctx.readElements()),
+    size,
+    { x: left, y: top },
+    STICKY_GAP,
+  );
+  const dx = at.x - left;
+  const dy = at.y - top;
+  const box: Frame = { x: at.x, y: at.y, w: size.w, h: size.h, rotation: 0 };
+  const onScreen =
+    box.x >= visible.x &&
+    box.y >= visible.y &&
+    box.x + box.w <= visible.x + visible.w &&
+    box.y + box.h <= visible.y + visible.h;
+  if (!onScreen) ctx.reveal(box);
+  return {
+    stickies: placed.stickies.map((s) => ({
+      text: s.text,
+      center: { x: s.center.x + dx, y: s.center.y + dy },
+    })),
+    dropped: placed.dropped,
+  };
 }
 
 /** What {@link handleStickyFlowKey} needs. */
