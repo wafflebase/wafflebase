@@ -39,6 +39,69 @@ describe('summarizeBoard', () => {
     const text = { ...buildTextBoxInit('one\ntwo', { x: 0, y: 0 }), id: 't' } as Element;
     expect(plainText(text)).toBe('one\ntwo');
     expect(elementKind(text)).toBe('text');
+
+    const label = (buildTextBoxInit('yes', { x: 0, y: 0 }) as unknown as { data: { blocks: unknown[] } }).data;
+    const connector = {
+      id: 'c',
+      type: 'connector',
+      frame: { x: 0, y: 0, w: 100, h: 0, rotation: 0 },
+      routing: 'straight',
+      start: { kind: 'attached', elementId: 'a', siteIndex: 1 },
+      end: { kind: 'free', x: 100, y: 0 },
+      arrowheads: {},
+      label: { blocks: label.blocks },
+    } as unknown as Element;
+    expect(plainText(connector)).toBe('yes');
+    expect(elementKind(connector)).toBe('connector');
+    expect(plainText({ ...connector, label: undefined } as Element)).toBeUndefined();
+
+    const image = {
+      id: 'i',
+      type: 'image',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      data: { src: 'https://x.test/a.png', alt: 'not body text' },
+    } as unknown as Element;
+    expect(plainText(image)).toBeUndefined();
+    expect(elementKind(image)).toBe('image');
+  });
+
+  it('summarizes a connector with its label and glued ends, and an image without text', () => {
+    const a = sticky('a', 0, 0);
+    const b = sticky('b', 600, 0);
+    const label = (buildTextBoxInit('depends on', { x: 0, y: 0 }) as unknown as { data: { blocks: unknown[] } }).data;
+    const glued = {
+      id: 'c',
+      type: 'connector',
+      frame: { x: 180, y: 90, w: 420, h: 0, rotation: 0 },
+      routing: 'elbow',
+      start: { kind: 'attached', elementId: 'a', siteIndex: 1 },
+      end: { kind: 'attached', elementId: 'b', siteIndex: 3 },
+      arrowheads: { end: { kind: 'triangle', size: 'md' } },
+      label: { blocks: label.blocks },
+    } as unknown as Element;
+    const loose = {
+      ...glued,
+      id: 'd',
+      start: { kind: 'free', x: 0, y: 500 },
+      end: { kind: 'attached', elementId: 'b', siteIndex: 0 },
+      label: undefined,
+    } as unknown as Element;
+    const image = {
+      id: 'i',
+      type: 'image',
+      frame: { x: 0, y: 900, w: 100, h: 100, rotation: 0 },
+      data: { src: 'https://x.test/a.png' },
+    } as unknown as Element;
+    const out = summarizeBoard([a, b, glued, loose, image]);
+    const byId = new Map(out.map((e) => [e.id, e]));
+    expect(byId.get('c')).toMatchObject({ kind: 'connector', text: 'depends on', from: 'a', to: 'b' });
+    const d = byId.get('d')!;
+    expect(d).toMatchObject({ kind: 'connector', to: 'b' });
+    expect('from' in d).toBe(false);
+    expect('text' in d).toBe(false);
+    const i = byId.get('i')!;
+    expect(i.kind).toBe('image');
+    expect('text' in i || 'from' in i || 'color' in i).toBe(false);
   });
 });
 
