@@ -7,7 +7,7 @@
  */
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarTrigger: () => null,
@@ -17,6 +17,11 @@ vi.mock('@/components/notifications/notification-bell', () => ({
 }));
 vi.mock('@/components/sync-status/sync-status-chip', () => ({
   SyncStatusChip: () => null,
+}));
+// The phone branch is keyed on the viewport; each test picks its side.
+const viewport = vi.hoisted(() => ({ mobile: false }));
+vi.mock('@/hooks/use-mobile', () => ({
+  useIsMobile: () => viewport.mobile,
 }));
 vi.mock('sonner', () => ({
   toast: { error: vi.fn() },
@@ -298,5 +303,89 @@ describe('HeaderPanelToggle', () => {
       'aria-pressed',
       'true',
     );
+  });
+});
+
+// On a phone the header row used to carry five controls of four different
+// sizes and squeeze a Docs title to "Quarterly …". The panels and export move
+// into a More menu; the type's own action and Share stay in the row.
+describe('SiteHeader on a phone', () => {
+  afterEach(() => {
+    viewport.mobile = false;
+  });
+
+  const Icon = () => <svg />;
+  const renderHeader = (onPressedChange = vi.fn()) =>
+    render(
+      <TooltipProvider>
+        <SiteHeader
+          title="Plan"
+          actions={{
+            primary: <span>present</span>,
+            comments: (
+              <HeaderPanelToggle
+                icon={Icon}
+                label="comments"
+                pressed={false}
+                onPressedChange={onPressedChange}
+              />
+            ),
+            history: (
+              <HeaderPanelToggle
+                icon={Icon}
+                label="version history"
+                pressed
+                onPressedChange={vi.fn()}
+              />
+            ),
+            share: <span>share</span>,
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+  it('keeps only the primary action and Share in the row', () => {
+    viewport.mobile = true;
+    const { container } = renderHeader();
+
+    const row = Array.from(container.querySelectorAll('[data-header-slot]')).map(
+      (el) => el.getAttribute('data-header-slot'),
+    );
+    expect(row).toEqual(['primary', 'share']);
+    expect(screen.queryByRole('button', { name: 'Show comments' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'More document actions' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers the panels as checked rows of the More menu', async () => {
+    viewport.mobile = true;
+    const onPressedChange = vi.fn();
+    renderHeader(onPressedChange);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'More document actions' }),
+    );
+    const comments = await screen.findByRole('menuitemcheckbox', {
+      name: 'Comments',
+    });
+    expect(comments).toHaveAttribute('aria-checked', 'false');
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Version history' }),
+    ).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(comments);
+    expect(onPressedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('has no More menu on a wide viewport', () => {
+    renderHeader();
+
+    expect(
+      screen.queryByRole('button', { name: 'More document actions' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Show comments' }),
+    ).toBeInTheDocument();
   });
 });

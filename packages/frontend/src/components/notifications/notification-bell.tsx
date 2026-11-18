@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { fetchMe } from "@/api/auth";
+import { HEADER_CONTROL_SIZE } from "@/components/header-placement";
 import { NotificationList } from "./notification-list";
 import { useNotificationStream } from "./use-notification-stream";
 import { useUnreadCount } from "./use-notifications";
@@ -48,7 +49,7 @@ export function NotificationBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative h-8 w-8 shrink-0"
+          className={`relative ${HEADER_CONTROL_SIZE} shrink-0`}
           aria-label={label}
         >
           <IconBell className="h-4 w-4" />

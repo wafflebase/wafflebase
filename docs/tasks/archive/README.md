@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 641
+Total archived tasks: 642
 
-## 2026/11 (11 tasks)
+## 2026/11 (12 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| mobile editor header (2026-11-18) | [20261118-mobile-editor-header-todo.md](./2026/11/20261118-mobile-editor-header-todo.md) | [20261118-mobile-editor-header-lessons.md](./2026/11/20261118-mobile-editor-header-lessons.md) |
 | slides layout pass (2026-11-17) | [20261117-slides-layout-pass-todo.md](./2026/11/20261117-slides-layout-pass-todo.md) | [20261117-slides-layout-pass-lessons.md](./2026/11/20261117-slides-layout-pass-lessons.md) |
 | board usability (2026-11-16) | [20261116-board-usability-todo.md](./2026/11/20261116-board-usability-todo.md) | [20261116-board-usability-lessons.md](./2026/11/20261116-board-usability-lessons.md) |
 | notes pane contrast (2026-11-16) | [20261116-notes-pane-contrast-todo.md](./2026/11/20261116-notes-pane-contrast-todo.md) | [20261116-notes-pane-contrast-lessons.md](./2026/11/20261116-notes-pane-contrast-lessons.md) |
