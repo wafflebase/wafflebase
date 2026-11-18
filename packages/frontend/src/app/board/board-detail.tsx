@@ -188,8 +188,10 @@ function BoardLayout({ documentId }: { documentId: string }) {
             share: <ShareDialog documentId={documentId} />,
             presence: (
               <UserPresence
-                onSelectPeer={followBridge.selectPeer}
-                getJumpHint={followBridge.jumpHint}
+                // Withheld during a preview, as in docs and sheets: following
+                // a peer would move the LIVE board hidden under the overlay.
+                onSelectPeer={previewing ? undefined : followBridge.selectPeer}
+                getJumpHint={previewing ? undefined : followBridge.jumpHint}
               />
             ),
           }}

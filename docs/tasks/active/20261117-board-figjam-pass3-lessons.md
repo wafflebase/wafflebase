@@ -49,3 +49,12 @@ The conflicts that took real work were semantic, not textual:
   `meta.anonymous`; untrusted group trees were walked with no depth bound;
   no test proved a board move is a granular write → all six fixed, each with
   a regression test (none disputed).
+- Round 2:
+  - design-fit and security failed on infrastructure (no verdict). Those
+    lenses did not run, so round 2 is not clean.
+  - Three round-1 findings came back as UNVERIFIED because the verifier
+    errored. All three were already fixed, and are disputed with file:line
+    evidence in the rebuttals file.
+  - One new blast-radius finding: the board's peer follow stayed live
+    under a revision preview. Fixed by withholding `onSelectPeer` /
+    `getJumpHint` while previewing, and added to the containment test.
