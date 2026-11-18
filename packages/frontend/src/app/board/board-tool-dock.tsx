@@ -8,7 +8,6 @@ import {
 } from "react";
 import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
 import {
-  IconChevronDown,
   IconDots,
   IconHandStop,
   IconLetterT,
@@ -29,7 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover,
@@ -53,6 +51,12 @@ import { BOARD_OVERLAY_ATTR } from "./fit-insets";
 import { BoardLassoToggle } from "./board-drawing-controls";
 import type { DrawingTools } from "./board-drawing-extras";
 import { useToggleOn } from "./use-toggle-on";
+import {
+  MenuCaret,
+  SplitTool,
+  SplitToolChevron,
+  ToolCommandButton,
+} from "./board-split-tool-button";
 import { dockLayout, type DockLayout } from "./board-dock-layout";
 
 /** Shape and line tool keys, spoken in the pickers' tooltips. */
@@ -263,36 +267,25 @@ export function BoardToolDock({
 
   // Main click drops the first (yellow) color; the chevron opens the
   // 6-color palette. Placement + text-edit entry is board-local
-  // (`dropStickyAtViewportCenter`), not an editor InsertKind.
+  // (`dropStickyAtViewportCenter`), not an editor InsertKind — a click
+  // places the sticky at once, so there is no armed state to show and the
+  // main half is a command rather than a Toggle.
   const sticky = (
-    <div className="flex items-center">
+    <SplitTool>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
+          <ToolCommandButton
             aria-label="Sticky note"
             disabled={off}
             onClick={() => onInsertSticky?.(STICKY_COLORS[0].value)}
           >
             <IconNote size={16} />
-          </Button>
+          </ToolCommandButton>
         </TooltipTrigger>
         <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
       </Tooltip>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 w-5 px-0"
-            aria-label="Sticky note color"
-            disabled={off}
-          >
-            <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
-          </Button>
-        </DropdownMenuTrigger>
+        <SplitToolChevron label="Sticky note color" disabled={off} />
         <DropdownMenuContent
           align="start"
           className="flex gap-1 p-1"
@@ -321,7 +314,7 @@ export function BoardToolDock({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </SplitTool>
   );
 
   const text = (
@@ -343,32 +336,38 @@ export function BoardToolDock({
 
   // Active when insertMode is a ShapeKind: not text, not the eraser, and
   // not a line-tool kind (connectors live in Line ▾, freehand in Marker).
+  // Shape and Line open a picker rather than arming one tool, which the
+  // corner caret says.
   const shape = (
-    <ShapePicker
-      activeKind={
-        insertMode &&
-        insertMode !== "text" &&
-        insertMode !== "eraser" &&
-        !isLineToolKind(insertMode)
-          ? insertMode
-          : null
-      }
-      onSelect={(kind) => editor?.setInsertMode(kind)}
-      disabled={off}
-      featured={BOARD_SHAPES}
-      tooltip={`Shape (${SHAPE_HINT})`}
-    />
+    <MenuCaret>
+      <ShapePicker
+        activeKind={
+          insertMode &&
+          insertMode !== "text" &&
+          insertMode !== "eraser" &&
+          !isLineToolKind(insertMode)
+            ? insertMode
+            : null
+        }
+        onSelect={(kind) => editor?.setInsertMode(kind)}
+        disabled={off}
+        featured={BOARD_SHAPES}
+        tooltip={`Shape (${SHAPE_HINT})`}
+      />
+    </MenuCaret>
   );
 
   const line = (
-    <LinePicker
-      activeKind={lineArmed ? insertMode : null}
-      onSelect={(kind) => editor?.setInsertMode(kind)}
-      disabled={off}
-      labels={BOARD_LINE_LABELS}
-      exclude={BOARD_LINE_EXCLUDE}
-      tooltip={`Line (${LINE_HINT})`}
-    />
+    <MenuCaret>
+      <LinePicker
+        activeKind={lineArmed ? insertMode : null}
+        onSelect={(kind) => editor?.setInsertMode(kind)}
+        disabled={off}
+        labels={BOARD_LINE_LABELS}
+        exclude={BOARD_LINE_EXCLUDE}
+        tooltip={`Line (${LINE_HINT})`}
+      />
+    </MenuCaret>
   );
 
   const inkGroup = (
@@ -378,7 +377,6 @@ export function BoardToolDock({
       insertMode={insertMode}
       disabled={disabled}
       withEraser={!layout.compact}
-      laser={drawingTools?.laser ?? null}
     />
   );
 
@@ -390,19 +388,18 @@ export function BoardToolDock({
 
   // Opens a file picker; upload + insert is board-view's onInsertImage.
   // The <input> itself stays at the dock root (below), so it outlives the
-  // "More" popover closing while the system file dialog is up.
+  // "More" popover closing while the system file dialog is up. A command
+  // with no armed state, so a plain button rather than a Toggle.
   const image = (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Toggle
-          size="sm"
-          pressed={false}
+        <ToolCommandButton
           onClick={() => fileInputRef.current?.click()}
           aria-label="Insert image"
           disabled={off || !onInsertImage}
         >
           <IconPhoto size={16} />
-        </Toggle>
+        </ToolCommandButton>
       </TooltipTrigger>
       <TooltipContent>Insert image</TooltipContent>
     </Tooltip>
@@ -474,10 +471,15 @@ export function BoardToolDock({
               if (button && !button.hasAttribute("aria-haspopup")) setMoreOpen(false);
             }}
           >
+            {/* The folded tools keep the dock's grouping: select, insert,
+                ink, then section / image / rituals. */}
             {lasso}
             {handToggle}
+            <ToolbarSeparator className="mx-1" />
             {line}
+            <ToolbarSeparator className="mx-1" />
             {eraser}
+            <ToolbarSeparator className="mx-1" />
             {section}
             {image}
             {extraTools}

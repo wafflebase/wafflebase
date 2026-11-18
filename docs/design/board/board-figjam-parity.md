@@ -231,6 +231,21 @@ in [slides-connectors.md](../slides/slides-connectors.md).
 | **Board comments** through the shared comments module (`root.comments`). Threads anchor to an element or to a world point. | `rituals/board-comment-store.ts` | PRODUCT.md promises comments on every type. |
 | **A canvas click closes a modal popover and also acts.** | `board-click-through.ts` | Radix sets `body { pointer-events: none }`, so the press that dismissed a popover never reached the canvas. |
 
+**The Facilitate group.** The tools for running a session sit together in
+the top bar as `[Timer][Vote][Spotlight][Laser]`
+(`board-facilitate-controls.tsx`). They used to be scattered: Start voting
+hid under the Stamp ▾ menu with the +1 stamp's thumbs-up glyph, and the
+laser hid in the Marker ▾ popover. Vote is the *session* control: idle, it
+opens the Start voting form (`rituals/start-voting-dialog.tsx`); while a
+vote is open it wears the selected wash and picks the vote tool back up.
+Casting stays on the dock's Stamp tool, which already turns into Vote with
+your votes left, so the top bar repeats no count. Spotlight takes
+`IconFocus2` and Vote `IconChecklist`, so neither reads as a stamp. On a
+phone (`useIsMobile`) the group folds into one Facilitate trigger, washed
+while any of its tools is live. Vote keeps the dock rituals' gates (a
+collab provider, a signed-in editor, a workspace); the whole bar is still
+withheld from viewers.
+
 #### Polish
 
 | Change | Where | Why |

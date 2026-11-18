@@ -35,6 +35,25 @@ about who stamped.
       glyphs are filled without a stroke and sized per kind (`StampArt.scale`)
       so the disc's colour edge stays visible at 16px.
 
+## Icon critique follow-up (P1 + P2, three parallel agents)
+
+Critique: 22/36 — split buttons built three ways, Grid/Section both "#",
+coloured stamp disc breaking the One Accent Rule, facilitation tools
+scattered, floating chrome small and low-contrast.
+
+- [x] One `SplitToolChevron` for Sticky / Marker / Stamp; corner caret on
+      Shape / Line; Undo/Redo 32px; Grid `IconGridDots`, Section
+      `IconLayoutNavbar`; Image is a command button; More keeps separators
+- [x] Dock Stamp is a monochrome glyph idle, the coloured sticker armed;
+      `StampBadge` sized by style (a host svg rule forced it to 16px) with a
+      small-badge boost so menu glyphs do not shrink to dots
+- [x] Facilitate group (Timer, Vote, Spotlight, Laser) in the top bar; Start
+      voting and the laser leave the stamp / marker menus; phone fold
+- [x] Export button and Map toggle share the dock surface, 32px / 44px coarse;
+      empty-board hint ink ≥4.5:1 on both planes
+- [x] Kept: the minimap's syrup viewport frame along the panel edge — it is
+      the "you are here" indicator, not a passive border
+
 ## Verify
 
 - [ ] `pnpm verify:fast`

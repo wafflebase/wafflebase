@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { MutableRefObject, ReactNode } from "react";
 import type { Element, SlidesEditor, Viewport } from "@wafflebase/slides";
@@ -19,11 +19,13 @@ vi.mock("./use-board-voting", () => ({
   useBoardVoting: () => yorkie.voting,
   useBoardDoc: () => ({ getRoot: () => yorkie.root }),
 }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 // The results panel is its own component with its own tests.
 vi.mock("./board-voting-panel", () => ({ BoardVotingPanel: () => null }));
 
 import { BoardRituals, type RitualMenus } from "./board-rituals";
 import { BoardRitualTools } from "./board-ritual-controls";
+import { BoardFacilitateControls } from "../board-facilitate-controls";
 import { BoardCollabContext, type BoardCollabValue } from "./board-collab-hook";
 import { createRitualTool, type RitualTool } from "./ritual-tool";
 import { createVoting } from "./voting";
@@ -41,6 +43,8 @@ function fakeStore() {
     batches: 0,
     read: () => ({ slides: [{ id: "board", elements: [STICKY] }] }),
     onChange: () => () => undefined,
+    readTimer: () => undefined,
+    writeTimer: () => undefined,
     batch: (fn: () => void) => {
       store.batches++;
       fn();
@@ -104,6 +108,12 @@ function mount(readOnly: boolean) {
     <TooltipProvider>
       <BoardCollabContext.Provider value={collab}>
         <BoardRitualTools store={store as unknown as YorkieBoardStore} />
+        <BoardFacilitateControls
+          store={store as unknown as YorkieBoardStore}
+          editor={fakeEditor()}
+          presence={null}
+          laser={null}
+        />
         <BoardRituals
           editor={fakeEditor()}
           store={store as unknown as YorkieBoardStore}
@@ -128,13 +138,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount first: wiping the body under a mounted tree leaves React (and
+  // any open Radix portal) removing nodes that are already gone.
+  cleanup();
   document.body.innerHTML = "";
 });
 
 describe("BoardRituals on a read-only mount", () => {
   it("offers no stamp, vote or comment tool and no comment menu entry", () => {
     const { menuRef } = mount(true);
-    expect(screen.queryByRole("button", { name: /stamp|vote|comment/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /stamp|vot|comment/i })).toBeNull();
     expect(menuRef.current?.canvasItems({ x: 0, y: 0 })).toEqual([]);
     expect(menuRef.current?.elementItems({ x: 0, y: 0 })).toEqual([]);
   });
@@ -145,6 +158,26 @@ describe("BoardRituals on a read-only mount", () => {
     click();
     expect(store.batches).toBe(0);
     expect(yorkie.root.stamps).toEqual({});
+  });
+});
+
+describe("BoardRitualTools stamp button", () => {
+  it("shows a monochrome glyph while idle and the coloured sticker once armed", () => {
+    const { tool } = mount(false);
+    const stamp = screen.getByRole("button", { name: "Stamp" });
+    // Idle: no second chromatic signal in the dock (the One Accent Rule).
+    expect(stamp.querySelector("[data-stamp-glyph]")?.getAttribute("stroke")).toBe("currentColor");
+    expect(stamp.querySelector("[data-stamp-badge]")).toBeNull();
+    act(() => tool.setMode("stamp"));
+    expect(stamp.querySelector("[data-stamp-badge]")).toBeTruthy();
+    expect(stamp.querySelector("[data-stamp-glyph]")).toBeNull();
+  });
+
+  it("builds its chevron from the dock's shared split-tool primitive", () => {
+    mount(false);
+    // The primitive's tooltip is asserted in board-tool-dock.test.tsx.
+    const chevron = screen.getByRole("button", { name: "Stamps" });
+    expect(chevron.hasAttribute("data-split-chevron")).toBe(true);
   });
 });
 
@@ -161,8 +194,7 @@ describe("BoardRituals on an editable mount", () => {
 
   it("starting a vote arms the vote tool, and a click casts a ballot instead of a stamp", async () => {
     const { tool, store, click, rerender } = mount(false);
-    await userEvent.click(screen.getByRole("button", { name: "Stamps and voting" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Start voting/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Start voting" }));
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(tool.get().mode).toBe("stamp");
     const started = yorkie.root.voting as BoardVoting;
@@ -172,12 +204,36 @@ describe("BoardRituals on an editable mount", () => {
     yorkie.voting = started;
     rerender();
     expect(screen.getByRole("button", { name: "Vote" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Voting in progress" })).toBeTruthy();
 
     const before = store.batches;
     click();
     expect(store.batches).toBe(before + 1);
     expect((yorkie.root.voting as BoardVoting).ballots.u1).toEqual(["a"]);
     expect(yorkie.root.stamps).toEqual({});
+  });
+
+  it("keeps Start voting out of the stamp menu", async () => {
+    mount(false);
+    await userEvent.click(screen.getByRole("button", { name: "Stamps" }));
+    expect(await screen.findByRole("menuitemradio", { name: /\+1/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /Start voting/ })).toBeNull();
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("picks the vote tool back up from the Facilitate group while a vote is open", async () => {
+    yorkie.voting = createVoting({
+      id: "v1",
+      prompt: "",
+      perPerson: 3,
+      onlyStickies: false,
+      userKey: "u2",
+      userName: "Bo",
+    });
+    const { tool } = mount(false);
+    act(() => tool.setMode("comment"));
+    await userEvent.click(screen.getByRole("button", { name: "Voting in progress" }));
+    expect(tool.get().mode).toBe("stamp");
   });
 
   it("gives the tool back when the vote ends", () => {

@@ -85,11 +85,18 @@ export function BoardExportMenu({ store, editor, title }: BoardExportMenuProps) 
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
+              {/*
+                The tool dock's floating surface (border, background,
+                shadow-md) so the controls over the plane read as one
+                family with it and the minimap's Map toggle. The icon is
+                foreground, not muted: a muted glyph on the white plane
+                all but vanished.
+              */}
               <button
                 type="button"
                 aria-label="Download"
                 disabled={!store}
-                className="focus-ring inline-flex size-8 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className="focus-ring inline-flex size-8 items-center justify-center rounded-lg border bg-background text-foreground shadow-md hover:bg-muted disabled:opacity-50 pointer-coarse:size-11"
               >
                 <IconDownload size={16} />
               </button>

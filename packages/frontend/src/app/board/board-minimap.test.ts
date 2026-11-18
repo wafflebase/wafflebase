@@ -57,7 +57,7 @@ describe('createBoardMinimap', () => {
     mm.dispose();
   });
 
-  it('draws the toggle state as an icon, not a glyph', () => {
+  it('draws one chevron-down icon in both states, not a glyph', () => {
     const mm = createBoardMinimap({
       store: fakeStore(),
       getHostSize: () => ({ w: 800, h: 600 }),
@@ -67,11 +67,15 @@ describe('createBoardMinimap', () => {
     const toggle = mm.element.querySelector('button') as HTMLButtonElement;
     expect(toggle.textContent).toBe('Map');
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const path = () => toggle.querySelector('svg path')?.getAttribute('d');
-    const expanded = path();
+    const svg = () => toggle.querySelector('svg') as SVGSVGElement;
+    // Tabler chevron-down at 16px, stroke 2.
+    expect(svg().getAttribute('width')).toBe('16');
+    expect(svg().getAttribute('stroke-width')).toBe('2');
+    expect(svg().querySelector('path')?.getAttribute('d')).toBe('M6 9l6 6l6 -6');
     toggle.click();
+    // Collapsing changes the state, not the caret's direction.
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(path()).not.toBe(expanded);
+    expect(svg().querySelector('path')?.getAttribute('d')).toBe('M6 9l6 6l6 -6');
     mm.dispose();
   });
 
@@ -85,8 +89,9 @@ describe('createBoardMinimap', () => {
     const toggle = mm.element.querySelector('button') as HTMLButtonElement;
     const panel = mm.element.querySelector('div') as HTMLElement;
     const css = (el: HTMLElement) => el.getAttribute('style') ?? '';
-    expect(css(toggle)).toContain('var(--popover');
-    expect(css(toggle)).toContain('var(--muted-foreground');
+    // The floating-control surface the Download button and tool dock wear.
+    expect(css(toggle)).toContain('var(--background');
+    expect(css(toggle)).toContain('var(--foreground');
     expect(css(toggle)).toContain('var(--border');
     expect(css(panel)).toContain('var(--card');
     expect(css(panel)).toContain('var(--border');
@@ -142,7 +147,7 @@ describe('createBoardMinimap', () => {
     mm.dispose();
   });
 
-  it('gives the toggle a 24px floor, and 44px on a coarse pointer', () => {
+  it('gives the toggle a 32px floor, and 44px on a coarse pointer', () => {
     const make = (coarsePointer: boolean) =>
       createBoardMinimap({
         store: fakeStore(),
@@ -153,7 +158,7 @@ describe('createBoardMinimap', () => {
       });
     const fine = make(false);
     const fineToggle = fine.element.querySelector('button') as HTMLButtonElement;
-    expect(fineToggle.style.minHeight).toBe('24px');
+    expect(fineToggle.style.minHeight).toBe('32px');
     fine.dispose();
     const coarse = make(true);
     const coarseToggle = coarse.element.querySelector('button') as HTMLButtonElement;

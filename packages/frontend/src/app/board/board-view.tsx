@@ -34,7 +34,8 @@ import {
 } from "./board-presence";
 import type { BoardFollowBridge } from "./board-follow-bridge";
 import { allowClickThroughDismiss } from "./board-click-through";
-import { BoardSpotlightToggle, BoardTimerChip, BoardTimerControl } from "./board-collab-controls";
+import { BoardTimerChip } from "./board-collab-controls";
+import { BoardFacilitateControls } from "./board-facilitate-controls";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import { BoardToolDock } from "./board-tool-dock";
@@ -1410,10 +1411,13 @@ export function BoardView({
           onGridSnapChange={(next) => setGridSnapRef.current(next)}
           sections={sections}
           collabControls={
-            <>
-              <BoardTimerControl store={store} disabled={!editor} />
-              <BoardSpotlightToggle presence={presenceCtl} />
-            </>
+            <BoardFacilitateControls
+              store={store}
+              editor={editor}
+              presence={presenceCtl}
+              laser={drawingTools.laser}
+              disabled={!workspaceId}
+            />
           }
         />
       )}

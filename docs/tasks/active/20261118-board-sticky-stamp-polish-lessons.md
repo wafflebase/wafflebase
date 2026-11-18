@@ -14,3 +14,13 @@
   it painted over the editor's DOM selection handles: a stamp on a corner hid
   the resize handle. Annotations belong under selection chrome — give the
   overlay a z-index rather than reordering DOM.
+- `Button`/`Toggle` carry `[&_svg:not([class*='size-'])]:size-4`, which beats
+  an SVG's width/height attributes — an icon that must not be 16px needs a
+  `size-*` class or an inline style. It hid the stamp-badge sizing bug twice:
+  first forcing the glyph too big, then (once fixed) exposing that the
+  computed size was too small at menu scale.
+- Worktree agents (`isolation: worktree`) start from `main`, not the current
+  branch. Tell them to reset to the branch tip first, or merge their diff
+  with `git apply --3way` and expect conflicts.
+- A test file that empties `document.body` in `afterEach` must `cleanup()`
+  first, or React and any open Radix portal remove nodes that are gone.

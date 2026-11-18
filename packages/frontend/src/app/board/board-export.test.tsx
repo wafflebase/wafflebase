@@ -68,6 +68,16 @@ describe("BoardExportMenu", () => {
     expect(exportBoard).toHaveBeenCalledWith({ doc, format: "png", title: "Retro", ids: undefined });
   });
 
+  it("wears the dock's floating surface and a fingertip floor", () => {
+    setup([]);
+    const button = screen.getByRole("button", { name: "Download" });
+    // Foreground, not muted: a muted icon all but vanished on the white plane.
+    expect(button.className).toContain("text-foreground");
+    expect(button.className).not.toContain("text-muted-foreground");
+    expect(button.className).toContain("shadow-md");
+    expect(button.className).toContain("pointer-coarse:size-11");
+  });
+
   it("disables selection export with nothing selected", async () => {
     setup([]);
     await userEvent.click(screen.getByRole("button", { name: "Download" }));

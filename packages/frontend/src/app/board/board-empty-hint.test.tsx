@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { contrastRatio } from "@wafflebase/core/tokens";
 import { BoardEmptyHint } from "./board-empty-hint";
 
 let mobile = false;
@@ -39,6 +40,20 @@ describe("BoardEmptyHint", () => {
     setCoarse(false);
     renderHint();
     expect(templateLink().getAttribute("href")).toBe("/templates?type=board");
+  });
+
+  it("inks its text for the light plane, readable on the dimmed one too", () => {
+    setCoarse(false);
+    renderHint();
+    const hint = screen.getByText(/right-click/).closest("p") as HTMLElement;
+    // Fixed zinc-700 (5.48:1 on the dimmed #BBBCB8 plane), never a
+    // theme-flipping class that would turn light in dark mode.
+    expect(hint.className).not.toContain("text-muted-foreground");
+    expect(contrastRatio(hint.style.color, "#BBBCB8"))
+      .toBeGreaterThanOrEqual(4.5);
+    // The link's words take the ink; the accent is only its underline.
+    expect(contrastRatio(templateLink().style.color, "#BBBCB8"))
+      .toBeGreaterThanOrEqual(4.5);
   });
 
   it("names keys and right-click on a desktop", () => {
