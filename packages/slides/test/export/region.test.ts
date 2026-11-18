@@ -208,3 +208,21 @@ describe('exportSlideRegionPdf', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+describe('rasterizeSlideRegion paintAfterElements', () => {
+  it('runs the host paint pass over the scoped slide', async () => {
+    const { rasterizeSlideRegion } = await import('../../src/export/region');
+    const slide = {
+      ...blankSlide('board'),
+      elements: [imageElement('keep', 'data:image/png;base64,AAA'), imageElement('drop', 'data:image/png;base64,BBB')],
+    };
+    const paint = vi.fn();
+    await rasterizeSlideRegion(baseDoc([slide]), slide, { x: 0, y: 0, w: 600, h: 400 }, {
+      elementIds: ['keep'],
+      paintAfterElements: paint,
+    });
+    expect(paint).toHaveBeenCalledTimes(1);
+    const painted = paint.mock.calls[0][1] as Slide;
+    expect(painted.elements.map((e) => e.id)).toEqual(['keep']);
+  });
+});

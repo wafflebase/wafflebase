@@ -12,7 +12,10 @@
  * Browser-only, like `./pdf`.
  */
 import type { Slide, SlidesDocument } from '../model/presentation';
-import { drawSlide } from '../view/canvas/slide-renderer';
+import {
+  drawSlide,
+  type SlideRendererOptions,
+} from '../view/canvas/slide-renderer';
 import { evictImageSrcs } from '../view/canvas/image-cache';
 import {
   awaitImageLoaded,
@@ -67,6 +70,13 @@ export interface RasterizeRegionOptions {
   imageFetcher?: SlidesImageFetcher;
   /** Per-image load timeout in ms. Default `15000`. */
   assetTimeoutMs?: number;
+  /**
+   * Host paint pass run after every element, in world coordinates — the
+   * same hook the editor canvas takes (`SlideRendererOptions`), so an
+   * export paints what the screen does (the board's section titles and
+   * hidden-section covers). Receives the scoped slide. Omit for none.
+   */
+  paintAfterElements?: SlideRendererOptions['paintAfterElements'];
 }
 
 export interface RasterizedRegion {
@@ -166,6 +176,7 @@ export async function rasterizeSlideRegion(
         panX: -region.x * size.scale,
         panY: -region.y * size.scale,
       },
+      paintAfterElements: opts.paintAfterElements,
     });
     if (opts.background) {
       // `drawSlide` clears the bitmap in board mode, so the plane colour

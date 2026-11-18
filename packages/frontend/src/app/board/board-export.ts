@@ -8,7 +8,9 @@ import {
 import { docsImageFetcher, downloadBlob, safeFilename } from "../docs/export-utils";
 import { loadDeckFonts } from "../slides/pdf-actions";
 import { BOARD_PLANE_BACKGROUND } from "./board-plane";
+import { paintSections } from "./board-section-paint";
 import { sceneBounds } from "./minimap-geometry";
+import { hiddenSectionContentIds } from "./rituals/hidden-content";
 
 /** World px of plane kept around the exported content. */
 export const BOARD_EXPORT_PAD = 40;
@@ -35,14 +37,59 @@ export function boardExportRegion(
 }
 
 /**
+ * What an export paints, from the whole board's top-level `elements` and
+ * an optional selection `ids`:
+ *
+ * - `elementIds` — the elements rasterized: the selection (or everything)
+ *   minus the contents of every hidden section. Hidden contents are left
+ *   out rather than merely covered, so no paint order, translucent cover
+ *   or selection that names a member but not its section can put them in
+ *   the file.
+ * - `sectionElements` — what the section pass ({@link paintSections})
+ *   reads: the exported sections plus the hidden contents, so a cover
+ *   counts its hidden items as the canvas does, and a section left out of
+ *   a selection export paints neither title nor cover.
+ * - `region` — the bounds of the painted elements, padded; `undefined`
+ *   when nothing is left to paint.
+ *
+ * Pure.
+ */
+export function boardExportPlan(
+  elements: readonly Element[],
+  ids?: readonly string[],
+): {
+  region: WorldRegion | undefined;
+  elementIds: string[];
+  sectionElements: Element[];
+} {
+  const hidden = hiddenSectionContentIds(elements);
+  const scope = ids ? new Set(ids) : null;
+  const elementIds = elements
+    .filter((e) => (!scope || scope.has(e.id)) && !hidden.has(e.id))
+    .map((e) => e.id);
+  const painted = new Set(elementIds);
+  const sectionElements = elements.filter((e) => painted.has(e.id) || hidden.has(e.id));
+  return {
+    region: elementIds.length ? boardExportRegion(elements, elementIds) : undefined,
+    elementIds,
+    sectionElements,
+  };
+}
+
+/**
  * Render the board (or the given top-level `ids`) and download it as a PNG
  * or a one-page PDF sized to the content.
  *
- * Painted by the same `drawSlide` the canvas and minimap use, on the
- * plane's own colour (a transparent PNG would put the board's dark text on
+ * Painted by the same `drawSlide` the canvas and minimap use, with the
+ * same section pass (titles and hidden-section covers, see
+ * {@link boardExportPlan}), on the plane's own colour (a transparent PNG would put the board's dark text on
  * whatever the viewer's background is). Fonts and cross-origin images are
  * made ready first, as the slides PDF export does. Read-only: it never
  * touches the document, so a viewer can export.
+ *
+ * Stamps, vote badges and comment pins are not exported: they are DOM
+ * layers over the canvas, not document content, and a vote in progress
+ * or a comment thread is not meant to travel with a picture of the board.
  *
  * Throws when there is nothing to export; the caller reports it.
  */
@@ -53,14 +100,19 @@ export async function exportBoard(opts: {
   ids?: readonly string[];
 }): Promise<void> {
   const slide = opts.doc.slides[0];
-  const region = slide ? boardExportRegion(slide.elements, opts.ids) : undefined;
-  if (!slide || !region) throw new Error("Nothing to export.");
+  const plan = slide ? boardExportPlan(slide.elements, opts.ids) : undefined;
+  const region = plan?.region;
+  if (!slide || !plan || !region) throw new Error("Nothing to export.");
   await loadDeckFonts(opts.doc);
   const options = {
     scale: BOARD_EXPORT_SCALE,
     background: BOARD_PLANE_BACKGROUND,
-    elementIds: opts.ids,
+    elementIds: plan.elementIds,
     imageFetcher: docsImageFetcher,
+    // Titles at their 100%-zoom size: the export is a picture of the
+    // board's world, not of whatever zoom the viewer happened to be at.
+    paintAfterElements: (ctx: CanvasRenderingContext2D) =>
+      paintSections(ctx, plan.sectionElements, 1),
   };
   if (opts.format === "png") {
     const { bytes } = await rasterizeSlideRegion(opts.doc, slide, region, options);
