@@ -40,3 +40,12 @@ The conflicts that took real work were semantic, not textual:
     reason recorded;
   - the UI-hunter rubric reading an optional `on*` prop as an unwired
     control.
+
+## Self-review log
+
+- Round 1: sticky Tab/Mod+Enter/"+" stepped off sections; backend board
+  templates duplicated the sticky/section factories; board copy and template
+  use carried stamps, vote ballots and the timer; a board content PUT cleared
+  `meta.anonymous`; untrusted group trees were walked with no depth bound;
+  no test proved a board move is a granular write → all six fixed, each with
+  a regression test (none disputed).

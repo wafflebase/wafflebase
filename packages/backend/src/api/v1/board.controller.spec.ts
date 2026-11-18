@@ -12,6 +12,7 @@ import {
   sectionOf,
 } from '@wafflebase/board';
 import type { Element, Frame } from '@wafflebase/slides';
+import { Document as YorkieDocument } from '@yorkie-js/sdk';
 import { ApiV1BoardController } from './board.controller';
 
 const WS = 'ws-1';
@@ -41,8 +42,15 @@ function section(
   return el;
 }
 
-function harness(root: Root, opts: { type?: string; username?: string } = {}) {
-  const doc = {
+function harness(
+  root: Root,
+  opts: {
+    type?: string;
+    username?: string;
+    realDoc?: YorkieDocument<Root>;
+  } = {},
+) {
+  const doc = opts.realDoc ?? {
     getRoot: () => root,
     update: (fn: (r: Root) => void) => fn(root),
   };
@@ -462,6 +470,56 @@ describe('ApiV1BoardController', () => {
         controller.moveElements(WS, DOC, [{ id: 'c', x: 1, y: 1 }]),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(byId(root, 'b').frame.x).toBe(900);
+    });
+
+    it('lands a move as field writes, keeping every element and its data node', async () => {
+      // A real CRDT, so "granular" is observable: an element replaced as a
+      // whole would get a new node id, and a peer's concurrent edit to its
+      // text (which lives under that node) would be lost with it.
+      const doc = new YorkieDocument<Root>(`board-move-${Date.now()}`);
+      doc.update((r) => {
+        r.meta = { title: 'B' };
+        r.elements = [
+          section('s', { x: 0, y: 0, w: 400, h: 400 }),
+          sticky('a', 40, 40),
+          sticky('b', 900, 0),
+        ] as never;
+      });
+      type Node = { id: string; getID(): { toIDString(): string } };
+      const ids = () => {
+        const out: Record<string, string> = {};
+        const arr = doc.getRoot().elements as unknown as ArrayLike<
+          Node & { data: Node & { text?: Node }; frame: Node }
+        >;
+        for (let i = 0; i < arr.length; i++) {
+          const el = arr[i];
+          out[el.id] = el.getID().toIDString();
+          out[`${el.id}.data`] = el.data.getID().toIDString();
+          if (el.data.text)
+            out[`${el.id}.text`] = el.data.text.getID().toIDString();
+          out[`${el.id}.frame`] = el.frame.getID().toIDString();
+        }
+        return out;
+      };
+      const before = ids();
+      const { controller } = harness(doc as unknown as Root, { realDoc: doc });
+      const res = await controller.moveElements(WS, DOC, [
+        { id: 's', x: 100, y: 0 },
+      ]);
+      expect(res).toEqual({ moved: ['s'], carried: ['a'] });
+      const after = ids();
+      for (const key of Object.keys(before)) {
+        if (key === 's.frame' || key === 'a.frame') {
+          // The one thing written: a fresh frame object.
+          expect(after[key]).not.toBe(before[key]);
+        } else {
+          expect(after[key]).toBe(before[key]);
+        }
+      }
+      const a = (doc.getRoot().elements as unknown as Element[]).find(
+        (el) => el.id === 'a',
+      )!;
+      expect(a.frame.x).toBe(140);
     });
 
     it('400s a malformed batch', async () => {
