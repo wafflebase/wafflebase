@@ -105,14 +105,16 @@ export function stampKeysForElements(
  * Whether a stamp read from the CRDT has the shape the overlay draws. Any
  * collaborator can write `root.stamps`, so a kind this client does not know
  * (a newer client's, or a crafted one) or a non-string owner would otherwise
- * reach code that indexes the stamp art by kind every frame.
+ * reach code that indexes the stamp art by kind every frame, and a stamp
+ * without a finite position has nowhere to be drawn. `name` is display-only
+ * and is not checked: readers fall back (see {@link stamperName}) rather
+ * than hide a stamp over a missing name.
  */
 function isDrawableStamp(stamp: BoardStamp | undefined): stamp is BoardStamp {
   return (
     !!stamp &&
     isStampKind(stamp.kind) &&
     typeof stamp.by === "string" &&
-    typeof stamp.name === "string" &&
     Number.isFinite(stamp.u) &&
     Number.isFinite(stamp.v)
   );
@@ -144,12 +146,18 @@ export function stampsByElement(
   return out;
 }
 
+/** A stamp's display name, or a stand-in when a peer wrote none. */
+export function stamperName(name: unknown): string {
+  return typeof name === "string" && name.trim() !== "" ? name.trim() : "Someone";
+}
+
 /** "+1: alice, bob · Heart: carol" — who stamped what, for the hover card. */
 export function describeStamps(list: ReadonlyArray<{ stamp: BoardStamp }>): string {
   const byKind = new Map<BoardStampKind, string[]>();
   for (const { stamp } of list) {
     const names = byKind.get(stamp.kind) ?? [];
-    if (!names.includes(stamp.name)) names.push(stamp.name);
+    const name = stamperName(stamp.name);
+    if (!names.includes(name)) names.push(name);
     byKind.set(stamp.kind, names);
   }
   return [...byKind.entries()]

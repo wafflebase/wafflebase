@@ -112,6 +112,18 @@ describe("BoardFacilitateControls", () => {
     }
   });
 
+  it("keeps the fold open while the Timer's own popover is used", async () => {
+    // The Timer panel is portalled out of the fold, but its clicks still
+    // bubble to the fold through the React tree.
+    mobile = true;
+    mount();
+    await userEvent.click(screen.getByRole("button", { name: "Facilitate" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Timer" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add one minute" }));
+    expect(screen.getByRole("button", { name: "Add one minute" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Spotlight me" })).toBeTruthy();
+  });
+
   it("washes the folded trigger while a vote is open", () => {
     mobile = true;
     yorkie.voting = { status: "active" } as BoardVoting;

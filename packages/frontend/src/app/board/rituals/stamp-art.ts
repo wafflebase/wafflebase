@@ -109,8 +109,8 @@ export function stamperColor(userKey: string): string {
 }
 
 /** The first character of a display name, upper-cased, for the stamper badge. */
-export function stamperInitial(name: string): string {
-  const first = Array.from(name.trim())[0];
+export function stamperInitial(name: unknown): string {
+  const first = typeof name === "string" ? Array.from(name.trim())[0] : undefined;
   return first ? first.toUpperCase() : "?";
 }
 

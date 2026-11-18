@@ -30,6 +30,7 @@ describe("stamp art", () => {
     expect(stamperInitial("홍길동")).toBe("홍");
     expect(stamperInitial("😀 smile")).toBe("😀");
     expect(stamperInitial("   ")).toBe("?");
+    expect(stamperInitial(null)).toBe("?");
   });
 
   it("pops only a stamp placed just now", () => {

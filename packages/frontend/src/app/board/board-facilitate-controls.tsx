@@ -148,7 +148,12 @@ export function BoardFacilitateControls({
           className="flex w-auto items-center gap-0.5 p-1"
           // A tool picked here closes the fold so the canvas is free for
           // it; the Timer opens a popover of its own and keeps it open.
+          // React bubbles events along the component tree, so a press inside
+          // that nested popover (Start, Pause, +1m — portalled elsewhere in
+          // the DOM) reaches this handler too: only buttons that are really
+          // inside the fold count.
           onClick={(e) => {
+            if (!e.currentTarget.contains(e.target as Node)) return;
             const button = (e.target as Element).closest("button");
             if (button && !button.hasAttribute("aria-haspopup")) setFoldOpen(false);
           }}

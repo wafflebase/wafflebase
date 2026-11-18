@@ -98,11 +98,20 @@ describe("stampKeysForElements / stampsByElement", () => {
       ok: stamp(),
       future: stamp({ kind: "confetti" as BoardStamp["kind"] }),
       noOwner: stamp({ by: 7 as unknown as string }),
-      noName: stamp({ name: null as unknown as string }),
       nowhere: stamp({ u: Number.NaN }),
     } satisfies BoardStamps;
     const grouped = stampsByElement(peerWritten, new Set(["e1"]));
     expect(grouped.get("e1")?.map((s) => s.key)).toEqual(["ok"]);
+  });
+
+  it("keeps a stamp a peer wrote without a name, under a stand-in", () => {
+    const grouped = stampsByElement(
+      { nameless: stamp({ name: null as unknown as string }) },
+      new Set(["e1"]),
+    );
+    const list = grouped.get("e1") ?? [];
+    expect(list.map((s) => s.key)).toEqual(["nameless"]);
+    expect(describeStamps(list)).toBe("+1: Someone");
   });
 
   it("groups by live element, oldest first, and drops orphans", () => {

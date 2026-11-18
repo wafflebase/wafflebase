@@ -8,7 +8,7 @@ import {
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import type { Element, SlidesDocument } from '@wafflebase/slides';
 import { bandSlidesDocumentNumerics, decodeFreeformElements } from '@wafflebase/slides';
-import { boardToSlidesDocument } from '@wafflebase/board';
+import { boardToSlidesDocument, withStickyDefaults } from '@wafflebase/board';
 import type { YorkieBoardRoot } from '@/types/board-document';
 import { unwrapYsonScalars } from './unwrap-yson';
 
@@ -69,6 +69,19 @@ export function parseSlidesSnapshot(snapshot: string): SlidesDocument {
  * key rather than a parse error, it rendered as a blank canvas under a
  * banner naming a date instead of raising anything the preview could report.
  */
+/** {@link withStickyDefaults} over every element, group members included. */
+function withStickyDefaultsDeep(elements: Element[]): Element[] {
+  return elements.map((el) => {
+    if (el.type === 'group') {
+      return {
+        ...el,
+        data: { ...el.data, children: withStickyDefaultsDeep(el.data.children) },
+      };
+    }
+    return el.type === 'shape' ? { ...el, data: withStickyDefaults(el.data) } : el;
+  });
+}
+
 export function parseBoardSnapshot(snapshot: string): SlidesDocument {
   const root = unwrapYsonScalars<Partial<YorkieBoardRoot>>(YSON.parse(snapshot));
   // Banded after synthesis rather than before, so the walk sees the elements
@@ -86,7 +99,11 @@ export function parseBoardSnapshot(snapshot: string): SlidesDocument {
     // model wants — every `frame` number a number, no proxy left to detach.
     // Ink paths are stored packed (`YorkieBoardStore`); decode them as the
     // live store does, so a preview paints them.
-    elements: decodeFreeformElements((root.elements ?? []) as unknown as Element[]),
+    // Stickies stored before the preset pinned a radius and padding get
+    // them here as well, so a preview matches the live board beside it.
+    elements: withStickyDefaultsDeep(
+      decodeFreeformElements((root.elements ?? []) as unknown as Element[]),
+    ),
   }));
 }
 
