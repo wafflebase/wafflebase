@@ -68,3 +68,15 @@ The conflicts that took real work were semantic, not textual:
   - All five were judged real and fixed after the loop, without a fourth
     round. The loop is bounded, so a human review of the PR is the next
     gate.
+
+## Environment
+
+- Port 5173 served a *different checkout* (`wafflebase@chore/...`), and
+  the first browser smoke would have tested the wrong code.
+  - **Rule:** before any browser check, confirm which directory each
+    dev-server PID runs from (`lsof -p <pid> | grep cwd`).
+  - Run the branch on its own ports (:5180 / :3001 with `FRONTEND_URL`
+    and `VITE_BACKEND_API_URL`).
+- The Yorkie container runs in memory, so restarting it erases every
+  local document. When its port forward wedged, the right move was to ask
+  rather than restart it.

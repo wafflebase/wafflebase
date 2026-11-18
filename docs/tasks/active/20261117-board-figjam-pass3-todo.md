@@ -78,5 +78,31 @@ into `board-figjam-pass3`.
 - [x] `pnpm verify:fast` and `verify:self` green.
 - [x] Browser smoke in `pnpm dev` (brainstorm and sketch scenarios).
 - [x] Design doc § Third pass updated with what shipped.
-- [ ] `/self-review` rounds logged in lessons.
+- [x] `/self-review` rounds logged in lessons.
 - [ ] PR opened.
+
+## Review
+
+- **Built by:** 10 implementation agents in two waves, plus an
+  integrator, three fix agents and a browser tester.
+- **Merges:**
+  - Every branch was merged into `board-figjam-pass3`.
+  - `origin/main` was merged in, carrying #1170, the phone fit. Its "+"
+    insert sheet was folded into the dock.
+  - `verify:self` was green after every merge.
+- **Browser smoke** (:5180 / :3001, about 20 checks):
+  - It found 2 major and 6 minor bugs, all fixed with regression tests.
+  - Of those, m4 (Tidy up stacking two rows) could not be reproduced, and
+    a guard test was added for it.
+- **Self-review:** 3 rounds, the bound.
+  - Round 1: 6 findings, all fixed.
+  - Round 2: 1 new finding, fixed; design-fit and security lenses failed
+    on infrastructure.
+  - Round 3: the rebuttals were upheld in our favour; 5 new findings came
+    in, all fixed after the loop.
+- **Not done:**
+  - The mobile Before → After captures and a browser re-check of the
+    fixes.
+  - Docker's localhost:8080 forward to Yorkie stopped answering, so no
+    board loads locally.
+  - Both are listed as pending in the PR.
