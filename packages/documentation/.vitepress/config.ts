@@ -54,9 +54,9 @@ export default defineConfig({
     "How to use and self-host Wafflebase: spreadsheets, documents, presentations, notes, and boards",
   base: "/docs/",
 
-  // This package's own README is developer notes, not a site page. Without
-  // this it builds to /docs/README.html and joins the local search index,
-  // reachable from no sidebar entry.
+  // This package's README and STYLE.md are notes for contributors, not site
+  // pages. Without this each builds to /docs/<NAME>.html and joins the local
+  // search index, reachable from no sidebar entry.
   srcExclude: ["README.md", "STYLE.md"],
 
   head,

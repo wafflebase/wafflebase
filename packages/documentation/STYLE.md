@@ -194,8 +194,8 @@ is next edited.
 theme, sample data that looks real (no lorem ipsum, no real personal data or
 tokens). Phone at **393x659** (iPhone 16 with Safari toolbars), only where the
 phone layout differs. Prefer reproducible captures with the Playwright tooling
-(`packages/frontend/scripts/capture-before-after.mjs` uses the same
-viewport). Compress PNGs; keep each under 300 KB.
+(`packages/frontend/scripts/capture-before-after.mjs shoot`, with
+`--desktop` for 1440x900 and no flag for 393x659). Compress PNGs; keep each under 300 KB.
 
 **Alt text** says what the image shows or proves, not "screenshot":
 `![Budget sheet with a Total row summing each month](...)`. Under 125

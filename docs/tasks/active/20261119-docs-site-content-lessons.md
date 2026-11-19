@@ -40,3 +40,17 @@ Todo: [20261119-docs-site-content-todo.md](./20261119-docs-site-content-todo.md)
 - Removing a line from `package.json` with `sed` left a trailing comma, and
   pnpm failed to parse it, so the docs build silently didn't run. Check exit
   codes, not just grep output.
+
+## Self review
+
+- Round 1: 4 lenses approved (docs, correctness, design-fit, test-adequacy);
+  security and blast-radius did not run (HTTP 429 usage limit), so the round
+  is not clean. Fixed the minors: `--desktop` now defaults to STYLE.md's
+  1440x900 and a bare `--width` errors; restored the documented
+  `Cell writes …` 400 the backend comment pins; repointed backend comments
+  off `developers/rest-api.md`; rewrote the design doc's stale Summary,
+  Homepage Changes and Content Outline; added a test that every homepage
+  `/docs/...` href lands on a real page, not a redirect stub. Disregarded:
+  the docs-lens nit that `docs/design/docs-site.md` is missing (it is in the
+  diff), and the design-fit nit about bundling the harness removal (it
+  removes the tool whose images this change replaces).

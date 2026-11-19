@@ -798,7 +798,7 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
     it('bounds the title at 1..200 characters', async () => {
       // The `Document.title` column is `TEXT`, so nothing below this DTO ever
       // bounded it: a blank or 10,000-character title used to be stored. The
-      // cap is documented in `developers/rest-api.md`, so pin both edges —
+      // cap is documented in `developers/api/documents-and-folders.md`, so pin both edges —
       // 200 has to keep working, 201 and "" have to be refused.
       for (const [title, status] of [
         ['', 400],

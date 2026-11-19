@@ -19,8 +19,10 @@
  * The default viewport is 393×659: an iPhone 16 with Safari's toolbars
  * showing, which is what a visitor actually sees (the 852px screen height
  * never is). Pass `--height 400` for the soft keyboard being up. Pass
- * `--desktop` for a 1280×800 desktop window instead (the docs site's
- * screenshots); `--width` and `--height` override either size.
+ * `--desktop` for a 1440×900 desktop window instead (the docs site's
+ * screenshot size, see packages/documentation/STYLE.md); `--width` and
+ * `--height` override either size. `compose` lays out phone-width pairs, so
+ * desktop shots are for the docs site, not for a PR's before/after.
  *
  * Signing in mints the same access cookie the OAuth callback writes, signed
  * with the backend's `JWT_SECRET` for the user id given by `--user`, whose
@@ -97,8 +99,16 @@ async function shoot(args) {
   }
   const base = args.base ?? "http://localhost:5173";
   const desktop = args.desktop === true;
-  const width = Number(args.width ?? (desktop ? 1280 : 393));
-  const height = Number(args.height ?? (desktop ? 800 : 659));
+  const size = (key, fallback) => {
+    const value = Number(args[key] ?? fallback);
+    // A bare `--width` parses as `true`, which Number() turns into 1.
+    if (!Number.isInteger(value) || value < 100) {
+      throw new Error(`--${key} needs a pixel size, got ${args[key]}`);
+    }
+    return value;
+  };
+  const width = size("width", desktop ? 1440 : 393);
+  const height = size("height", desktop ? 900 : 659);
   const { chromium, devices } = requireFrontend("playwright");
   const jwt = requireBackend("jsonwebtoken");
   const user = await loadUser(Number(args.user));

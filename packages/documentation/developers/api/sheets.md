@@ -14,7 +14,14 @@ Paths are relative to `$WFB_API/workspaces/$WS/documents/$DOC`, where `$DOC` is 
 
 - Cell references use A1 notation: `A1`, `C10`, ranges `A1:C10`. An unparseable reference is `400`.
 - Row and column indices are 1-based: row `1`, column `1` (column A). The grid has 1,000,000 rows and 18,278 columns (A to ZZZ).
-- Called on a document that is not a sheet, every endpoint returns `400`, for example `Cell reads are only available on sheet documents; "<id>" is a "doc" document.`
+- Called on a document that is not a sheet, every endpoint returns `400` before touching the document. Cell reads and writes differ only in the noun:
+
+  ```
+  400 Cell reads are only available on sheet documents; "<id>" is a "doc" document.
+  400 Cell writes are only available on sheet documents; "<id>" is a "doc" document.
+  ```
+
+  A `404 Tab not found` therefore means the document is a sheet and that tab is not in it.
 - An unknown tab is `404 Tab not found` on cell reads and on every write. A worksheet-setting `GET` on an unknown tab returns the empty default instead, so check the ID against [List tabs](#list-tabs).
 - Writes reach people who have the sheet open right away.
 - The API stores formulas but does not evaluate them. A formula cell's `value` is whatever the editor last calculated, or empty.

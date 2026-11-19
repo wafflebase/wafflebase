@@ -11,7 +11,8 @@ A VitePress-based documentation site at `packages/documentation` provides
 user guides for each shipped module (Sheets, Docs, Slides, Notes, Board,
 and PDF/Image files) and developer references (self-hosting, REST API,
 CLI). Served at `wafflebase.io/docs` as a subpath of the existing GitHub
-Pages deployment.
+Pages deployment. Pages are organized by task and Diátaxis page type, and
+`packages/documentation/STYLE.md` holds the writing rules.
 
 ## Goals
 
@@ -99,52 +100,29 @@ packages/documentation/
 **nav-bar.tsx:**
 - Change "Developers" anchor link (`#developers`) → "Docs" link (`/docs`)
 
-**developer-section.tsx:**
-- Keep existing REST API / CLI code examples
-- Add links below each code block pointing to full documentation:
-  - REST API block → `/docs/developers/rest-api`
-  - CLI block → `/docs/developers/cli`
+**developer-section.tsx, features-section.tsx, use-cases-section.tsx,
+footer.tsx:** link each card to the page that covers it — for example the
+REST API block → `/docs/developers/api/`, the CLI block →
+`/docs/developers/cli/`, collaboration → `/docs/collaborate/edit-together`,
+datasources → `/docs/sheets/connect-a-database`. Link to a page, never to
+an old URL that only survives as a redirect stub.
 
 ### Content Outline
 
-**Guide section:**
-- Getting Started: what Wafflebase is, how to create a document, basic
-  navigation
-- Collaboration & Sharing: sharing documents, real-time co-editing,
-  presence indicators
-- Import & Export: importing/exporting documents across formats
+The sidebar in `.vitepress/config.ts` is the outline, and the package
+README mirrors it page by page. Its shape:
 
-**Sheets section:**
-- Build a Budget: hands-on tutorial
-- Formulas: supported functions, syntax, cell references, examples
-- Charts & Pivot Tables: data visualization and aggregation
-- Data Validation: in-cell controls and validation rules
-- External Datasources: connecting external databases
-- Keyboard Shortcuts: full reference
-
-**Docs section:**
-- Writing a Document: editor tour, formatting, pagination
-- Keyboard Shortcuts: full reference
-
-**Slides section:**
-- Build a Deck: hands-on tutorial (counterpart to Build a Budget)
-- Themes & Layouts: 4-tier theme model, 11 Google-Slides-parity layouts,
-  placeholders
-- Keyboard Shortcuts: full reference
-
-**Notes & Board section:**
-- Writing a Note: markdown note editor tour
-- Using the Board: infinite-canvas board tutorial
-
-**PDF & Files section:**
-- Viewing PDFs: the PDF viewer
-- Viewing Images: the image viewer
-- Organizing with Folders: workspace folder organization
-
-**Developers section:**
-- Self-Hosting: deploying Wafflebase on your own infrastructure
-- REST API: API key authentication, endpoints for documents/tabs/cells
-- CLI: installation, configuration, command reference
+- **Get started**: getting started, concepts, phone, troubleshooting
+  (symptom-titled entries other pages deep-link to).
+- **Collaborate & organize**: workspaces, sharing, editing together,
+  comments, version history, templates, folders, trash.
+- **Sheets / Docs / Slides / Notes / Board**: overview (quick start + task
+  map), one tutorial, one how-to per task family, keyboard shortcuts.
+- **Files**: upload, PDFs, images, import and export.
+- **Developers** (own sidebar): overview, Claude Code plugin, CLI (install
+  and sign in + per-area reference), REST API (overview, quickstart,
+  per-resource reference), self-hosting (local development, configuration,
+  sign-in, deploy, optional features, troubleshooting).
 
 ## Risks and Mitigation
 
