@@ -5,19 +5,17 @@ import {
 } from '@wafflebase/board';
 import type { SlidesElement } from '../../../yorkie/yorkie.types';
 import { TEMPLATE_CATALOG } from './index';
-import {
-  brainstormAffinityMap,
-  pricingWorkshop,
-  retroStartStopContinue,
-  weeklyTeamSync,
-} from './boards';
 
-const BOARD_TEMPLATES = [
-  retroStartStopContinue,
-  brainstormAffinityMap,
-  weeklyTeamSync,
-  pricingWorkshop,
-];
+/**
+ * Every board in the catalogue, so a new one is checked without anybody
+ * remembering to list it. `retrospective-board` predates sections: it is
+ * column headings over a stack of blank stickies, a different design these
+ * section rules do not describe, so it is the one board left out.
+ */
+const UNSECTIONED_BOARDS = new Set(['retrospective-board']);
+const BOARD_TEMPLATES = TEMPLATE_CATALOG.filter(
+  (s) => s.content.kind === 'board' && !UNSECTIONED_BOARDS.has(s.slug),
+);
 
 type Data = {
   kind?: string;

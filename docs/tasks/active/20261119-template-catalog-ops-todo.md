@@ -36,7 +36,7 @@ proposal, roadmap, kickoff and weekly sync already exist):
 - [x] Coordinator registers seeds in `index.ts` (and slides briefs in
       `briefs.ts`), runs `pnpm backend test -- seed`, slides lint.
 - [x] Archive the finished docs-site task (`pnpm tasks:archive`).
-- [ ] `pnpm verify:fast`, `/self-review`, PR.
+- [x] `pnpm verify:fast`, `/self-review`, PR.
 
 ## Review
 
