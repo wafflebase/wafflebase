@@ -7,6 +7,7 @@ import type { SlidesElement } from '../../../yorkie/yorkie.types';
 import { TEMPLATE_CATALOG } from './index';
 import {
   brainstormAffinityMap,
+  pricingWorkshop,
   retroStartStopContinue,
   weeklyTeamSync,
 } from './boards';
@@ -15,6 +16,7 @@ const BOARD_TEMPLATES = [
   retroStartStopContinue,
   brainstormAffinityMap,
   weeklyTeamSync,
+  pricingWorkshop,
 ];
 
 type Data = {

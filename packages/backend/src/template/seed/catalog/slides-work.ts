@@ -266,3 +266,78 @@ export const caseStudy: TemplateSeed = {
     ]),
   },
 };
+
+export const customerOnboardingReview: TemplateSeed = {
+  slug: 'customer-onboarding-review',
+  title: 'Customer Onboarding Review',
+  description:
+    'A review of how new customers get started, built from interviews and funnel data: what we heard, where onboarding stalls, and what we will change first.',
+  category: 'Business',
+  tags: ['deck', 'customer-research', 'onboarding'],
+  content: {
+    kind: 'slides',
+    document: themedDeck('tropic', 'Customer Onboarding Review', [
+      ['title-slide', [['Customer Onboarding Review'], ['<product> · <number> customer conversations · <period>']], 'split'],
+      [
+        'title-body',
+        [
+          ['What we set out to learn'],
+          [
+            'The question this review answers',
+            'Who we talked to — segment, size, how recently they joined',
+            'What we drew on — interviews, surveys, funnel data',
+          ],
+        ],
+        'plain',
+      ],
+      ['big-number', [['<value>'], ['Share of new customers who reach their first success in week one']], 'geo'],
+      [
+        'title-body',
+        [
+          ['What we heard'],
+          [
+            'Theme — what customers said, in their own words',
+            'Theme — what customers said, in their own words',
+            'Theme — what customers said, in their own words',
+            'Theme — what customers said, in their own words',
+          ],
+        ],
+        'sidebar',
+      ],
+      [
+        'title-two-columns',
+        [
+          ['Where onboarding works and where it stalls'],
+          ['Working', '—', '—', '—'],
+          ['Stalling', '—', '—', '—'],
+        ],
+        'plain',
+      ],
+      [
+        'title-body',
+        [
+          ['What we will change'],
+          [
+            'Change — owner — target date',
+            'Change — owner — target date',
+            'Change — owner — target date',
+          ],
+        ],
+        'plain',
+      ],
+      [
+        'title-body',
+        [
+          ['How we will know it worked'],
+          [
+            'The metric we expect to move, and by how much',
+            'When we will check it',
+            'What would make us change course',
+          ],
+        ],
+        'plain',
+      ],
+      ['main-point', [['The one change to make first']], 'plain'],
+    ]),
+  },
+};

@@ -392,3 +392,100 @@ export const weeklyTeamSync: TemplateSeed = {
     },
   },
 };
+
+// --------------------------------------------------------------------------
+// Pricing workshop
+// --------------------------------------------------------------------------
+
+function pricingElements(): SlidesElement[] {
+  const narrowW = sectionWidth(2);
+  const wideW = sectionWidth(3);
+  const rowGap = 48;
+  const totalW = narrowW + rowGap + wideW;
+  const topH = sectionHeight(2);
+  const midY = topH + rowGap;
+  const midH = sectionHeight(1);
+  const decisionsY = midY + midH + rowGap;
+  return [
+    section('pricing-goals', 0, 0, narrowW, topH, 'Goals', 'gray'),
+    section(
+      'pricing-options',
+      narrowW + rowGap,
+      0,
+      wideW,
+      topH,
+      'Pricing options',
+      'blue',
+    ),
+    section('pricing-tiers', 0, midY, wideW, midH, 'Tiers to test', 'green'),
+    section(
+      'pricing-risks',
+      wideW + rowGap,
+      midY,
+      narrowW,
+      midH,
+      'Risks and open questions',
+      'pink',
+    ),
+    section(
+      'pricing-decisions',
+      0,
+      decisionsY,
+      totalW,
+      sectionHeight(1),
+      'Decisions',
+      'yellow',
+    ),
+    ...title(
+      'pricing-title',
+      0,
+      -140,
+      totalW,
+      'Pricing workshop: <product>',
+      'Agree on the goal first, add one pricing option per sticky, then shape the strongest into tiers and vote.',
+    ),
+    ...stickiesIn('pricing-goals-sticky', 0, 0, 2, 'orange', [
+      'Who are we pricing for? <segment>',
+      'What is the goal? <growth, revenue>',
+      'Constraints: <billing system, contracts, competitors>',
+      '',
+    ]),
+    ...stickiesIn('pricing-options-sticky', narrowW + rowGap, 0, 3, 'blue', [
+      'Per-seat price for teams',
+      'Free plan up to <limit>',
+      'Discount for paying annually',
+      'Usage-based add-on for <resource>',
+      'Plan for a segment, e.g. education',
+      '',
+    ]),
+    ...stickiesIn('pricing-tiers-sticky', 0, midY, 3, 'green', [
+      'Free: <what is included>',
+      '<Plan>: <price> per <unit>',
+      '<Plan>: <price> per <unit>',
+    ]),
+    ...stickiesIn('pricing-risks-sticky', wideW + rowGap, midY, 2, 'pink', [
+      'What could make existing customers churn?',
+      '',
+    ]),
+    ...stickiesIn('pricing-decisions-sticky', 0, decisionsY, 4, 'yellow', [
+      'Decision, owner, next step',
+      '',
+    ]),
+  ];
+}
+
+export const pricingWorkshop: TemplateSeed = {
+  slug: 'board-pricing-workshop',
+  title: 'Pricing workshop',
+  description:
+    'A board for working out how to price a product: goals and constraints, candidate pricing options, tiers to test, risks, and the decisions you leave with.',
+  category: 'Business',
+  tags: ['pricing', 'strategy', 'board', 'workshop'],
+  content: {
+    kind: 'board',
+    root: {
+      meta: { title: 'Pricing workshop' },
+      elements: pricingElements(),
+    },
+  },
+};
