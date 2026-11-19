@@ -28,7 +28,7 @@ To pick another color first, click the arrow next to **Sticky note** and pick a 
 - **While typing**: press `Tab` or `⌘+Enter` / `Ctrl+Enter`. The note is saved, and a new one opens to its right in the same color, size, and text size.
 - **With one sticky note selected**: press `⌘+Enter` / `Ctrl+Enter`, or click one of the **+** handles on its four sides to add a note in that direction.
 
-![A selected green sticky note with + handles on all four sides and the sticky controls in the top toolbar](/images/board/stickies-plus-handles.png)
+![A selected green sticky note with + handles at its sides and the sticky controls in the top toolbar](/images/board/stickies-plus-handles.png)
 
 ## Turn a pasted list into sticky notes
 

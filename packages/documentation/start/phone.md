@@ -87,7 +87,8 @@ See [Notes](/notes/).
 ### Board
 
 - Drag empty canvas with one finger to move around, and pinch to zoom.
-- Tools sit in the dock at the bottom of the screen: **Select**, **Sticky note**, **Text box**, **Shape**, and **Marker**. The rest, such as **Hand**, **Lasso select**, **Line**, **Eraser**, **Section**, **Insert image**, stamps, voting, and **Comment**, are under **More tools** (the ⋯ button).
+- Tools sit in the dock at the bottom of the screen: **Select**, **Sticky note**, **Text box**, **Shape**, and **Marker**. The rest, such as **Hand**, **Lasso select**, **Line**, **Eraser**, **Section**, **Insert image**, stamps, and **Comment**, are under **More tools** (the ⋯ button).
+- **Timer**, **Start voting…**, **Spotlight me**, and **Laser pointer** fold into **Facilitate** in the top toolbar when nothing is selected.
 - With the marker on, one finger draws and two fingers pinch to zoom.
 - Touch and hold empty canvas to open the menu for adding a sticky note or section. Touch and hold an item or a section for its menu.
 - The minimap starts closed. Tap **Map** in the bottom right corner to open it.

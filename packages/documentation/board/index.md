@@ -16,7 +16,9 @@ Use it to:
 
 ![Retro board with the top toolbar, the tool dock at the bottom, the minimap, and the Download button](/images/board/index-overview.png)
 
-The board has two toolbars. The **tool dock** along the bottom holds everything you add: select, sticky notes, text, shapes, lines, the marker, sections, images, stamps, and comments. The **top toolbar** holds undo and redo, **Zoom ▾**, **Grid ▾**, **Sections** (the list icon), **Timer** (the stopwatch icon), and **Spotlight me**. When you select something, the top toolbar also shows controls for it.
+The board has two toolbars. The **tool dock** along the bottom holds everything you add: select, sticky notes, text, shapes, lines, the marker, sections, images, stamps, and comments. The **top toolbar** holds undo and redo, **Zoom ▾**, **Grid ▾**, **Sections** (the list icon), and the session tools: **Timer**, **Start voting…**, **Spotlight me**, and **Laser pointer**. When you select something, the top toolbar also shows controls for it.
+
+In dark mode, the board's background is dimmed rather than dark, so everyone sees the same colors on the board.
 
 ## Get started
 
@@ -81,7 +83,7 @@ Someone with a viewer link sees the board update live, along with everyone's cur
 
 ## On a phone
 
-On a phone, drag empty canvas with one finger to pan and pinch to zoom. Touch and hold empty canvas to open the menu for adding a sticky note or section. The dock keeps **Select**, **Sticky note**, **Text box**, **Shape**, and **Marker**, and moves the other tools into **More tools** (the ⋯ button). The minimap starts hidden. See [Use Wafflebase on a phone](/start/phone).
+On a phone, drag empty canvas with one finger to pan and pinch to zoom. Touch and hold empty canvas to open the menu for adding a sticky note or section. The dock keeps **Select**, **Sticky note**, **Text box**, **Shape**, and **Marker**, and moves the other tools into **More tools** (the ⋯ button). The session tools fold into one **Facilitate** button in the top toolbar. The minimap starts hidden. See [Use Wafflebase on a phone](/start/phone).
 
 ![Board on a phone with the compact tool dock and the More tools popover open above it](/images/board/index-dock-mobile.png)
 

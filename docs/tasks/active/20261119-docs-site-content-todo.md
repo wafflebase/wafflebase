@@ -139,8 +139,10 @@ the MinIO endpoint without `LAKEHOUSE_ALLOWED_ENDPOINTS`),
   Slideshow/Export/Background.
 - Slides: Motion panel lists raw ids (`fadeIn → feeeb252`,
   animation-section.tsx:215); Present menu items misaligned.
-- Board (phone): Map toggle covers the end of the tool dock; section title
-  pills cover stickies at Fit zoom.
+- Board (phone): Map toggle covers the end of the tool dock (still true after
+  #1175); section title pills cover stickies at Fit zoom.
+- Board (#1175): a selected sticky's rotation handle now draws over the top
+  `+` quick-connect handle (selection overlay z-index in board-view.tsx).
 - Folders: Move dialog lists folders flat with no path.
 - CLI: `files delete` help says bytes are removed (it trashes); `files
   upload` hints `sheets import` for `.xlsx` (CSV/JSON only); skills are not in

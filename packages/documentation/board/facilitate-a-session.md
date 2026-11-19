@@ -13,6 +13,8 @@ Run a live session on a board with a shared timer, dot voting, stamps, follow an
 - Invite your team first. See [Share a document](/collaborate/share).
 :::
 
+The tools for running a session sit together in the top toolbar: **Timer**, **Start voting…**, **Spotlight me**, and **Laser pointer**.
+
 ## Start a shared timer
 
 1. Click **Timer** (the stopwatch icon) in the top toolbar.
@@ -25,7 +27,7 @@ Everyone on the board, viewers included, sees the countdown in the top-left corn
 
 ## Run a dot vote
 
-1. In the tool dock, click the arrow next to the stamp button (**Stamps and voting**) and select **Start voting…**.
+1. Click **Start voting…** (the checklist icon) in the top toolbar.
 2. Under **What are we voting on?**, type the question.
 3. Set **Votes per person**, from 1 to 10. The default is 3.
 4. Leave **Only sticky notes** on to allow votes only on sticky notes, or turn it off to allow votes on any item.
@@ -33,7 +35,7 @@ Everyone on the board, viewers included, sees the countdown in the top-left corn
 6. Click an item to vote on it. Click your own dot to take the vote back.
 7. Click **Done** when you finish. To vote again, click **Change my votes**.
 
-While voting is open, you see only your own votes. The card shows how many people are voting and how many are done.
+While voting is open, you see only your own votes. The card shows how many people are voting and how many are done. The stamp button in the tool dock becomes **Vote** and shows how many votes you have left. The checklist button in the top toolbar stays highlighted and reads **Voting in progress**; if you switched to another tool, click it to pick up the vote tool again.
 
 The person who started the vote clicks **End voting**. A **Results** card lists the ten items with the most votes. Click a row to jump to that item. Click **Clear results** to close it.
 
@@ -45,11 +47,11 @@ Votes are hidden in the app only. Anyone with access to the board can read them 
 
 ## Stamp items
 
-1. In the tool dock, click the arrow next to the stamp button and pick **+1**, **Heart**, **Star**, **Question**, **Check**, or **Cross**.
+1. In the tool dock, click the arrow next to the stamp button (**Stamps**) and pick **+1**, **Heart**, **Star**, **Question**, **Check**, or **Cross**.
 2. Click an item to stamp it. Click your stamp again to remove it.
 3. Press `Escape` or click **Select** when you finish.
 
-Stamps are saved on the board, and everyone sees them.
+Each stamp is a colored sticker with the stamper's initial. Stamps are saved on the board, and everyone sees them. While a vote is open and you haven't clicked **Done**, the stamp tool casts votes instead of stamps.
 
 ## Follow a teammate
 
@@ -59,7 +61,7 @@ If the teammate has no view to share yet, the board jumps to their cursor instea
 
 ## Bring everyone to your view
 
-Click **Spotlight me** (the broadcast icon) in the top toolbar. Everyone else on the board follows your view, and their banner says you are spotlighting. Click it again to stop. Anyone can press `Escape` to stop following you.
+Click **Spotlight me** (the target icon) in the top toolbar. Everyone else on the board follows your view, and their banner says you are spotlighting. Click it again to stop. Anyone can press `Escape` to stop following you.
 
 ## Chat at your cursor and send emotes
 
@@ -77,8 +79,8 @@ You can also right-click an item or empty canvas and select **Comment**. To see 
 
 ## On a phone
 
-- **Timer** and **Spotlight me** stay in the top toolbar when nothing is selected.
-- The stamp, voting, and **Comment** tools are under **More tools** (the ⋯ button) in the tool dock.
+- **Timer**, **Start voting…**, **Spotlight me**, and **Laser pointer** fold into one **Facilitate** button (the people icon) in the top toolbar when nothing is selected. Tap it to open them. It is highlighted while one of them is on.
+- The stamp and **Comment** tools are under **More tools** (the ⋯ button) in the tool dock.
 - The header hides teammates' avatars, so you can't start following from a phone. You still follow someone who spotlights.
 - Cursor chat and emotes need a keyboard.
 - To see every thread, open the header's **More** menu (the ⋮ button) and select **Comments**.

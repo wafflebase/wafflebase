@@ -64,7 +64,7 @@ Everyone sees the countdown in the top-left corner of the canvas.
 
 ## 6. Vote on what to act on
 
-1. In the tool dock, click the arrow next to the stamp button and select **Start voting…**.
+1. Click **Start voting…** (the checklist icon) in the top toolbar.
 2. Type `What should we act on first?`, keep **Votes per person** at 3, and click **Start**.
 3. Click three sticky notes to vote on them. Click your own dot to take a vote back.
 4. Click **Done**.

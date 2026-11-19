@@ -23,7 +23,7 @@ Sketch on a board with the marker and highlighter, erase strokes, select with a 
 
 The pen stays on stroke after stroke until you press `Escape`. The highlighter is wide and see-through, so text beneath it stays readable. Your pen choice is remembered in this browser. Teammates see your stroke while you draw it.
 
-![Pen popover with Marker, Highlighter, eight colors, three widths, Laser pointer, and Smart shapes](/images/board/draw-pen-popover.png)
+![Pen popover with Marker, Highlighter, eight colors, three widths, and Smart shapes](/images/board/draw-pen-popover.png)
 
 ## Turn sketches into clean shapes
 
@@ -47,7 +47,7 @@ Hold `Option` / `Alt` and drag a loop around items on empty canvas. Or click **L
 
 ## Point with the laser
 
-1. Press `Shift+K`, or click the arrow next to **Marker** and select **Laser pointer**.
+1. Press `Shift+K`, or click **Laser pointer** in the top toolbar. On a phone, tap **Facilitate** in the top toolbar, then **Laser pointer**.
 2. Drag to draw a red trail that everyone on the board sees.
 
 The trail fades after about a second and a half. Nothing is saved to the board. Press `Escape` to turn the laser off.

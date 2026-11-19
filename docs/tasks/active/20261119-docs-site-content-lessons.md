@@ -59,3 +59,9 @@ Todo: [20261119-docs-site-content-todo.md](./20261119-docs-site-content-todo.md)
   by design-fit and blast-radius), and the `--allow-unbound-callback` note
   understated who can finish an unchecked login (security). The rest are
   deferred to the PR body as known limitations.
+- **Rebase can stale the docs you just verified.** #1175 landed on `main`
+  during review and moved the board's Timer/Vote/Spotlight/Laser into a
+  Facilitate group. Before opening a docs PR, diff `main` since the branch
+  point for UI the pages describe, and refresh those pages + captures with a
+  writer → independent checker pair again (here: 5 text fixes, 15 recaptures,
+  5 checker corrections).
