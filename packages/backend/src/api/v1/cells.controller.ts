@@ -57,7 +57,7 @@ export class ApiV1CellsController {
    * sheet. Both are now the sibling families' `400`.
    *
    * `Cell writes` is kept verbatim: it is the wording shipped in #1019 and
-   * documented in `packages/documentation/developers/rest-api.md`.
+   * documented in `packages/documentation/developers/api/sheets.md`.
    */
   private assertSheetWrite(documentId: string, workspaceId: string) {
     return assertSheetDocument(

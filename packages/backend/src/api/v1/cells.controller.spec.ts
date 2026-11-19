@@ -264,8 +264,8 @@ describe('ApiV1CellsController initialRoot', () => {
     // sheet returns for an unknown `tabId`, so a caller could not tell "this
     // document is not a sheet" from "that tab does not exist", and retried tab
     // ids that were never the problem. Reads now refuse the way the writes and
-    // every sibling family do. Breaking change, documented in the Cells
-    // section of packages/documentation/developers/rest-api.md.
+    // every sibling family do. Breaking change, documented in the Conventions
+    // section of packages/documentation/developers/api/sheets.md.
     it.each(['getCells', 'getCell'] as const)(
       '%s on a non-sheet document 400s instead of 404 Tab not found',
       async (op) => {

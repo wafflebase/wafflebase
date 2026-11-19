@@ -11,7 +11,8 @@ A VitePress-based documentation site at `packages/documentation` provides
 user guides for each shipped module (Sheets, Docs, Slides, Notes, Board,
 and PDF/Image files) and developer references (self-hosting, REST API,
 CLI). Served at `wafflebase.io/docs` as a subpath of the existing GitHub
-Pages deployment.
+Pages deployment. Pages are organized by task and Diátaxis page type, and
+`packages/documentation/STYLE.md` holds the writing rules.
 
 ## Goals
 
@@ -33,50 +34,45 @@ Pages deployment.
 ```
 packages/documentation/
 ├── package.json              # @wafflebase/documentation
+├── STYLE.md                  # Writing rules: page types, titles, steps, screenshots (not built)
 ├── .vitepress/
-│   ├── config.ts             # base: '/docs/', sidebar, nav
+│   ├── config.ts             # base: '/docs/', nav, two sidebars ('/' and '/developers/')
 │   └── theme/
-│       └── style.css         # Brand color overrides (amber/gold)
-├── index.md                  # Docs home (VitePress home layout)
-├── guide/
-│   ├── getting-started.md    # Getting started
-│   ├── collaboration.md      # Real-time collaboration & sharing
-│   └── import-export.md      # Import & export
-├── sheets/
-│   ├── build-a-budget.md     # Sheets tutorial
-│   ├── formulas.md           # Formulas reference
-│   ├── charts.md             # Charts & pivot tables
-│   ├── data-validation.md    # Data validation
-│   ├── datasources.md        # External datasources
-│   └── keyboard-shortcuts.md
-├── docs-editor/
-│   ├── writing-a-document.md
-│   └── keyboard-shortcuts.md
-├── slides/
-│   ├── build-a-deck.md       # Slides tutorial
-│   ├── themes-and-layouts.md
-│   └── keyboard-shortcuts.md
-├── notes/
-│   └── writing-a-note.md     # Notes tutorial
-├── board/
-│   └── using-the-board.md    # Board tutorial
-├── pdf/
-│   ├── viewing-pdfs.md
-│   ├── viewing-images.md
-│   └── organizing-with-folders.md
-└── developers/
-    ├── self-hosting.md
-    ├── rest-api.md
-    └── cli.md
+│       └── style.css         # Brand overrides
+├── index.md                  # Landing page: goal cards, per-editor row
+├── start/                    # Getting started, concepts, phone, troubleshooting
+├── collaborate/              # Workspaces, sharing, comments, history, templates, folders, trash
+├── files/                    # Upload, PDFs, images, import and export
+├── sheets/ docs-editor/ slides/ notes/ board/
+│   ├── index.md              # Section overview: quick start + task map
+│   ├── <tutorial>.md         # build-a-budget, write-a-proposal, build-a-deck, run-a-retro
+│   ├── <task>.md             # One how-to per task family
+│   └── keyboard-shortcuts.md # Reference
+├── developers/
+│   ├── index.md, claude-code-plugin.md
+│   ├── cli/                  # Install and sign in + one reference page per area
+│   ├── api/                  # Overview, quickstart, one page per resource family
+│   └── self-hosting/         # Overview, local dev, configuration, sign-in, deploy, optional features, troubleshooting
+├── guide/ pdf/ …             # Moved-page stubs: `search: false` + meta refresh to the new URL
+└── public/images/<section>/  # Screenshots (desktop 1440×900, phone 393×659)
 ```
 
 ### VitePress Configuration
 
 - `base: '/docs/'` so all asset/link paths are prefixed correctly
-- Top nav order: **Guide / Sheets / Docs / Slides / Notes & Board /
+- Top nav order: **Getting started / Sheets / Docs / Slides / Notes / Board /
   Developers** — mirrors the homepage's product progression
-- Sidebar groups mirror the nav plus a **PDF & Files** group (PDF/image
-  viewers, folders) between Notes & Board and Developers
+- Two sidebars. Every user page shares one (Get started, Collaborate &
+  organize, Sheets, Docs, Slides, Notes, Board, Files; editor sections open
+  collapsed); `/developers/` gets its own (Developers, CLI, REST API,
+  Self-hosting) so the user-facing tree stays short
+- Sidebar labels match page H1s (a section's `index.md` is "Overview"); page
+  types and titling follow `STYLE.md`, which follows the
+  [Diátaxis](https://diataxis.fr/) split of tutorial / how-to / reference /
+  explanation
+- Moved pages are never deleted: they stay as `search: false` stubs that
+  meta-refresh to the new URL, so links from the homepage, old releases and
+  search engines keep landing (anchors into a moved page are not preserved)
 - Brand colors via CSS variable overrides to match homepage amber/gold theme
 - Built-in local search enabled
 
@@ -104,52 +100,29 @@ packages/documentation/
 **nav-bar.tsx:**
 - Change "Developers" anchor link (`#developers`) → "Docs" link (`/docs`)
 
-**developer-section.tsx:**
-- Keep existing REST API / CLI code examples
-- Add links below each code block pointing to full documentation:
-  - REST API block → `/docs/developers/rest-api`
-  - CLI block → `/docs/developers/cli`
+**developer-section.tsx, features-section.tsx, use-cases-section.tsx,
+footer.tsx:** link each card to the page that covers it — for example the
+REST API block → `/docs/developers/api/`, the CLI block →
+`/docs/developers/cli/`, collaboration → `/docs/collaborate/edit-together`,
+datasources → `/docs/sheets/connect-a-database`. Link to a page, never to
+an old URL that only survives as a redirect stub.
 
 ### Content Outline
 
-**Guide section:**
-- Getting Started: what Wafflebase is, how to create a document, basic
-  navigation
-- Collaboration & Sharing: sharing documents, real-time co-editing,
-  presence indicators
-- Import & Export: importing/exporting documents across formats
+The sidebar in `.vitepress/config.ts` is the outline, and the package
+README mirrors it page by page. Its shape:
 
-**Sheets section:**
-- Build a Budget: hands-on tutorial
-- Formulas: supported functions, syntax, cell references, examples
-- Charts & Pivot Tables: data visualization and aggregation
-- Data Validation: in-cell controls and validation rules
-- External Datasources: connecting external databases
-- Keyboard Shortcuts: full reference
-
-**Docs section:**
-- Writing a Document: editor tour, formatting, pagination
-- Keyboard Shortcuts: full reference
-
-**Slides section:**
-- Build a Deck: hands-on tutorial (counterpart to Build a Budget)
-- Themes & Layouts: 4-tier theme model, 11 Google-Slides-parity layouts,
-  placeholders
-- Keyboard Shortcuts: full reference
-
-**Notes & Board section:**
-- Writing a Note: markdown note editor tour
-- Using the Board: infinite-canvas board tutorial
-
-**PDF & Files section:**
-- Viewing PDFs: the PDF viewer
-- Viewing Images: the image viewer
-- Organizing with Folders: workspace folder organization
-
-**Developers section:**
-- Self-Hosting: deploying Wafflebase on your own infrastructure
-- REST API: API key authentication, endpoints for documents/tabs/cells
-- CLI: installation, configuration, command reference
+- **Get started**: getting started, concepts, phone, troubleshooting
+  (symptom-titled entries other pages deep-link to).
+- **Collaborate & organize**: workspaces, sharing, editing together,
+  comments, version history, templates, folders, trash.
+- **Sheets / Docs / Slides / Notes / Board**: overview (quick start + task
+  map), one tutorial, one how-to per task family, keyboard shortcuts.
+- **Files**: upload, PDFs, images, import and export.
+- **Developers** (own sidebar): overview, Claude Code plugin, CLI (install
+  and sign in + per-area reference), REST API (overview, quickstart,
+  per-resource reference), self-hosting (local development, configuration,
+  sign-in, deploy, optional features, troubleshooting).
 
 ## Risks and Mitigation
 

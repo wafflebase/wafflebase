@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs site content (2026-11-19) | [20261119-docs-site-content-todo.md](./active/20261119-docs-site-content-todo.md) | [20261119-docs-site-content-lessons.md](./active/20261119-docs-site-content-lessons.md) |
 | mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./active/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./active/20261118-mobile-before-after-lessons.md) |
 | mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./active/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./active/20261118-mobile-clipping-lessons.md) |
 | board figjam pass3 (2026-11-17) | [20261117-board-figjam-pass3-todo.md](./active/20261117-board-figjam-pass3-todo.md) | [20261117-board-figjam-pass3-lessons.md](./active/20261117-board-figjam-pass3-lessons.md) |
@@ -76,4 +77,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 643
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: mobile before after (2026-11-18)
+Latest active task: docs site content (2026-11-19)

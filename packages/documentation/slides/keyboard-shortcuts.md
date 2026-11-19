@@ -1,130 +1,134 @@
-# Keyboard Shortcuts
+---
+title: Keyboard shortcuts
+description: Keyboard shortcuts and drag modifiers for the Slides editor and slideshow.
+type: reference
+---
 
-Keyboard shortcuts for the slides editor. Mac shortcuts are shown with `⌘`, Windows/Linux with `Ctrl`. Press `⌘+/` (or `Ctrl+/`) in the editor to open the in-app shortcuts help.
+# Keyboard shortcuts
 
-## Selection
+Keyboard shortcuts and drag modifiers for building and presenting a deck.
 
-| Action | Shortcut |
-|---|---|
-| Select all elements on the slide | `⌘+A` / `Ctrl+A` |
-| Cycle to next element | `Tab` |
-| Cycle to previous element | `Shift+Tab` |
-| Clear selection / exit text edit / leave a group | `Esc` |
-| Enter text edit on selected text element | `F2` or `Enter` |
-| Enter text edit and start typing | Any printable character |
-| Group selected elements | `⌘+Alt+G` / `Ctrl+Alt+G` |
-| Ungroup selected group | `⌘+Shift+Alt+G` / `Ctrl+Shift+Alt+G` |
+Mac shortcuts come first, then Windows and Linux. To see the list in the editor, press `⌘+/` / `Ctrl+/`.
 
-Typing a printable character with a single text or shape element selected
-enters text edit and inserts that character — you don't have to type it twice.
+## Most used
 
-## Slides
-
-| Action | Shortcut |
-|---|---|
-| New slide after the current one, same layout | `⌘+M` / `Ctrl+M` |
-| Duplicate current slide | `⌘+Shift+D` / `Ctrl+Shift+D` |
-| Next slide | `Page Down` |
-| Previous slide | `Page Up` |
-| Previous / next slide (thumbnail strip focused) | `↑` / `↓` |
-
-`↑` / `↓` only change slides when the thumbnail strip has focus **and**
-nothing is selected on the canvas — with a selection they nudge the
-selected elements instead.
-
-## Editing
-
-| Action | Shortcut |
+| To do this | Press |
 |---|---|
 | Undo | `⌘+Z` / `Ctrl+Z` |
 | Redo | `⌘+Shift+Z` / `Ctrl+Shift+Z` |
-| Delete selected | `Delete` / `Backspace` |
-| Duplicate selected elements (or the current slide, if nothing is selected) | `⌘+D` / `Ctrl+D` |
-| Nudge selection | Arrow keys |
-| Nudge selection (larger step) | `Shift+Arrow` |
-
-## Clipboard
-
-| Action | Shortcut |
-|---|---|
 | Copy | `⌘+C` / `Ctrl+C` |
-| Cut | `⌘+X` / `Ctrl+X` |
 | Paste | `⌘+V` / `Ctrl+V` |
-| Paste as plain text (while editing text) | `⌘+Shift+V` / `Ctrl+Shift+V` |
+| Duplicate the selection, or the slide if nothing is selected | `⌘+D` / `Ctrl+D` |
+| Delete the selection | `Delete` or `Backspace` |
+| New slide after the current one, with the same layout | `⌘+M` / `Ctrl+M` |
+| Present from the current slide | `⌘+Enter` / `Ctrl+Enter` |
 
-`⌘+Shift+V` strips formatting only *inside* a text box. On the canvas it
-is an ordinary element paste — the same as `⌘+V`.
+## Navigation
 
-## Z-order
-
-These apply to the selected elements on the canvas. They are ignored while
-you're editing text inside a box, so `⌘+↑` / `⌘+↓` still move the caret there.
-
-| Action | Shortcut |
+| To do this | Press |
 |---|---|
-| Bring to front | `⌘+Shift+↑` / `Ctrl+Shift+↑` |
-| Send to back | `⌘+Shift+↓` / `Ctrl+Shift+↓` |
-| Bring forward | `⌘+↑` / `Ctrl+↑` |
-| Send backward | `⌘+↓` / `Ctrl+↓` |
+| Previous or next slide | `Page Up` / `Page Down` |
+| Previous or next slide, with the slide strip focused and nothing selected | `↑` / `↓` |
 
-## Text Editing
+## Selection
 
-These apply while editing inside a text box.
+| To do this | Press |
+|---|---|
+| Select every object on the slide | `⌘+A` / `Ctrl+A` |
+| Select the next or previous object | `Tab` / `Shift+Tab` |
+| Start typing in the selected text box or shape | `Enter` or `F2` |
+| Start typing and insert that character | Any letter, number, or symbol |
+| Leave text editing, step out of a group, or clear the selection | `Escape` |
 
-| Action | Shortcut |
+## Editing
+
+| To do this | Press |
+|---|---|
+| Cut | `⌘+X` / `Ctrl+X` |
+| Paste as plain text, while typing | `⌘+Shift+V` / `Ctrl+Shift+V` |
+| Duplicate the current slide | `⌘+Shift+D` / `Ctrl+Shift+D` |
+| Move the selection 1 px | Arrow keys |
+| Move the selection 10 px | `Shift+Arrow` |
+
+Outside a text box, `⌘+Shift+V` / `Ctrl+Shift+V` pastes the same as `⌘+V` / `Ctrl+V`.
+
+## Formatting
+
+These work while you type in a text box, shape, or table cell.
+
+| To do this | Press |
 |---|---|
 | Bold | `⌘+B` / `Ctrl+B` |
 | Italic | `⌘+I` / `Ctrl+I` |
 | Underline | `⌘+U` / `Ctrl+U` |
-| Insert / edit link | `⌘+K` / `Ctrl+K` |
+| Insert or edit a link | `⌘+K` / `Ctrl+K` |
 | Clear formatting | `⌘+\` / `Ctrl+\` |
 | Align left | `⌘+Shift+L` / `Ctrl+Shift+L` |
 | Align center | `⌘+Shift+E` / `Ctrl+Shift+E` |
 | Align right | `⌘+Shift+R` / `Ctrl+Shift+R` |
-| Align justified | `⌘+Shift+J` / `Ctrl+Shift+J` |
-| Indent | `⌘+]` / `Ctrl+]` |
-| Outdent | `⌘+[` / `Ctrl+[` |
+| Justify | `⌘+Shift+J` / `Ctrl+Shift+J` |
+| Numbered list | `⌘+Shift+7` / `Ctrl+Shift+7` |
+| Bulleted list | `⌘+Shift+8` / `Ctrl+Shift+8` |
+| Increase indent | `⌘+]` / `Ctrl+]` |
+| Decrease indent | `⌘+[` / `Ctrl+[` |
 
-## Tables
+Strikethrough has no shortcut in slides.
 
-These apply while editing text inside a table cell.
+## Objects
 
-| Action | Shortcut |
+| To do this | Press |
 |---|---|
-| Next cell | `Tab` |
+| Bring forward | `⌘+↑` / `Ctrl+↑` |
+| Send backward | `⌘+↓` / `Ctrl+↓` |
+| Bring to front | `⌘+Shift+↑` / `Ctrl+Shift+↑` |
+| Send to back | `⌘+Shift+↓` / `Ctrl+Shift+↓` |
+| Group | `⌘+Option+G` / `Ctrl+Alt+G` |
+| Ungroup | `⌘+Shift+Option+G` / `Ctrl+Shift+Alt+G` |
+| Apply a crop | `Enter` |
+| Cancel a crop | `Escape` |
+
+The order shortcuts don't work while you type, so `⌘+↑` / `Ctrl+↑` still moves the cursor in text. While you crop an image, only `Enter` and `Escape` work.
+
+### Tables
+
+| To do this | Press |
+|---|---|
+| Next cell, or add a row from the last cell | `Tab` |
 | Previous cell | `Shift+Tab` |
-| Next / previous cell (at the end / start of the cell's text) | `→` / `←` |
+| Next or previous cell, from the end or start of a cell's text | `→` / `←` |
 
-`Tab` in the last cell appends a new row and moves into its first cell. `Tab`
-never takes you out of the table.
+### While dragging
 
-## Cropping an Image
-
-| Action | Shortcut |
+| To do this | Hold |
 |---|---|
-| Apply the crop | `Enter` |
-| Cancel the crop | `Esc` |
+| Draw a square, circle, or other even shape | `Shift` while drawing a shape |
+| Snap a line to 15° steps | `Shift` while drawing a line or dragging its end |
+| Move along one axis only | `Shift` while moving objects |
+| Keep the proportions | `Shift` while resizing |
+| Snap rotation to 15° steps | `Shift` while rotating |
 
-While crop mode is active every other shortcut is suppressed, so `Delete`
-and the arrow keys can't disturb the image mid-crop.
+## View
 
-## Present
-
-| Action | Shortcut |
+| To do this | Press |
 |---|---|
-| Start from current slide | `⌘+Enter` / `Ctrl+Enter` |
-| Start from first slide | `⌘+Shift+Enter` / `Ctrl+Shift+Enter` |
-| Next slide (in present mode) | `→` / `Space` / `Page Down` / `N` / Click |
-| Previous slide (in present mode) | `←` / `Backspace` / `Page Up` / `P` |
-| Jump to the first slide | `Home` |
-| Jump to the last slide | `End` |
-| Exit | `Esc` |
+| Present from the current slide | `⌘+Enter` / `Ctrl+Enter` |
+| Present from the beginning | `⌘+Shift+Enter` / `Ctrl+Shift+Enter` |
+| Show keyboard shortcuts | `⌘+/` / `Ctrl+/` |
 
-While presenting, editor shortcuts are disabled — `⌘+Z` cannot undo the
-live deck.
+### During a slideshow
 
-## Help
-
-| Action | Shortcut |
+| To do this | Press |
 |---|---|
-| Open shortcuts help | `⌘+/` / `Ctrl+/` |
+| Next step or slide | `→`, `Space`, `Page Down`, or `N` |
+| Previous slide | `←`, `Backspace`, `Page Up`, or `P` |
+| First slide | `Home` |
+| Last slide | `End` |
+| Leave the slideshow | `Escape` |
+
+Editing shortcuts are off during a slideshow, so `⌘+Z` / `Ctrl+Z` can't change the deck. For mouse and touch controls, see [Move between slides](/slides/present#move-between-slides).
+
+## Related
+
+- [Present](/slides/present) for slideshow controls with a mouse or touch screen.
+- [Add content](/slides/add-content) to format text and build tables.
+- [Style and arrange](/slides/style-and-arrange) to crop images and arrange objects.

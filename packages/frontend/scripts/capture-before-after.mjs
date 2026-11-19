@@ -18,7 +18,11 @@
  *
  * The default viewport is 393×659: an iPhone 16 with Safari's toolbars
  * showing, which is what a visitor actually sees (the 852px screen height
- * never is). Pass `--height 400` for the soft keyboard being up.
+ * never is). Pass `--height 400` for the soft keyboard being up. Pass
+ * `--desktop` for a 1440×900 desktop window instead (the docs site's
+ * screenshot size, see packages/documentation/STYLE.md); `--width` and
+ * `--height` override either size. `compose` lays out phone-width pairs, so
+ * desktop shots are for the docs site, not for a PR's before/after.
  *
  * Signing in mints the same access cookie the OAuth callback writes, signed
  * with the backend's `JWT_SECRET` for the user id given by `--user`, whose
@@ -94,7 +98,17 @@ async function shoot(args) {
     throw new Error("shoot needs --path, --out and --user");
   }
   const base = args.base ?? "http://localhost:5173";
-  const height = Number(args.height ?? 659);
+  const desktop = args.desktop === true;
+  const size = (key, fallback) => {
+    const value = Number(args[key] ?? fallback);
+    // A bare `--width` parses as `true`, which Number() turns into 1.
+    if (!Number.isInteger(value) || value < 100) {
+      throw new Error(`--${key} needs a pixel size, got ${args[key]}`);
+    }
+    return value;
+  };
+  const width = size("width", desktop ? 1440 : 393);
+  const height = size("height", desktop ? 900 : 659);
   const { chromium, devices } = requireFrontend("playwright");
   const jwt = requireBackend("jsonwebtoken");
   const user = await loadUser(Number(args.user));
@@ -115,11 +129,15 @@ async function shoot(args) {
     // The iPhone descriptor brings touch, `isMobile` and the user agent; its
     // `defaultBrowserType` is dropped so it runs on the bundled Chromium.
     const { defaultBrowserType: _, ...iphone } = devices["iPhone 15"];
-    const context = await browser.newContext({
-      ...iphone,
-      viewport: { width: 393, height },
-      screen: { width: 393, height: 852 },
-    });
+    const context = await browser.newContext(
+      desktop
+        ? { viewport: { width, height }, deviceScaleFactor: 1 }
+        : {
+            ...iphone,
+            viewport: { width, height },
+            screen: { width, height: Math.max(852, height) },
+          },
+    );
     // Over https the backend names the cookie `__Host-…`, which a browser
     // only accepts with `Secure` and no domain.
     const secure = base.startsWith("https:");
@@ -145,7 +163,7 @@ async function shoot(args) {
     }
     fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
     await page.screenshot({ path: args.out });
-    console.log(`wrote ${args.out} (393×${height})`);
+    console.log(`wrote ${args.out} (${width}×${height})`);
   } finally {
     await browser.close();
   }

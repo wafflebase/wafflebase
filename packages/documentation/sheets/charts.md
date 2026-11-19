@@ -1,109 +1,85 @@
-# Charts & Pivot Tables
+---
+title: Add a chart
+description: Turn a range of cells into a bar, line, area, pie, or scatter chart, and place images on a sheet.
+type: how-to
+---
 
-Wafflebase includes built-in charts and pivot tables so you can visualize and summarize your data without leaving the spreadsheet.
+# Add a chart
 
-## Charts
+Turn a range of cells into a bar, line, area, pie, or scatter chart, and place images on a sheet.
 
-### Insert a Chart
+A chart reads its cells every time it draws, so it updates as soon as you change the data.
 
-1. Select the data range you want to chart (include headers in the first row).
-   The selection must cover at least 2 rows and 2 columns
-2. Click the **Insert chart** button (the bar-chart icon) in the toolbar. On a
-   narrow screen the toolbar collapses its extra tools into a **More formatting
-   options** (⋮) menu — open it and choose **Insert chart** there
-3. A bar chart appears anchored to the top-left cell of your selection, with
-   the chart editor panel open on the right
-
-### Chart Types
-
-| Type | Best For |
-|------|----------|
-| **Bar** | Comparing categories side by side |
-| **Line** | Showing trends over time |
-| **Area** | Trends with volume emphasis |
-| **Pie** | Showing proportions of a whole |
-| **Scatter** | Visualizing relationships between two numeric values |
-
-### Configure Your Chart
-
-The chart editor panel has two tabs:
-
-**Setup** — Choose the chart type, data range, X-axis column, and which columns
-to plot as series. A pie chart plots a single **value column** rather than
-multiple series.
-
-**Customize** — Set the chart title, legend position (Top, Bottom, Right, Left,
-or None), toggle gridlines, and pick a color palette.
-
-::: tip
-The available controls depend on the chart type. Pie charts have no gridlines,
-so the **Show gridlines** checkbox is not shown for them.
+::: info Before you start
+- You need edit access. Viewers see charts and images but can't add or change them.
+- Select at least 2 rows and 2 columns. Include the header row so the chart can name its series.
+- Images: PNG, JPEG, GIF, or WebP, up to 10 MB. Larger images are shrunk to fit.
 :::
 
-### Move and Resize
+## Insert a chart
 
-Drag the chart to reposition it on the sheet. Drag the edges or corners to resize.
+1. Open the sheet and select the data, including the header row. For example, select **A1:C7**.
+2. Click **Insert chart** (the bar chart icon) in the toolbar.
 
-### Color Palettes
+A bar chart appears beside the data: to the right, or below it when there is no room. Its title comes from your headers, for example `Revenue and Cost by Month`, or `Chart` when the range has no header row. The **Chart editor** panel opens on the right.
 
-Three built-in palettes are available:
+![Bar chart placed to the right of its monthly data, with the Chart editor open on Setup](/images/sheets/charts-insert.png)
 
-- **Theme (default)** — Adapts to light/dark theme
-- **Warm** — Orange and earth tones
-- **Cool** — Blue and teal tones
+### On a phone
 
-### Charts Follow Their Source Data
+Tap **More formatting options** (⋮) at the right end of the toolbar, then select **Insert chart**. See [Use Wafflebase on a phone](/start/phone).
 
-A chart reads its source range every time it draws, so edits to the source
-cells show up in the chart right away. Pivot tables work the other way — see
-[Refresh](#refresh) below.
+## Change the chart type and data
 
-## Pivot Tables
+1. Open the **Chart editor**. If it's closed, click the chart's menu (⋮) in its title bar and select **Edit chart**.
+2. On the **Setup** tab, set the options you need:
 
-Pivot tables let you summarize large datasets by grouping and aggregating
-values — similar to Google Sheets pivot tables.
+   | Option | What it does |
+   |---|---|
+   | **Chart type** | **Bar chart**, **Line chart**, **Area chart**, **Pie chart**, or **Scatter chart** |
+   | **Data range** | The cells the chart plots. Type a range such as `A1:D20` and click **Apply**, or click **Use selected range** |
+   | **X-axis** | The column used for category labels, or **None**. Called **Label column** for a pie chart |
+   | **Series** | The columns plotted as values. A pie chart has a single **Value column** instead |
 
-### Create a Pivot Table
+The chart redraws as you change each option.
 
-1. Select a data range (first row must be headers, at least 2 rows)
-2. Right-click the selection and choose **Insert pivot table**
-3. A new **Pivot Table** tab is created and the pivot editor panel opens on the
-   right
+## Customize the title, legend, and colors
 
-::: tip
-Insert pivot table is only on the right-click menu — there is no toolbar button
-for it.
-:::
+1. In the **Chart editor**, open the **Customize** tab.
+2. Type a **Chart title**.
+3. Choose a **Legend** position: **Top**, **Bottom**, **Right**, **Left**, or **None**.
+4. Turn **Show gridlines** on or off. Pie charts have no gridlines, so the option is hidden for them.
+5. Pick a **Color palette**: **Theme (default)**, **Warm**, or **Cool**.
 
-### Configure Fields
+## Move, resize, or delete a chart
 
-The pivot editor panel has a section per area. Click **Add** in a section and
-pick a source column from the dropdown; there is no drag-and-drop. Each field
-shows a **✕** button to remove it again.
+1. Click the chart to select it.
+2. Do one of the following:
+   - To move it, drag the chart. Press an arrow key to nudge it.
+   - To resize it, drag an edge or a corner handle.
+   - To delete it, press `Delete` or `Backspace`, or click the chart's menu (⋮) and select **Delete chart**.
 
-- **Rows** — Group data by these columns (supports multi-level grouping)
-- **Columns** — Create column headers from field values
-- **Values** — Aggregated data; choose SUM, COUNT, COUNTA, AVERAGE, MIN, or MAX
-  per field
-- **Filters** — Add a source column here to reserve it for filtering
+## Insert an image
 
-Row and column fields each carry a sort toggle for ascending / descending
-order.
+1. Click the cell where the image should start.
+2. Click **Insert image** (the photo icon) in the toolbar and choose a file.
 
-::: warning
-The **Filters** area currently has no way to choose which values to hide, so a
-filter field does not change the pivot result yet. Filter your source data
-before pivoting it if you need a subset.
-:::
+The image appears at that cell. You can also paste an image, or drag an image file onto the grid to drop it where you release it.
 
-### Refresh
+To move an image, drag it. To resize it, drag a corner handle to keep its proportions, or an edge handle to stretch it. To delete it, select it and press `Delete`, or right-click it and select **Delete image**.
 
-Pivot tables materialize their result into the cells of the pivot tab, so they
-do not update when the source data changes. Click **Refresh pivot table** at the
-bottom of the editor panel to recalculate.
+### On a phone
 
-### Grand Totals
+Tap **More formatting options** (⋮), then select **Insert image**.
 
-Row and column grand totals are shown by default. Clear **Show row totals** or
-**Show column totals** in the editor panel's **Totals** section if you don't
-need them.
+## Known limitations
+
+- A chart whose range holds no numbers shows `Not enough numeric data in <range>`. Pick a range that includes a numeric column.
+- To replace an image, delete it and insert a new one.
+
+## Related
+
+- [Pivot tables](/sheets/pivot-tables) to summarize data before you chart it.
+- [Conditional formatting](/sheets/conditional-formatting) to highlight values in the cells themselves.
+- [Troubleshooting](/start/troubleshooting#select-at-least-2-rows-and-2-columns) if Wafflebase says `Select at least 2 rows and 2 columns.`
+- [Keyboard shortcuts](/sheets/keyboard-shortcuts) for nudging and deleting objects.

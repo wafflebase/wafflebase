@@ -1,94 +1,109 @@
-# Keyboard Shortcuts
+---
+title: Keyboard shortcuts
+description: Keyboard shortcuts for moving, selecting, editing, and formatting in a sheet.
+type: reference
+---
 
-Keyboard shortcuts for common actions. `Ctrl` is the modifier on
-Windows/Linux and `⌘` on Mac — either one works wherever both are listed.
+# Keyboard shortcuts
 
-::: tip
-Press `Ctrl+/` / `⌘+/` in the spreadsheet to open the **Keyboard shortcuts**
-dialog. It's a hand-maintained summary of the most common bindings, so it is
-shorter than this page — a shortcut listed here but missing from the dialog
-(`F4`, the in-cell `Alt+Enter`, `Space`, `Alt+↓`, and `Tab` while editing) still
-works.
-:::
+Keyboard shortcuts for moving, selecting, editing, and formatting in a sheet.
+
+Mac keys come first, then Windows and Linux: `⌘+C` / `Ctrl+C`. Where only one key is listed, it's the same on every platform. To see the list in the app, press `⌘+/` / `Ctrl+/` in a sheet.
+
+## Most used
+
+| To do this | Press |
+|---|---|
+| Copy, cut, paste | `⌘+C`, `⌘+X`, `⌘+V` / `Ctrl+C`, `Ctrl+X`, `Ctrl+V` |
+| Undo | `⌘+Z` / `Ctrl+Z` |
+| Redo | `⌘+Shift+Z` or `⌘+Y` / `Ctrl+Shift+Z` or `Ctrl+Y` |
+| Edit the active cell, keeping its contents | `F2` or `Enter` |
+| Fill down | `⌘+D` / `Ctrl+D` |
+| Bold | `⌘+B` / `Ctrl+B` |
+| Find | `⌘+F` / `Ctrl+F` |
 
 ## Navigation
 
-| Action | Shortcut |
-|--------|----------|
-| Move the active cell | Arrow keys |
-| Jump to the edge of the data | `Ctrl+Arrow` / `⌘+Arrow` |
-| Move to the next cell | `Tab` |
-| Move to the previous cell | `Shift+Tab` |
+| To do this | Press |
+|---|---|
+| Move the active cell | `←`, `→`, `↑`, `↓` |
+| Jump to the edge of the data | `⌘+←` and the other arrows / `Ctrl+←` and the other arrows |
+| Move to the next or previous cell | `Tab` / `Shift+Tab` |
+| Move down or up inside a selected range | `Enter` / `Shift+Enter` |
+| Return to the column where a run of `Tab` presses started, one row down | `Enter` after `Tab` |
 
 ## Selection
 
-| Action | Shortcut |
-|--------|----------|
-| Select all | `Ctrl+A` / `⌘+A` |
-| Extend the selection by one cell | `Shift+Arrow` |
-| Select an entire row | Click the row number |
-| Select an entire column | Click the column header |
-| Extend a row/column selection | `Shift`-click another header |
-
-::: warning
-`Shift+Arrow` extends the selection **one cell at a time**. Adding `Ctrl` /
-`⌘` does not extend the selection to the edge of the data — the combination
-still extends by a single cell.
-:::
+| To do this | Press |
+|---|---|
+| Select all | `⌘+A` / `Ctrl+A` |
+| Extend the selection by one cell | `Shift+←` and the other arrows |
+| Select the entire row | `Shift+Space` |
+| Select the entire column | `Ctrl+Space` (on a Mac too) |
 
 ## Editing
 
-| Action | Shortcut |
-|--------|----------|
-| Start editing the active cell | `Enter`, or just start typing |
-| Confirm the entry and move down | `Enter` (while editing) |
-| Confirm the entry and move right / left | `Tab` / `Shift+Tab` (while editing) |
+| To do this | Press |
+|---|---|
+| Start typing into the active cell, replacing its contents | Any letter or number |
+| Edit the active cell, keeping its contents | `F2` |
+| Confirm and move down | `Enter` |
+| Confirm and move right or left | `Tab` / `Shift+Tab` |
 | Cancel editing | `Escape` |
-| Insert a line break inside a cell | `Alt+Enter` |
-| Clear cell contents | `Delete` / `Backspace` |
-| Cycle a formula reference between relative and absolute | `F4` (while editing) |
-| Toggle a checkbox | `Space` |
-| Open a dropdown list | `Alt+↓` |
-| Merge / unmerge the selection | `Ctrl+Shift+M` / `⌘+Shift+M` |
-| Undo | `Ctrl+Z` / `⌘+Z` |
-| Redo | `Ctrl+Y` / `⌘+Shift+Z` |
-
-`Enter` does two different things depending on the selection. On a single
-cell it opens the editor. With a multi-cell range selected it moves the
-active cell down within that range instead (`Shift+Enter` moves up), so you
-can walk a block without leaving it.
-
-`Space` and `Alt+↓` only apply to cells covered by a data validation rule —
-a checkbox rule for `Space`, a dropdown rule for `Alt+↓`. See
-[Data Validation](./data-validation).
-
-In the in-cell editor, `Ctrl+Enter` / `⌘+Enter` also inserts a line break.
-It exists because the macOS Korean IME reserves `Option` for Hanja
-conversion; in the formula bar, use `Alt+Enter`.
-
-## Clipboard
-
-| Action | Shortcut |
-|--------|----------|
-| Copy | `Ctrl+C` / `⌘+C` |
-| Cut | `Ctrl+X` / `⌘+X` |
-| Paste | `Ctrl+V` / `⌘+V` |
+| Insert a line break while editing | `Option+Enter` or `⌘+Enter` / `Alt+Enter` or `Ctrl+Enter` |
+| Switch a formula reference between relative and absolute while editing | `F4` |
+| Clear the selected cells | `Delete` or `Backspace` |
+| Fill down | `⌘+D` / `Ctrl+D` |
+| Fill right | `⌘+R` / `Ctrl+R` |
+| Merge or unmerge the selected cells | `⌘+Shift+M` / `Ctrl+Shift+M` |
+| Copy, cut, paste | `⌘+C`, `⌘+X`, `⌘+V` / `Ctrl+C`, `Ctrl+X`, `Ctrl+V` |
 | Clear the copy marquee | `Escape` |
+| Undo | `⌘+Z` / `Ctrl+Z` |
+| Redo | `⌘+Shift+Z` or `⌘+Y` / `Ctrl+Shift+Z` or `Ctrl+Y` |
+| Toggle the selected checkboxes | `Space` |
+| Open a dropdown list | `Option+↓` / `Alt+↓` |
+| Open the link under the pointer | `⌘`-click / `Ctrl`-click |
+| Open every link in the active cell | `Option+Enter` / `Alt+Enter` (not while editing) |
+| Add a comment to the active cell | `⌘+Option+M` / `Ctrl+Alt+M` |
+| Run the query in a data source tab | `⌘+Enter` / `Ctrl+Enter` |
+
+`Space` and `Option+↓` / `Alt+↓` work only on cells with a checkbox or dropdown rule. See [Data validation](/sheets/data-validation).
+
+In the formula bar, use `Option+Enter` / `Alt+Enter` for a line break.
 
 ## Formatting
 
-| Action | Shortcut |
-|--------|----------|
-| Bold | `Ctrl+B` / `⌘+B` |
-| Italic | `Ctrl+I` / `⌘+I` |
-| Underline | `Ctrl+U` / `⌘+U` |
-| Strikethrough | `Ctrl+Shift+S` / `⌘+Shift+S` |
+| To do this | Press |
+|---|---|
+| Bold | `⌘+B` / `Ctrl+B` |
+| Italic | `⌘+I` / `Ctrl+I` |
+| Underline | `⌘+U` / `Ctrl+U` |
+| Strikethrough | `⌘+Shift+S` / `Ctrl+Shift+S` |
 
-## Find, Comments, and Help
+## Objects
 
-| Action | Shortcut |
-|--------|----------|
-| Find | `Ctrl+F` / `⌘+F` |
-| Comment on the active cell | `Ctrl+Alt+M` / `⌘+Alt+M` |
-| Toggle the comments panel | `Ctrl+Alt+Shift+M` / `⌘+Alt+Shift+M` |
-| Show keyboard shortcuts | `Ctrl+/` / `⌘+/` |
+These work on a selected chart or image.
+
+| To do this | Press |
+|---|---|
+| Delete it | `Delete` or `Backspace` |
+| Nudge it | `←`, `→`, `↑`, `↓` |
+| Deselect it | `Escape` |
+
+## View
+
+| To do this | Press |
+|---|---|
+| Find | `⌘+F` / `Ctrl+F` |
+| Show or hide the comments panel | `⌘+Option+Shift+M` / `Ctrl+Alt+Shift+M` |
+| Show keyboard shortcuts | `⌘+/` / `Ctrl+/` |
+
+## Known limitations
+
+- `Shift` with `⌘` / `Ctrl` and an arrow extends the selection by one cell, not to the edge of the data.
+
+## Related
+
+- [Edit and format cells](/sheets/edit-and-format) for the tasks behind these keys.
+- [Formulas](/sheets/formulas) for absolute references with `F4`.
+- [Comments](/collaborate/comments) for discussing a cell with your team.

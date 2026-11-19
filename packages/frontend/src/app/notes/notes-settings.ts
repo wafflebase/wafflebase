@@ -60,7 +60,7 @@ export function writeViewMode(mode: NoteViewMode): void {
  * leaving the switch off hides the column and withholds no name. The gutter
  * and its per-edit authorship walk are what the flag installs
  * (`packages/notes/src/view/editor.ts`), not the attribution itself, and
- * `packages/documentation/notes/writing-a-note.md` warns the user in as many
+ * `packages/documentation/notes/write-and-format.md` warns the user in as many
  * words.
  *
  * Read by both `NotesView` mounts, the anonymous share-link one included, and
