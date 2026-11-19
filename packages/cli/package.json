@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/cli",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "Read and edit Wafflebase documents from the terminal",
   "license": "Apache-2.0",
   "type": "module",

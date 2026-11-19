@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/core",
   "private": true,
-  "version": "0.6.15",
+  "version": "0.6.16",
   "license": "Apache-2.0",
   "description": "Shared foundation for Wafflebase (design tokens, geometry, canvas helpers, OOXML)",
   "type": "module",

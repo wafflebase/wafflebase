@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.16 (2026-11-19) | [20261119-release-v0.6.16-todo.md](./active/20261119-release-v0.6.16-todo.md) | [20261119-release-v0.6.16-lessons.md](./active/20261119-release-v0.6.16-lessons.md) |
 | template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./active/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./active/20261119-template-catalog-ops-lessons.md) |
 | mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./active/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./active/20261118-mobile-before-after-lessons.md) |
 | mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./active/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./active/20261118-mobile-clipping-lessons.md) |
@@ -25,7 +26,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
 | board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./active/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./active/20261116-board-navigation-feel-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
-| release v0.6.15 (2026-11-16) | [20261116-release-v0.6.15-todo.md](./active/20261116-release-v0.6.15-todo.md) | [20261116-release-v0.6.15-lessons.md](./active/20261116-release-v0.6.15-lessons.md) |
 | sheets usability pass (2026-11-16) | [20261116-sheets-usability-pass-todo.md](./active/20261116-sheets-usability-pass-todo.md) | [20261116-sheets-usability-pass-lessons.md](./active/20261116-sheets-usability-pass-lessons.md) |
 | agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./active/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./active/20261115-agent-harness-switch-lessons.md) |
@@ -74,7 +74,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 644
+- Archived task count: 645
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: template catalog ops (2026-11-19)
+Latest active task: release v0.6.16 (2026-11-19)
