@@ -39,7 +39,7 @@ substantially (add redirects for moved URLs).
 - [x] Phase 6 — Verify: cross fact-check by a different agent per section,
       VitePress build + dead-link check, `pnpm verify:fast`,
       `/self-review` (≤3 rounds).
-- [ ] Phase 7 — One PR for the whole overhaul (user decision 2026-11-19,
+- [x] Phase 7 — One PR for the whole overhaul (#1177; user decision 2026-11-19,
       replacing the 4-PR split below).
 
 ## Phase 1–3 results (2026-11-19)
