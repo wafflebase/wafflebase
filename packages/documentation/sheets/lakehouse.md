@@ -1,168 +1,95 @@
-# Lakehouse Tables
+---
+title: Read lakehouse tables
+description: Read an Apache Iceberg or Delta Lake table from object storage into a read-only tab, and look at earlier versions with time travel.
+type: how-to
+---
 
-A **Lakehouse** tab reads an open-table-format table sitting in object storage —
-Apache Iceberg or Delta Lake — straight into a read-only grid, without a
-database server in between. It also gives you a **time-travel slider** over the
-table's own commit history, so you can look at the table as it was at an earlier
-commit.
+# Read lakehouse tables
 
-Lakehouse connections live alongside database connections; see
-[External Datasources](./datasources) for the SQL side of the feature.
+Read an Apache Iceberg or Delta Lake table from object storage into a read-only tab, and look at earlier versions with time travel.
 
-## Create a Lakehouse Tab
+A lakehouse tab has no query box. It shows the whole table its connection points at, as soon as you open it.
 
-1. Click the small arrow next to the **+** at the end of the tab bar and choose
-   **Connect lakehouse table…**.
-2. The **Select lakehouse** dialog lists the Lakehouse connections your
-   workspace already has. Click one to select it and click **Select**
-   (double-clicking a connection does both), or click **New connection** to set
-   one up.
-
-The new tab is named after the connection and carries a warehouse icon.
-
-## Set Up a Connection
-
-**New lakehouse connection** asks for:
-
-- **Name** — a label for the connection.
-- **Table format** — **Apache Iceberg** or **Delta Lake**.
-- **Storage** — where the table lives (see below).
-- **Bucket** (labelled **Container** for Azure) and, for the S3 backends,
-  **Region** (defaults to `us-east-1`).
-- **Endpoint** — required for S3-compatible storage, optional for Azure.
-- The table path itself, labelled **Iceberg metadata file (.metadata.json)** or
-  **Delta table root** depending on the format you picked.
-- Credentials for the storage backend.
-
-Click **Test connection** to check it without saving, then **Save**.
-
-### Storage backends
-
-| Storage | What it needs |
-|---------|---------------|
-| Amazon S3 | Bucket, Region, **Access key** + **Secret key**, optional **Session token** |
-| S3-compatible | Bucket, Region, an **Endpoint** (`http://` or `https://`, host only — no path), **Access key** + **Secret key**, optional **Session token** |
-| Google Cloud Storage | Bucket, **Access key** + **Secret key** — these are GCS *interoperability* HMAC keys, not a Google OAuth token |
-| Azure Blob / ADLS | Container, an optional **Custom endpoint**, and either a **Connection string** on its own or an **Account name** with an **Account key** *or* a **SAS token** |
-| Local filesystem (server-configured) | Just an absolute path — see below |
-
-Access key and secret key always travel together: for S3, S3-compatible, and
-GCS storage the dialog requires both, and refuses a connection that supplies
-one without the other.
-
-::: warning
-**Local filesystem** only works if the operator has switched it on. The dialog
-says so directly — *"Local paths must be enabled and scoped by the Wafflebase
-server"* — and a server that has not enabled it answers *"Local lakehouse paths
-are disabled on this server."* When it is enabled, the path must sit inside the
-one root directory the operator configured.
-
-**Custom endpoints are allowlisted too.** An S3-compatible endpoint, an Azure
-custom endpoint, or any other non-default endpoint must be an exact match for
-something the operator has permitted, or saving fails with *"… is not allowed by
-the server."*
+::: info Before you start
+- Connections are shared with the workspace. Every member reads with the credentials you save, so use read-only storage credentials.
+- A saved lakehouse connection can't be edited or deleted in the app.
+- Reads stop at 10,000 rows, and a read stops after 30 seconds by default.
 :::
 
-### Writing the table path
+## Add a lakehouse tab
 
-The path rules differ by format and by whether you filled in a bucket:
+1. Open the sheet. At the end of the tab bar, click the arrow next to **+** (**More tab types**) and select **Connect lakehouse table…**.
+2. In **Select lakehouse**, click a connection and click **Select**, or double-click it.
+3. To add a connection instead, click **New connection** and follow [Set up a connection](#set-up-a-connection).
 
-- **Iceberg** wants a metadata file — the path must end in `.metadata.json`.
-- **Delta** wants the table root, *not* its `_delta_log` directory.
-- With a **bucket / container** set, give a path relative to it
-  (`orders/metadata/v3.metadata.json`).
-- With **no** bucket, give a fully-qualified URI — `s3://…` for the S3
-  backends, `gcs://…` or `gs://…` for Google Cloud Storage, `az://…` for Azure.
-- For **local** storage, give an absolute server path (`/data/orders`) or a
-  `file:///` URI.
+A new tab named after the connection opens, marked with a warehouse icon. The status line reads **Loading rows…**, then something like `1204 rows in 812ms`.
 
-Paths can't contain glob characters (`*`, `?`, `[]`, `{}`), parent-directory
-segments (`..`), or control characters.
+## Set up a connection
 
-## Reading the Table
+1. In **New lakehouse connection**, enter a **Name**.
+2. Choose the **Table format**: **Apache Iceberg** or **Delta Lake**.
+3. Choose the **Storage** and fill in its fields. See [Storage options](#storage-options).
+4. Enter the table path. For Iceberg it's labeled **Iceberg metadata file (.metadata.json)**; for Delta, **Delta table root**. See [Write the table path](#write-the-table-path).
+5. Click **Test connection**. A message says `Connected`, or why it couldn't connect.
+6. Click **Save**.
 
-There's no SQL editor and no **Execute** button — a Lakehouse tab reads the
-table it points at as soon as you open it, and again whenever the time-travel
-point changes. The first row of the grid holds the column names and each
-following row is a record.
+The new tab opens and reads the table.
 
-The header shows the read's status on the right: **Loading rows…** while it
-runs, then something like `1204 rows in 812ms`.
+![New lakehouse connection dialog set to Apache Iceberg on S3-compatible storage](/images/sheets/lakehouse-connection.png)
 
-::: tip
-Reads are capped at **10,000 rows**. Past that the status line reads
-`10000 rows (truncated) in …ms` — the grid holds the first 10,000 rows and
-nothing tells you what was left behind, so treat a truncated read as a partial
-view of the table. A read that takes too long is cut off by a server timeout,
-30 seconds by default.
+### Storage options
+
+| Storage | Fields |
+|---|---|
+| **Amazon S3** | **Bucket**, **Region** (default `us-east-1`), **Access key**, **Secret key**, **Session token (optional)** |
+| **S3-compatible** | **Bucket**, **Region**, **Endpoint** (an `http://` or `https://` URL with no path), **Access key**, **Secret key**, **Session token (optional)** |
+| **Google Cloud Storage** | **Bucket**, **Access key**, **Secret key**. Use GCS interoperability (HMAC) keys |
+| **Azure Blob / ADLS** | **Container**, **Custom endpoint (optional)**, and either **Connection string (optional)** alone, or **Account name** with **Account key** or **SAS token (optional)** |
+| **Local filesystem (server-configured)** | The table path only, as an absolute server path |
+
+Amazon S3, S3-compatible, and Google Cloud Storage need both an access key and a secret key. Until both are filled in, **Save** stays unavailable and the key fields show an error.
+
+::: info Server settings
+**Local filesystem** works only when the server operator turns it on, inside one allowed folder. Custom endpoints must also be on the operator's allowlist. See [Optional features](/developers/self-hosting/optional-features).
 :::
 
-The grid is **read-only**. You can select and copy cells (**⌘/Ctrl+C**), but you
-can't edit, sort, or filter them. Like a datasource tab, a Lakehouse tab
-**can't be referenced from a formula** in another tab — cross-sheet references
-resolve only against regular sheet tabs, so `Lakehouse1!A1` comes back empty
-rather than reporting an error. To build on the numbers, copy the results into a
-sheet tab.
+### Write the table path
 
-## Time Travel
+- **Iceberg**: point at a metadata file. The path must end in `.metadata.json`.
+- **Delta**: point at the table root, not its `_delta_log` folder.
+- With a **Bucket** or **Container** set, use a path relative to it, such as `orders/metadata/v3.metadata.json`.
+- With no bucket, use a full URI: `s3://…` for S3 and S3-compatible, `gs://…` or `gcs://…` for Google Cloud Storage, `az://…` for Azure.
+- For local storage, use an absolute path such as `/data/orders`, or a `file:///` URI.
 
-The **Time travel** slider above the grid walks the table's own commit history,
-newest on the right.
+Paths can't contain `*`, `?`, `[]`, `{}`, or `..`.
 
-- Drag it and the label shows the commit you've landed on — the commit time in
-  your local timezone, and for Delta the operation that made it (for example
-  `2026-08-14, 09:31:02 · WRITE`). Releasing the slider re-reads the table at
-  that commit.
-- The rightmost stop is the live table, labelled **Latest**. The button beside
-  the slider jumps back to it from anywhere.
-- For **Delta Lake** the stops are table versions; for **Apache Iceberg** they
-  are snapshots. Because an Iceberg connection points at one specific
-  `.metadata.json` file, "latest" means the newest snapshot recorded in *that*
-  file — which is why the label reads **Latest in configured metadata** rather
-  than plain **Latest** for Iceberg tables.
-- History is capped at the **1,000** most recent commits.
+## Look at an earlier version
 
-The slider is disabled while the history is still loading, and on a read-only
-view such as a share link.
+1. Open the lakehouse tab.
+2. Drag the **Time travel** slider above the grid. The label shows the commit's date and time in your time zone and, for Delta, the operation that made it, such as `WRITE`.
+3. Release the slider. The grid reloads the table as it was at that commit.
+4. To return to the current table, click **Latest**.
 
-### What gets saved
+The commit you pick is saved on the tab, so collaborators who open it see the same version. Click **Latest** to clear it for everyone. The rows themselves are not saved: each person's tab reads the table again when they open it.
 
-The **commit you pick is saved into the document**, on the tab, and it is
-shared: a collaborator opening that tab sees the same historical commit you
-pinned, and reads the table there. Clicking **Latest** clears it again.
+For Iceberg, the newest stop is labeled **Latest in configured metadata**: it's the newest snapshot in the metadata file you entered, which may be older than the live table. Delta stops are table versions; Iceberg stops are snapshots. The slider lists the 1,000 most recent commits.
 
-The **rows are not**. Nothing the table returns is written into the document —
-each person's grid is filled by their own read, and closing and reopening the
-tab reads again.
+## Use the results in a sheet
 
-If somebody pins a commit your history listing doesn't contain — an old commit
-that has since aged out of the 1,000 — the slider is replaced by a note reading
-`Snapshot 41… · outside loaded history`, and the read still runs against that
-commit.
+The grid is read-only: you can select and copy cells, but not edit, sort, or filter them. To build on the data, copy cells with `⌘+C` / `Ctrl+C` and paste them into a sheet tab.
 
-## Connections Are Shared With the Workspace
+A formula in another tab can't read a lakehouse tab. A reference such as `=Orders!A1` returns an empty value.
 
-A saved Lakehouse connection belongs to the **workspace**, not to the person who
-created it — exactly like a database datasource. Every workspace member can pick
-it for a tab and read through it, and every read runs against the credentials
-stored with the connection, whoever triggered it. Workspace membership is the
-only check: there is no per-connection or per-document permission on top of it.
+## Known limitations
 
-The credentials themselves are encrypted before they are stored and are never
-returned to the browser.
+- A read that hits 10,000 rows shows `10000 rows (truncated)`, and the grid holds only the first 10,000 rows.
+- Each tab reads the one table its connection names. You can't browse a catalog for other tables.
+- To change a connection's details, create a new connection.
+- The slider is unavailable while the history loads, and on read-only views such as a viewer share link.
+- If a pinned commit is older than the loaded history, the slider is replaced by a note such as `Snapshot 41… · outside loaded history`. The tab still reads that commit.
 
-::: warning
-Point a Lakehouse connection at **least-privilege, read-only storage
-credentials**. Everyone in the workspace shares them, so they should reach only
-the data you're willing to show all of them.
-:::
+## Related
 
-## Good to Know
-
-- Wafflebase reads the table directly from its metadata; it never sends SQL you
-  wrote, and the connection has no query field.
-- Connections are created from the **Select lakehouse** dialog. There is
-  currently no screen in the app for editing or deleting a Lakehouse connection
-  once it has been saved.
-- The tab reads the one table its connection names. Browsing a catalog for
-  other tables is not available in the app.
+- [Connect a database](/sheets/connect-a-database) to run SQL against PostgreSQL.
+- [Optional features](/developers/self-hosting/optional-features) for the server settings behind local paths and custom endpoints.
+- [Troubleshooting](/start/troubleshooting#local-lakehouse-paths-are-disabled-on-this-server) if saving fails with `Local lakehouse paths are disabled on this server`.

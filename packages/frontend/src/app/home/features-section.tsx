@@ -21,21 +21,21 @@ const HERO_FEATURES: HeroFeature[] = [
     title: "Real-time collaboration",
     description:
       "Every editor syncs through Yorkie CRDTs, so simultaneous edits to a sheet, doc, deck, note or board merge without conflicts.",
-    href: "/docs/guide/collaboration",
+    href: "/docs/collaborate/edit-together",
   },
   {
     glyph: "embed",
     title: "REST API and CLI",
     description:
       "Read and write cells, render a doc as Markdown, or let an agent edit the same document your team has open.",
-    href: "/docs/developers/rest-api",
+    href: "/docs/developers/api/",
   },
   {
     glyph: "reactive",
     title: "Self-hosted and open source",
     description:
       "Run the whole stack on your own infrastructure, and your documents stay there.",
-    href: "/docs/developers/self-hosting",
+    href: "/docs/developers/self-hosting/",
   },
 ];
 
@@ -56,12 +56,12 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     title: "Page-based document editor",
     description:
       "Paginated editor with rich tables, page breaks, and headers/footers",
-    href: "/docs/docs-editor/writing-a-document",
+    href: "/docs/docs-editor/",
   },
   {
     title: "Comments, mentions and spell check",
     description: "Inline threads, @mentions, and live spell checking",
-    href: "/docs/guide/collaboration",
+    href: "/docs/collaborate/comments",
   },
   {
     title: "Themes, layouts and shapes",
@@ -79,13 +79,13 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     title: "Markdown notes and infinite boards",
     description:
       "A Markdown editor with live preview, and a boundless pan-and-zoom canvas",
-    href: "/docs/notes/writing-a-note",
+    href: "/docs/notes/",
   },
   {
     title: "Templates, PDFs and files",
     description:
       "Publish any document as a template, and keep PDFs, images and other files beside it",
-    href: "/docs/guide/templates",
+    href: "/docs/collaborate/templates",
   },
 ];
 

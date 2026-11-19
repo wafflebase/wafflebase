@@ -1,157 +1,89 @@
-# Conditional Formatting
+---
+title: Highlight cells with conditional formatting
+description: Color, bold, or underline cells automatically when their values match a rule.
+type: how-to
+---
 
-Conditional formatting paints cells based on what they contain. A rule watches
-a range, and every cell in that range whose value matches the rule's condition
-picks up the rule's bold / italic / underline / colors.
+# Highlight cells with conditional formatting
 
-The formatting is applied at paint time — it never changes the value in the
-cell and never overwrites the formatting you applied by hand. Delete the rule
-and the cells go straight back to how they looked.
+Color, bold, or underline cells automatically when their values match a rule.
 
-## Open the Conditional Formatting Panel
+A rule never changes the cell's value or the formatting you applied by hand. Delete the rule and the cells look as they did before.
 
-Click the **Conditional formatting** (brush) icon in the toolbar to open the
-right-side panel.
-
-On a narrow screen the toolbar collapses its extra tools into a **More
-formatting options** (⋮) menu — open it and choose **Conditional formatting**
-there.
-
-There is no right-click entry for conditional formatting, and the panel is only
-available on regular sheet tabs. See
-[Where rules live](#where-rules-live) for the tabs it does not cover.
-
-::: tip
-Select the cells you want to format **before** opening the panel. Clicking back
-into the grid closes the panel, so the selection you had when you opened it is
-the one the panel can use.
+::: info Before you start
+- You need edit access. Viewers and share-link visitors see the formatting but can't open the panel.
+- Rules belong to one tab and work on sheet and pivot tabs.
 :::
 
-## Add a Rule
+## Add a rule
 
-1. Select the range you want to format.
-2. Open the panel and click **Add**.
+1. Open the sheet and select the cells to format, for example **B2:B50**.
+2. Click **Conditional formatting** (the palette icon) in the toolbar.
+3. The panel opens on a new, **Unsaved** rule for your selection. It starts as **Is not empty** with a light green fill and black text.
+4. Under **Format rules**, pick a condition and enter its value, for example **Greater than** `1000`.
+5. Under **Formatting style**, set **Bold**, **Italic**, **Underline**, **Text color**, or **Background color**.
+6. Click **Done**.
 
-The new rule starts as **Is not empty** with a pale-yellow fill, scoped to the
-cells you had selected (or to `A1` if nothing was selected), and its editor
-opens below the rule list.
+Matching cells take the style right away. To discard the rule instead, click **Cancel** or close the panel.
 
-From there:
+![Conditional formatting panel with two numbered rules: green fill over 1000, yellow fill from 500 to 1000](/images/sheets/conditional-formatting-rules.png)
 
-- **Apply to range** — type a range and click **Apply**, or click **Use
-  selected range** to fill it from your current grid selection.
-- **Format rules** — pick the condition and its value (see below).
-- **Formatting style** — pick what the matching cells should look like.
+### On a phone
 
-### Writing ranges
+Tap **More formatting options** (⋮) at the right end of the toolbar, then select **Conditional formatting**.
 
-The range box takes A1 ranges with **both ends written out**, separated by
-commas for a rule that covers several blocks:
+### Add another rule
 
-```
-A1:B10, D1:E10
-```
+Click **Add** in the panel. A new rule appears for the current selection and saves as you edit it.
 
-A single cell has to be written as `A1:A1` — a bare `A1` is rejected with
-*"Enter valid A1 ranges like A1:D20 or A1:B10, D1:E10."*
+## Choose a condition
 
-**Use selected range** needs a cell selection. If you have a whole row, a whole
-column, or the entire sheet selected via its header, it answers *"Select a cell
-range first."*
+| Condition | Matches a cell that |
+|---|---|
+| **Is empty** | is blank or holds only spaces |
+| **Is not empty** | holds anything |
+| **Text contains** | contains the text you type, ignoring case |
+| **Greater than** | is a number greater than the value |
+| **Is between** | is a number from **Min** to **Max**, inclusive |
+| **Date before** | is a date earlier than the date you type |
+| **Date after** | is a date later than the date you type |
 
-## Format Rules
+Number conditions ignore thousands separators. Type dates as `YYYY-MM-DD`. A cell that isn't a number or a date never matches those conditions.
 
-The **Format rules** dropdown offers seven conditions:
+## Apply a rule to several ranges
 
-| Condition | What it matches |
-|-----------|-----------------|
-| Is empty | The cell is blank (or holds only whitespace) |
-| Is not empty | The cell holds anything else |
-| Text contains | The cell's text contains what you typed, ignoring case |
-| Greater than | The cell is a number greater than the number you typed |
-| Is between | The cell is a number inside the two bounds, inclusive |
-| Date before | The cell is a date earlier than the date you typed |
-| Date after | The cell is a date later than the date you typed |
+1. Select the rule's card in the panel.
+2. Under **Apply to range**, type the ranges separated by commas, for example `A1:B10, D1:E10`.
+3. Click **Apply**.
 
-**Is empty** and **Is not empty** take no value. **Is between** shows two boxes,
-**Min** and **Max** — the range is inclusive at both ends, and entering them in
-the wrong order still works. The other four show a single box, prompting
-*Enter text*, *Enter number*, or *YYYY-MM-DD* depending on the condition.
+Write both ends of every range. A single cell is `A1:A1`; a bare `A1` shows `Enter valid A1 ranges like A1:D20 or A1:B10, D1:E10.`
 
-A few details worth knowing:
+To use the cells you have selected instead, click **Use selected range**. It needs a cell range; with a whole row or column selected it shows `Select a cell range first.`
 
-- **Greater than** and **Is between** compare numbers. Thousands separators in
-  the cell or in the value you type are ignored, and a cell that isn't a number
-  simply never matches.
-- **Date before** / **Date after** compare whole days. `YYYY-MM-DD` is the
-  format the box asks for; other date text is accepted if the browser can read
-  it, and a cell that isn't a date never matches.
+## Change the rule order
 
-## Formatting Style
+The panel applies rules from top to bottom. Click the ↑ or ↓ arrow on a rule's card to move it.
 
-A rule can set any combination of:
+When two rules match the same cell, both apply. For a property both rules set, such as the background color, the lower rule wins.
 
-- **Bold**, **Italic**, **Underline** toggles
-- **Text color** — a palette, plus **Reset** to go back to the default color
-- **Background color** — a palette, plus **None** for no fill
+## Edit or delete a rule
 
-That's the whole list. A rule can't change number formats, borders, fonts, or
-alignment.
+1. Select a cell the rule covers and click **Conditional formatting**. The panel opens on that rule.
+2. Change its range, condition, or style. Edits save as you make them.
+3. To delete the rule, click **✕** on its card.
 
-::: warning
-A rule is only saved once it is complete. A rule with **no** style at all — every
-toggle off and both colors cleared — is dropped, and so is a value-taking rule
-whose value box is still empty. It disappears from the panel the next time you
-open it.
-:::
+Each card shows the condition, the ranges, and a style summary such as `B · Fill`.
 
-## Rule Order and Overlap
+## Known limitations
 
-The panel says it at the top: **rules are applied from top to bottom**. Each
-rule card is numbered, and the ↑ / ↓ buttons on a card move it in that order.
+- A rule can't change number formats, borders, fonts, or alignment.
+- A rule with no style, or with an empty value box, isn't kept.
+- Clicking the grid closes the panel. Select the cells before you open it.
+- Conditional formatting isn't available on data source or lakehouse tabs. Copy the results into a sheet tab to format them.
+- On a pivot tab, a rule stays on the cells you gave it, so a pivot that changes shape after a refresh can leave it on the wrong cells.
 
-When two rules match the same cell, their styles are **merged**, and the rule
-lower in the list wins for the properties it actually sets. A rule that only
-sets a background color leaves an earlier rule's bold and text color in place;
-a rule that also sets a background color replaces the earlier one's.
+## Related
 
-Conditional formatting sits on top of every other style layer — sheet, column,
-row, range, and the cell's own formatting. Where a rule matches, its properties
-win.
-
-## Edit or Delete a Rule
-
-- Click a rule's card to select it; its range, condition, and style appear in
-  the editor below.
-- Click the **✕** on a card to delete the rule. The formatting for that range
-  disappears immediately.
-
-Each card also summarizes itself — the condition and value, the ranges it
-covers, swatches for its colors, and a short style summary such as `B · Fill`
-(or `No style`).
-
-## Rules and Structural Edits
-
-Rules follow the grid. Inserting, deleting, or moving rows and columns remaps
-every rule's ranges to match, so a rule on `B2:B100` still covers the same cells
-after a row is inserted above it.
-
-If a rule's ranges are deleted entirely — you delete every row or column it
-covered — the rule is removed with them.
-
-## Where Rules Live
-
-Rules belong to a **single tab** and are saved into the document, so
-collaborators see the same formatting you do. A person opening the document
-through a read-only share link sees the formatting too; they just don't get the
-panel.
-
-- **Sheet tabs** — fully supported.
-- **Pivot table tabs** — supported; they're sheet tabs, and refreshing a pivot
-  rewrites its cells without touching the rules. But a rule stays anchored to
-  the cells you gave it, so a pivot that changes shape can leave a rule
-  covering the wrong part of the output.
-- **Data source and lakehouse tabs** — not supported. Those tabs render a
-  read-only result grid with no formatting toolbar, so there's no way to open
-  the panel on them. Shape the data in SQL instead, or copy the results into a
-  sheet tab and format it there.
+- [Data validation](/sheets/data-validation) to add dropdowns and checkboxes.
+- [Edit and format cells](/sheets/edit-and-format) to style cells by hand.
+- [Pivot tables](/sheets/pivot-tables) to summarize data before you highlight it.

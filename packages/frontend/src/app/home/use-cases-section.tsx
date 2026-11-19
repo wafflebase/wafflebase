@@ -10,7 +10,7 @@ const USE_CASES: UseCase[] = [
   {
     title: "Replace the 'export to Excel, edit, paste back' loop",
     body: "A SQL tab reads straight from PostgreSQL into a read-only grid, right beside your editable tabs. Press Execute for fresh rows instead of exporting another CSV.",
-    href: "/docs/sheets/datasources",
+    href: "/docs/sheets/connect-a-database",
   },
   {
     title: "Ship the deck on your brand, not Google's",
@@ -20,7 +20,7 @@ const USE_CASES: UseCase[] = [
   {
     title: "Roll the spec back to the version everyone signed off on",
     body: "Every sheet, doc, slide, note and board keeps a dated timeline of its 50 most recent versions. Name the current state as you ship it; restoring an older one saves today's state first.",
-    href: "/docs/guide/collaboration#version-history",
+    href: "/docs/collaborate/version-history",
   },
 ];
 

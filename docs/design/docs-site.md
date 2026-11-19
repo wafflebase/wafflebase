@@ -33,50 +33,45 @@ Pages deployment.
 ```
 packages/documentation/
 ├── package.json              # @wafflebase/documentation
+├── STYLE.md                  # Writing rules: page types, titles, steps, screenshots (not built)
 ├── .vitepress/
-│   ├── config.ts             # base: '/docs/', sidebar, nav
+│   ├── config.ts             # base: '/docs/', nav, two sidebars ('/' and '/developers/')
 │   └── theme/
-│       └── style.css         # Brand color overrides (amber/gold)
-├── index.md                  # Docs home (VitePress home layout)
-├── guide/
-│   ├── getting-started.md    # Getting started
-│   ├── collaboration.md      # Real-time collaboration & sharing
-│   └── import-export.md      # Import & export
-├── sheets/
-│   ├── build-a-budget.md     # Sheets tutorial
-│   ├── formulas.md           # Formulas reference
-│   ├── charts.md             # Charts & pivot tables
-│   ├── data-validation.md    # Data validation
-│   ├── datasources.md        # External datasources
-│   └── keyboard-shortcuts.md
-├── docs-editor/
-│   ├── writing-a-document.md
-│   └── keyboard-shortcuts.md
-├── slides/
-│   ├── build-a-deck.md       # Slides tutorial
-│   ├── themes-and-layouts.md
-│   └── keyboard-shortcuts.md
-├── notes/
-│   └── writing-a-note.md     # Notes tutorial
-├── board/
-│   └── using-the-board.md    # Board tutorial
-├── pdf/
-│   ├── viewing-pdfs.md
-│   ├── viewing-images.md
-│   └── organizing-with-folders.md
-└── developers/
-    ├── self-hosting.md
-    ├── rest-api.md
-    └── cli.md
+│       └── style.css         # Brand overrides
+├── index.md                  # Landing page: goal cards, per-editor row
+├── start/                    # Getting started, concepts, phone, troubleshooting
+├── collaborate/              # Workspaces, sharing, comments, history, templates, folders, trash
+├── files/                    # Upload, PDFs, images, import and export
+├── sheets/ docs-editor/ slides/ notes/ board/
+│   ├── index.md              # Section overview: quick start + task map
+│   ├── <tutorial>.md         # build-a-budget, write-a-proposal, build-a-deck, run-a-retro
+│   ├── <task>.md             # One how-to per task family
+│   └── keyboard-shortcuts.md # Reference
+├── developers/
+│   ├── index.md, claude-code-plugin.md
+│   ├── cli/                  # Install and sign in + one reference page per area
+│   ├── api/                  # Overview, quickstart, one page per resource family
+│   └── self-hosting/         # Overview, local dev, configuration, sign-in, deploy, optional features, troubleshooting
+├── guide/ pdf/ …             # Moved-page stubs: `search: false` + meta refresh to the new URL
+└── public/images/<section>/  # Screenshots (desktop 1440×900, phone 393×659)
 ```
 
 ### VitePress Configuration
 
 - `base: '/docs/'` so all asset/link paths are prefixed correctly
-- Top nav order: **Guide / Sheets / Docs / Slides / Notes & Board /
+- Top nav order: **Getting started / Sheets / Docs / Slides / Notes / Board /
   Developers** — mirrors the homepage's product progression
-- Sidebar groups mirror the nav plus a **PDF & Files** group (PDF/image
-  viewers, folders) between Notes & Board and Developers
+- Two sidebars. Every user page shares one (Get started, Collaborate &
+  organize, Sheets, Docs, Slides, Notes, Board, Files; editor sections open
+  collapsed); `/developers/` gets its own (Developers, CLI, REST API,
+  Self-hosting) so the user-facing tree stays short
+- Sidebar labels match page H1s (a section's `index.md` is "Overview"); page
+  types and titling follow `STYLE.md`, which follows the
+  [Diátaxis](https://diataxis.fr/) split of tutorial / how-to / reference /
+  explanation
+- Moved pages are never deleted: they stay as `search: false` stubs that
+  meta-refresh to the new URL, so links from the homepage, old releases and
+  search engines keep landing (anchors into a moved page are not preserved)
 - Brand colors via CSS variable overrides to match homepage amber/gold theme
 - Built-in local search enabled
 

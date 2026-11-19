@@ -15,8 +15,8 @@ const columns = [
       // anchor: `/docs` is a separate VitePress site and the rest is GitHub.
       { label: "Features", href: "/#features", route: true },
       { label: "Documentation", href: "/docs" },
-      { label: "REST API", href: "/docs/developers/rest-api" },
-      { label: "CLI", href: "/docs/developers/cli" },
+      { label: "REST API", href: "/docs/developers/api/" },
+      { label: "CLI", href: "/docs/developers/cli/" },
     ],
   },
   {

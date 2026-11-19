@@ -1,132 +1,141 @@
-# Keyboard Shortcuts
+---
+title: Keyboard shortcuts
+description: Every keyboard shortcut in the Docs editor, for Mac and for Windows and Linux.
+type: reference
+---
 
-Keyboard shortcuts for the document editor. Mac shortcuts are shown with `⌘`,
-Windows/Linux with `Ctrl`.
+# Keyboard shortcuts
 
-::: tip
-Press **⌘+/** / **Ctrl+/** inside the editor to see this list in a dialog. The
-dialog is maintained alongside the editor's bindings rather than derived from
-them, but it currently matches this page entry for entry.
-:::
+Keyboard shortcuts for writing and formatting in a doc.
+
+Mac keys come first, then Windows and Linux: `⌘+B` / `Ctrl+B`. On Mac, `Option` is the key labeled ⌥.
+
+To see a shorter list in the app, press `⌘+/` / `Ctrl+/` in a doc. Press `Escape` to close it. This page also lists keys the in-app list leaves out, such as selection, the Mac `⌘+arrow` keys, and table keys.
+
+On a phone, shortcuts work only with a hardware keyboard. Find, replace, and the shortcut list have no button, so they need one.
+
+## Most used
+
+| To do this | Press |
+|---|---|
+| Bold | `⌘+B` / `Ctrl+B` |
+| Italic | `⌘+I` / `Ctrl+I` |
+| Underline | `⌘+U` / `Ctrl+U` |
+| Insert or edit a link | `⌘+K` / `Ctrl+K` |
+| Undo | `⌘+Z` / `Ctrl+Z` |
+| Redo | `⌘+Shift+Z` or `⌘+Y` / `Ctrl+Y` or `Ctrl+Shift+Z` |
+| Paste without formatting | `⌘+Shift+V` / `Ctrl+Shift+V` |
+| Find | `⌘+F` / `Ctrl+F` |
+| Insert comment on the selection | `⌘+Option+M` / `Ctrl+Alt+M` |
 
 ## Navigation
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Move cursor | Arrow keys | Arrow keys |
-| Move by word | ⌥+← / ⌥+→ | Ctrl+← / Ctrl+→ |
-| Move to line start | ⌘+← or Home | Home |
-| Move to line end | ⌘+→ or End | End |
-| Move to document start | ⌘+↑ or ⌘+Home | Ctrl+Home |
-| Move to document end | ⌘+↓ or ⌘+End | Ctrl+End |
+| To do this | Press |
+|---|---|
+| Move by character or line | `←` `→` `↑` `↓` |
+| Move by word | `Option+←` or `Option+→` / `Ctrl+←` or `Ctrl+→` |
+| Go to start of line | `⌘+←` or `Home` / `Home` |
+| Go to end of line | `⌘+→` or `End` / `End` |
+| Go to start of document | `⌘+↑` or `⌘+Home` / `Ctrl+Home` |
+| Go to end of document | `⌘+↓` or `⌘+End` / `Ctrl+End` |
 
 ## Selection
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Extend selection | Shift+Arrow | Shift+Arrow |
-| Select by word | ⌥+Shift+← / → | Ctrl+Shift+← / → |
-| Select to line start | ⌘+Shift+← or Shift+Home | Shift+Home |
-| Select to line end | ⌘+Shift+→ or Shift+End | Shift+End |
-| Select to document start | ⌘+Shift+↑ or ⌘+Shift+Home | Ctrl+Shift+Home |
-| Select to document end | ⌘+Shift+↓ or ⌘+Shift+End | Ctrl+Shift+End |
-| Select all | ⌘+A | Ctrl+A |
-| Select word | Double-click | Double-click |
-| Select paragraph | Triple-click | Triple-click |
+| To do this | Press |
+|---|---|
+| Select all | `⌘+A` / `Ctrl+A` |
+| Extend the selection | `Shift` with any navigation key above |
+| Select a word | Double-click |
+| Select a paragraph | Triple-click |
 
 ## Editing
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| New paragraph | Enter | Enter |
-| Page break | ⌘+Enter | Ctrl+Enter |
-| Delete character before | Backspace | Backspace |
-| Delete character after | Delete | Delete |
-| Delete word before | ⌥+Backspace | Ctrl+Backspace |
-| Delete word after | ⌥+Delete | Ctrl+Delete |
-| Delete to line start | ⌘+Backspace | — |
-| Undo | ⌘+Z | Ctrl+Z |
-| Redo | ⌘+Shift+Z | Ctrl+Y |
+| To do this | Press |
+|---|---|
+| New paragraph | `Enter` |
+| Page break | `⌘+Enter` / `Ctrl+Enter` |
+| Delete previous word | `Option+Backspace` / `Ctrl+Backspace` |
+| Delete next word | `Option+Delete` / `Ctrl+Delete` |
+| Delete to start of line (Mac only) | `⌘+Backspace` |
+| Copy | `⌘+C` / `Ctrl+C` |
+| Cut | `⌘+X` / `Ctrl+X` |
+| Paste | `⌘+V` / `Ctrl+V` |
+| Paste without formatting | `⌘+Shift+V` / `Ctrl+Shift+V` |
+| Copy formatting | `⌘+Shift+C` / `Ctrl+Shift+C` |
+| Paste formatting (repeatable) | `⌘+Option+V` / `Ctrl+Alt+V` |
+| Undo | `⌘+Z` / `Ctrl+Z` |
+| Redo | `⌘+Shift+Z` or `⌘+Y` / `Ctrl+Y` or `Ctrl+Shift+Z` |
 
-## Clipboard
+## Formatting
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Copy | ⌘+C | Ctrl+C |
-| Cut | ⌘+X | Ctrl+X |
-| Paste | ⌘+V | Ctrl+V |
-| Paste without formatting | ⌘+Shift+V | Ctrl+Shift+V |
-| Copy formatting (format painter) | ⌘+Shift+C | Ctrl+Shift+C |
-| Paste formatting | ⌘+Alt+V | Ctrl+Alt+V |
+| To do this | Press |
+|---|---|
+| Bold | `⌘+B` / `Ctrl+B` |
+| Italic | `⌘+I` / `Ctrl+I` |
+| Underline | `⌘+U` / `Ctrl+U` |
+| Strikethrough | `⌘+Shift+X` / `Ctrl+Shift+X` |
+| Superscript | `⌘+.` / `Ctrl+.` |
+| Subscript | `⌘+,` / `Ctrl+,` |
+| Insert or edit a link | `⌘+K` / `Ctrl+K` |
+| Clear formatting | `⌘+\` / `Ctrl+\` |
+| Heading 1 to Heading 6 | `⌘+Option+1` to `⌘+Option+6` / `Ctrl+Alt+1` to `Ctrl+Alt+6` |
+| Normal text | `⌘+Option+0` / `Ctrl+Alt+0` |
+| Align left | `⌘+Shift+L` / `Ctrl+Shift+L` |
+| Align center | `⌘+Shift+E` / `Ctrl+Shift+E` |
+| Align right | `⌘+Shift+R` / `Ctrl+Shift+R` |
+| Justify | `⌘+Shift+J` / `Ctrl+Shift+J` |
+| Numbered list | `⌘+Shift+7` / `Ctrl+Shift+7` |
+| Bulleted list | `⌘+Shift+8` / `Ctrl+Shift+8` |
+| Increase indent | `⌘+]` / `Ctrl+]` |
+| Decrease indent | `⌘+[` / `Ctrl+[` |
 
-## Text Formatting
+Pressing the shortcut for the heading a line already has turns it back into normal text.
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Bold | ⌘+B | Ctrl+B |
-| Italic | ⌘+I | Ctrl+I |
-| Underline | ⌘+U | Ctrl+U |
-| Strikethrough | ⌘+Shift+X | Ctrl+Shift+X |
-| Superscript | ⌘+. | Ctrl+. |
-| Subscript | ⌘+, | Ctrl+, |
-| Insert link | ⌘+K | Ctrl+K |
-| Clear formatting | ⌘+\\ | Ctrl+\\ |
+### What `Tab` does
 
-## Paragraph Formatting
+| Where the cursor is | `Tab` | `Shift+Tab` |
+|---|---|---|
+| In a table cell | Next cell | Previous cell |
+| In the last cell of a table | Adds a row | Previous cell |
+| In a list item | Nests it one level deeper | Moves it one level out |
+| In any other paragraph | Nothing | Nothing |
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Align left | ⌘+Shift+L | Ctrl+Shift+L |
-| Align center | ⌘+Shift+E | Ctrl+Shift+E |
-| Align right | ⌘+Shift+R | Ctrl+Shift+R |
-| Justify | ⌘+Shift+J | Ctrl+Shift+J |
-| Numbered list | ⌘+Shift+7 | Ctrl+Shift+7 |
-| Bulleted list | ⌘+Shift+8 | Ctrl+Shift+8 |
-| Increase indent | ⌘+] | Ctrl+] |
-| Decrease indent | ⌘+[ | Ctrl+[ |
-| Heading 1 – 6 | ⌘+Alt+1 … ⌘+Alt+6 | Ctrl+Alt+1 … Ctrl+Alt+6 |
-| Normal text | ⌘+Alt+0 | Ctrl+Alt+0 |
+To indent a plain paragraph, use `⌘+]` / `Ctrl+]`.
 
-Applying the heading level a block already has toggles it back to Normal text.
+## Objects
 
-## Tab
+| To do this | Press |
+|---|---|
+| Delete a selected image | `Delete` or `Backspace` |
+| Copy or cut a selected image | `⌘+C` or `⌘+X` / `Ctrl+C` or `Ctrl+X` |
+| Deselect an image | `Escape` |
+| Resize an image freely (while dragging a corner) | Hold `Shift` |
+| Leave a header or footer | `Escape` |
 
-**Tab** does different things depending on where the cursor is:
+## View
 
-| Where | Tab | Shift+Tab |
-|-------|-----|-----------|
-| In a table cell | Move to the next cell | Move to the previous cell |
-| In a list item | Nest one level deeper | Move out one level |
-| Anywhere else | Nothing | Nothing |
+| To do this | Press |
+|---|---|
+| Find | `⌘+F` / `Ctrl+F` |
+| Find and replace | `⌘+H` / `Ctrl+H` |
+| Next or previous match (in the find bar) | `Enter` or `Shift+Enter` |
+| Close the find bar | `Escape` |
+| Insert comment on the selection | `⌘+Option+M` / `Ctrl+Alt+M` |
+| Show or hide the comments panel | `⌘+Option+Shift+M` / `Ctrl+Alt+Shift+M` |
+| Show keyboard shortcuts | `⌘+/` / `Ctrl+/` |
 
-For indenting a plain paragraph, use **⌘+]** / **Ctrl+]** instead.
+## In a view-only document
 
-## Find, Comments, and Help
+When you can only view a document, for example through a viewer share link, these keys still work:
 
-| Action | Mac | Windows / Linux |
-|--------|-----|-----------------|
-| Find | ⌘+F | Ctrl+F |
-| Find and replace | ⌘+H | Ctrl+H |
-| Insert comment on the selection | ⌘+Option+M | Ctrl+Alt+M |
-| Open / close the comments panel | ⌘+Option+Shift+M | Ctrl+Alt+Shift+M |
-| Show keyboard shortcuts | ⌘+/ | Ctrl+/ |
+- Arrow keys, `Home`, and `End`, with or without `Shift`
+- `⌘+A` / `Ctrl+A` to select all, and `⌘+C` / `Ctrl+C` to copy
+- `⌘+F` / `Ctrl+F` to find (there is no replace)
+- `⌘+/` / `Ctrl+/` to show the shortcut list
+- `⌘+Option+Shift+M` / `Ctrl+Alt+Shift+M` to show or hide comments, which you can read but not reply to
 
-## Read-Only Documents
+## Related
 
-When you open a document you can only read — through a viewer share link, for
-example — most shortcuts are switched off so the content can't be changed. What
-still works:
-
-- Arrow keys, **Home**, and **End** for moving the cursor
-- **⌘+A** / **Ctrl+A** to select all
-- **⌘+C** / **Ctrl+C** to copy
-- **⌘+F** / **Ctrl+F** to find
-- **⌘+/** / **Ctrl+/** to open the shortcuts dialog
-- **⌘+Option+Shift+M** / **Ctrl+Alt+Shift+M** to open and close the comments
-  panel — you can read the existing threads, though not reply to them or start
-  a new one
-
-## What's Next
-
-- [Writing a Document](./writing-a-document) — Full guide to the document editor
-- [Collaboration & Sharing](/guide/collaboration) — Share and edit documents together
+- [Format text](/docs-editor/format-text) for the toolbar controls behind these shortcuts.
+- [Lists and indents](/docs-editor/lists-and-indents) for nesting with `Tab`.
+- [Find and spelling](/docs-editor/find-and-spelling) for the find bar.

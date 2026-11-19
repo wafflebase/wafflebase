@@ -1,136 +1,107 @@
-# Themes & Layouts
+---
+title: Change themes and layouts
+description: Apply and customize a deck theme, edit layout placeholders, and set slide backgrounds.
+type: how-to
+---
 
-Themes and layouts let you set the visual style of a deck once and reuse it across every slide.
+# Change themes and layouts
 
-## What is a Theme?
+Give a deck one consistent look with a theme, arrange slides with layouts, and set the background of one slide or all of them.
 
-A **theme** bundles the colors, fonts, and background used across a deck. Switching themes reskins the whole deck in one click — your content (text, images, shapes) stays put, only the visual treatment changes.
+A theme sets the deck's colors, heading and body fonts, and default background. A layout sets which placeholders a slide has and where they sit. A new deck uses the **Simple Light** theme. The app's dark mode doesn't change the deck.
 
-Each theme defines:
+::: info Before you start
+- You need edit access. A share-link viewer can't change the theme.
+- A share link, even with the editor role, has no **Background** button.
+- On a phone, the Theme and Background panels open from the **More slide options** (⋮) menu. See [On a phone](#on-a-phone).
+:::
 
-- A **color scheme** with theme roles (background, text, accent, etc.). Shapes and text bound to a theme role automatically update when you switch themes.
-- A **font scheme** for headings and body text. Text inside placeholders picks up the theme's heading or body font automatically.
-- A **background** style applied to every slide.
+## Apply a theme
 
-## Built-in Themes
+1. Click **Theme** at the right end of the toolbar. The **Theme** panel opens.
+2. On the **Themes** tab, click a theme.
 
-Wafflebase ships with **23 built-in themes** covering neutral, light,
-editorial, vibrant, and dark looks. Click the palette button in the toolbar
-(tooltip: **Theme**) to open the Theme panel on the right, then click a
-thumbnail to apply it.
+The whole deck changes at once, and your content stays in place. Each card shows the theme's name, an `aA` type sample on its background, and its six accent colors.
 
-- **Simple Light** and **Simple Dark** — neutral baselines
-- Streamline, Swiss, Paradigm, Material, Shift, Momentum, Focus, Luxe,
-  Modern Writer, Coral, Spearmint, Pop, Tropic, Marina, Geometric, Plum,
-  Slate, Forest, Spotlight, Beach Day
-- **Wafflebase** — the Wafflebase brand palette
+Objects colored with theme colors change with the theme. Objects you gave a custom color keep it.
 
-A new deck is seeded with **Simple Light**, or with **Simple Dark** if the app
-is in dark mode when you create it. You can switch themes at any time.
+![Theme panel on the Themes tab with theme cards and Streamline selected](/images/slides/themes-and-layouts-theme-panel.png)
 
-Each entry in the picker is a swatch card, not a preview of your slides: it
-shows an `aA` type sample on the theme's background, a strip of its six accent
-colors, and the theme's name.
+## Customize the theme
 
-## Customizing a Theme
+1. Click **Theme** and open the **Customize** tab.
+2. Change any of these:
+   - **Colors**: the 12 theme colors, such as Text, Background, Accent 1 to 6, Link, and Visited link.
+   - **Fonts**: the **Headings** and **Body** fonts.
+   - **Background**: the color used by every slide that has no background of its own. Click **Match theme** to undo a change here.
 
-The **Theme** panel has two tabs: **themes** picks one from the catalog,
-**customize** edits the one the deck is currently using. Every change applies
-to the whole deck immediately and counts as a single undo step.
+Each change applies to the whole deck right away and is one undo step. Once you change a built-in theme, it appears under **In this presentation** on the **Themes** tab. To discard your changes, click **Reset to original** on the **Customize** tab.
 
-The customize tab has four sections:
+## Edit layout placeholders
 
-- **Colors** — the twelve theme color roles: Text, Background, Text 2,
-  Background 2, Accent 1–6, Link, and Visited link. Anything on a slide bound
-  to a role follows the change; anything you gave a literal hex color does not.
-- **Fonts** — the **Headings** and **Body** fonts.
-- **Background** — the master background fill, which is what slides that
-  haven't set their own background use. If you've changed it, a **Match theme**
-  button appears to put it back.
-- **Layouts** — **Edit layout positions** switches the canvas into layout-editing
-  mode, where you drag a layout's placeholders. Changes flow to every slide
-  using that layout.
+1. Click **Theme** and open the **Customize** tab.
+2. Under **Layouts**, click **Edit layout positions**. A banner appears above the slide.
+3. The slide strip lists the layouts, starting on the current slide's layout. Click a layout to edit it.
+4. Drag the placeholders to new positions.
+5. Click **Done** in the banner.
 
-Once you've edited a built-in theme, the panel shows the modified theme under
-**In this presentation** at the top of the themes tab, and a **Reset to
-original** button appears in the customize tab to discard your changes.
+The new positions apply to every slide that uses that layout. Layout editing isn't available on a phone.
 
-## Layouts
+## Change a slide's layout
 
-A **layout** is a pre-arranged template for a slide — for example, "Title slide" or "Title and body". Each layout defines a set of **placeholders** that you fill in with your content.
+1. Right-click the slide's thumbnail in the slide strip, or an empty part of the slide.
+2. Select **Change layout…** and pick a layout.
 
-There are eleven built-in layouts, matching Google Slides. They are listed
-here in the order they appear in the layout picker:
+The title stays a title and body text stays in the body. Text you type in a placeholder uses the theme's heading or body font, so it matches the deck without extra formatting. To pick the layout of a new slide instead, use the arrow next to **Add slide**. See [Add a slide](/slides/add-content#add-a-slide).
+
+## Change one slide's background
+
+1. Open the slide and click **Background** at the right end of the toolbar (tooltip **Slide background**).
+2. Under **Color**, use the **Solid** tab for one color, or the **Gradient** tab for a linear gradient.
+3. Or, under **Image**, click **Choose image…** and pick a file. Use **Opacity** to fade it, **Replace image…** to swap it, and **Remove image** to take it away.
+
+A slide's own background is a color or an image, not both. Setting one clears the other. The panel follows you to whichever slide you open.
+
+To go back to the theme's background, click **Reset to theme**.
+
+## Apply a background to all slides
+
+1. Set the background you want on one slide.
+2. Click **Apply to all slides** at the bottom of the **Background** panel.
+
+The background becomes the deck's default. Slides that have their own background keep it.
+
+## On a phone
+
+1. Tap **More slide options** (⋮) in the toolbar.
+2. Under **Design**, select **Theme…** or **Slide background…**. The panel opens as a sheet.
+
+## Built-in themes
+
+There are 23 built-in themes. They appear in the panel in this order:
+
+Simple Light, Simple Dark, Streamline, Swiss, Paradigm, Material, Shift, Momentum, Focus, Luxe, Modern Writer, Coral, Spearmint, Pop, Tropic, Marina, Geometric, Plum, Slate, Forest, Spotlight, Beach Day, and Wafflebase.
+
+## Built-in layouts
+
+Layouts appear in the picker in this order.
 
 | Layout | Use it for |
 |---|---|
-| Blank | Empty canvas, no placeholders |
-| Title slide | The opening slide of a deck — large title + subtitle |
-| Section header | Section dividers between groups of slides |
-| Title and body | A title with a single body region (text, bullets, or content) |
-| Title and two columns | A title above two side-by-side content regions |
-| Title only | A title with the rest of the slide left blank |
-| One column text | A full-width body region for prose-heavy slides |
-| Main point | A single large takeaway, centered |
-| Section title and description | A section title plus a paragraph of description |
+| Blank | An empty slide with no placeholders |
+| Title slide | The opening slide, with a title and subtitle |
+| Section header | A divider between groups of slides |
+| Title and body | A title above one text area |
+| Title and two columns | A title above two side-by-side areas |
+| Title only | A title with the rest of the slide empty |
+| One column text | A full-width text area for longer prose |
+| Main point | One large centered statement |
+| Section title and description | A section title with a paragraph |
 | Caption | A large image area with a caption below |
-| Big number | A single large numeric stat as the focal point |
+| Big number | One large number as the focus |
 
-## Choosing a Layout
+## Related
 
-There are two separate actions, and it's worth keeping them apart:
-
-**To add a *new* slide with a chosen layout**, use the **Add slide** control in
-the toolbar. Clicking the button itself adds a blank slide; clicking the chevron
-next to it opens **Choose a layout**, and picking one inserts a new slide with
-that layout after the current one. This control never changes the slide you are
-looking at.
-
-**To re-lay-out the slide you are already on**, right-click it — either on an
-empty part of the canvas or on its thumbnail in the strip — and choose
-**Change layout…**, then pick the new layout. There is no toolbar button for
-this.
-
-When you change layout, the slide's existing placeholders are matched to the new
-layout's slots when their types align, so the title stays a title and the body
-stays a body.
-
-## Slide Backgrounds
-
-A theme sets the background for the whole deck. To override it on one slide,
-click the background button in the toolbar (tooltip: **Background**) to open the
-Background panel.
-
-**Color** offers two tabs. **Solid** is a color picker with the theme palette,
-standard colors, a custom color, and a transparency slider. **Gradient** gives
-you a stops bar — click to add a stop, drag to move it, and set each stop's
-color — plus eight direction presets and an angle. Gradients here are linear.
-
-**Image** lets you pick a picture as the background, then set its **Opacity**,
-swap it with **Replace image…**, or take it away with **Remove image**. A
-slide's *own* background is either a color or an image, not both — setting one
-here clears the other.
-
-Two actions sit at the bottom:
-
-- **Reset to theme** drops this slide's own background so it inherits from the
-  theme again.
-- **Apply to all slides** pushes this slide's background onto the deck's master,
-  so it becomes the new baseline. Slides that have set their *own* background
-  keep it. The master is the one place the either/or above doesn't apply: it
-  always takes the color, and takes the image too when the current slide shows
-  one — inheriting slides then paint that image over the color.
-
-The panel always edits the slide you're currently on, and follows you as you
-move between slides.
-
-## Placeholders
-
-A **placeholder** is a typed content slot in a layout — a title, a body, an image area, a footer. Placeholders carry the layout's default formatting (font, size, alignment) so text added through them automatically matches the theme.
-
-When you switch layouts, Wafflebase preserves placeholder identity where possible: a title placeholder remains a title even if the new layout positions it differently, so its content survives the change.
-
-## What's Next
-
-- [Build a Deck](./build-a-deck) — End-to-end tutorial
-- [Keyboard Shortcuts](./keyboard-shortcuts) — Slide, selection, and formatting shortcuts
+- [Add content](/slides/add-content) to fill placeholders with text and images.
+- [Style and arrange](/slides/style-and-arrange) to color objects with theme colors.
+- [Import and export](/files/import-export) to bring in a PowerPoint deck with its own theme.
