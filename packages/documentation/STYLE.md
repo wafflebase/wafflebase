@@ -5,8 +5,9 @@ reader finds the task, does it, and moves on. When in doubt, cut.
 
 ## Audience and scope
 
-- **User pages** (Guide, Sheets, Docs, Slides, Notes, Board, PDF & Files) are
-  for people using Wafflebase in a browser. Assume no technical background.
+- **User pages** (Get started, Collaborate & organize, Sheets, Docs, Slides,
+  Notes, Board, Files) are for people using Wafflebase in a browser. Assume
+  no technical background.
 - **Developer pages** (`developers/`) are for people scripting or self-hosting.
   Assume a terminal, not knowledge of our codebase.
 - **Not here:** architecture, data models, CRDT/Yorkie behavior, why a design
@@ -211,7 +212,7 @@ characters. Decorative images don't belong on the site.
   comment on a board, but not draw."
 - Do not split whole pages into platform tabs; use `::: code-group`-style
   tabs only when every step differs.
-- Keep the capability matrix on `guide/using-a-phone.md` current; link it
+- Keep the capability matrix on `start/phone.md` current; link it
   from `Before you start` instead of repeating caveats.
 
 ## Examples
@@ -234,7 +235,7 @@ characters. Decorative images don't belong on the site.
 ## Links and endings
 
 - Link text is the target's title or the action: "see
-  [Version history](/guide/version-history)". Never "click here".
+  [Version history](/collaborate/version-history)". Never "click here".
 - Use root-relative links without `.html` (`/sheets/formulas#lookup`).
 - Link a concept the first time it appears on a page, not every time.
 - Every page ends with a closing block of 2-5 curated links:
@@ -242,7 +243,8 @@ characters. Decorative images don't belong on the site.
   - How-to, reference, troubleshooting, explanation: `## Related`.
   Add a few words on why: "[Share a document](...) to invite reviewers."
 - Shared concepts (sharing, comments, version history, templates, import and
-  export) are documented once in `guide/` and linked from every editor.
+  export) are documented once in `collaborate/` or `files/` and linked from
+  every editor. Link to a page's current URL, never to a moved-page stub.
 
 ## Limits and known issues
 

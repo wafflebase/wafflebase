@@ -54,3 +54,8 @@ Todo: [20261119-docs-site-content-todo.md](./20261119-docs-site-content-todo.md)
   the docs-lens nit that `docs/design/docs-site.md` is missing (it is in the
   diff), and the design-fit nit about bundling the harness removal (it
   removes the tool whose images this change replaces).
+- Round 2: all six lenses approved, no blocking findings — loop stopped.
+  Fixed two minors anyway: STYLE.md still named the old `guide/` IA (flagged
+  by design-fit and blast-radius), and the `--allow-unbound-callback` note
+  understated who can finish an unchecked login (security). The rest are
+  deferred to the PR body as known limitations.

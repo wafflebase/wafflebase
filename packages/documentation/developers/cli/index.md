@@ -70,7 +70,7 @@ This deletes the saved session.
 
 ### Sign in to an older server
 
-`--allow-unbound-callback` lets `wafflebase login` finish against a self-hosted server too old to support the current sign-in check. The CLI prints a warning: while it is on, any program on your computer that reaches the sign-in port can complete the login. Upgrade the server instead when you can.
+`--allow-unbound-callback` lets `wafflebase login` finish against a self-hosted server too old to support the current sign-in check. While it is on, the CLI accepts any sign-in callback without checking that it belongs to this login, so a program on your computer, or a web page you open while the login waits, can finish it with a sign-in of its choosing and leave you signed in as someone else. The CLI prints a warning when you use it. Upgrade the server instead when you can.
 
 ## Switch workspaces
 
