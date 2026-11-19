@@ -59,3 +59,4 @@ themes and layouts rather than generating a PPTX to import — see
 - [references/slides-export-pptx.md](../../references/slides-export-pptx.md)
 - [references/slides-author.md](../../references/slides-author.md)
 - [references/deck-author.md](../../references/deck-author.md)
+- [references/deck-critic.md](../../references/deck-critic.md)
