@@ -52,9 +52,8 @@ const VisualHarnessPage = lazyWithRetry(
 const InteractionHarnessPage = lazyWithRetry(
   () => import("@/app/harness/interaction/page"),
 );
-const DocsHarnessPage = lazyWithRetry(() => import("@/app/harness/docs/page"));
 /**
- * DEV-only, unlike the three harness routes above, and the reason is measurable.
+ * DEV-only, unlike the two harness routes above, and the reason is measurable.
  *
  * This one mounts the real `DocsFormattingToolbar`, which makes it a SECOND
  * separately-split importer of modules previously reached only through `docs-view`.
@@ -134,7 +133,6 @@ function App() {
                     path="/harness/interaction"
                     element={<InteractionHarnessPage />}
                   />
-                  <Route path="/harness/docs" element={<DocsHarnessPage />} />
                   {HuntHarnessPage && (
                     <Route path="/harness/hunt" element={<HuntHarnessPage />} />
                   )}
