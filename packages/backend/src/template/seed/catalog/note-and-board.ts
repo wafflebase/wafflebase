@@ -59,6 +59,63 @@ export const weeklyOneOnOne: TemplateSeed = {
   },
 };
 
+export const siteVisitNotes: TemplateSeed = {
+  slug: 'site-visit-notes',
+  title: 'Site Visit Notes',
+  description:
+    'A markdown note for recording an on-site visit or inspection: what you checked, what you found, and who follows up on what.',
+  category: 'Business',
+  tags: ['site visit', 'inspection', 'field notes', 'markdown'],
+  content: {
+    kind: 'note',
+    document: {
+      content: [
+        '# Site visit: <site name>',
+        '',
+        '**Date:** <date> · **Arrived:** <time> · **Visited by:** <name>',
+        '',
+        '**Purpose:** <why this visit happened — routine check, incident follow-up, handover>',
+        '',
+        'Write things down while you are still on site. Note what you saw, not what you expect the fix to be.',
+        '',
+        '---',
+        '',
+        '## Conditions on arrival',
+        '',
+        '- Access and entry points open or closed, and why',
+        '- Anything that changed since the last visit',
+        '',
+        '## Checks',
+        '',
+        '| Area / item | Result | Notes |',
+        '| --- | --- | --- |',
+        '| <area> | Pass | — |',
+        '| <area> | Needs attention | <what and where> |',
+        '',
+        '## Findings',
+        '',
+        '- <finding> — where it is, how serious, photo reference',
+        '- ',
+        '',
+        '## Follow-ups',
+        '',
+        '- [ ] <action> — owner — due',
+        '- [ ] ',
+        '',
+        '## People spoken to',
+        '',
+        '- <role> — what they raised',
+        '',
+        '## Next visit',
+        '',
+        '- Date: <date>',
+        '- Check first: <items left open from this visit>',
+        '',
+      ].join('\n'),
+    },
+  },
+};
+
 // --------------------------------------------------------------------------
 // Board
 // --------------------------------------------------------------------------

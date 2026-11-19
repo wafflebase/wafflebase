@@ -1,8 +1,18 @@
 import type { TemplateSeed } from '../types';
-import { meetingNotes, productRequirementsDoc } from './docs';
-import { retrospectiveBoard, weeklyOneOnOne } from './note-and-board';
+import {
+  meetingNotes,
+  partnerNewsletter,
+  productRequirementsDoc,
+  vendorOnboarding,
+} from './docs';
+import {
+  retrospectiveBoard,
+  siteVisitNotes,
+  weeklyOneOnOne,
+} from './note-and-board';
 import {
   brainstormAffinityMap,
+  pricingWorkshop,
   retroStartStopContinue,
   weeklyTeamSync,
 } from './boards';
@@ -10,7 +20,10 @@ import {
   contentCalendar,
   invoice,
   monthlyBudgetTracker,
+  regionalSalesReport,
+  sharedExpenseSplitter,
   sprintTaskTracker,
+  teamDirectory,
 } from './sheets';
 import { projectKickoff, weeklyBusinessReview } from './slides';
 import {
@@ -29,6 +42,7 @@ import {
 import {
   allHandsUpdate,
   caseStudy,
+  customerOnboardingReview,
   devDesignReview,
   projectProposal,
 } from './slides-work';
@@ -62,6 +76,7 @@ export const TEMPLATE_CATALOG: TemplateSeed[] = [
   projectProposal,
   allHandsUpdate,
   caseStudy,
+  customerOnboardingReview,
   marketingCampaign,
   brandPitch,
   equityAnalysis,
@@ -70,11 +85,18 @@ export const TEMPLATE_CATALOG: TemplateSeed[] = [
   sprintTaskTracker,
   contentCalendar,
   invoice,
+  regionalSalesReport,
+  teamDirectory,
+  sharedExpenseSplitter,
   productRequirementsDoc,
   meetingNotes,
+  partnerNewsletter,
+  vendorOnboarding,
   weeklyOneOnOne,
+  siteVisitNotes,
   retrospectiveBoard,
   retroStartStopContinue,
   brainstormAffinityMap,
   weeklyTeamSync,
+  pricingWorkshop,
 ];

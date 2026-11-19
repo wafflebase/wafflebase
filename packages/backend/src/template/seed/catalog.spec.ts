@@ -205,6 +205,70 @@ describe('template seed catalogue', () => {
         expect(num(c, ref)).toBe(statuses.filter((s) => s === status).length);
       }
     });
+
+    it('regional-sales-report', () => {
+      const c = seedBySlug('regional-sales-report');
+      const cols = ['B', 'C', 'D', 'E'];
+      let year = 0;
+      for (let row = 2; row <= 5; row++) {
+        const total = cols.reduce(
+          (acc, col) => acc + num(c, `${col}${row}`),
+          0,
+        );
+        expect(num(c, `F${row}`)).toBe(total);
+        year += total;
+      }
+      for (const col of cols) {
+        let quarter = 0;
+        for (let row = 2; row <= 5; row++) quarter += num(c, `${col}${row}`);
+        expect(num(c, `${col}6`)).toBe(quarter);
+      }
+      expect(num(c, 'F6')).toBe(year);
+      for (let row = 2; row <= 5; row++) {
+        expect(num(c, `G${row}`)).toBeCloseTo(num(c, `F${row}`) / year, 12);
+      }
+      for (const [col, prev] of [
+        ['C', 'B'],
+        ['D', 'C'],
+        ['E', 'D'],
+      ]) {
+        expect(num(c, `${col}7`)).toBeCloseTo(
+          num(c, `${col}6`) / num(c, `${prev}6`) - 1,
+          12,
+        );
+      }
+    });
+
+    it('team-directory', () => {
+      const c = seedBySlug('team-directory');
+      const people = Object.entries(c).filter(
+        ([ref, v]) => /^A([2-9]|[1-9][0-9]|1[0-9][0-9]|200)$/.test(ref) && v.v,
+      ).length;
+      expect(num(c, 'J2')).toBe(people);
+    });
+
+    it('shared-expense-splitter', () => {
+      const c = seedBySlug('shared-expense-splitter');
+      const expenses = Object.entries(c).filter(([ref]) =>
+        /^C([2-9]|[1-9][0-9]|1[0-9][0-9]|200)$/.test(ref),
+      );
+      const total = expenses.reduce(
+        (acc, [ref]) => acc + num(c, `D${ref.slice(1)}`),
+        0,
+      );
+      const share = total / 3;
+      for (let row = 2; row <= 4; row++) {
+        const who = c[`G${row}`]?.v;
+        const paid = expenses
+          .filter(([, v]) => v.v === who)
+          .reduce((acc, [ref]) => acc + num(c, `D${ref.slice(1)}`), 0);
+        expect(num(c, `H${row}`)).toBe(paid);
+        expect(num(c, `I${row}`)).toBe(share);
+        expect(num(c, `J${row}`)).toBe(paid - share);
+      }
+      expect(num(c, 'H5')).toBe(total);
+      expect(num(c, 'J5')).toBe(0);
+    });
   });
 
   it('rebuilds a worksheet rather than merging into it', () => {

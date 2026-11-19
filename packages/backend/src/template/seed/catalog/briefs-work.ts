@@ -64,3 +64,20 @@ export const caseStudyBrief: TemplateBrief = {
     { key: 'lessons', label: 'Lessons learned', type: 'list', min: 2, max: 3, example: 'Removing steps beat adding reassurance copy' },
   ],
 };
+
+export const customerOnboardingReviewBrief: TemplateBrief = {
+  slug: 'customer-onboarding-review',
+  summary: 'A review of new-customer onboarding: what we learned, where it stalls, and what we will change.',
+  fields: [
+    { key: 'product', label: 'Product', type: 'text', example: 'Team workspace' },
+    { key: 'conversations', label: 'Number of customer conversations', type: 'text', example: '24' },
+    { key: 'period', label: 'Period covered', type: 'text', example: 'Q3' },
+    { key: 'scope', label: 'What we set out to learn', type: 'list', min: 2, max: 3, example: 'Why new teams stop before inviting a second member' },
+    { key: 'activation', label: 'Share of new customers reaching first success in week one', type: 'metric', example: '62% · of new customers reach their first success in week one' },
+    { key: 'themes', label: 'What we heard', type: 'list', min: 3, max: 4, example: 'Setup takes longer than customers expect — "I needed an afternoon, not ten minutes"' },
+    { key: 'worksStalls', label: 'Where onboarding works and where it stalls', type: 'pairs', pair: ['Working', 'Stalling'], min: 2, max: 3, example: 'Signup and first document → Inviting the rest of the team' },
+    { key: 'changes', label: 'What we will change', type: 'list', min: 2, max: 3, example: 'Offer starter templates on first run — onboarding squad — end of next sprint' },
+    { key: 'measure', label: 'How we will know it worked', type: 'list', min: 2, max: 3, example: 'Week-one activation rises by ten points within a quarter' },
+    { key: 'firstChange', label: 'The one change to make first', type: 'line', example: 'Ship starter templates before anything else' },
+  ],
+};

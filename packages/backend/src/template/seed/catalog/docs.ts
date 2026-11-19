@@ -82,3 +82,113 @@ export const meetingNotes: TemplateSeed = {
     },
   },
 };
+
+export const partnerNewsletter: TemplateSeed = {
+  slug: 'partner-newsletter',
+  title: 'Partner Newsletter',
+  description:
+    'A periodic update for partners or customers that leads with what changed for them, flags what they need to act on, and ends with how to reach you.',
+  category: 'Marketing',
+  tags: ['newsletter', 'partners', 'communication'],
+  content: {
+    kind: 'doc',
+    document: {
+      blocks: [
+        title('Partner newsletter — <period>'),
+        para('From: <team>  ·  For: <audience>  ·  Issue: —'),
+
+        heading('Headline', 1),
+        para(
+          'The one thing a partner should take away if they read nothing else. Lead with the result and the number behind it, then a sentence on why it happened.',
+        ),
+        para(
+          'Add a chart or image here if it makes the point faster than a sentence can.',
+        ),
+
+        heading('What is new', 1),
+        para(
+          'Features or services partners can use today. Describe each by what it lets them do, not by what it is called internally.',
+        ),
+        bullet('<feature> — what it lets partners do — where to find it'),
+        bullet('<feature> — what it lets partners do — where to find it'),
+
+        heading('Upcoming changes', 1),
+        para(
+          'Anything that changes how partners work with you. Give each one an effective date and the step they need to take before it, so nobody finds out on the day.',
+        ),
+        bullet('<change> — effective <date> — what partners need to do'),
+        bullet('<retirement> — last day <date> — what to move to instead'),
+
+        heading('Events and training', 1),
+        bullet('<date> — <session title> — who it is for'),
+        bullet('<date> — <session title> — who it is for'),
+        para(
+          'Length, format, and whether sessions are recorded for anyone who cannot attend live.',
+        ),
+
+        heading('Questions', 1),
+        para(
+          'How to reply and who reads it. Say what you do with the feedback, so partners know it is worth sending.',
+        ),
+      ],
+    },
+  },
+};
+
+export const vendorOnboarding: TemplateSeed = {
+  slug: 'vendor-onboarding',
+  title: 'Vendor Onboarding',
+  description:
+    'A setup plan for bringing a new supplier on board, from signed agreement to first purchase order, with owners and the paperwork to collect.',
+  category: 'Business',
+  tags: ['vendor', 'procurement', 'onboarding', 'checklist'],
+  content: {
+    kind: 'doc',
+    document: {
+      blocks: [
+        title('New vendor setup: <vendor>'),
+        para(
+          'Requested by: —  ·  Status: Not started  ·  Target first order: —',
+        ),
+
+        heading('Summary', 1),
+        para(
+          'What this vendor supplies, why we are adding them, and any constraint that shapes the setup — a deadline, a spending threshold, a region.',
+        ),
+
+        heading('Timeline', 1),
+        para(
+          'The steps in order, each with the day it should be done. A step that waits on another team says so, so a slip is visible before it blocks the first order.',
+        ),
+        bullet('Agreement signed — owner — by —'),
+        bullet('Documents received from the vendor — owner — by —'),
+        bullet('Account created in the purchasing system — owner — by —'),
+        bullet('Bank details verified by accounts payable — owner — by —'),
+        bullet('First purchase order sent — owner — by —'),
+
+        heading('Contacts', 1),
+        bullet('Procurement lead: —'),
+        bullet('Accounts payable: —'),
+        bullet('Vendor account manager: —'),
+        bullet('Vendor billing contact: —'),
+
+        heading('Documents to collect', 1),
+        para(
+          'Note the date each one arrives. Ask for anything with banking details through a channel you can verify, never on the strength of an email alone.',
+        ),
+        bullet('Signed master agreement'),
+        bullet('Tax form — the one your jurisdiction requires'),
+        bullet('Certificate of insurance'),
+        bullet('Bank details on company letterhead'),
+
+        heading('Terms', 1),
+        bullet('Payment terms: —'),
+        bullet('Currency: —'),
+        bullet('Approval threshold for purchase orders: —'),
+
+        heading('Notes', 1),
+        para('Anything that came up during setup the next person should know.'),
+      ],
+    },
+  },
+};

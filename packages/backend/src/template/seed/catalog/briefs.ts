@@ -16,6 +16,7 @@ import {
 import {
   allHandsUpdateBrief,
   caseStudyBrief,
+  customerOnboardingReviewBrief,
   devDesignReviewBrief,
   projectProposalBrief,
 } from './briefs-work';
@@ -47,6 +48,7 @@ export const TEMPLATE_BRIEFS: TemplateBrief[] = [
   projectProposalBrief,
   allHandsUpdateBrief,
   caseStudyBrief,
+  customerOnboardingReviewBrief,
   marketingCampaignBrief,
   brandPitchBrief,
   equityAnalysisBrief,
