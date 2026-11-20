@@ -708,7 +708,7 @@ blob if the document row fails. The browser's queue splits these two steps
 because it must survive a reload and resume without orphaning a second blob; a
 CLI invocation has no resumable state, so the one-call form is both simpler and
 safer. Size caps are checked client-side before the bytes go over the wire
-(50 MB, or 25 MB for image extensions), mirroring `packages/backend/src/file/file.constants.ts`.
+(100 MB, or 25 MB for image extensions), mirroring `packages/backend/src/file/file.constants.ts`.
 
 `files download` writes to the filename the server advertises in
 `Content-Disposition` unless a path (or `-`) is given. That header comes from

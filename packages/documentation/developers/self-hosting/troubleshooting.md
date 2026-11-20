@@ -104,12 +104,12 @@ Fix the errors operators most often see when running Wafflebase themselves. Find
 
 ## Large uploads fail with `413` or `File too large`
 
-**What it means:** The file is over the limit (50 MB for files, 25 MB for image files, 10 MB for images inserted in documents), or your proxy's body limit is lower. The backend answers `413`, or `400 File too large (max 25 MB)` for an image file between 25 MB and 50 MB.
+**What it means:** The file is over the limit (100 MB for files, 25 MB for image files, 10 MB for images inserted in documents), or your proxy's body limit is lower. The backend answers `413`, or `400 File too large (max 25 MB)` for an image file between 25 MB and 100 MB.
 
 **Try this:**
 
 1. Check the file size against [the limits](/developers/self-hosting/deploy#set-up-blob-storage).
-2. Raise your proxy's request body limit to at least 50 MB.
+2. Raise your proxy's request body limit to at least 100 MB.
 3. For large imports through the API with inline images, raise `BACKEND_JSON_BODY_LIMIT`.
 
 ## Saving a database connection fails with a server error

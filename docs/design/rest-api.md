@@ -531,7 +531,7 @@ spreadsheet.
 
 `GET` reuses `fileResponseHeaders()`, so it inherits the derived-not-echoed
 `Content-Type` rule from [generic-file-upload.md](generic-file-upload.md)
-rather than introducing a second serving policy. Caps are unchanged: 50 MB,
+rather than introducing a second serving policy. Caps: 100 MB,
 or 25 MB for image extensions.
 
 `DELETE /api/v1/workspaces/:wid/documents/:did?permanent=true` deletes the

@@ -227,7 +227,7 @@ This uploads a PDF as a new `pdf` document and returns its row.
 
 - The type comes from the file extension: `.pdf` is `pdf`; `.png`, `.jpg`, `.jpeg`, `.gif`, and `.webp` are `image`; anything else is `file`.
 - Files are stored as they are. An uploaded `.xlsx` or `.docx` stays a `file`; to convert one, use [`wafflebase docs import`](/developers/cli/documents#import-a-word-file) or [Import and export](/files/import-export) in the browser.
-- The limit is 50 MB, or 25 MB when the file name or type says it is an image. A larger file is `413`, or `400 File too large (max 25 MB)` for an image between 25 and 50 MB.
+- The limit is 100 MB, or 25 MB when the file name or type says it is an image. A larger file is `413`, or `400 File too large (max 25 MB)` for an image between 25 and 100 MB.
 - A request without `file` is `400 No file uploaded`.
 - `title` and `folderId` are checked before the file is stored, so a bad value costs no upload.
 

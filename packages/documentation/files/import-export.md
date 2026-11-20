@@ -42,7 +42,7 @@ Docs and presentations export from the editor in your workspace, not from a shar
 
 | Limit | Value |
 |---|---|
-| Any uploaded file | 50 MB |
+| Any uploaded file | 100 MB |
 | Image file (including types stored as plain files, such as HEIC) | 25 MB |
 | Each image inside an imported `.docx` or `.pptx` | 10 MB |
 | CSV or TSV import | 40,000 cells, plus an overall size limit |

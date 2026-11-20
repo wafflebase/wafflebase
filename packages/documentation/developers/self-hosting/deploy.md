@@ -95,10 +95,10 @@ At startup the backend checks each bucket and tries to create a missing one. A f
 
 | Upload | Limit | Types |
 |--------|-------|-------|
-| File uploaded as a document | 50 MB; 25 MB for images | Any file |
+| File uploaded as a document | 100 MB; 25 MB for images | Any file |
 | Image inserted into a document | 10 MB | PNG, JPEG, GIF, WebP |
 
-These limits are fixed. An upload over the limit is refused with `413`, or with `400 File too large (max 25 MB)` for an image file between 25 MB and 50 MB. The editors downscale a larger image before inserting it, so the 10 MB limit rarely shows. Set your proxy's request body limit to at least 50 MB so it does not refuse uploads first.
+These limits are fixed. An upload over the limit is refused with `413`, or with `400 File too large (max 25 MB)` for an image file between 25 MB and 100 MB. The editors downscale a larger image before inserting it, so the 10 MB limit rarely shows. Set your proxy's request body limit to at least 100 MB so it does not refuse uploads first.
 
 ## Run behind a TLS proxy
 

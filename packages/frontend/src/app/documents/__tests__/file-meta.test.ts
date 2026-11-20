@@ -28,8 +28,8 @@ describe("uploadSizeError", () => {
   });
 
   it("rejects anything past the shared cap", () => {
-    expect(uploadSizeError("file", 51 * 1024 * 1024)).toBe(
-      "File is larger than the 50 MB limit",
+    expect(uploadSizeError("file", 101 * 1024 * 1024)).toBe(
+      "File is larger than the 100 MB limit",
     );
   });
 

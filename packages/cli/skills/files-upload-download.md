@@ -94,7 +94,7 @@ wafflebase files delete <doc-id>       # destructive: also deletes the bytes
 
 ## Limits
 
-- 50 MB per file; 25 MB for image extensions. Checked before upload, so an
+- 100 MB per file; 25 MB for image extensions. Checked before upload, so an
   oversized file fails immediately with `FILE_TOO_LARGE` rather than after a
   long transfer.
 - No streaming, resumable, or in-place replacement upload. Replacing a file

@@ -147,11 +147,11 @@ Moving a document, or moving it to the Trash, needs its author or a workspace ow
 1. Check the **Owner** column in the documents list to see who created each document.
 2. Ask that person or a workspace owner to move or delete it.
 
-## `File is larger than the 50 MB limit`
+## `File is larger than the 100 MB limit`
 
 ### What it means
 
-Uploads are limited to 50 MB per file, and 25 MB for images. An image over its limit shows `File is larger than the 25 MB limit` instead. The file is not uploaded, and the upload panel can't retry it.
+Uploads are limited to 100 MB per file, and 25 MB for images. An image over its limit shows `File is larger than the 25 MB limit` instead. The file is not uploaded, and the upload panel can't retry it.
 
 ### Try this
 

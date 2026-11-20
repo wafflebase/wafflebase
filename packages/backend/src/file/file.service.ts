@@ -96,8 +96,8 @@ export class FileService implements OnModuleInit {
     const ext = safeExtension(originalName);
     // The image cap keys off BOTH signals on purpose. Keying off the MIME
     // alone let a client upload `photo.png` as `application/octet-stream`,
-    // collect the 50 MB cap, and then attach that blob to an `image` document
-    // — `assertFileIdAllowed` only checks the extension — landing a 50 MB
+    // collect the 100 MB cap, and then attach that blob to an `image` document
+    // — `assertFileIdAllowed` only checks the extension — landing a 100 MB
     // image and bypassing the 25 MB limit entirely.
     const isImage =
       mimeType.startsWith('image/') ||
@@ -127,7 +127,7 @@ export class FileService implements OnModuleInit {
    * and survives the source document (and its blob) being deleted.
    *
    * Server-side `CopyObject`: the bytes never pass through this process, so a
-   * 50 MB blob costs no backend memory. The new id keeps the source's
+   * 100 MB blob costs no backend memory. The new id keeps the source's
    * extension, which is what the serving rule in `file-response.util.ts` and
    * `assertFileIdAllowed` key off — a copy must stay the same document type.
    * No size check: these bytes already passed the cap on upload.

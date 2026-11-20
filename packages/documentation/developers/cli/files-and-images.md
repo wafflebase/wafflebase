@@ -35,7 +35,7 @@ The file is stored as is. Its extension sets the document type:
 | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` | `image` | The image viewer |
 | Anything else | `file` | Download only |
 
-A file can be up to 50 MB, and an image up to 25 MB. The CLI checks the size before it uploads. `files upload` needs a real file path; it doesn't read standard input (`STDIN_UNSUPPORTED`).
+A file can be up to 100 MB, and an image up to 25 MB. The CLI checks the size before it uploads. `files upload` needs a real file path; it doesn't read standard input (`STDIN_UNSUPPORTED`).
 
 Uploading a `.docx`, `.pptx`, `.md`, `.markdown`, `.csv`, or `.xlsx` file stores the bytes and prints a hint. To get a document you can edit, import it instead with [`docs import`](/developers/cli/documents#import-a-word-file), [`slides import`](/developers/cli/slides-and-board#import-a-powerpoint-file), [`notes import`](/developers/cli/documents#import-a-markdown-file), or [`sheets import`](/developers/cli/sheets#import-and-export-csv-or-json) for CSV. The CLI can't convert an `.xlsx` file into a sheet; import it in the web app instead (see [Import and export](/files/import-export)).
 

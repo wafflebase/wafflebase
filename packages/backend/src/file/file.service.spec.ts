@@ -35,7 +35,7 @@ function makeService(prefix = ''): FileService {
     'file.secretKey': 'minioadmin',
     'file.bucket': 'wafflebase-files',
     'file.prefix': prefix,
-    'file.maxFileSizeBytes': 50 * 1024 * 1024,
+    'file.maxFileSizeBytes': 100 * 1024 * 1024,
   };
   const config = { get: (k: string) => values[k] } as unknown as ConfigService;
   return new FileService(config);
@@ -71,7 +71,7 @@ describe('FileService.upload validation', () => {
 
   it('rejects a file over the size cap', async () => {
     const svc = makeService();
-    const tooBig = Buffer.alloc(50 * 1024 * 1024 + 1);
+    const tooBig = Buffer.alloc(100 * 1024 * 1024 + 1);
     await expect(
       svc.upload(tooBig, 'application/pdf', 'report.pdf'),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -79,7 +79,7 @@ describe('FileService.upload validation', () => {
 });
 
 describe('FileService.upload image support', () => {
-  it('rejects an image over the 25 MB cap even though Multer allows 50 MB', async () => {
+  it('rejects an image over the 25 MB cap even though Multer allows 100 MB', async () => {
     const svc = makeService();
     const tooBig = Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1);
     await expect(
@@ -89,9 +89,9 @@ describe('FileService.upload image support', () => {
 
   it('applies the image cap from the extension when the MIME lies', async () => {
     // Keying the cap off the MIME alone let a client declare
-    // `application/octet-stream`, collect the 50 MB cap, then attach the
+    // `application/octet-stream`, collect the 100 MB cap, then attach the
     // `.png` blob to an `image` document — assertFileIdAllowed only checks
-    // the extension — so a 50 MB image slipped past the 25 MB limit.
+    // the extension — so a 100 MB image slipped past the 25 MB limit.
     const svc = makeService();
     const tooBig = Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1);
     await expect(
