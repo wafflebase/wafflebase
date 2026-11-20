@@ -7,6 +7,8 @@ import {
   Ref,
   Sref,
   getWorksheetCell,
+  getWorksheetEntries,
+  MemStore,
   buildMergeCoverMap,
   parseRef,
   toSref,
@@ -17,6 +19,7 @@ import {
   LinkCardAttribute,
   type LinkHoverInfo,
   type UndoSelection,
+  type Worksheet,
 } from "@wafflebase/sheets";
 import {
   type DragEvent as ReactDragEvent,
@@ -66,7 +69,11 @@ import { useWorkspaceMembers } from "@/components/comments/use-workspace-members
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
 import {
+  THUMBNAIL_ASPECT,
+  THUMBNAIL_MAX_EDGE,
   captureFromContainer,
+  frameContent,
+  mountOffscreenHost,
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
 
@@ -1533,16 +1540,18 @@ export function SheetView({
   ]);
 
   // The sheet's picture for the template gallery
-  // (docs/design/template-gallery.md). The grid renderer belongs to the
-  // mounted engine, so the capture composites the canvases it already painted
-  // — the grid and the selection overlay are separate layers and only the pair
-  // is the picture.
+  // (docs/design/template-gallery.md): this tab's used range, painted by a
+  // second, offscreen, read-only engine in the light theme. Photographing the
+  // live grid carried the author's theme (a black grid from a dark-mode
+  // session), their selection, and their viewport — on a large screen a
+  // wide expanse of empty cells with the data a speck in one corner.
   useEffect(() => {
-    if (!documentId) return;
-    return registerThumbnailSource(documentId, () =>
-      captureFromContainer(containerRef.current),
-    );
-  }, [documentId]);
+    if (!documentId || !doc) return;
+    return registerThumbnailSource(documentId, () => {
+      const worksheet = doc.getRoot().sheets?.[tabId];
+      return worksheet ? renderSheetThumbnail(worksheet) : null;
+    });
+  }, [documentId, doc, tabId]);
 
   useEffect(() => {
     if (!selectedChartId) return;
@@ -2100,3 +2109,109 @@ export function SheetView({
 }
 
 export default SheetView;
+
+/**
+ * The largest grid a sheet thumbnail shows, in CSS pixels at 100% zoom: the
+ * card's 16:10 at the encoder's own longest edge. Past it the cells would be
+ * downscaled below legibility, so a larger used range is cropped to its
+ * top-left — where a sheet's headers and first rows are — instead.
+ */
+const SHEET_THUMBNAIL_MAX = {
+  width: THUMBNAIL_MAX_EDGE,
+  height: THUMBNAIL_MAX_EDGE / THUMBNAIL_ASPECT,
+};
+
+/**
+ * The smallest: half of that. A three-cell sheet framed to its own extent
+ * would be enlarged into a few giant cells; this keeps it at the scale every
+ * other card shows its grid at, with empty grid around it.
+ */
+const SHEET_THUMBNAIL_MIN = {
+  width: SHEET_THUMBNAIL_MAX.width / 2,
+  height: SHEET_THUMBNAIL_MAX.height / 2,
+};
+
+/**
+ * Paint `worksheet`'s used range — every stored cell and merge, plus one
+ * empty row and column so the data does not end at the picture's edge — in
+ * the light theme, framed to the gallery card, and return the composite.
+ * `null` for a sheet with nothing in it.
+ *
+ * The engine is the editor's own (`initialize`) over a `MemStore` copy, the
+ * mount the revision preview uses, so the pixels are the grid's real ones; it
+ * is read-only and never touches the live document or its presence.
+ */
+async function renderSheetThumbnail(
+  worksheet: Worksheet,
+): Promise<HTMLCanvasElement | null> {
+  // A Yorkie proxy: `MemStore.load` reads a plain snapshot. The freeze pane
+  // is dropped from the copy: it is scroll behaviour, and a picture never
+  // scrolls, but the engine marks it with a thick grey band across the whole
+  // grid — the heaviest line in the thumbnail, under every header row.
+  const snapshot: Worksheet =
+    typeof (worksheet as { toJS?: unknown }).toJS === "function"
+      ? (worksheet as unknown as { toJS(): Worksheet }).toJS()
+      : worksheet;
+  const plain: Worksheet = { ...snapshot, frozenRows: 0, frozenCols: 0 };
+
+  let lastRow = 0;
+  let lastCol = 0;
+  for (const [sref] of getWorksheetEntries(plain)) {
+    const { r, c } = parseRef(sref);
+    lastRow = Math.max(lastRow, r);
+    lastCol = Math.max(lastCol, c);
+  }
+  for (const [sref, span] of Object.entries(plain.merges ?? {})) {
+    const { r, c } = parseRef(sref);
+    lastRow = Math.max(lastRow, r + span.rs - 1);
+    lastCol = Math.max(lastCol, c + span.cs - 1);
+  }
+  if (lastRow === 0 || lastCol === 0) return null;
+
+  const { host, dispose } = mountOffscreenHost(
+    SHEET_THUMBNAIL_MAX.width,
+    SHEET_THUMBNAIL_MAX.height,
+  );
+  let sheet: Spreadsheet | undefined;
+  try {
+    const store = new MemStore();
+    store.load(plain);
+    sheet = await initialize(host, {
+      theme: "light",
+      store,
+      readOnly: true,
+      hideFormulaBar: true,
+      hideAutofillHandle: true,
+    });
+    // A fresh engine puts its active cell on A1, which lights the A and 1
+    // headers in butter — a selection nobody made, in every card. Parking it
+    // far past the frame leaves no header lit inside the picture.
+    // `selectStart` repaints without scrolling to the cell.
+    sheet.selectStart({ r: lastRow + 1000, c: lastCol + 1000 });
+    // Two frames: the engine schedules its first paint, then its overlay.
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve)),
+    );
+    // The far corner of the padding cell, in the grid canvas's coordinates —
+    // which, with the formula bar hidden, are the host's.
+    const end = sheet.getCellRect({ r: lastRow + 1, c: lastCol + 1 });
+    const frame = frameContent(
+      { x: 0, y: 0, width: end.left + end.width, height: end.top + end.height },
+      {
+        anchor: "start",
+        aspect: THUMBNAIL_ASPECT,
+        minWidth: SHEET_THUMBNAIL_MIN.width,
+        minHeight: SHEET_THUMBNAIL_MIN.height,
+        maxWidth: SHEET_THUMBNAIL_MAX.width,
+        maxHeight: SHEET_THUMBNAIL_MAX.height,
+      },
+    );
+    // The grid paints every pixel it owns; the fill only shows where the
+    // frame runs past it, and there it is the light grid's own cell colour
+    // (`LightTheme.cellBGColor`, which the engine does not export).
+    return captureFromContainer(host, { frame, background: "#ffffff" });
+  } finally {
+    sheet?.cleanup();
+    dispose();
+  }
+}

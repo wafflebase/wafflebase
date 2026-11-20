@@ -44,15 +44,35 @@ function byName<T extends { name: string }>(
   return found;
 }
 
+/** Gutter between stickies inside a section. */
 const GAP = 24;
+/** Gutter between sections, across and down: one rhythm on every board. */
+const SECTION_GAP = 48;
 /** Room above a section's first row for its title pill. */
 const SECTION_HEAD = 72;
 const SECTION_PAD = 40;
 /** Sticky text size in the templates. */
 const STICKY_FONT_SIZE = 18;
 
+/** Board title, and the brief under it. */
+const TITLE_FONT_SIZE = 40;
+const BRIEF_FONT_SIZE = 20;
+const TITLE_H = 64;
+/** One line of brief text. */
+const BRIEF_LINE_H = 30;
+/**
+ * A generous average glyph advance for the brief, in ems, so the line
+ * estimate below errs towards a second line rather than overlapping the
+ * sections when the board is narrow.
+ */
+const BRIEF_EM_PER_CHAR = 0.6;
+/** Title to brief: close, so the two read as one heading. */
+const TITLE_TO_BRIEF = 12;
+
 /** The theme's text colour, as the slides editor seeds new text. */
 const TEXT_COLOR = { kind: 'role', role: 'text' } as const;
+/** The theme's secondary text colour, a step below the title. */
+const BRIEF_COLOR = { kind: 'role', role: 'textSecondary' } as const;
 
 function paragraph(
   id: string,
@@ -68,22 +88,39 @@ function paragraph(
   };
 }
 
-/** A title (and optional one-line brief) above the sections. */
+/**
+ * A title (and optional brief) above the sections, left-aligned with the
+ * first section at x = 0 and spanning `w`. The block ends one section gap
+ * above y = 0, where the sections start, so the heading sits apart from
+ * the work area at the same distance on every board, however many lines
+ * the brief wraps to.
+ */
 function title(
   id: string,
-  x: number,
-  y: number,
   w: number,
   text: string,
   brief?: string,
 ): SlidesElement[] {
+  const briefW = brief ? brief.length * BRIEF_EM_PER_CHAR * BRIEF_FONT_SIZE : 0;
+  const briefLines = Math.ceil(briefW / w);
+  const briefH = briefLines * BRIEF_LINE_H;
+  // A brief that wraps is set in a box sized to share its text evenly
+  // between the lines, so the last line is not a one-word orphan.
+  const briefBoxW =
+    briefLines > 1 ? Math.min(w, Math.ceil(briefW / briefLines)) : w;
+  const y = -(TITLE_H + (brief ? TITLE_TO_BRIEF + briefH : 0) + SECTION_GAP);
   const out: SlidesElement[] = [
     {
       id,
       type: 'text',
-      frame: { x, y, w, h: 64, rotation: 0 },
+      frame: { x: 0, y, w, h: TITLE_H, rotation: 0 },
       data: {
-        blocks: [paragraph(`${id}-p`, text, { bold: true, fontSize: 40 })],
+        blocks: [
+          paragraph(`${id}-p`, text, {
+            bold: true,
+            fontSize: TITLE_FONT_SIZE,
+          }),
+        ],
       },
     } as SlidesElement,
   ];
@@ -91,9 +128,20 @@ function title(
     out.push({
       id: `${id}-brief`,
       type: 'text',
-      frame: { x, y: y + 68, w, h: 36, rotation: 0 },
+      frame: {
+        x: 0,
+        y: y + TITLE_H + TITLE_TO_BRIEF,
+        w: briefBoxW,
+        h: briefH,
+        rotation: 0,
+      },
       data: {
-        blocks: [paragraph(`${id}-brief-p`, brief, { fontSize: 18 })],
+        blocks: [
+          paragraph(`${id}-brief-p`, brief, {
+            fontSize: BRIEF_FONT_SIZE,
+            color: BRIEF_COLOR,
+          }),
+        ],
       },
     } as SlidesElement);
   }
@@ -197,8 +245,8 @@ const RETRO_COLUMNS = [
 function retroElements(): SlidesElement[] {
   const w = sectionWidth(2);
   const h = sectionHeight(3);
-  const stride = w + 48;
-  const actionsY = h + 48;
+  const stride = w + SECTION_GAP;
+  const actionsY = h + SECTION_GAP;
   const actionsW = stride * 2 + w;
   return [
     ...RETRO_COLUMNS.map((c, i) =>
@@ -215,8 +263,6 @@ function retroElements(): SlidesElement[] {
     ),
     ...title(
       'retro-title',
-      0,
-      -140,
       actionsW,
       'Retro: Start, Stop, Continue',
       'Add stickies to each column (press S), group the duplicates, then vote on what to act on.',
@@ -257,8 +303,10 @@ function brainstormElements(): SlidesElement[] {
   const ideasW = sectionWidth(3);
   const ideasH = sectionHeight(3);
   const themeW = sectionWidth(2);
-  const themeH = sectionHeight(1);
-  const themesX = ideasW + 64;
+  // Two theme rows stand exactly as tall as the Ideas section beside them,
+  // so the board's bottom edge is one line.
+  const themeH = (ideasH - SECTION_GAP) / 2;
+  const themesX = ideasW + SECTION_GAP;
   const themes = [
     { key: 'a', heading: 'Theme A', color: 'blue' },
     { key: 'b', heading: 'Theme B', color: 'green' },
@@ -266,8 +314,8 @@ function brainstormElements(): SlidesElement[] {
     { key: 'd', heading: 'Theme D', color: 'pink' },
   ] as const;
   const themeAt = (i: number) => ({
-    x: themesX + (i % 2) * (themeW + 32),
-    y: Math.floor(i / 2) * (themeH + 32),
+    x: themesX + (i % 2) * (themeW + SECTION_GAP),
+    y: Math.floor(i / 2) * (themeH + SECTION_GAP),
   });
   return [
     section('brainstorm-ideas', 0, 0, ideasW, ideasH, 'Ideas', 'yellow'),
@@ -284,9 +332,7 @@ function brainstormElements(): SlidesElement[] {
     ),
     ...title(
       'brainstorm-title',
-      0,
-      -140,
-      themesX + themeW * 2 + 32,
+      themesX + themeW * 2 + SECTION_GAP,
       'Brainstorm: affinity map',
       'Everyone adds ideas, one per sticky. Then drag similar ones into a theme, rename it, and vote.',
     ),
@@ -355,21 +401,25 @@ const SYNC_SECTIONS = [
 function syncElements(): SlidesElement[] {
   const w = sectionWidth(2);
   const h = sectionHeight(2);
-  const stride = w + 48;
+  // Two by two, read left to right then down, so the board opens close
+  // to the screen's proportions instead of as one thin strip, and the
+  // call ends on Blockers then Decisions, side by side.
+  const at = (i: number) => ({
+    x: (i % 2) * (w + SECTION_GAP),
+    y: Math.floor(i / 2) * (h + SECTION_GAP),
+  });
   return [
     ...SYNC_SECTIONS.map((s, i) =>
-      section(`sync-${s.key}`, i * stride, 0, w, h, s.heading, s.section),
+      section(`sync-${s.key}`, at(i).x, at(i).y, w, h, s.heading, s.section),
     ),
     ...title(
       'sync-title',
-      0,
-      -140,
-      stride * 3 + w,
+      w * 2 + SECTION_GAP,
       'Weekly team sync',
       'Add your stickies before the call. Spend the call on blockers and decisions.',
     ),
     ...SYNC_SECTIONS.flatMap((s, i) =>
-      stickiesIn(`sync-${s.key}-sticky`, i * stride, 0, 2, s.sticky, [
+      stickiesIn(`sync-${s.key}-sticky`, at(i).x, at(i).y, 2, s.sticky, [
         s.prompt,
         '',
       ]),
@@ -400,17 +450,16 @@ export const weeklyTeamSync: TemplateSeed = {
 function pricingElements(): SlidesElement[] {
   const narrowW = sectionWidth(2);
   const wideW = sectionWidth(3);
-  const rowGap = 48;
-  const totalW = narrowW + rowGap + wideW;
+  const totalW = narrowW + SECTION_GAP + wideW;
   const topH = sectionHeight(2);
-  const midY = topH + rowGap;
+  const midY = topH + SECTION_GAP;
   const midH = sectionHeight(1);
-  const decisionsY = midY + midH + rowGap;
+  const decisionsY = midY + midH + SECTION_GAP;
   return [
-    section('pricing-goals', 0, 0, narrowW, topH, 'Goals', 'gray'),
+    section('pricing-goals', 0, 0, narrowW, topH, 'Goals', 'purple'),
     section(
       'pricing-options',
-      narrowW + rowGap,
+      narrowW + SECTION_GAP,
       0,
       wideW,
       topH,
@@ -420,7 +469,7 @@ function pricingElements(): SlidesElement[] {
     section('pricing-tiers', 0, midY, wideW, midH, 'Tiers to test', 'green'),
     section(
       'pricing-risks',
-      wideW + rowGap,
+      wideW + SECTION_GAP,
       midY,
       narrowW,
       midH,
@@ -438,35 +487,44 @@ function pricingElements(): SlidesElement[] {
     ),
     ...title(
       'pricing-title',
-      0,
-      -140,
       totalW,
       'Pricing workshop: <product>',
       'Agree on the goal first, add one pricing option per sticky, then shape the strongest into tiers and vote.',
     ),
-    ...stickiesIn('pricing-goals-sticky', 0, 0, 2, 'orange', [
+    ...stickiesIn('pricing-goals-sticky', 0, 0, 2, 'purple', [
       'Who are we pricing for? <segment>',
       'What is the goal? <growth, revenue>',
       'Constraints: <billing system, contracts, competitors>',
       '',
     ]),
-    ...stickiesIn('pricing-options-sticky', narrowW + rowGap, 0, 3, 'blue', [
-      'Per-seat price for teams',
-      'Free plan up to <limit>',
-      'Discount for paying annually',
-      'Usage-based add-on for <resource>',
-      'Plan for a segment, e.g. education',
-      '',
-    ]),
+    ...stickiesIn(
+      'pricing-options-sticky',
+      narrowW + SECTION_GAP,
+      0,
+      3,
+      'blue',
+      [
+        'Per-seat price for teams',
+        'Free plan up to <limit>',
+        'Discount for paying annually',
+        'Usage-based add-on for <resource>',
+        'Plan for a segment, e.g. education',
+        '',
+      ],
+    ),
     ...stickiesIn('pricing-tiers-sticky', 0, midY, 3, 'green', [
       'Free: <what is included>',
       '<Plan>: <price> per <unit>',
       '<Plan>: <price> per <unit>',
     ]),
-    ...stickiesIn('pricing-risks-sticky', wideW + rowGap, midY, 2, 'pink', [
-      'What could make existing customers churn?',
-      '',
-    ]),
+    ...stickiesIn(
+      'pricing-risks-sticky',
+      wideW + SECTION_GAP,
+      midY,
+      2,
+      'pink',
+      ['What could make existing customers churn?', ''],
+    ),
     ...stickiesIn('pricing-decisions-sticky', 0, decisionsY, 4, 'yellow', [
       'Decision, owner, next step',
       '',

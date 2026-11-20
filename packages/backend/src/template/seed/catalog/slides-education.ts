@@ -19,7 +19,7 @@ export const seminarDeck: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('momentum', 'Seminar Deck', [
-      ['title-slide', [['Seminar Deck'], ['<speaker> · <date>']], 'geo'],
+      ['title-slide', [['Seminar Deck'], ['<speaker> · <date>']], 'dots'],
       [
         'title-body',
         [
@@ -73,7 +73,7 @@ export const universityLecture: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('luxe', 'University Lecture', [
-      ['title-slide', [['University Lecture'], ['<course> · Lecture <n> · <date>']], 'sidebar'],
+      ['title-slide', [['University Lecture'], ['<course> · Lecture <n> · <date>']], 'band'],
       [
         'title-body',
         [
@@ -195,7 +195,7 @@ export const workshopTraining: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('beach-day', 'Workshop / Training', [
-      ['title-slide', [['Workshop / Training'], ['<facilitator> · <date>']], 'split'],
+      ['title-slide', [['Workshop / Training'], ['<facilitator> · <date>']], 'diagonal'],
       [
         'title-body',
         [

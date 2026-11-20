@@ -205,18 +205,19 @@ export function NotesView({
   // (docs/design/template-gallery.md). Notes is the one DOM editor, so there
   // is no canvas to photograph — `renderNoteThumbnail` draws the markdown
   // itself. Registered here because only the view holds the store.
+  //
+  // Always the light card, whatever the author's app theme: a thumbnail is
+  // the template's picture for every visitor, and one captured from a
+  // dark-mode session was the one dark card in a gallery of light ones.
   useEffect(() => {
     if (!documentId) return;
     return registerThumbnailSource(documentId, () => {
       const text = storeRef.current?.getText();
       return text
-        ? renderNoteThumbnail(
-            text,
-            NOTE_THUMBNAIL_THEMES[resolvedTheme === "dark" ? "dark" : "light"],
-          )
+        ? renderNoteThumbnail(text, NOTE_THUMBNAIL_THEMES.light)
         : null;
     });
-  }, [documentId, resolvedTheme]);
+  }, [documentId]);
 
   // Update the editor theme when the user toggles light/dark mode.
   useEffect(() => {

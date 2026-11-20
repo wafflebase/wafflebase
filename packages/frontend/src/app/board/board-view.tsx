@@ -1,6 +1,8 @@
 import {
   formatCombo,
   initializeEditor,
+  rasterizeSlideRegion,
+  regionRasterSize,
   type Frame,
   type PeerView,
   type Slide,
@@ -53,7 +55,11 @@ import { stickyKeepsAspect } from "./sticky-format";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
-import { BOARD_PLANE_THEME, boardPlaneBackground } from "./board-plane";
+import {
+  BOARD_PLANE_BACKGROUND,
+  BOARD_PLANE_THEME,
+  boardPlaneBackground,
+} from "./board-plane";
 import { useTheme } from "@/components/theme-provider";
 import {
   BOARD_SHORTCUTS,
@@ -73,7 +79,7 @@ import {
   createBoardSections,
   type BoardSections,
 } from "./board-sections";
-import { paintSections } from "./board-section-paint";
+import { paintSections, TITLE_FONT_PX } from "./board-section-paint";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
   BOARD_PAN_CURSOR_CSS,
@@ -97,7 +103,10 @@ import {
   type DrawingTools,
 } from "./board-drawing-extras";
 import {
-  captureFromContainer,
+  THUMBNAIL_ASPECT,
+  THUMBNAIL_MAX_EDGE,
+  canvasFromImageBytes,
+  frameContent,
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
 import type { ZoomController } from "../slides/zoom-controller";
@@ -1362,16 +1371,18 @@ export function BoardView({
   }, [store]);
 
   // The board's picture for the template gallery
-  // (docs/design/template-gallery.md): the canvas as it stands. A board is an
-  // unbounded plane with no first page to render offscreen, so the view the
-  // author left it on is the honest cover.
-  useEffect(
-    () =>
-      registerThumbnailSource(documentId, () =>
-        captureFromContainer(containerRef.current),
-      ),
-    [documentId],
-  );
+  // (docs/design/template-gallery.md): the whole board, framed on its content
+  // and rendered offscreen by the same path "Download as PNG" takes. Not a
+  // photograph of the canvas — that carried the author's viewport (wide
+  // empty margins, or content cut off at the edge) and, in a dark-mode
+  // session, the dimmed plane. The plane is the deck theme's own background,
+  // as every export is.
+  useEffect(() => {
+    if (!store) return;
+    return registerThumbnailSource(documentId, () =>
+      renderBoardThumbnail(store.read()),
+    );
+  }, [documentId, store]);
 
   if (loading) {
     return <Loader />;
@@ -1479,3 +1490,80 @@ export function BoardView({
 }
 
 export default BoardView;
+
+/**
+ * Share of the content's longer side kept as plane around it in a board
+ * thumbnail, on top of the export's own fixed pad: enough that the outermost
+ * sticky does not touch the card's edge, not so much that a small board
+ * shrinks to a cluster in the middle of a grey card.
+ */
+const BOARD_THUMBNAIL_PAD_RATIO = 0.04;
+
+/**
+ * Section title size in a board thumbnail, in output pixels. The pill is
+ * screen-sized chrome (12 px at any zoom), so painted at world scale and then
+ * downscaled with the rest of a large board it came out a few pixels tall —
+ * a coloured speck where the section's name should be. Sized for the output
+ * instead, it reads as the section's label.
+ */
+const BOARD_THUMBNAIL_TITLE_PX = 16;
+
+/**
+ * The most a thumbnail's section pill may grow past its 100%-zoom size in
+ * world units. The pill grows down into its section, and a board is laid out
+ * around the pill its author saw — 30 world px of inset and pill at 100%, of
+ * the 72 the seed boards leave above a section's first row. At twice that it
+ * still clears the stickies; at the 16 px target on a large board it sat on
+ * them. So a large board's pills land a little under the target instead.
+ */
+const BOARD_THUMBNAIL_TITLE_MAX_GROWTH = 2;
+
+/**
+ * Rasterize the board's content, framed to the gallery card's 16:10 box, at
+ * no more than the thumbnail's own longest edge. `null` for an empty board —
+ * an empty plane says less than the document-type icon it would replace.
+ */
+async function renderBoardThumbnail(
+  doc: SlidesDocument,
+): Promise<HTMLCanvasElement | null> {
+  const slide = doc.slides[0];
+  if (!slide) return null;
+  const [{ boardExportPlan }, { loadDeckFonts }, { docsImageFetcher }] =
+    await Promise.all([
+      import("./board-export"),
+      import("../slides/pdf-actions"),
+      import("../docs/export-utils"),
+    ]);
+  const plan = boardExportPlan(slide.elements);
+  if (!plan.region) return null;
+  const { x, y, w, h } = plan.region;
+  const frame = frameContent(
+    { x, y, width: w, height: h },
+    {
+      pad: Math.round(BOARD_THUMBNAIL_PAD_RATIO * Math.max(w, h)),
+      aspect: THUMBNAIL_ASPECT,
+    },
+  );
+  await loadDeckFonts(doc);
+  const region = { x: frame.x, y: frame.y, w: frame.width, h: frame.height };
+  const { scale } = regionRasterSize(region, 2, THUMBNAIL_MAX_EDGE);
+  const titleZoom = Math.max(
+    (TITLE_FONT_PX * scale) / BOARD_THUMBNAIL_TITLE_PX,
+    1 / BOARD_THUMBNAIL_TITLE_MAX_GROWTH,
+  );
+  const { bytes } = await rasterizeSlideRegion(
+    doc,
+    slide,
+    region,
+    {
+      scale: 2,
+      maxSide: THUMBNAIL_MAX_EDGE,
+      background: BOARD_PLANE_BACKGROUND,
+      elementIds: plan.elementIds,
+      imageFetcher: docsImageFetcher,
+      paintAfterElements: (ctx: CanvasRenderingContext2D) =>
+        paintSections(ctx, plan.sectionElements, titleZoom),
+    },
+  );
+  return canvasFromImageBytes(bytes);
+}

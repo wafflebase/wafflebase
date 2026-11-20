@@ -139,6 +139,7 @@ export function slide(layoutId: string, texts: string[][]): SlidesSlide {
       inlines: [{ ...seed.inlines[0], text }],
     }));
   });
+  setDisplayType(s);
   return s;
 }
 
@@ -250,6 +251,100 @@ function reflowRight(
 }
 
 /**
+ * Display type for the slides that carry one line of text on their own.
+ *
+ * The master's sizes are body-slide sizes: a 44pt title on the 1920px canvas
+ * renders at about 29pt on a widescreen slide, which reads as a heading, not
+ * a cover. These are stored points, like the master's (×4/3 to slide px).
+ */
+const COVER_TITLE_PT = 80;
+const COVER_SUBTITLE_PT = 40;
+const STATEMENT_PT = 60;
+const BIG_NUMBER_PT = 144;
+const BIG_NUMBER_LABEL_PT = 28;
+/** Space between the figure's box and its caption. */
+const BIG_NUMBER_GAP = 40;
+const SECTION_LEAD_PT = 28;
+
+/** Room for two title lines, the gap, then two subtitle lines. */
+const COVER_TITLE_H = 244;
+const COVER_GAP = 48;
+const COVER_SUBTITLE_H = 140;
+const COVER_TOP = Math.round(
+  (SH - COVER_TITLE_H - COVER_GAP - COVER_SUBTITLE_H) / 2,
+);
+
+function setType(
+  t: SlidesTextElement,
+  fontSize: number,
+  lineHeight: number,
+  bold: boolean,
+): void {
+  t.data.blocks = t.data.blocks.map((b) => ({
+    ...b,
+    style: { ...b.style, lineHeight, marginBottom: 0 },
+    inlines: b.inlines.map((inl) => ({
+      ...inl,
+      style: { ...inl.style, fontSize, ...(bold ? { bold: true } : {}) },
+    })),
+  }));
+}
+
+/**
+ * Give a title slide a cover's type scale — a large bold title sitting on
+ * the subtitle, the pair centred on the slide as one block — a
+ * main-point / section slide a statement size, and a big-number slide a
+ * centred caption under its figure. Frames only, before
+ * `decorate`, so the presets still reflow and recolour the text.
+ */
+function setDisplayType(s: SlidesSlide): void {
+  const texts = s.elements.filter(
+    (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
+  );
+  if (s.layoutId === 'title-slide') {
+    const [title, subtitle] = texts;
+    setType(title, COVER_TITLE_PT, 1.1, true);
+    title.frame.y = COVER_TOP;
+    title.frame.h = COVER_TITLE_H;
+    // Anchored to the bottom so a one-line title sits on its subtitle
+    // instead of floating above a gap sized for two lines.
+    title.data.verticalAnchor = 'bottom';
+    if (subtitle) {
+      setType(subtitle, COVER_SUBTITLE_PT, 1.3, false);
+      subtitle.frame.y = COVER_TOP + COVER_TITLE_H + COVER_GAP;
+      subtitle.frame.h = COVER_SUBTITLE_H;
+      subtitle.data.verticalAnchor = 'top';
+    }
+  } else if (
+    s.layoutId === 'main-point' ||
+    s.layoutId === 'section-header' ||
+    s.layoutId === 'section-title-description'
+  ) {
+    const [title, description] = texts;
+    setType(title, STATEMENT_PT, 1.15, true);
+    // A section's one-sentence description is lead copy, not a bullet.
+    if (description) setType(description, SECTION_LEAD_PT, 1.35, false);
+  } else if (s.layoutId === 'big-number') {
+    // The label is a body placeholder, so it arrives left-aligned at body
+    // size under a centred figure; centre it and size it as a caption to
+    // the number rather than a stray line of body copy.
+    // The figure is the slide: bold and larger than a cover title, sitting
+    // on its caption rather than at the top of a box sized for it.
+    const [figure, label] = texts;
+    setType(figure, BIG_NUMBER_PT, 1.1, true);
+    figure.data.verticalAnchor = 'bottom';
+    if (label) {
+      label.frame.y = figure.frame.y + figure.frame.h + BIG_NUMBER_GAP;
+      setType(label, BIG_NUMBER_LABEL_PT, 1.3, false);
+      label.data.blocks = label.data.blocks.map((b) => ({
+        ...b,
+        style: { ...b.style, alignment: 'center' },
+      }));
+    }
+  }
+}
+
+/**
  * Paint a composition preset under the slide's placeholder text. Every slide is
  * decorated — `plain` still gets a light, consistent base treatment (an accent
  * spine + mark) so the whole deck reads as one designed presentation, not a
@@ -288,10 +383,19 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
       slide.background = { fill: grad('accent1', 'accent2', 0.5) };
       recolor(texts, 'background');
       break;
-    case 'header':
-      under.push(shapeEl(`${tag}-hd`, 'rect', 0, 0, SW, 300, rf('accent1')));
-      recolor(texts, 'background', 300);
+    case 'header': {
+      // On a cover the band grows to hold the whole title block, so the
+      // title and subtitle read knocked out of one colour field with a
+      // strip of page below; elsewhere it is a 300px header behind the
+      // slide title.
+      const h =
+        slide.layoutId === 'title-slide'
+          ? Math.max(...texts.map((t) => t.frame.y + t.frame.h)) + 80
+          : 300;
+      under.push(shapeEl(`${tag}-hd`, 'rect', 0, 0, SW, h, rf('accent1')));
+      recolor(texts, 'background', h);
       break;
+    }
     case 'band':
       under.push(
         shapeEl(`${tag}-line`, 'rect', 0, 832, SW, 8, rf('accent3')),
@@ -323,6 +427,9 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
     case 'sidebar':
     case 'split': {
       const w = style === 'split' ? 960 : 640;
+      // No edge rule on the column: an 8px accent3 strip there read as a
+      // rendering seam between two flat fields (and, painted over the
+      // circle, cut straight through the disc). The colour edge is enough.
       under.push(
         shapeEl(`${tag}-side`, 'rect', 0, 0, w, SH, rf('accent1')),
         shapeEl(
@@ -334,7 +441,6 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
           520,
           rf('accent2'),
         ),
-        shapeEl(`${tag}-sl`, 'rect', w - 8, 0, 8, SH, rf('accent3')),
       );
       reflowRight(texts, w + 100, SW - 128);
       break;
@@ -411,6 +517,7 @@ export function themedDeck(
       }));
     });
 
+    setDisplayType(s);
     decorate(s, (style as Decor) ?? 'plain', `d${slideCounter}`);
     return s;
   });

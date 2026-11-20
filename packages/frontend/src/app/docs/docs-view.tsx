@@ -1,4 +1,5 @@
 import {
+  getTheme,
   initialize,
   type EditorAPI,
   type ThemeMode,
@@ -30,6 +31,7 @@ import { useDocsComments } from "./comments/docs-comments-controller";
 import {
   captureFromContainer,
   registerThumbnailSource,
+  withTheme,
 } from "@/lib/thumbnail-capture";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { insertImageFromFile, type DocsImageUpload } from "./image-insert";
@@ -682,11 +684,31 @@ export function DocsView({
   // (docs/design/template-gallery.md). The paginated page renderer is private
   // to the mounted editor, so the capture reads the canvas it already painted
   // — the same pixels, framed at wherever the author is scrolled.
+  //
+  // Painted in the light theme whatever the author's app theme is: a
+  // published template is a white page to everyone who opens it, and a card
+  // captured from a dark-mode session showed a black one. Spell-check
+  // squiggles are switched off for the same frame — they mark the author's
+  // session, not the document — and come back on the next recheck.
   useEffect(() => {
     if (!documentId) return;
-    return registerThumbnailSource(documentId, () =>
-      captureFromContainer(containerRef.current),
-    );
+    return registerThumbnailSource(documentId, () => {
+      const editor = editorRef.current;
+      const container = containerRef.current;
+      if (!editor) return captureFromContainer(container);
+      const current: ThemeMode =
+        themeRef.current === "dark" ? "dark" : "light";
+      editor.setSpellCheckEnabled(false);
+      try {
+        return withTheme(current, "light", editor.setTheme, () =>
+          captureFromContainer(container, {
+            background: getTheme().canvasBackground,
+          }),
+        );
+      } finally {
+        editor.setSpellCheckEnabled(true);
+      }
+    });
   }, [documentId]);
 
   if (loading) {

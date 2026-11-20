@@ -102,6 +102,22 @@ describe("paintSections", () => {
     expect(ctx.texts).toEqual(["2 hidden items", "Outer · Hidden"]);
   });
 
+  it("does not cut a title that fits at a fractional zoom", () => {
+    // The pill is sized to the label (screen px back to world px), and the
+    // text is then fitted to that same width. With real glyph widths the
+    // round trip through `* zoom / zoom` can land a hair under the label's
+    // own width, which cut "Ideas" to "Ide…" on a wide section.
+    for (const zoom of [0.31, 0.37, 0.42, 0.5, 0.73, 1.17]) {
+      const ctx = recordingCtx();
+      ctx.measureText = (s: string) => ({ width: s.length * 7.37 });
+      paintSections(ctx as unknown as CanvasRenderingContext2D, [
+        section("Ideas", f(0, 0, 2000, 1000)),
+        section("Decisions and actions", f(3000, 0, 2000, 1000)),
+      ], zoom);
+      expect(ctx.texts).toEqual(["Ideas", "Decisions and actions"]);
+    }
+  });
+
   it("draws no titles in the minimap's mode, only covers", () => {
     const ctx = recordingCtx();
     paintSections(ctx as unknown as CanvasRenderingContext2D, [
