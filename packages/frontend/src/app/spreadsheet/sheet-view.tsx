@@ -67,7 +67,7 @@ import { SheetLinkPopover } from "./components/SheetLinkPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
-import { prepareSheetThumbnail, waitForPaint } from "./sheet-thumbnail";
+import { prepareSheetThumbnail, waitForRender } from "./sheet-thumbnail";
 import {
   THUMBNAIL_ASPECT,
   THUMBNAIL_MAX_EDGE,
@@ -2168,7 +2168,12 @@ async function renderSheetThumbnail(
     // far past the frame leaves no header lit inside the picture.
     // `selectStart` repaints without scrolling to the cell.
     sheet.selectStart({ r: lastRow + 1000, c: lastCol + 1000 });
-    await waitForPaint();
+    const engine = sheet;
+    const rendered = waitForRender((onRendered) => engine.onSelectionChange(onRendered));
+    engine.render();
+    // No completed paint (a hidden tab gets no frames): publish without a
+    // picture rather than with a blank one.
+    if (!(await rendered)) return null;
     // The far corner of the padding cell, in the grid canvas's coordinates —
     // which, with the formula bar hidden, are the host's.
     const end = sheet.getCellRect({ r: lastRow + 1, c: lastCol + 1 });

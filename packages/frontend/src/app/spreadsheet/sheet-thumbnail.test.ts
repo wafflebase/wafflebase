@@ -5,7 +5,7 @@ import {
   writeWorksheetCell,
   type Worksheet,
 } from "@wafflebase/sheets";
-import { prepareSheetThumbnail, waitForPaint } from "./sheet-thumbnail";
+import { prepareSheetThumbnail, waitForRender } from "./sheet-thumbnail";
 
 /** A worksheet holding `cells` (sref → value), built the way the engine builds one. */
 function worksheet(
@@ -56,31 +56,39 @@ describe("prepareSheetThumbnail", () => {
   });
 });
 
-describe("waitForPaint", () => {
+describe("waitForRender", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
+  afterEach(() => vi.useRealTimers());
+
+  /** A stand-in for `Spreadsheet.onSelectionChange`. */
+  function engine() {
+    const listeners = new Set<() => void>();
+    return {
+      listeners,
+      subscribe: (cb: () => void) => {
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+      finishRender: () => [...listeners].forEach((cb) => cb()),
+    };
+  }
+
+  it("resolves true when the engine reports a completed render", async () => {
+    const e = engine();
+    const done = waitForRender(e.subscribe, 3000);
+    e.finishRender();
+    await expect(done).resolves.toBe(true);
+    expect(e.listeners.size).toBe(0);
   });
 
-  it("resolves after two animation frames", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
-    let settled = false;
-    void waitForPaint(10_000).then(() => (settled = true));
-    frames.shift()!(0);
-    frames.shift()!(0);
-    await Promise.resolve();
-    expect(settled).toBe(true);
-  });
-
-  it("still resolves when frames never arrive (a hidden tab)", async () => {
-    vi.stubGlobal("requestAnimationFrame", () => 0);
-    let settled = false;
-    void waitForPaint(500).then(() => (settled = true));
-    await vi.advanceTimersByTimeAsync(499);
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(settled).toBe(true);
+  it("resolves false when no render completes (a hidden tab), and unsubscribes", async () => {
+    const e = engine();
+    const done = waitForRender(e.subscribe, 3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await expect(done).resolves.toBe(false);
+    expect(e.listeners.size).toBe(0);
+    // A late render does not flip the answer.
+    e.finishRender();
+    await expect(done).resolves.toBe(false);
   });
 });

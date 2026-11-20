@@ -39,25 +39,36 @@ export function prepareSheetThumbnail(
 }
 
 /**
- * Wait for the engine's first paint: two animation frames (the grid, then
- * its overlay), but never longer than `timeoutMs`.
+ * Resolve `true` at the engine's next completed render, or `false` after
+ * `timeoutMs` without one.
  *
- * Animation frames are not delivered to a hidden tab, and the thumbnail is
- * awaited by the Share dialog's publish action, so an unbounded wait would
- * leave a publish started and then backgrounded pending forever, with the
- * offscreen engine still mounted. The timeout lets it finish with whatever
- * has been painted.
+ * The engine's `render()` only schedules a frame, and the paint behind it is
+ * async, so neither a synchronous call nor a fixed number of animation frames
+ * says the grid is on the canvas; capturing early yields a blank picture. Its
+ * own "render finished" signal does: `onSelectionChange` fires after every
+ * completed render. `subscribe` must be called after anything that notifies
+ * synchronously (a selection move), so the first notification seen here is a
+ * paint.
+ *
+ * Frames are not delivered to a hidden tab, so a capture started there times
+ * out; the caller then publishes without a picture rather than with a blank
+ * one, and unmounts the engine — whose document-level listeners are live for
+ * as long as it is mounted.
  */
-export function waitForPaint(timeoutMs = 500): Promise<void> {
+export function waitForRender(
+  subscribe: (onRendered: () => void) => () => void,
+  timeoutMs = 3000,
+): Promise<boolean> {
   return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
+    let settled = false;
+    const finish = (rendered: boolean) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve();
+      unsubscribe();
+      resolve(rendered);
     };
-    const timer = setTimeout(finish, timeoutMs);
-    requestAnimationFrame(() => requestAnimationFrame(finish));
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const unsubscribe = subscribe(() => finish(true));
   });
 }

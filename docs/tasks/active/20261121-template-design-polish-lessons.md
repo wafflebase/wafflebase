@@ -40,3 +40,15 @@ Todo: [20261121-template-design-polish-todo.md](./20261121-template-design-polis
   physical table (OOXML's 18pt body), including the no-master fallback.
   **A default that is scaled for one unit system must not be shared with a
   path that runs in another.**
+- Round 3 (the bound): two blocking correctness findings on the sheet
+  thumbnail, both real. (1) Two animation frames do not mean the grid is
+  painted: the engine's `render()` only schedules a frame and the paint
+  behind it is async. A synchronous `render()` + capture, tried as the fix,
+  produced a **blank** image — verified by capturing, not assumed. The fix
+  waits for the engine's own completed-render signal
+  (`onSelectionChange`, fired after every render) with a 3s bound, and
+  publishes without a picture on timeout instead of with a blank one.
+  (2) The offscreen read-only engine adds document-level keyboard/pointer
+  listeners while mounted; bounding the wait to one completed render (and
+  unmounting in `finally`) keeps that window to the mount plus one paint.
+  Loop stopped at the bound; round 4 is a human's call.
