@@ -33,3 +33,10 @@ Todo: [20261121-template-design-polish-todo.md](./20261121-template-design-polis
   (badge landed at y=718, aimed at 800) and passed 2/2 run locally; the
   badge is a fixed-frame shape, so the master font change cannot move it.
   Treated as a lane flake; CI's verify-browser is the arbiter.
+- Round 2: one blocking finding (blast-radius), fixed. PPTX imports cloned
+  the raised `DEFAULT_MASTER` table, but an imported deck paints a point at
+  2 px/pt (physical), so placeholders a file leaves unsized would have drawn
+  1.5x larger than PowerPoint does. The importer now starts from its own
+  physical table (OOXML's 18pt body), including the no-master fallback.
+  **A default that is scaled for one unit system must not be shared with a
+  path that runs in another.**

@@ -55,12 +55,13 @@ describe('parseMaster', () => {
     expect(master.background.fill).toEqual({ kind: 'srgb', value: '#F3F3F3' });
   });
 
-  it('inherits the default placeholder-style table for now', async () => {
+  it('starts placeholders at physical PowerPoint sizes, not the native default', async () => {
     const { master } = await parseMaster(MIN_MASTER, 'm', 't', stubImageCtx());
-    expect(master.placeholderStyles).toEqual(DEFAULT_MASTER.placeholderStyles);
-    // A copy, so an imported master can be edited without leaking into the
-    // table every new deck starts from.
-    expect(master.placeholderStyles).not.toBe(DEFAULT_MASTER.placeholderStyles);
+    // An imported deck paints a point at 2 px/pt; the native default master
+    // is scaled for 96 DPI, so cloning it would draw unsized text 1.5x large.
+    expect(master.placeholderStyles.title.fontSize).toBe(44);
+    expect(master.placeholderStyles.body.fontSize).toBe(18);
+    expect(master.placeholderStyles.body.fontSize).not.toBe(DEFAULT_MASTER.placeholderStyles.body.fontSize);
   });
 
   it('parses <p:txStyles> marker defaults per slot × level', async () => {
