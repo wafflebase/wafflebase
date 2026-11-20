@@ -565,6 +565,7 @@ export class DocCanvas {
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
           paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, {
+            baseline: pl.line.baseline,
             theme: Theme,
             skipBackground: true,
             requestRender: this.requestRender ?? undefined,
@@ -605,7 +606,7 @@ export class DocCanvas {
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
               : (listCounters.get(block.id) ?? '1.');
-            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, markerX, marker, Theme);
+            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, markerX, marker, Theme, undefined, pl.line.baseline);
           }
         }
       }
@@ -714,6 +715,7 @@ export class DocCanvas {
     lineHeight: number,
     lineMaxFontSizePx: number | undefined,
     pageNumber: number,
+    lineBaseline?: number,
   ): void {
     const target = run.inline.style.pageNumber
       ? {
@@ -723,6 +725,7 @@ export class DocCanvas {
         }
       : run;
     paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, lineMaxFontSizePx, {
+      baseline: lineBaseline,
       theme: Theme,
       skipBackground: false,
       requestRender: this.requestRender ?? undefined,
@@ -761,6 +764,7 @@ export class DocCanvas {
         for (const run of line.runs) {
           this.renderRunWithPageNumber(
             run, originX, originY + lb.y + line.y, line.height, line.maxFontSizePx, pageNumber,
+            line.baseline,
           );
         }
       }

@@ -133,17 +133,17 @@ what makes it safe.
 Font = Arial. Heading spacing converted pt→px at 96 dpi (`px = pt × 4/3`,
 rounded). Weight is **not** uniform — see the audit note below the table.
 
-| Style | size | weight | color (light) | color (dark) | space-above / below (px) | leading | line box (px) |
+| Style | size | weight | color (light) | color (dark) | space-above / below (px) | leading | line box, Arial (px) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Normal | 11 | — | #000000 | — | 0 / 0 | 1.15 | 16.9 |
-| Title | 26 | — | #000000 | — | 0 / 4 | 1.15 | 39.9 |
-| Subtitle | 15 | italic | #666666 | #999999 | 0 / 21 | 1.15 | 23.0 |
-| Heading 1 | 20 | — | #000000 | — | 27 / 8 | 1.15 | 30.7 |
-| Heading 2 | 16 | **bold** | #000000 | — | 24 / 8 | 1.15 | 24.5 |
-| Heading 3 | 14 | **bold** | #434343 | #B0B0B0 | 21 / 5 | 1.15 | 21.5 |
-| Heading 4 | 12 | — | #666666 | #999999 | 19 / 5 | 1.15 | 18.4 |
-| Heading 5 | 11 | — | #666666 | #999999 | 16 / 5 | 1.15 | 16.9 |
-| Heading 6 | 11 | italic | #666666 | #999999 | 16 / 5 | 1.15 | 16.9 |
+| Normal | 11 | — | #000000 | — | 0 / 0 | 1.15 | 19.4 |
+| Title | 26 | — | #000000 | — | 0 / 4 | 1.15 | 45.8 |
+| Subtitle | 15 | italic | #666666 | #999999 | 0 / 21 | 1.15 | 26.4 |
+| Heading 1 | 20 | — | #000000 | — | 27 / 8 | 1.15 | 35.3 |
+| Heading 2 | 16 | **bold** | #000000 | — | 24 / 8 | 1.15 | 28.2 |
+| Heading 3 | 14 | **bold** | #434343 | #B0B0B0 | 21 / 5 | 1.15 | 24.7 |
+| Heading 4 | 12 | — | #666666 | #999999 | 19 / 5 | 1.15 | 21.2 |
+| Heading 5 | 11 | — | #666666 | #999999 | 16 / 5 | 1.15 | 19.4 |
+| Heading 6 | 11 | italic | #666666 | #999999 | 16 / 5 | 1.15 | 19.4 |
 
 An em dash in the dark column means the style sets no color at all and inherits
 the theme's body ink. The `#000000` entries are likewise "no `color` key" — the
@@ -195,6 +195,56 @@ box for the same 34.7 px of glyph — 2.6 px of half-leading — and nothing
 floats. Keeping the ladder would have bought a 1.7 px per-heading divergence
 from Google in exchange for a condition that no longer arises, so it was
 retired.
+
+#### Leading is font-relative
+
+> **Status: docs shipped, slides planned**
+> ([task](../../tasks/active/20261121-font-relative-leading-todo.md),
+> [measurements](../../tasks/active/20261121-font-relative-leading-lessons.md)).
+> The "line box" column above is `size × leading × 1.1499` (Arial's single
+> line); before this change it was `size × leading`.
+
+The multiplier values above are Google's; the unit they apply to used to be
+CSS's. `assignLineHeights` set a line box to `multiplier × fontSize`, while
+Word and Google Docs multiply the font's *single* line — for Arial 1.1499 em.
+Normal text was therefore 16.9 px here against 19.25 px measured in Google Docs
+at 11 pt: every line about 13% short, our "1.15" being their "Single". Our own
+DOCX export already wrote the Word meaning (`w:line="276" w:lineRule="auto"`),
+so an exported file opened taller than the editor had shown it.
+
+Measured facts that shape the fix (ten families; the rule below matched nine
+within 0.003 em):
+
+- **The rule is the browser's normal line height, and CJK fonts get 1.3× it.**
+  Open Sans (1.3611), Georgia, Montserrat and Merriweather match their normal
+  line height. Nanum Gothic, Nanum Myeongjo and Gothic A1 measure exactly
+  1.625 = 1.3 × 1.25, and Noto Sans KR 1.8837 = 1.3 × 1.448. The extra 0.3× is
+  split evenly above and below the glyphs. Roboto alone misses (1.2005 against
+  1.1719): Docs serves its own build.
+- **The ratio follows the declared family.** Hangul typed in an Arial run keeps
+  Arial's 1.148; the fallback glyph's font does not change the line.
+- **Extra leading goes below.** The first line's ink does not move between
+  Single and Double. The first baseline sits at `lineTop + lineGap + ascent`
+  (plus half the CJK extra).
+
+The fix keeps the stored multiplier and gives `computeLayout` a
+`singleLineMetrics(fontFamily)` host option (`LayoutOptions` →
+`BlockSpacingContext`, so table cells get it too) returning a single line's
+`{ above, below }` its baseline in em. A line's single height is the tallest
+`above` plus the tallest `below` among its runs; the spacing multiplies that,
+the extra goes below, and `LayoutLine.baseline` carries the result to every
+painter (`lineBaselineY`). A host that passes nothing keeps CSS leading and the
+centred baseline exactly. The docs host passes `docsSingleLineMetrics`, a
+lookup into `font-metrics.data.ts`, which `packages/docs/scripts/build-font-metrics.mjs`
+generates from the font files — the browser's normal line height (`OS/2` typo
+metrics under `USE_TYPO_METRICS`, else `hhea`), 1.3× for CJK fonts, measured
+values for the fonts the rule misses (Roboto) — so the browser, Node pagination
+and PDF export agree regardless of web-font load timing. Unknown families take
+Arial's line. Slides uses the same seam with a constant 1.2; see
+[slides.md](../slides/slides.md#line-spacing-is-a-multiple-of-powerpoints-single-line).
+The audit above already shows that a belief about another product can be
+pinned by a test and still be wrong, so the regression tests here pin measured
+pitches, not derived ones.
 
 **`normal` is the one style a host can decline.** Its catalog values are
 Google's body rhythm, which is right for a document and wrong for a slide —

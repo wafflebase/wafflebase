@@ -388,6 +388,7 @@ export class PdfPainter {
       pl.y,
       pl.line.height,
       pl.line.maxFontSizePx ?? fontSizePx,
+      pl.line.baseline,
     );
 
     const c = styleColor(firstRun?.inline.style.color);
@@ -412,10 +413,9 @@ export class PdfPainter {
   }
 
   /**
-   * Paint every run on a single page line. `LayoutLine` does not carry
-   * a baseline; instead each run's baseline is computed from the line
-   * top + line height + the run's own font size, matching the canvas
-   * renderer's formula in `doc-canvas.ts`.
+   * Paint every run on a single page line, on the line-common baseline the
+   * canvas renderer uses (`lineBaselineY`): `LayoutLine.baseline` when the
+   * line was sized from font metrics, else centred on the tallest run.
    */
   private static paintLine(
     page: PDFPage,
@@ -442,6 +442,7 @@ export class PdfPainter {
         pageHeightPt,
         fonts,
         ctx,
+        line.baseline,
       );
     }
   }
@@ -635,6 +636,7 @@ export class PdfPainter {
           markerLineY,
           firstLine.height,
           firstLine.maxFontSizePx ?? fontSizePx,
+          firstLine.baseline,
         );
         const c = styleColor(cellBlock.inlines[0]?.style.color);
         // Mirror the body painter at line ~330: unordered markers (●○■) live
@@ -669,6 +671,7 @@ export class PdfPainter {
     pageHeightPt: number,
     fonts: EmbeddedFonts,
     ctx: PaintContext,
+    lineBaseline?: number,
   ): void {
     const style = run.inline.style;
 
@@ -705,6 +708,7 @@ export class PdfPainter {
       lineYpx,
       lineHeightPx,
       lineMaxFontSizePx ?? fontSizePx,
+      lineBaseline,
     );
 
     const c = styleColor(style.color);

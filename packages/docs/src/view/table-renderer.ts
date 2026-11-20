@@ -470,7 +470,7 @@ export function renderTableContent(
           // exactly at its top — the case at a paginated row split —
           // bled a sliver onto the previous page.
           const baselineY = Math.round(
-            lineBaselineY(runLineY, line.height, line.maxFontSizePx ?? fontSizePx),
+            lineBaselineY(runLineY, line.height, line.maxFontSizePx ?? fontSizePx, line.baseline),
           );
 
           // Inline run backgrounds (style.backgroundColor) were drawn
@@ -567,7 +567,7 @@ export function renderTableContent(
           const fontSize = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
           const fontSizePx = ptToPx(fontSize);
           const baselineY = Math.round(
-            lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx),
+            lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx, firstLine.baseline),
           );
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
           // Same '' guard as the cell-text pass above (issue #728).

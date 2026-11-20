@@ -1,0 +1,115 @@
+# Lessons: font-relative line spacing (Docs + Slides)
+
+## Origin
+
+A design review of the "Meeting Notes" template on wafflebase.io found body
+text cramped compared with Google Docs. The named-style catalog already had
+Google's values (Normal 1.15, H1 27/8 px), so the values were right and the
+unit they were applied to was wrong: `multiplier × fontSize` is CSS leading,
+while Word and Google Docs use `multiplier × the font's single line`.
+
+## Pattern
+
+`docs-named-styles.md` audited the size, colour and spacing values against
+Google's own `styles.xml`, but its "line box (px)" column was computed with our
+formula rather than measured in Google Docs. A value can match the other
+product's value exactly and still render differently when the two products
+read it with different semantics. Parity checks have to compare rendered
+geometry, not only stored values.
+
+## Correction from the user (2026-11-21)
+
+The first plan scoped the change to Docs and deferred Slides to a follow-up to
+avoid reflowing existing decks. The user asked for both. Rule: when a defect
+lives in a shared engine (`computeLayout` is used by docs, slides and board),
+plan the fix for every host that shows the defect, and handle each host's
+migration risk inside the plan. Deferring a host is the user's call, not a
+default way to shrink the risk.
+
+## Step 0 measurements (2026-11-21, Chrome, 100% zoom, DPR 2)
+
+Method: a new Google Docs document. Read the canvas pixels
+(`.kix-canvas-tile-content`, `getImageData`) and take the top of the "L" that
+starts every line, then compute the pitch over 4–5 lines. Google Slides
+renders SVG, so there the method was `getScreenCTM()` of each line's `<text>`
+over the screen font size.
+
+### Google Docs
+
+| Font | Size | Spacing | Pitch (CSS px) | Pitch / font px | Single ratio |
+| --- | --- | --- | --- | --- | --- |
+| Arial | 11 pt | 1.15 (default) | 19.25 | 1.3125 | 1.141 |
+| Arial | 11 pt | Single | 16.625 | 1.1335 | 1.134 |
+| Arial | 11 pt | Double | 33.5 | 2.284 | 1.142 |
+| Arial | 72 pt | Single | 110.2 | 1.148 | **1.148** |
+| Roboto | 72 pt | Single | 115.25 | 1.2005 | **1.2005** |
+| Nanum Gothic | 72 pt | Single | 156.0 | 1.625 | **1.625** |
+| Arial + Hangul (fallback glyphs) | 72 pt | Single | 110.2 | 1.148 | 1.148 |
+
+The 11 pt rows carry ±1 device px of rounding; the 72 pt rows are the precise
+ones. Font-file metrics (fontkit):
+
+| Font | hhea asc/desc/gap | win asc/desc | hhea ratio | win ratio | typo ratio |
+| --- | --- | --- | --- | --- | --- |
+| Arial (macOS) | 1854/−434/67 | 1854/434 | 1.1499 | 1.1172 | 1.0884 |
+| Roboto v48 | 1900/−500/0 | 1946/512 | 1.1719 | 1.2002 | 1.0498 |
+| Nanum Gothic v26 | 844/−156/0 | 885/198 | 1.0000 | 1.0830 | 1.2500 |
+
+- First hypothesis (two Latin fonts): `max(winAscent + winDescent, hhea
+  asc − desc + gap) / upm`, GDI's `tmHeight + tmExternalLeading`. It fit
+  Arial and Roboto **and was wrong**. See the second round below.
+- **The line ratio follows the run's declared family, not the glyph that
+  painted.** Hangul typed in an Arial run kept Arial's 1.148.
+- **Glyph placement:** at 11 pt the first line's ink top did not move between
+  Single, 1.15 and Double. The extra leading goes **below** the text.
+
+### Google Docs, second round (same day, 72 pt Single)
+
+| Font | Measured | hhea (+gap) | typo (+gap) | win | useTypo | Fits "normal" (×1.3 CJK) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Open Sans | 1.3611 | 1.3618 | 1.3618 | 1.4419 | yes | ✓ (GDI max says 1.4419 ✗) |
+| Georgia | 1.1372 | 1.1362 | 1.0698 | 1.1362 | no | ✓ |
+| Montserrat | 1.2188 | 1.2190 | 1.2190 | 1.5620 | yes | ✓ |
+| Merriweather | 1.2569 | 1.2570 | 1.2570 | 1.7320 | yes | ✓ |
+| Noto Sans KR | 1.8837 | 1.4480 | 1.0000 | 1.4480 | no | ✓ 1.3 × 1.448 = 1.8824 |
+| Gothic A1 | 1.625 | 1.25 | 1.25 | 1.5781 | yes | ✓ 1.3 × 1.25 |
+| Nanum Myeongjo | 1.625 | 1.25 | 1.25 | 1.1514 | yes | ✓ 1.3 × 1.25 |
+| Nanum Gothic | 1.625 | 1.00 | 1.25 | 1.0830 | yes | ✓ 1.3 × 1.25 |
+| Arial | 1.148 | 1.1499 | 1.0884 | 1.1172 | no | ✓ |
+| Roboto | 1.2005 | 1.1719 | 1.0498 | 1.2002 | no | ✗ (Docs serves its own build) |
+
+- **Rule:** single line = the browser's *normal* line height (typo metrics
+  when `USE_TYPO_METRICS` is set, else hhea, both including the line gap),
+  ×1.3 for CJK fonts. Nine of ten match within 0.003 em. Roboto is a measured
+  override.
+- **Baseline:** `above = lineGap + ascent + (single − normal) / 2`, so a CJK
+  font's extra is split evenly. Fitted from the cap tops against each font's
+  cap height: Latin within 0.003 em, CJK within 0.004 em. Nanum Gothic is off
+  by 0.043 em, because its `OS/2` cap height disagrees with its glyphs.
+- Google Docs loads its own `docs-<Family>` FontFace builds. CSS `line-height:
+  normal` of those builds in the page equals the measured pitch for Arial and
+  Open Sans but not for Roboto, which is why one override is needed.
+
+### Pattern: two data points fit a wrong formula
+
+The GDI formula matched both fonts in round one and was then contradicted by
+Open Sans. A rule taken from another product needs a data point chosen to
+*break* it (a font whose metric families disagree) before it is built on.
+
+### Google Slides
+
+| Font | Spacing | Pitch / font px | Single ratio |
+| --- | --- | --- | --- |
+| Arial | Custom 0.8 (Simple Light subtitle default) | 0.9600 | **1.2000** |
+| Arial | Double | 2.4000 | **1.2000** |
+| Roboto | Double | 2.4000 | **1.2000** |
+
+Google Slides' single line is **1.2 × font size whatever the font**, which is
+PowerPoint's rule too (our PPTX importer already hardcodes
+`PPTX_SINGLE_LINE_HEIGHT = 1.2` for that reason). Nanum Gothic was not
+re-measured in Slides because the font menu reordered under the click.
+
+### Artifacts
+
+Two scratch files were created in the user's Google Drive: "Untitled
+document" and "Untitled presentation" (2026-11-21). They can be deleted.

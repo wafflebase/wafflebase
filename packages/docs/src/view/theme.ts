@@ -195,7 +195,11 @@ export function lineBaselineY(
   lineY: number,
   lineHeight: number,
   maxFontSizePx: number,
+  baseline?: number,
 ): number {
+  // A line sized from font metrics knows where its baseline is
+  // (`LayoutLine.baseline`); only CSS-leaded lines centre the glyphs.
+  if (baseline !== undefined) return lineY + baseline;
   return lineY + (lineHeight + maxFontSizePx * 0.8) / 2;
 }
 

@@ -186,6 +186,7 @@ function paintBlock(
     const lineY = blockY + line.y;
     for (const run of line.runs) {
       renderRun(ctx, run, lineX, lineY, line.height, line.maxFontSizePx, {
+        baseline: line.baseline,
         theme,
         skipBackground: true,
         requestRender,
@@ -203,7 +204,7 @@ function paintBlock(
         block.listKind === 'unordered'
           ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
           : (listCounters.get(block.id) ?? '1.');
-      renderListMarker(ctx, block, lineY, line.height, line.maxFontSizePx, markerX, marker, theme, resolveColor);
+      renderListMarker(ctx, block, lineY, line.height, line.maxFontSizePx, markerX, marker, theme, resolveColor, line.baseline);
     }
   }
 }
@@ -363,6 +364,8 @@ export function drawInlineRunBackgroundsForPage(
  * share the body's two-pass pipeline yet.
  */
 export interface RenderRunOpts {
+  /** `LayoutLine.baseline`, when the line was sized from font metrics. */
+  baseline?: number;
   theme?: DocTheme;
   skipBackground?: boolean;
   /**
@@ -471,7 +474,7 @@ export function renderRun(
   // below intentionally stay keyed to the run's OWN size — they move a run
   // relative to itself.
   let baselineY = Math.round(
-    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? originalFontSizePx),
+    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? originalFontSizePx, opts.baseline),
   );
   if (isSuperscript) {
     baselineY -= Math.round(originalFontSizePx * 0.4);
@@ -600,6 +603,7 @@ export function renderListMarker(
   markerText: string,
   theme: DocTheme = DefaultTheme,
   resolveColor: ColorResolver = defaultColorResolver,
+  lineBaseline?: number,
 ): void {
   // `block.marker` carries authored marker style (PPTX `<a:buFont>` /
   // `<a:buSzPts>` / `<a:buClr>`) when available. Otherwise fall back to
@@ -617,7 +621,7 @@ export function renderListMarker(
   // Marker font stays the marker's own size, but the baseline uses the
   // line-common max so the marker aligns with a taller first line.
   const baselineY = Math.round(
-    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? fontSizePx),
+    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? fontSizePx, lineBaseline),
   );
   ctx.font = buildFont(fontSize, fontFamily, false, false);
   ctx.fillStyle = resolveStoredColor(resolveColor, colorSource) ?? theme.defaultColor;
