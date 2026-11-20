@@ -449,6 +449,20 @@ export const DOCS_LAYOUT_OPTIONS: LayoutOptions = Object.freeze({
   singleLineMetrics: docsSingleLineMetrics,
 });
 
+const leadingKeys = new WeakMap<SingleLineMetricsFn, number>();
+let nextLeadingKey = 0;
+
+/** A stable cache-key token per metrics function; `css` for none. */
+function leadingCacheKey(fn: SingleLineMetricsFn | undefined): string {
+  if (!fn) return 'css';
+  let key = leadingKeys.get(fn);
+  if (key === undefined) {
+    key = nextLeadingKey++;
+    leadingKeys.set(fn, key);
+  }
+  return `font:${key}`;
+}
+
 /**
  * Compute the full document layout.
  *
@@ -473,9 +487,11 @@ export function computeLayout(
   // reusing lines across a theme toggle would repaint the previous surface's
   // grey. (`EditorAPI.setTheme` also drops the cache outright; this is the
   // belt that protects any other caller keeping a cache across a toggle.)
-  // Whether lines are sized from font metrics joins it too: cached line
-  // heights from one model are wrong under the other.
-  const leadingKey = opts?.singleLineMetrics ? 'font' : 'css';
+  // Which leading model sized the lines joins it too: cached line heights
+  // from one are wrong under another. Keyed on the function's identity, not
+  // its presence, because a slides host may swap one metrics function for
+  // another on the same cache (a deck converted mid-session).
+  const leadingKey = leadingCacheKey(opts?.singleLineMetrics);
   const docStylesKey = `${surface ?? 'light'}|${leadingKey}|${JSON.stringify(docStyles ?? {})}`;
   const canUseCache = cache != null
     && dirtyBlockIds != null
@@ -959,26 +975,30 @@ function assignFontRelativeLineHeights(
       above = m.above * maxFontSize;
       below = m.below * maxFontSize;
     }
-    const single = above + below;
-    const textHeight = Math.max(single * multiplier, maxFontSize);
+    // A host function returning a degenerate line (it cannot here, but the
+    // seam is public) falls back to the font's own height rather than
+    // dividing by zero below.
+    const single = above + below > 0 ? above + below : maxFontSize;
+    const spaced = Math.max(single * multiplier, maxFontSize);
     // Spacing under 1.0 shrinks the glyph box itself, so the baseline moves
     // up with it rather than staying `above` down a box now shorter than
     // that (a CJK font's `above` alone exceeds its size).
-    const squeeze = Math.min(1, textHeight / single);
-    let lineHeight = textHeight;
+    const squeeze = Math.min(1, spaced / single);
+    const glyphBox = single * squeeze;
+    // Content is the glyph box or the tallest inline image, whichever is
+    // taller; images sit on its bottom (`lineContentBottom`) and the text's
+    // baseline moves down with it. The spacing goes below the content, so an
+    // image line at Double keeps the same gap under it a text line does.
+    let content = glyphBox;
     for (const run of line.runs) {
-      if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
-        lineHeight = run.imageHeight;
-      }
+      if (run.imageHeight !== undefined && run.imageHeight > content) content = run.imageHeight;
     }
+    const lineHeight = content + (spaced - glyphBox);
     line.y = blockY;
     line.height = lineHeight;
     line.maxFontSizePx = maxFontSize;
-    // An image taller than the text pushes the text down to sit on the
-    // image's bottom-aligned row, the way it did under CSS leading.
-    const imageOffset = lineHeight - textHeight;
-    line.baseline = above * squeeze + imageOffset;
-    line.textHeight = single * squeeze + imageOffset;
+    line.baseline = above * squeeze + (content - glyphBox);
+    line.textHeight = content;
     blockY += lineHeight;
   }
 }

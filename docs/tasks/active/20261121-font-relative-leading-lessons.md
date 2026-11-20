@@ -128,3 +128,20 @@ document" and "Untitled presentation" (2026-11-21). They can be deleted.
   Lesson: a new per-line field inherits every invariant the old one had
   (here the banding of untrusted geometry). Grep for the old field's
   guards before adding a sibling.
+- Round 2 — panel: 2 blocking (correctness: the metrics lookup skipped the
+  painter's alias/suffix resolution, so `'Gothic A1 Bold'` and `'맑은 고딕'`
+  sized as Arial; blast-radius: the second, sum-overflow pass of cell
+  banding reset heights but kept baselines). Both fixed: a shared
+  `fontFamilyCandidates` in `fonts.ts` (no injected Korean fallback, so an
+  unknown Latin family still takes Arial) behind a bounded memo, and the
+  second pass clears baseline/text box. The independent code review
+  (`requesting-code-review`) found two more the panel did not: inline
+  images were still bottom-aligned to the line box, so they sank into the
+  spacing below the text, and carets spanned the spacing too. Fixed with
+  `lineContentBottom` at every image/caret site, and an image taller than
+  the text keeps the spacing below it. Also fixed from that review: the
+  layout cache key covers the metrics function's identity (PR 2 swaps
+  functions on one cache), and a zero-height line from a host is guarded.
+  Lesson: "every painter honours the new baseline" was checked; "every
+  consumer of the line box bottom" was not. A geometry change needs both
+  greps.

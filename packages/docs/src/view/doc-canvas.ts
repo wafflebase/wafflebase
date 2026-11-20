@@ -5,7 +5,7 @@ import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTa
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
-import { Theme } from './theme.js';
+import { Theme, lineContentBottom } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 import { computeTableRangeForPageLine } from './table-geometry.js';
@@ -571,6 +571,7 @@ export class DocCanvas {
           if (dragImageRun && run === dragImageRun) continue;
           paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, {
             baseline: pl.line.baseline,
+            textHeight: pl.line.textHeight,
             theme: Theme,
             skipBackground: true,
             requestRender: this.requestRender ?? undefined,
@@ -588,7 +589,7 @@ export class DocCanvas {
             const drawH = run.imageHeight ?? pl.line.height;
             const box = {
               x: pageX + pl.x + run.x,
-              y: pageY + pl.y + pl.line.height - drawH,
+              y: pageY + pl.y + lineContentBottom(pl.line) - drawH,
               width: run.width,
               height: drawH,
             };
@@ -721,6 +722,7 @@ export class DocCanvas {
     lineMaxFontSizePx: number | undefined,
     pageNumber: number,
     lineBaseline?: number,
+    lineTextHeight?: number,
   ): void {
     const target = run.inline.style.pageNumber
       ? {
@@ -731,6 +733,7 @@ export class DocCanvas {
       : run;
     paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, lineMaxFontSizePx, {
       baseline: lineBaseline,
+      textHeight: lineTextHeight,
       theme: Theme,
       skipBackground: false,
       requestRender: this.requestRender ?? undefined,
@@ -769,7 +772,7 @@ export class DocCanvas {
         for (const run of line.runs) {
           this.renderRunWithPageNumber(
             run, originX, originY + lb.y + line.y, line.height, line.maxFontSizePx, pageNumber,
-            line.baseline,
+            line.baseline, line.textHeight,
           );
         }
       }

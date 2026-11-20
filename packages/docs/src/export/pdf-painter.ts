@@ -13,7 +13,7 @@ import {
   computeMergedCellLineLayouts,
   getBlockIndexForLine,
 } from '../view/table-geometry.js';
-import { Theme, ptToPx, lineBaselineY } from '../view/theme.js';
+import { Theme, ptToPx, lineBaselineY, lineContentBottom } from '../view/theme.js';
 import { PdfFonts, customFontKey, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
 import {
   resolveFontKey,
@@ -443,6 +443,7 @@ export class PdfPainter {
         fonts,
         ctx,
         line.baseline,
+        line.textHeight,
       );
     }
   }
@@ -672,6 +673,7 @@ export class PdfPainter {
     fonts: EmbeddedFonts,
     ctx: PaintContext,
     lineBaseline?: number,
+    lineTextHeight?: number,
   ): void {
     const style = run.inline.style;
 
@@ -687,7 +689,8 @@ export class PdfPainter {
       if (!entry) return;
       const drawWidthPx = run.width;
       const drawHeightPx = run.imageHeight ?? lineHeightPx;
-      const imageBottomYpx = lineYpx + lineHeightPx;
+      const imageBottomYpx = lineYpx
+        + lineContentBottom({ height: lineHeightPx, textHeight: lineTextHeight });
       const xPx = lineXpx + run.x;
       page.drawImage(entry.embedded, {
         x: px2pt(xPx),

@@ -1,7 +1,7 @@
 import type { DocumentLayout, LayoutBlock } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { getPageXOffset, getPageYOffset } from './pagination.js';
-import { Theme } from './theme.js';
+import { Theme, lineContentBottom } from './theme.js';
 
 /**
  * Axis-aligned rectangle in document-layout coordinates (i.e. the same
@@ -324,7 +324,7 @@ export function collectImageRects(
         if (run.inline.style.image) {
           const drawHeight = run.imageHeight ?? lineHeight;
           const x = pageX + pl.x + run.x;
-          const y = pageY + pl.y + lineHeight - drawHeight;
+          const y = pageY + pl.y + lineContentBottom(pl.line) - drawHeight;
           const key = `${lb.block.id}:${blockOffset}`;
           map.set(key, { x, y, width: run.width, height: drawHeight });
         }
@@ -425,11 +425,11 @@ function collectTableCellImageRects(
         if (run.inline.style.image) {
           const drawHeight = run.imageHeight ?? line.height;
           const x = cellX + padding + run.x;
-          const y = cellY + padding + line.y + line.height - drawHeight;
+          const y = cellY + padding + line.y + lineContentBottom(line) - drawHeight;
 
           // For split fragments, skip images outside the visible range
           if (isSplit) {
-            const imgTop = padding + line.y + line.height - drawHeight;
+            const imgTop = padding + line.y + lineContentBottom(line) - drawHeight;
             const imgBottom = imgTop + drawHeight;
             if (imgBottom <= splitOffset || imgTop >= splitOffset + rowSplitHeight!) {
               offsetInBlock += run.charEnd - run.charStart;
@@ -507,7 +507,7 @@ function collectNestedTableImageRects(
           if (run.inline.style.image) {
             const drawHeight = run.imageHeight ?? line.height;
             const x = cellX + padding + run.x;
-            const y = cellY + padding + line.y + line.height - drawHeight;
+            const y = cellY + padding + line.y + lineContentBottom(line) - drawHeight;
             const key = `${innerBlock.id}:${offsetInBlock}`;
             out.set(key, { x, y, width: run.width, height: drawHeight });
           }

@@ -147,13 +147,16 @@ We already disagree with ourselves at both file boundaries:
 PR 1 status: goldens regenerated (only the 8 `docs-mixed-font-size-*` images
 changed: the shared baseline holds and the text sits about 1 px higher, with
 the extra leading now below it); `verify:fast` green; before/after captured in
-the docs demo (`packages/docs` `vite`). Known limitation: spell-check squiggles
-and comment underlines draw at the line box bottom, so at wide spacing they
-sit below the text, as they already did under CSS leading. At the default 1.15
-they now clear the descenders, where before they overlapped them.
+the docs demo (`packages/docs` `vite`). Carets, inline images, spell squiggles
+and comment highlights hang from the content box (`LayoutLine.textHeight`,
+`lineContentBottom`), so the extra spacing below a line stays empty, while
+selection and find highlights still cover the whole line. Open question: an
+inline image sits on the bottom of the text box (the descender line), as it
+did before; whether Google Docs puts it on the baseline instead is not yet
+measured.
 
-- [ ] Regenerate the visual goldens (`pnpm verify:browser:docker`) and review
-      each changed image by eye.
+- [x] Regenerate the visual goldens (`pnpm verify:browser:docker`) and review
+      each changed image by eye. (PR 1)
 - [ ] Before → After at 393×659 for every editor the PR touches, plus a
       desktop pair beside the Google Docs/Slides measurement shot.
 - [ ] `pnpm verify:fast`; manual smoke in `pnpm dev`: typing, caret,
@@ -166,10 +169,13 @@ they now clear the descenders, where before they overlapped them.
 - **Every docs document repaginates**, by about 15% for Arial and much more
   for a document set in a CJK font (Nanum Gothic ≈ 1.4× today). This is the
   intended fix; call it out in the release notes.
-- **CJK overrides drift:** a CJK font added to the catalog without a
-  measurement silently gets its computed ratio, which for Nanum Gothic would be
-  wrong by about 50%. The generator fails when a font with a CJK subset has no
-  override entry.
+- **Table drift:** a font added to the catalog without regenerating
+  `font-metrics.data.ts` silently gets Arial's line. The drift test in
+  `font-metrics.test.ts` fails on any catalog family missing from the table.
+  A CJK font gets the ×1.3 rule from its catalog `scripts`. Windows-only
+  families (맑은 고딕, 바탕, Cambria) have no file and fall back to Arial, so
+  an imported Korean DOCX set in Malgun Gothic paginates tighter than Word.
+  That needs a follow-up with measured values.
 - **Slides version skew:** between deploy and reload, an old client renders a
   converted or marked deck in em units (about 17% tighter). Nothing is lost,
   and the effect ends at reload.

@@ -6,7 +6,7 @@ import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import type { LayoutPage } from './pagination.js';
-import { Theme as DefaultTheme, type DocTheme, buildFont, ptToPx, lineBaselineY } from './theme.js';
+import { Theme as DefaultTheme, type DocTheme, buildFont, ptToPx, lineBaselineY, lineContentBottom } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 
 /**
@@ -187,6 +187,7 @@ function paintBlock(
     for (const run of line.runs) {
       renderRun(ctx, run, lineX, lineY, line.height, line.maxFontSizePx, {
         baseline: line.baseline,
+        textHeight: line.textHeight,
         theme,
         skipBackground: true,
         requestRender,
@@ -366,6 +367,8 @@ export function drawInlineRunBackgroundsForPage(
 export interface RenderRunOpts {
   /** `LayoutLine.baseline`, when the line was sized from font metrics. */
   baseline?: number;
+  /** `LayoutLine.textHeight`, likewise: the content bottom images sit on. */
+  textHeight?: number;
   theme?: DocTheme;
   skipBackground?: boolean;
   /**
@@ -419,7 +422,8 @@ export function renderRun(
     const x = Math.round(lineX + run.x);
     const drawHeight = run.imageHeight ?? lineHeight;
     // Bottom-align the image so it sits on the text baseline row.
-    const y = Math.round(lineY + lineHeight - drawHeight);
+    const contentBottom = lineContentBottom({ height: lineHeight, textHeight: opts.textHeight });
+    const y = Math.round(lineY + contentBottom - drawHeight);
     const img = getOrLoadImage(style.image.src, () => {
       // Trigger a re-render when the image finishes loading.
       opts.requestRender?.();

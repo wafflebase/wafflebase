@@ -19,7 +19,7 @@ import type { DocPosition, DocRange, HeaderFooter } from '../model/types.js';
 import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
-import { Theme, setThemeMode, getThemeMode, type ThemeMode } from './theme.js';
+import { Theme, setThemeMode, getThemeMode, lineContentBottom, type ThemeMode } from './theme.js';
 import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
@@ -485,7 +485,7 @@ function computeHFTableCellCaretPixel(
   // Find the line within this block that holds `offset`, and the x within it.
   let lineIdx = blockStartLine;
   let cursorXInCell = 0;
-  let lineHeight = cell.lines[blockStartLine]?.height ?? 14;
+  let lineHeight = cell.lines[blockStartLine] ? lineContentBottom(cell.lines[blockStartLine]) : 14;
   let remaining = position.offset;
   for (let li = blockStartLine; li < blockEndLine; li++) {
     const line = cell.lines[li];
@@ -504,7 +504,7 @@ function computeHFTableCellCaretPixel(
     }
     if (remaining <= lineChars || li === blockEndLine - 1) {
       lineIdx = li;
-      lineHeight = line.height;
+      lineHeight = lineContentBottom(line);
       let chars = 0;
       cursorXInCell = 0;
       for (const run of line.runs) {
@@ -574,7 +574,7 @@ export function computeHFCursorPixel(
   // Find cursor x and line y within header/footer layout
   let cursorX = 0;
   let cursorLineY = 0;
-  let lineHeight = lb.lines[0]?.height ?? 14;
+  let lineHeight = lb.lines[0] ? lineContentBottom(lb.lines[0]) : 14;
   let offsetRemaining = position.offset;
 
   for (let li = 0; li < lb.lines.length; li++) {
@@ -592,7 +592,7 @@ export function computeHFCursorPixel(
       continue;
     }
     if (offsetRemaining <= lineChars) {
-      lineHeight = line.height;
+      lineHeight = lineContentBottom(line);
       cursorLineY = line.y;
       let chars = 0;
       for (const run of line.runs) {

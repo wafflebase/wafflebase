@@ -204,6 +204,17 @@ export function lineBaselineY(
 }
 
 /**
+ * How far down a line its content reaches — the bottom an inline image sits
+ * on and a caret or underline-style decoration stops at. A line sized from
+ * font metrics keeps its extra spacing *below* the content
+ * (`LayoutLine.textHeight`); a CSS-leaded line has no such split, so its
+ * content bottom is the line box bottom.
+ */
+export function lineContentBottom(line: { height: number; textHeight?: number }): number {
+  return line.textHeight ?? line.height;
+}
+
+/**
  * Build a CSS font string from inline style properties.
  * Font sizes are stored in pt; the CSS string uses px for Canvas compatibility.
  *

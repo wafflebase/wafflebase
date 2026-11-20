@@ -7,7 +7,7 @@ import { computeLayout, DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { createBlock, createTableBlock } from '../../src/model/types.js';
 import { computeTableLayout } from '../../src/view/table-layout.js';
 import type { SingleLineMetricsFn } from '../../src/model/line-metrics.js';
-import { ptToPx } from '../../src/view/theme.js';
+import { ptToPx, lineContentBottom } from '../../src/view/theme.js';
 import { stubMeasurer } from './_stub-measurer.js';
 
 /**
@@ -203,5 +203,91 @@ describe('font-relative leading: hostile and degenerate input', () => {
     expect(Number.isFinite(line.height)).toBe(true);
     expect(line.baseline).toBeUndefined();
     expect(line.textHeight).toBeUndefined();
+  });
+});
+
+describe('font-relative leading: images, carets and the cache', () => {
+  const lay = (b: ReturnType<typeof createBlock>, opts = DOCS_LAYOUT_OPTIONS) =>
+    computeLayout([b], stubMeasurer(), 600, undefined, undefined, undefined, undefined, opts)
+      .layout.blocks[0].lines[0];
+  const imageLine = (height: number, spacing: number) => {
+    const b = createBlock('paragraph');
+    b.inlines = [
+      { text: 'x', style: {} },
+      { text: '￼', style: { image: { src: 'x', width: 20, height } } },
+    ];
+    b.style.lineHeight = spacing;
+    b.style.authoredLineHeight = true;
+    return lay(b);
+  };
+
+  it('keeps the spacing below an image taller than the text', () => {
+    for (const spacing of [1, 2]) {
+      const line = imageLine(60, spacing);
+      // The image fills the content box; the line adds the spacing under it.
+      expect(line.textHeight).toBeCloseTo(60, 5);
+      const textOnly = imageLine(1, spacing);
+      const gap = textOnly.height - textOnly.textHeight!;
+      expect(line.height - line.textHeight!).toBeCloseTo(gap, 5);
+      // The text's baseline sits on the image row, not above it.
+      expect(line.baseline! - textOnly.baseline!).toBeCloseTo(60 - textOnly.textHeight!, 5);
+    }
+  });
+
+  it('puts a small image on the text box, not into the spacing below it', () => {
+    const line = imageLine(10, 2);
+    expect(line.textHeight!).toBeLessThan(line.height / 2 + 1e-9);
+    expect(lineContentBottom(line)).toBe(line.textHeight);
+  });
+
+  it('falls back to the font size when a host reports a zero-height line', () => {
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: 'x', style: { fontSize: 12 } }];
+    b.style.lineHeight = 1;
+    b.style.authoredLineHeight = true;
+    const line = lay(b, { ...DOCS_LAYOUT_OPTIONS, singleLineMetrics: () => ({ above: 0, below: 0 }) });
+    expect(line.height).toBeCloseTo(ptToPx(12), 5);
+    expect(Number.isFinite(line.baseline!)).toBe(true);
+  });
+
+  it('does not reuse cached lines across a change of metrics function', () => {
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: 'x', style: {} }];
+    const a: SingleLineMetricsFn = () => ({ above: 1, below: 0.2 });
+    const bigger: SingleLineMetricsFn = () => ({ above: 2, below: 0.4 });
+    const first = computeLayout([b], stubMeasurer(), 600, new Set(), undefined, undefined,
+      undefined, { singleLineMetrics: a });
+    const second = computeLayout([b], stubMeasurer(), 600, new Set(), first.cache, undefined,
+      undefined, { singleLineMetrics: bigger });
+    expect(second.layout.blocks[0].lines[0].height)
+      .toBeCloseTo(first.layout.blocks[0].lines[0].height * 2, 5);
+  });
+});
+
+describe('font-relative leading: review round 2', () => {
+  it('resolves weight-suffixed and aliased families the way the painter does', () => {
+    expect(docsSingleLineMetrics('Gothic A1 Bold')).toEqual(docsSingleLineMetrics('Gothic A1'));
+    expect(docsSingleLineMetrics('gothic a1 bold')).toEqual(docsSingleLineMetrics('Gothic A1'));
+    // 맑은 고딕 paints as Malgun Gothic where installed, else Noto Sans KR; the
+    // table knows only the latter, which is what everyone else sees.
+    expect(docsSingleLineMetrics('맑은 고딕')).toEqual(docsSingleLineMetrics('Noto Sans KR'));
+    // An unknown Latin family is not routed to the injected Korean fallback.
+    expect(docsSingleLineMetrics('Unknown Brand Sans')).toEqual(docsSingleLineMetrics('Arial'));
+  });
+
+  it('drops baseline and text box when a cell falls back to placeholder lines', () => {
+    const table = createTableBlock(1, 1);
+    const cell = table.tableData!.rows[0].cells[0];
+    const para = (id: string) => ({ ...cell.blocks[0], id, inlines: [{ text: 'x', style: {} }] });
+    cell.blocks = [para('p1'), para('p2')];
+    // Each line finite, their sum past Number.MAX_VALUE.
+    const huge: SingleLineMetricsFn = () => ({ above: 1e307, below: 0 });
+    const tl = computeTableLayout(table.tableData!, 'tbl', stubMeasurer(), 400,
+      undefined, undefined, undefined, { namedStyleSpacing: true, singleLineMetrics: huge });
+    for (const line of tl.cells[0][0].lines) {
+      expect(Number.isFinite(line.height)).toBe(true);
+      expect(line.baseline).toBeUndefined();
+      expect(line.textHeight).toBeUndefined();
+    }
   });
 });

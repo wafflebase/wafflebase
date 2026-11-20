@@ -87,7 +87,13 @@ export interface PeerCursor {
 export interface PositionPixel {
   x: number;
   y: number;
+  /** The whole line box. */
   height: number;
+  /**
+   * How far down the line its content reaches (`lineContentBottom`) — what a
+   * caret spans. Absent where the line has no such split.
+   */
+  textHeight?: number;
 }
 
 /**
@@ -203,6 +209,7 @@ export function resolvePositionPixel(
         let cursorX = 0;
         let targetLineIdx = -1;
         let lineHeight = tl.rowHeights[rowIndex] ?? 20;
+        let textHeight: number | undefined;
         let offsetRemaining = position.offset;
 
         for (let li = startLine; li < endLine; li++) {
@@ -223,6 +230,7 @@ export function resolvePositionPixel(
             }
             targetLineIdx = li;
             lineHeight = line.height;
+            textHeight = line.textHeight;
             let chars = 0;
             for (const run of line.runs) {
               if (offsetRemaining <= chars + run.text.length) {
@@ -246,6 +254,7 @@ export function resolvePositionPixel(
           const tailLine = cell.lines[targetLineIdx];
           if (tailLine) {
             lineHeight = tailLine.height;
+            textHeight = tailLine.textHeight;
             const lastRun = tailLine.runs[tailLine.runs.length - 1];
             cursorX = lastRun ? lastRun.x + lastRun.width : 0;
           }
@@ -292,6 +301,7 @@ export function resolvePositionPixel(
             x: pageX + margins.left + cellX + cursorX,
             y: pageY + found.pageLine.y + lineInRow - splitOffset,
             height: lineHeight,
+            textHeight,
           };
         }
 
@@ -345,6 +355,7 @@ export function resolvePositionPixel(
           x: pageX + margins.left + xOffset + innerCellX + cursorX,
           y: innerCursorY,
           height: lineHeight,
+          textHeight,
         };
       }
     }
@@ -385,7 +396,10 @@ export function resolvePositionPixel(
         xOffset = caretOffsetX(run, localOffset, measurer);
       }
       const x = pageX + pageLine.x + run.x + xOffset;
-      return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+      return {
+        x, y: pageY + pageLine.y, height: pageLine.line.height,
+        textHeight: pageLine.line.textHeight,
+      };
     }
     charCount += runLength;
   }
@@ -397,6 +411,7 @@ export function resolvePositionPixel(
       x: pageX + pageLine.x + lastRun.x + lastRun.width,
       y: pageY + pageLine.y,
       height: pageLine.line.height,
+      textHeight: pageLine.line.textHeight,
     };
   }
   // Empty line — compute effective marginLeft (includes list indent)
@@ -405,7 +420,10 @@ export function resolvePositionPixel(
     // Normalized, matching the clamped body indent in `layout.ts`.
     marginLeft += LIST_INDENT_PX * (normalizeListLevel(lb.block.listLevel) + 1);
   }
-  return { x: pageX + pageLine.x + marginLeft, y: pageY + pageLine.y, height: pageLine.line.height };
+  return {
+    x: pageX + pageLine.x + marginLeft, y: pageY + pageLine.y, height: pageLine.line.height,
+    textHeight: pageLine.line.textHeight,
+  };
 }
 
 /**
@@ -417,7 +435,9 @@ export function drawPeerCaret(
   color: string,
 ): void {
   ctx.fillStyle = color;
-  ctx.fillRect(pixel.x, pixel.y, 2, pixel.height);
+  // The content box: a line's extra spacing sits below its text, and a caret
+  // reaching into it would point at nothing.
+  ctx.fillRect(pixel.x, pixel.y, 2, pixel.textHeight ?? pixel.height);
 }
 
 /**

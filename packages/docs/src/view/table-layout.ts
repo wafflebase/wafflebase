@@ -94,7 +94,13 @@ function bandCellGeometry(cell: LayoutTableCell, padding: number): void {
   // `Infinity` row it exists to prevent: the second pass gives every line the
   // placeholder height instead.
   if (!Number.isFinite(total)) {
-    for (const line of cell.lines) line.height = defaultLineHeight();
+    for (const line of cell.lines) {
+      line.height = defaultLineHeight();
+      // A baseline or text box measured inside the old, huge height no
+      // longer fits the placeholder line; painters centre without them.
+      line.baseline = undefined;
+      line.textHeight = undefined;
+    }
     total = reflowCellLines(cell.lines);
   }
   cell.height = total + pad * 2;
