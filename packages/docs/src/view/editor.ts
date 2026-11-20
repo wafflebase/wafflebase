@@ -9,7 +9,7 @@ import { MAX_TABLE_NESTING_DEPTH } from '../model/table-nesting.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
-import { Selection, computeSelectionRects } from './selection.js';
+import { Selection, computeSelectionRects, type LineRect } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, DOCS_LAYOUT_OPTIONS, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutOptions, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, getBlockIndex, getBlockYExtent, type PaginatedLayout } from './pagination.js';
@@ -1496,7 +1496,7 @@ export function initialize(
   let spellSession: SpellSession | null = null;
   // Cache of spell-error rects from the last render(). Read by the
   // spell context-menu hit-test path.
-  let lastSpellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  let lastSpellErrorRects: LineRect[] = [];
   // Whether the built-in spell checker is active. On by default.
   let spellEnabled = true;
   // Debounce handle for re-checking after edits / cursor moves.
@@ -2148,7 +2148,7 @@ export function initialize(
     }
 
     // Compute spell-error rectangles (view-local; never persisted).
-    let spellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    let spellErrorRects: LineRect[] = [];
     if (spellSession) {
       for (const err of spellSession.errors) {
         if (!isBlockVisible(err.blockId)) continue;

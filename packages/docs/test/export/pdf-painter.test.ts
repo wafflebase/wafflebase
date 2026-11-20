@@ -8,7 +8,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { PdfPainter } from '../../src/export/pdf-painter.js';
 import { PdfExporter } from '../../src/export/pdf-exporter.js';
 import { PdfFonts, type PdfFontKey } from '../../src/export/pdf-fonts.js';
-import { computeLayout } from '../../src/view/layout.js';
+import { computeLayout, DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { paginateLayout } from '../../src/view/pagination.js';
 import {
   DEFAULT_BLOCK_STYLE,
@@ -436,5 +436,48 @@ describe('PdfExporter — custom font embedding', () => {
       measurer: mockCtx(),
     });
     expect(await embeddedFontPrograms(blob)).toBe(0);
+  });
+});
+
+describe('PdfPainter font-relative baseline', () => {
+  it('draws text on the line baseline the layout computed, not the centred one', async () => {
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'Spaced', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE, lineHeight: 2, authoredLineHeight: true },
+      }],
+      pageSetup: { ...DEFAULT_PAGE_SETUP },
+    };
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest(), {
+      needsKR: false, needsKRSerif: false, needsLatinSerif: false,
+      needsBold: false, needsItalic: false, customFamilies: new Map(),
+    });
+    const pageSetup = DEFAULT_PAGE_SETUP;
+    const { width } = getEffectiveDimensions(pageSetup);
+    const { layout } = computeLayout(
+      doc.blocks, mockCtx(), width - pageSetup.margins.left - pageSetup.margins.right,
+      undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS,
+    );
+    const lp = paginateLayout(layout, pageSetup).pages[0];
+    const pl = lp.lines[0];
+    // Double spacing puts the extra line below the text, so the font-relative
+    // baseline is well above the centred one; the PDF must agree with canvas.
+    expect(pl.line.baseline).toBeDefined();
+    expect(pl.line.baseline!).toBeLessThan(pl.line.height / 2);
+
+    const pageHeightPt = (lp.height / 96) * 72;
+    const page = pdfDoc.addPage([(lp.width / 96) * 72, pageHeightPt]);
+    const ys: number[] = [];
+    vi.spyOn(page, 'drawText').mockImplementation((_text, opts) => {
+      ys.push(opts!.y!);
+    });
+    PdfPainter.paintPage(page, lp, pageSetup, fonts, {
+      doc, imageMap: new Map(), layoutBlocks: layout.blocks,
+    });
+    expect(ys[0]).toBeCloseTo(pageHeightPt - ((pl.y + pl.line.baseline!) / 96) * 72, 3);
   });
 });

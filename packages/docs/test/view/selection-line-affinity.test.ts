@@ -156,3 +156,19 @@ describe('selection endpoint lineAffinity', () => {
     expect(rects[rects.length - 1].y).toBe(LINE1_Y);
   });
 });
+
+describe('selection rects carry the text box', () => {
+  it('passes each line\'s textHeight through, so decorations sit under the text', () => {
+    const { layout, paginatedLayout } = makeWrappedLayout();
+    for (const l of layout.blocks[0].lines) l.textHeight = 12;
+    const rects = computeSelectionRects(
+      { anchor: { blockId: 'b1', offset: 1 }, focus: { blockId: 'b1', offset: 9 } },
+      paginatedLayout, layout, stubMeasurer(CHAR_W), 816,
+    );
+    expect(rects.length).toBeGreaterThan(1);
+    for (const r of rects) {
+      expect(r.height).toBe(LINE_H); // the highlight still covers the line
+      expect(r.textHeight).toBe(12);
+    }
+  });
+});

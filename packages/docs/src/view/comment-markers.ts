@@ -22,6 +22,8 @@ export interface HighlightRect {
   y: number;
   width: number;
   height: number;
+  /** See `LineRect.textHeight` in `selection.ts`. */
+  textHeight?: number;
 }
 
 /**

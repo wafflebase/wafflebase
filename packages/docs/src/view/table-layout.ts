@@ -67,6 +67,19 @@ function bandCellGeometry(cell: LayoutTableCell, padding: number): void {
       line.height = defaultLineHeight();
       repaired = true;
     }
+    // The baseline and text box are the same untrusted arithmetic. One that
+    // is not finite, or that lies outside a (possibly just repaired) line,
+    // is dropped: painters then centre the glyphs in the line box, which is
+    // always drawable.
+    if (line.baseline !== undefined
+      && !(Number.isFinite(line.baseline) && line.baseline >= 0 && line.baseline <= line.height)) {
+      line.baseline = undefined;
+      line.textHeight = undefined;
+    }
+    if (line.textHeight !== undefined
+      && !(Number.isFinite(line.textHeight) && line.textHeight >= 0 && line.textHeight <= line.height)) {
+      line.textHeight = undefined;
+    }
   }
   if (!repaired) return;
   // The padding is the other term of the sum, and it is a stored attribute

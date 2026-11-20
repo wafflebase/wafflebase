@@ -8,6 +8,16 @@ import { FONT_LINE_METRICS } from './font-metrics.data.js';
  */
 const FALLBACK: SingleLineMetrics = toMetrics(FONT_LINE_METRICS.arial);
 
+/**
+ * A `Map`, not the generated object, because the key is a peer-written
+ * `fontFamily`: indexing a plain object with `constructor` or `__proto__`
+ * walks the prototype chain and hands back a function, which would throw on
+ * every layout pass of the document.
+ */
+const METRICS = new Map<string, SingleLineMetrics>(
+  Object.entries(FONT_LINE_METRICS).map(([family, entry]) => [family, toMetrics(entry)]),
+);
+
 function toMetrics([above, below]: readonly [number, number]): SingleLineMetrics {
   return { above, below };
 }
@@ -27,6 +37,5 @@ function primaryFamily(fontFamily: string): string {
  */
 export const docsSingleLineMetrics: SingleLineMetricsFn = (fontFamily) => {
   if (!fontFamily) return FALLBACK;
-  const entry = FONT_LINE_METRICS[primaryFamily(fontFamily)];
-  return entry ? toMetrics(entry) : FALLBACK;
+  return METRICS.get(primaryFamily(fontFamily)) ?? FALLBACK;
 };

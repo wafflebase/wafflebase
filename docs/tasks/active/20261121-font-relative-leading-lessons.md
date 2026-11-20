@@ -113,3 +113,18 @@ re-measured in Slides because the font menu reordered under the click.
 
 Two scratch files were created in the user's Google Drive: "Untitled
 document" and "Untitled presentation" (2026-11-21). They can be deleted.
+
+## Self-review (PR 1)
+
+- Round 1 — 6 blocking (correctness ×2, security, test-adequacy,
+  blast-radius ×2), all fixed: the metrics table moved into a `Map`
+  (a `constructor`/`__proto__` family resolved through `Object.prototype`
+  and threw on every layout pass); spacing under 1.0 now squeezes the
+  baseline with the text box (a CJK `above` exceeds the 1.0 em floor);
+  cell banding drops a non-finite or out-of-box `baseline`; a PDF test
+  pins the font-relative baseline; and decorations hang from a new
+  `LayoutLine.textHeight` (carried on `LineRect`) instead of the line-box
+  bottom. Selection and find highlights still cover the whole line.
+  Lesson: a new per-line field inherits every invariant the old one had
+  (here the banding of untrusted geometry). Grep for the old field's
+  guards before adding a sibling.

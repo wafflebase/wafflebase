@@ -230,6 +230,14 @@ export interface LayoutLine {
    * here instead of centring the glyphs (`lineBaselineY`).
    */
   baseline?: number;
+  /**
+   * The line top to the bottom of its text, in px — the box a decoration
+   * that underlines the text (spell squiggle, find match, comment rule)
+   * hangs from. Set with `baseline`; without it the line box is the text box.
+   * It differs from `height` because a line's extra spacing sits below its
+   * text.
+   */
+  textHeight?: number;
   nestedTable?: LayoutTable;
 }
 
@@ -951,7 +959,12 @@ function assignFontRelativeLineHeights(
       above = m.above * maxFontSize;
       below = m.below * maxFontSize;
     }
-    const textHeight = Math.max((above + below) * multiplier, maxFontSize);
+    const single = above + below;
+    const textHeight = Math.max(single * multiplier, maxFontSize);
+    // Spacing under 1.0 shrinks the glyph box itself, so the baseline moves
+    // up with it rather than staying `above` down a box now shorter than
+    // that (a CJK font's `above` alone exceeds its size).
+    const squeeze = Math.min(1, textHeight / single);
     let lineHeight = textHeight;
     for (const run of line.runs) {
       if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
@@ -963,7 +976,9 @@ function assignFontRelativeLineHeights(
     line.maxFontSizePx = maxFontSize;
     // An image taller than the text pushes the text down to sit on the
     // image's bottom-aligned row, the way it did under CSS leading.
-    line.baseline = above + (lineHeight - textHeight);
+    const imageOffset = lineHeight - textHeight;
+    line.baseline = above * squeeze + imageOffset;
+    line.textHeight = single * squeeze + imageOffset;
     blockY += lineHeight;
   }
 }

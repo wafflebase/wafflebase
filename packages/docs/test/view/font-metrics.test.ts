@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { FONT_LINE_METRICS } from '../../src/view/font-metrics.data.js';
 import { docsSingleLineMetrics } from '../../src/view/font-metrics.js';
 import { computeLayout, DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
-import { createBlock } from '../../src/model/types.js';
+import { createBlock, createTableBlock } from '../../src/model/types.js';
+import { computeTableLayout } from '../../src/view/table-layout.js';
 import type { SingleLineMetricsFn } from '../../src/model/line-metrics.js';
 import { ptToPx } from '../../src/view/theme.js';
 import { stubMeasurer } from './_stub-measurer.js';
@@ -151,5 +152,56 @@ describe('font-metrics.data.ts drift', () => {
     const missing = families.filter((f) => !(f in FONT_LINE_METRICS) && !NO_FILE.has(f));
     // Fix by re-running `node packages/docs/scripts/build-font-metrics.mjs`.
     expect(missing).toEqual([]);
+  });
+});
+
+describe('font-relative leading: hostile and degenerate input', () => {
+  it('treats Object.prototype names as unknown families', () => {
+    const arial = docsSingleLineMetrics('Arial');
+    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      expect(docsSingleLineMetrics(name)).toEqual(arial);
+    }
+  });
+
+  it('lays out a run whose family is a prototype key', () => {
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: 'x', style: { fontFamily: 'constructor' } }];
+    expect(() => computeLayout([b], stubMeasurer(), 600, undefined, undefined, undefined,
+      undefined, DOCS_LAYOUT_OPTIONS)).not.toThrow();
+  });
+
+  it('keeps a squeezed CJK baseline inside its line', () => {
+    // Noto Sans KR's `above` alone is 1.38 em, more than the 1.0 em floor.
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: '가', style: { fontFamily: 'Noto Sans KR' } }];
+    b.style.lineHeight = 0.5;
+    b.style.authoredLineHeight = true;
+    const line = computeLayout([b], stubMeasurer(), 600, undefined, undefined, undefined,
+      undefined, DOCS_LAYOUT_OPTIONS).layout.blocks[0].lines[0];
+    expect(line.baseline!).toBeGreaterThan(0);
+    expect(line.baseline!).toBeLessThanOrEqual(line.height);
+    expect(line.textHeight!).toBeLessThanOrEqual(line.height + 1e-9);
+  });
+
+  it('records where the text ends, above the extra spacing', () => {
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: 'x', style: {} }];
+    b.style.lineHeight = 2;
+    b.style.authoredLineHeight = true;
+    const line = computeLayout([b], stubMeasurer(), 600, undefined, undefined, undefined,
+      undefined, DOCS_LAYOUT_OPTIONS).layout.blocks[0].lines[0];
+    expect(line.textHeight).toBeCloseTo(line.height / 2, 5);
+  });
+
+  it('drops a non-finite baseline from a table cell line', () => {
+    const table = createTableBlock(1, 1);
+    table.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'x', style: {} }];
+    const poisoned: SingleLineMetricsFn = () => ({ above: NaN, below: 1 });
+    const tl = computeTableLayout(table.tableData!, 'tbl', stubMeasurer(), 400,
+      undefined, undefined, undefined, { namedStyleSpacing: true, singleLineMetrics: poisoned });
+    const line = tl.cells[0][0].lines[0];
+    expect(Number.isFinite(line.height)).toBe(true);
+    expect(line.baseline).toBeUndefined();
+    expect(line.textHeight).toBeUndefined();
   });
 });
