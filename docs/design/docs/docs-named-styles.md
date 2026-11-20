@@ -240,7 +240,24 @@ generates from the font files — the browser's normal line height (`OS/2` typo
 metrics under `USE_TYPO_METRICS`, else `hhea`), 1.3× for CJK fonts, measured
 values for the fonts the rule misses (Roboto) — so the browser, Node pagination
 and PDF export agree regardless of web-font load timing. Unknown families take
-Arial's line. Slides uses the same seam with a constant 1.2; see
+Arial's line. The lookup goes through `fontFamilyCandidates` (`fonts.ts`),
+the same alias and weight-suffix resolution the painter's font stack uses,
+so a stored `'Gothic A1 Bold'` or `'맑은 고딕'` sizes from the face that is
+drawn. The injected Korean glyph fallback is left out, so an unknown Latin
+family still takes Arial's line.
+
+Because the spacing sits below the content, a line also records
+`LayoutLine.textHeight`, how far down its content reaches (the glyph box,
+or the tallest inline image). `lineContentBottom(line)` (`theme.ts`) is what
+inline images sit on and what carets, spell squiggles and comment
+highlights stop at. Selection and find highlights still cover the whole
+line box, as in Google Docs. An image taller than the text keeps the same
+spacing below it that a text line has. Spacing under 1.0 squeezes the glyph
+box and its baseline together, never below the font's own height. Table-cell
+banding drops a non-finite or out-of-box `baseline`/`textHeight`, so
+painters fall back to centring.
+
+Slides uses the same seam with a constant 1.2; see
 [slides.md](../slides/slides.md#line-spacing-is-a-multiple-of-powerpoints-single-line).
 The audit above already shows that a belief about another product can be
 pinned by a test and still be wrong, so the regression tests here pin measured

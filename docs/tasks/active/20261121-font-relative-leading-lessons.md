@@ -145,3 +145,7 @@ document" and "Untitled presentation" (2026-11-21). They can be deleted.
   Lesson: "every painter honours the new baseline" was checked; "every
   consumer of the line box bottom" was not. A geometry change needs both
   greps.
+- Round 3 — did not run: four lenses hit `USAGE_LIMIT` (HTTP 429), and the
+  correctness verifier errored on the one carried-forward finding (the
+  alias lookup, already fixed in 00b9e0475). Not a clean round. A fourth
+  round needs `--force` once quota returns.
