@@ -133,9 +133,9 @@ describe('font-relative line heights', () => {
 
 describe('font-metrics.data.ts drift', () => {
   /**
-   * Families the generator deliberately leaves to the Arial fallback: they
-   * ship only with Windows/Office, so there is no file to read and guessing
-   * would be worse than saying so (see `SYSTEM` in the generator).
+   * Families with no file to read (Windows/Office only); the generator
+   * leaves them out and the runtime sizes them from their font stack's
+   * fallback face (see `SYSTEM` in the generator).
    */
   const NO_FILE = new Set(['cambria', '맑은 고딕', '바탕']);
 

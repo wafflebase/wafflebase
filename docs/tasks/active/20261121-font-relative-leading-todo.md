@@ -173,8 +173,9 @@ measured.
   `font-metrics.data.ts` silently gets Arial's line. The drift test in
   `font-metrics.test.ts` fails on any catalog family missing from the table.
   A CJK font gets the ×1.3 rule from its catalog `scripts`. Windows-only
-  families (맑은 고딕, 바탕, Cambria) have no file and fall back to Arial, so
-  an imported Korean DOCX set in Malgun Gothic paginates tighter than Word.
+  families have no file: 맑은 고딕 / 바탕 size from their stack's fallback
+  (Noto Sans KR / Noto Serif KR), Cambria from Arial, so an imported Korean
+  DOCX set in Malgun Gothic paginates differently from Word.
   That needs a follow-up with measured values.
 - **Slides version skew:** between deploy and reload, an old client renders a
   converted or marked deck in em units (about 17% tighter). Nothing is lost,

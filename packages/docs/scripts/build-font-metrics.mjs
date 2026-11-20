@@ -62,8 +62,9 @@ const MEASURED = {
  * (fontkit over the macOS Supplemental copies; none sets USE_TYPO_METRICS).
  * Helvetica takes Arial's metrics: Arial was drawn metric-compatible with it,
  * and the macOS Helvetica is a `.ttc` whose metrics differ by platform.
- * Cambria, 맑은 고딕 and 바탕 ship only with Windows/Office and are left to
- * the runtime fallback rather than guessed.
+ * Cambria, 맑은 고딕 and 바탕 ship only with Windows/Office and are not
+ * guessed: at runtime the Korean two resolve through their font stacks to
+ * Noto Sans KR / Noto Serif KR (`fontFamilyCandidates`), and Cambria to Arial.
  */
 const SYSTEM = {
   Arial: [0.9053, 0.2119, 0.0327],
