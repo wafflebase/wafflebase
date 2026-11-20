@@ -149,3 +149,15 @@ document" and "Untitled presentation" (2026-11-21). They can be deleted.
   correctness verifier errored on the one carried-forward finding (the
   alias lookup, already fixed in 00b9e0475). Not a clean round. A fourth
   round needs `--force` once quota returns.
+
+## Browser lanes (PR 1)
+
+`verify:browser:docker` visual lane: all goldens match after regeneration. The
+hunt-oracles lane then failed intermittently, mostly on `slides drag` (badge
+centre at (700, 718) instead of (700, 800)) and sometimes on board/slides
+mount. Running only that lane three times on each side of the change:
+branch 1 pass / 2 fail, `main` 1 pass / 2 fail, both with the identical
+(700, 718). A pre-existing local flake (the image runs as linux/amd64 under
+emulation on this arm64 host), not this change. Lesson: before attributing a
+browser-lane failure to a branch, run the same lane repeatedly on `main`. One
+green `main` run proves nothing about a flaky lane.
