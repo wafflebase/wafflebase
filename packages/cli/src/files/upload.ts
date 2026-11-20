@@ -5,7 +5,7 @@ import { exitCodeForStatus } from '../errors.js';
 import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
 
 /** Mirrors `MAX_FILE_UPLOAD_BYTES` in the backend's `file.constants.ts`. */
-export const MAX_FILE_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_FILE_UPLOAD_BYTES = 100 * 1024 * 1024;
 /** Mirrors `MAX_IMAGE_UPLOAD_BYTES` — images have no reason to be larger. */
 export const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 

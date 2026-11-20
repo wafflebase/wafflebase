@@ -11,7 +11,7 @@ Read an uploaded PDF in the browser, copy its text, and discuss it with comments
 A PDF is view-only: you can't change its contents in Wafflebase. Comments sit over the page and never change the file.
 
 ::: info Before you start
-- To add a PDF, [upload](/files/upload) a `.pdf` file of up to 50 MB.
+- To add a PDF, [upload](/files/upload) a `.pdf` file of up to 100 MB.
 - Anyone who can open the PDF can read it. To comment, you need to be a workspace member or have an **Editor** [share link](/collaborate/share).
 :::
 

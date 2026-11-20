@@ -19,9 +19,9 @@ describe("upload-queue store", () => {
   });
 
   it("fails an over-cap file at enqueue time without pinning its blob", () => {
-    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+    const [item] = q.enqueue([file("huge.zip", 110 * 1024 * 1024)]);
     expect(item.status).toBe("error");
-    expect(item.reason).toBe("File is larger than the 50 MB limit");
+    expect(item.reason).toBe("File is larger than the 100 MB limit");
     expect(item.file).toBeUndefined();
     expect(q.isRetryable(item)).toBe(false);
   });
@@ -173,7 +173,7 @@ describe("upload-queue unsaved-work probe", () => {
   it("does not count a failure whose blob is already gone", () => {
     // Over the size cap: rejected at enqueue time and the File is dropped
     // there, so Retry is not offered and a reload costs nothing.
-    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+    const [item] = q.enqueue([file("huge.zip", 110 * 1024 * 1024)]);
 
     expect(item.status).toBe("error");
     expect(q.isRetryable(item)).toBe(false);

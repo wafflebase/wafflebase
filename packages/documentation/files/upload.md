@@ -12,7 +12,7 @@ Wafflebase picks the document type from the file extension. Spreadsheets, Word d
 
 ::: info Before you start
 - You need to be a member of the workspace.
-- Each file can be up to 50 MB. Image files are limited to 25 MB.
+- Each file can be up to 100 MB. Image files are limited to 25 MB.
 - Uploads go into the folder you have open. To upload to the workspace root, go back to the top of the list first.
 :::
 
@@ -69,13 +69,13 @@ Click the arrow icon in the panel header to collapse the panel, or the **X** bes
 
 You can open other documents while files upload; the panel stays in the corner. Keep the tab open until every file finishes, because closing or reloading the tab stops any upload that has not finished.
 
-![Uploads panel with one finished file showing Open and one failed file showing the 50 MB size-limit message](/images/files/upload-panel-failed.png)
+![Uploads panel with one finished file showing Open and one failed file showing the 100 MB size-limit message](/images/files/upload-panel-failed.png)
 
 ### Fix a failed upload
 
 | Message | What to do |
 |---|---|
-| `File is larger than the 50 MB limit` (or `25 MB` for an image) | Make the file smaller, or split it, and upload it again. |
+| `File is larger than the 100 MB limit` (or `25 MB` for an image) | Make the file smaller, or split it, and upload it again. |
 | `Couldn't upload this file. Check your connection and retry.` | Check your connection, then click the retry icon. |
 | `Couldn't load the importer. Reload the page, then retry.` | Reload the page, then upload the file again. |
 | `This file has too many columns to import` | The first row of the CSV or TSV is too wide. Split the columns into several files. |

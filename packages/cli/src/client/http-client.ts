@@ -506,7 +506,7 @@ export class HttpClient {
         // A Blob part must be `Uint8Array<ArrayBuffer>`; a Node `Buffer` is
         // typed over `ArrayBufferLike` to admit `SharedArrayBuffer`, which
         // `readFileSync` never returns. Re-view the same memory rather than
-        // copying — these bytes can be 50 MB.
+        // copying — these bytes can be 100 MB.
         const part = new Uint8Array(
           bytes.buffer as ArrayBuffer,
           bytes.byteOffset,

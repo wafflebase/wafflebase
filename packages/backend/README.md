@@ -856,7 +856,7 @@ if the row fails) and derives `type` from the stored extension — `.pdf` →
 `pdf`, `png|jpg|jpeg|gif|webp` → `image`, everything else → `file`. Nothing is
 parsed: an uploaded `.xlsx` is stored as bytes. Download reuses
 `fileResponseHeaders()`, so the derived-`Content-Type` rule is shared with
-`GET /documents/:id/file`. Caps are unchanged (50 MB; 25 MB for images).
+`GET /documents/:id/file`. Caps: 100 MB; 25 MB for images.
 
 `title` defaults to the whole filename, **extension included** — a blob
 document is the file, and the title is the only copy of an extension that

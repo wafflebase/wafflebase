@@ -19,7 +19,7 @@ export function formatFileSize(bytes: number | undefined): string {
 }
 
 /** Mirrors the backend caps in packages/backend/src/file/file.constants.ts. */
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /**
