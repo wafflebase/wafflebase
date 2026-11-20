@@ -179,14 +179,17 @@ describe("captureFromContainer", () => {
    * real one is called with, so a test can mark a layer as chrome the same way
    * the docs ruler and the board minimap do.
    */
-  function makeContainer(canvases: HTMLCanvasElement[]): HTMLElement {
+  function makeContainer(
+    canvases: HTMLCanvasElement[],
+    origin: { left: number; top: number } = { left: 0, top: 0 },
+  ): HTMLElement {
     const el = {
       querySelectorAll: (selector: string) =>
         selector.includes("data-canvas-chrome")
           ? canvases.filter((c) => !c.dataset?.canvasChrome)
           : canvases,
       parentElement: null,
-      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+      getBoundingClientRect: () => origin,
     } as unknown as HTMLElement;
     vi.spyOn(window, "getComputedStyle").mockReturnValue({
       backgroundColor: "rgb(20, 20, 20)",
@@ -328,6 +331,26 @@ describe("captureFromContainer", () => {
     expect(out.width).toBe(640);
     expect(out.height).toBe(400);
     expect(ctx.drawImage).toHaveBeenCalledWith(grid, 0, 0, 1280, 800);
+  });
+
+  it("reads the frame from the container's origin, not the page's", () => {
+    // The sheet thumbnail renders in a host parked far off-screen, with its
+    // grid inset inside it. A frame read from the page origin, or from the
+    // canvases' own union, would crop empty space there.
+    const out = fakeCanvas(0, 0);
+    const ctx = out.getContext("2d")!;
+    const host = { left: -100000, top: 50 };
+    const grid = fakeCanvas(1280, 800, { rect: { left: -99990, top: 70 } });
+    stubCreatedCanvas(out);
+
+    captureFromContainer(makeContainer([grid], host), {
+      frame: { x: 30, y: 40, width: 200, height: 100 },
+    });
+    expect(out.width).toBe(200);
+    expect(out.height).toBe(100);
+    // The frame starts at host + (30, 40) = (-99970, 90); the grid sits 20px
+    // up and left of that.
+    expect(ctx.drawImage).toHaveBeenCalledWith(grid, -20, -20, 1280, 800);
   });
 
   it("paints a given background instead of the app theme's", () => {

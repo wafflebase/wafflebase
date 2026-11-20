@@ -15,3 +15,21 @@ Todo: [20261121-template-design-polish-todo.md](./20261121-template-design-polis
   band in every sheet thumbnail, 6px board section pills, and a seam that
   survived "paint it under the circle". Keep a render-based reviewer per
   lane.
+
+## Self review
+
+- Round 1: four blocking findings, all fixed. (1) The sheet thumbnail waited
+  on two `requestAnimationFrame`s with no bound, so a publish in a hidden tab
+  hung with the offscreen engine mounted → `waitForPaint(500)`. (2) It
+  unwrapped the Yorkie worksheet with `toJS()` unlike everything else →
+  `yorkiePlain` (`toJSON()`), so the engine never holds live CRDT objects.
+  (3) The pipeline was untestable inside the view → pure
+  `prepareSheetThumbnail` / `waitForPaint` in `sheet-thumbnail.ts` with
+  tests. (4) The frame-crop test used a (0,0) container → a test with the
+  host parked off-screen.
+- **`visual:update` rewrites every baseline.** Most rewrites are within
+  tolerance; keep only the ones the check run listed as mismatched.
+- `verify-hunt-oracles` failed once in the Docker lane on a slides drag
+  (badge landed at y=718, aimed at 800) and passed 2/2 run locally; the
+  badge is a fixed-frame shape, so the master font change cannot move it.
+  Treated as a lane flake; CI's verify-browser is the arbiter.

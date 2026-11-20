@@ -69,9 +69,15 @@ independent render-based reviewer per lane.
 
 Not changed (out of scope, recorded for follow-up):
 
-- Slides body copy reads small. The `DEFAULT_MASTER` body is 18pt
-  (`packages/slides/src/model/master.ts`), and changing it changes every
-  deck users already have.
+- ~~Slides body copy reads small~~ — done by request (2026-11-21):
+  `DEFAULT_MASTER` body 18→27, subtitle 24→36, caption 14→18 (1.5x Google
+  Slides' 18/28/12pt, because a native deck paints a stored point at 96 DPI
+  on a 2 px/pt slide, i.e. at two thirds of a point). Each deck stores its
+  own master copy, so existing decks are unchanged; new decks, PPTX imports
+  without placeholder styles, and the catalog pick it up. Ten slides visual
+  baselines (title-body, big-number, and the full mobile page) were
+  re-recorded in Docker; the other rewritten-in-tolerance baselines were
+  reverted.
 - The slides editor draws decor past the slide edge. Thumbnails and the
   slideshow clip it.
 - Sheet notes in muted ink (#857060) are 3.56:1 on the dark grid.

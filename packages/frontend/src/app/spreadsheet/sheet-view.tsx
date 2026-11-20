@@ -7,7 +7,6 @@ import {
   Ref,
   Sref,
   getWorksheetCell,
-  getWorksheetEntries,
   MemStore,
   buildMergeCoverMap,
   parseRef,
@@ -68,6 +67,7 @@ import { SheetLinkPopover } from "./components/SheetLinkPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
+import { prepareSheetThumbnail, waitForPaint } from "./sheet-thumbnail";
 import {
   THUMBNAIL_ASPECT,
   THUMBNAIL_MAX_EDGE,
@@ -2144,29 +2144,9 @@ const SHEET_THUMBNAIL_MIN = {
 async function renderSheetThumbnail(
   worksheet: Worksheet,
 ): Promise<HTMLCanvasElement | null> {
-  // A Yorkie proxy: `MemStore.load` reads a plain snapshot. The freeze pane
-  // is dropped from the copy: it is scroll behaviour, and a picture never
-  // scrolls, but the engine marks it with a thick grey band across the whole
-  // grid — the heaviest line in the thumbnail, under every header row.
-  const snapshot: Worksheet =
-    typeof (worksheet as { toJS?: unknown }).toJS === "function"
-      ? (worksheet as unknown as { toJS(): Worksheet }).toJS()
-      : worksheet;
-  const plain: Worksheet = { ...snapshot, frozenRows: 0, frozenCols: 0 };
-
-  let lastRow = 0;
-  let lastCol = 0;
-  for (const [sref] of getWorksheetEntries(plain)) {
-    const { r, c } = parseRef(sref);
-    lastRow = Math.max(lastRow, r);
-    lastCol = Math.max(lastCol, c);
-  }
-  for (const [sref, span] of Object.entries(plain.merges ?? {})) {
-    const { r, c } = parseRef(sref);
-    lastRow = Math.max(lastRow, r + span.rs - 1);
-    lastCol = Math.max(lastCol, c + span.cs - 1);
-  }
-  if (lastRow === 0 || lastCol === 0) return null;
+  const prepared = prepareSheetThumbnail(worksheet);
+  if (!prepared) return null;
+  const { worksheet: plain, lastRow, lastCol } = prepared;
 
   const { host, dispose } = mountOffscreenHost(
     SHEET_THUMBNAIL_MAX.width,
@@ -2188,10 +2168,7 @@ async function renderSheetThumbnail(
     // far past the frame leaves no header lit inside the picture.
     // `selectStart` repaints without scrolling to the cell.
     sheet.selectStart({ r: lastRow + 1000, c: lastCol + 1000 });
-    // Two frames: the engine schedules its first paint, then its overlay.
-    await new Promise((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(resolve)),
-    );
+    await waitForPaint();
     // The far corner of the padding cell, in the grid canvas's coordinates —
     // which, with the formula bar hidden, are the host's.
     const end = sheet.getCellRect({ r: lastRow + 1, c: lastCol + 1 });

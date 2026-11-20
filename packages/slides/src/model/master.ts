@@ -33,6 +33,16 @@ export type Master = {
   };
 };
 
+/**
+ * The placeholder sizes a new deck starts from. Sizes are stored in points
+ * but a deck authored here paints them at the docs canvas's 96 DPI
+ * (`deckFontScale`), while the 1920px slide runs at `SLIDE_PX_PER_PT` (2),
+ * so a stored point lands at two thirds of a physical point. The body, the
+ * subtitle and the caption are therefore set at 1.5x the point sizes Google
+ * Slides uses on its 10in-wide slide (18 / 28 / 12pt), which keeps the same
+ * proportion to the slide; at 18 the body read as 12pt bullets. Existing
+ * decks are not affected: each stores its own copy of its master.
+ */
 export const DEFAULT_MASTER: Master = {
   id: 'default',
   themeId: 'default-light',
@@ -47,21 +57,21 @@ export const DEFAULT_MASTER: Master = {
     },
     body: {
       fontRole: 'body',
-      fontSize: 18,
+      fontSize: 27,
       colorRole: 'text',
       align: 'left',
       lineHeight: 1.5,
     },
     subtitle: {
       fontRole: 'body',
-      fontSize: 24,
+      fontSize: 36,
       colorRole: 'textSecondary',
       align: 'left',
       lineHeight: 1.4,
     },
     caption: {
       fontRole: 'body',
-      fontSize: 14,
+      fontSize: 18,
       colorRole: 'textSecondary',
       align: 'left',
       lineHeight: 1.4,

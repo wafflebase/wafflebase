@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_MASTER } from '../../../src/model/master';
 import { parseMaster } from '../../../src/import/pptx/master';
 import type { ImageParseContext } from '../../../src/import/pptx/image';
 import { ImportReport } from '../../../src/import/pptx/report';
@@ -56,8 +57,10 @@ describe('parseMaster', () => {
 
   it('inherits the default placeholder-style table for now', async () => {
     const { master } = await parseMaster(MIN_MASTER, 'm', 't', stubImageCtx());
-    expect(master.placeholderStyles.title.fontSize).toBe(44);
-    expect(master.placeholderStyles.body.fontSize).toBe(18);
+    expect(master.placeholderStyles).toEqual(DEFAULT_MASTER.placeholderStyles);
+    // A copy, so an imported master can be edited without leaking into the
+    // table every new deck starts from.
+    expect(master.placeholderStyles).not.toBe(DEFAULT_MASTER.placeholderStyles);
   });
 
   it('parses <p:txStyles> marker defaults per slot × level', async () => {
