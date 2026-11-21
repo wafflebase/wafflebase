@@ -490,15 +490,67 @@ and the panel; only the chrome around them differs.
 
 ### Rollout
 
-1. **P1 — Chat page.** Schema + migrations, web routes, `LISTEN/NOTIFY` hub +
-   SSE, channels / DMs / threads / edit / delete / unread, mentions into the
-   bell, mobile list → conversation. Document URLs render as plain links.
+1. **P1 — Chat page. Shipped** (branch `chat-p1`; plan
+   [`20261120-chat-p1-todo.md`](../tasks/active/20261120-chat-p1-todo.md)).
+   Schema + migrations, web routes, `LISTEN/NOTIFY` hub + SSE, channels /
+   DMs / threads / edit / delete / unread, mentions into the bell, mobile
+   list → conversation. Document URLs render as plain links. Deviations from
+   this document are listed under *P1 as built* below.
 2. **P2 — The joins.** Document cards + `ChatDocumentRef` + Files list, anchors,
    editor chat panel, "Send to chat" in the sheets/docs/slides context menus,
    mobile bottom sheet.
 3. **P3 — Agents and search.** Bot members (model, settings UI, login
    refusal, lifecycle), `/api/v1` mirror, CLI verbs incl. `chat inbox`, Bot /
    via API labels, plugin guard table, `pg_trgm` search.
+
+#### P1 as built
+
+Where the implementation departs from, or settles, what the sections above
+say:
+
+- **Workspace id or slug.** `:wid` in every chat route accepts the workspace
+  id or its slug, resolved against the caller's own memberships, so the
+  page's slug URLs need no extra lookup. A channel that exists but belongs to
+  another workspace than the one named is `404`.
+- **Archived = read-only, edits included.** Archiving refuses posting *and*
+  editing or deleting an existing message (`409`); reads keep working. The
+  archive check is repeated under the channel row lock inside the post
+  transaction, so a concurrent archive cannot take one more message.
+- **`markRead` is capped.** `POST …/read` moves `lastReadSeq` to
+  `GREATEST(current, LEAST(seq, channel.lastSeq))` — never backwards, and never
+  past the last allocated `seq`, so a client cannot pre-read messages that do
+  not exist yet. Joining or being invited starts the read position at the
+  channel tail rather than 0, so old history is not unread.
+- **DM membership is fixed.** A DM cannot be joined, left, renamed or
+  archived. Leaving is `DELETE …/members/me` (only the caller), not the
+  `…/members/:uid` removal the table above sketches; removing others is not
+  in P1. Re-opening a DM restores member rows a workspace removal deleted.
+- **`GET …/chat/messages/:mid`.** Added for the bell deep link, which knows
+  only a message id and must learn whether it is a thread reply; it is `404`
+  unless the message's channel is readable. The stream's `update` handling
+  reuses it.
+- **Bus payload.** NOTIFY payloads carry a `t` kind discriminator rather than
+  the sketch in *Delivery*: `{t:'msg',c,w,s,r,a}` (`r` = thread root),
+  `{t:'upd',c,w,id,r}`, `{t:'mem',c}`, plus a self-sent probe that warns when
+  the listener sits behind a pooler. Payloads are validated on receipt, since
+  any database session can `pg_notify('chat', …)`.
+- **Reconnect clears the hub cache.** `ChatBus.resets$` fires on every
+  listener reconnect after the first, and `ChatHub` drops every cached member
+  set: a `mem` sent while the listener was down never arrives, and a stale set
+  would keep feeding a removed member.
+- **Heartbeat is a `ping` event.** Nest's SSE writer has no comment lines, so
+  the 25 s keep-alive is a named `ping` event the client ignores. `ready`
+  opens every (re)connect.
+- **Live edits and deletes.** Edit and delete NOTIFY an ids-only `upd`; the
+  stream exposes it as `update { workspaceId, channelId, messageId,
+  threadRootId }` and the client refetches that one message and replaces it in
+  the channel and thread caches (a `404` marks it deleted). Pages are cached
+  with `staleTime: Infinity`, so without this peers kept the old text.
+- **Canonical mention tokens.** Post and edit rewrite every
+  `@[name](userId)` to the target's real username and flatten a token whose
+  id is not a workspace member to plain `@name`, so a body cannot render
+  `@ceo` for somebody else's id.
+- **Search is not in P1.** `GET …/chat/search` moves with `pg_trgm` to P3.
 
 ### Testing
 
