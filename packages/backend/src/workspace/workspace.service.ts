@@ -135,6 +135,23 @@ export class WorkspaceService {
         await tx.chatChannelMember.deleteMany({
           where: { userId: targetUserId, channelId: { in: channelIds } },
         });
+        // A private channel this removal empties is deleted with it. Only
+        // its members can read it, so with none left its messages are
+        // unreadable by anybody, nobody can rejoin or archive it, and its
+        // name would stay reserved forever — the dead end
+        // `ChatChannelService.leave` refuses to create. One statement, so
+        // the emptiness check and the delete see the same rows. A DM keeps
+        // its other participant and a public channel stays open to every
+        // workspace member, so neither is touched.
+        if (channelIds.length > 0) {
+          await tx.chatChannel.deleteMany({
+            where: {
+              id: { in: channelIds },
+              kind: 'private',
+              members: { none: {} },
+            },
+          });
+        }
         return { deleted, channelIds };
       },
     );

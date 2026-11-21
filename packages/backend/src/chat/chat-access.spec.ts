@@ -71,12 +71,14 @@ describe('chat access policy', () => {
         expect(mentionOutcome(ctx)).toBe(mention);
       });
 
-      it('canManage: private → any member; otherwise creator or owner', () => {
+      it('canManage: private → any member; public → creator or owner; dm → nobody', () => {
         const as = (isCreator: boolean, isWorkspaceOwner: boolean) =>
           canManage({ ...ctx, isCreator, isWorkspaceOwner });
-        expect(as(true, false)).toBe(read);
-        expect(as(false, true)).toBe(read);
-        expect(as(true, true)).toBe(read);
+        // A DM has no name, topic or archive to manage.
+        const managed = kind !== 'dm' && read;
+        expect(as(true, false)).toBe(managed);
+        expect(as(false, true)).toBe(managed);
+        expect(as(true, true)).toBe(managed);
         // A private channel is managed by its members collectively: otherwise
         // a last member who is neither creator nor owner could neither leave
         // nor archive it, and nobody outside it can see it to help.

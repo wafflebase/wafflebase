@@ -156,3 +156,111 @@ describe('ChatBus retry timer', () => {
     }
   });
 });
+
+describe('ChatBus reconnection', () => {
+  const prisma = {
+    $executeRaw: jest.fn(() => Promise.resolve(0)),
+  } as unknown as PrismaService;
+  const clientMock = Client as unknown as jest.Mock;
+
+  type Fake = InstanceType<typeof import('events').EventEmitter> & {
+    connect: jest.Mock;
+    end: jest.Mock;
+  };
+  /** Every client the bus has constructed, oldest first. */
+  const made = (): Fake[] =>
+    clientMock.mock.results.map((r) => r.value as Fake);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    clientMock.mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['an error', (c: Fake) => c.emit('error', new Error('reset by peer'))],
+    ['an end', (c: Fake) => c.emit('end')],
+  ])(
+    'reconnects after %s with backoff and announces a second reset',
+    async (_label, kill) => {
+      const bus = new ChatBus(prisma);
+      const resets = jest.fn();
+      bus.resets$.subscribe(resets);
+      try {
+        await bus.onModuleInit();
+        expect(made()).toHaveLength(1);
+        expect(resets).toHaveBeenCalledTimes(1);
+
+        const first = made()[0];
+        kill(first);
+        // The broken client is torn down, and nothing reconnects before the
+        // backoff elapses.
+        expect(first.end).toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(999);
+        expect(made()).toHaveLength(1);
+
+        await jest.advanceTimersByTimeAsync(1);
+        expect(made()).toHaveLength(2);
+        expect(made()[1].connect).toHaveBeenCalled();
+        // Events NOTIFYed while it was down are lost, so consumers must be
+        // told to drop caches and catch up.
+        expect(resets).toHaveBeenCalledTimes(2);
+      } finally {
+        await bus.onModuleDestroy();
+      }
+    },
+  );
+
+  it('a failed connect that also emits error schedules one reconnect', async () => {
+    // pg both rejects `connect()` and emits `error` when a handshake fails,
+    // so the catch and the error handler each see the same failure.
+    clientMock.mockImplementationOnce(() => {
+      const { EventEmitter } =
+        jest.requireActual<typeof import('events')>('events');
+      const client = new EventEmitter() as Fake & { query: jest.Mock };
+      client.connect = jest.fn(() => {
+        client.emit('error', new Error('refused'));
+        return Promise.reject(new Error('refused'));
+      });
+      client.query = jest.fn(() => Promise.resolve());
+      client.end = jest.fn(() => Promise.resolve());
+      return client;
+    });
+    const bus = new ChatBus(prisma);
+    const resets = jest.fn();
+    bus.resets$.subscribe(resets);
+    try {
+      await bus.onModuleInit();
+      expect(resets).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(made()).toHaveLength(2);
+      expect(resets).toHaveBeenCalledTimes(1);
+    } finally {
+      await bus.onModuleDestroy();
+    }
+  });
+
+  it('schedules one reconnect however many times the client fails', async () => {
+    const bus = new ChatBus(prisma);
+    const resets = jest.fn();
+    bus.resets$.subscribe(resets);
+    try {
+      await bus.onModuleInit();
+      const first = made()[0];
+      first.emit('error', new Error('one'));
+      first.emit('error', new Error('two'));
+      first.emit('end');
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      // One replacement client, one more reset — not one per event.
+      expect(made()).toHaveLength(2);
+      expect(resets).toHaveBeenCalledTimes(2);
+    } finally {
+      await bus.onModuleDestroy();
+    }
+  });
+});

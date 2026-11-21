@@ -81,7 +81,9 @@ export class ChatMessageService {
    * Posts a message. One transaction allocates the next `seq` under the
    * channel's row lock, inserts, bumps a thread root's reply count, and moves
    * the author's read position to their own message — joining a public
-   * channel they were not in, which is what posting there means. Only after
+   * channel they were not in, which is what posting there means. A
+   * thread-only reply joins too but leaves an existing read position alone,
+   * since replying in a thread is not reading the channel. Only after
    * it commits do other replicas hear of it, so nobody is told about a
    * message they cannot fetch yet.
    */
@@ -144,12 +146,24 @@ export class ChatMessageService {
           },
         });
       }
-      await tx.$executeRaw`
-        INSERT INTO "ChatChannelMember" ("channelId", "userId", "lastReadSeq")
-        VALUES (${channelId}, ${userId}, ${seq})
-        ON CONFLICT ("channelId", "userId") DO UPDATE
-        SET "lastReadSeq" = GREATEST(
-          "ChatChannelMember"."lastReadSeq", EXCLUDED."lastReadSeq")`;
+      // A message in the channel's own flow (top-level, or a reply also
+      // sent to it) is posting there, so it reads everything up to it. A
+      // thread-only reply is not: the author may never have seen the
+      // channel's latest messages, so an existing read position stays put.
+      // Either way a non-member joins, at the tail, as `join` would.
+      if (threadRootId === null || alsoInChannel) {
+        await tx.$executeRaw`
+          INSERT INTO "ChatChannelMember" ("channelId", "userId", "lastReadSeq")
+          VALUES (${channelId}, ${userId}, ${seq})
+          ON CONFLICT ("channelId", "userId") DO UPDATE
+          SET "lastReadSeq" = GREATEST(
+            "ChatChannelMember"."lastReadSeq", EXCLUDED."lastReadSeq")`;
+      } else {
+        await tx.$executeRaw`
+          INSERT INTO "ChatChannelMember" ("channelId", "userId", "lastReadSeq")
+          VALUES (${channelId}, ${userId}, ${seq})
+          ON CONFLICT ("channelId", "userId") DO NOTHING`;
+      }
       return message;
     }, POST_TRANSACTION);
 

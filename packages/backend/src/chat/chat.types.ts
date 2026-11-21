@@ -20,6 +20,11 @@ export interface ChannelSummary {
   topic: string | null;
   archived: boolean;
   isMember: boolean;
+  /**
+   * Whether this user may rename, set the topic of, or archive it
+   * (`canManage` in `chat-access.ts`). Always false for a DM.
+   */
+  canManage: boolean;
   /** DM only; empty for public and private channels. */
   members: ChatUserSummary[];
   unreadCount: number;

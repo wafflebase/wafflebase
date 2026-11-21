@@ -55,6 +55,9 @@ type SummaryRow = {
   topic: string | null;
   archived: boolean;
   isMember: boolean;
+  isCreator: boolean;
+  isWorkspaceMember: boolean;
+  isWorkspaceOwner: boolean;
   lastMessageAt: Date | null;
   unreadCount: number;
   mentionCount: number;
@@ -434,12 +437,17 @@ export class ChatChannelService {
       SELECT c.id, c.kind, c.name, c.topic,
              c."archivedAt" IS NOT NULL AS archived,
              m."userId" IS NOT NULL AS "isMember",
+             c."createdBy" IS NOT DISTINCT FROM ${userId} AS "isCreator",
+             wm."userId" IS NOT NULL AS "isWorkspaceMember",
+             wm.role IS NOT DISTINCT FROM 'owner' AS "isWorkspaceOwner",
              c."lastMessageAt",
              COALESCE(u.unread, 0)::int AS "unreadCount",
              COALESCE(u.mentions, 0)::int AS "mentionCount"
       FROM "ChatChannel" c
       LEFT JOIN "ChatChannelMember" m
         ON m."channelId" = c.id AND m."userId" = ${userId}
+      LEFT JOIN "WorkspaceMember" wm
+        ON wm."workspaceId" = c."workspaceId" AND wm."userId" = ${userId}
       LEFT JOIN LATERAL (
         SELECT count(*) AS unread,
                count(*) FILTER (WHERE x.body LIKE ${mention}) AS mentions
@@ -473,6 +481,16 @@ export class ChatChannelService {
       topic: r.topic,
       archived: r.archived,
       isMember: r.isMember,
+      // The same policy `update` enforces, so the client offers exactly the
+      // controls the server will accept.
+      canManage: canManage({
+        kind: r.kind,
+        archived: r.archived,
+        isWorkspaceMember: r.isWorkspaceMember,
+        isChannelMember: r.isMember,
+        isCreator: r.isCreator,
+        isWorkspaceOwner: r.isWorkspaceOwner,
+      }),
       members: dmMembers.filter((m) => m.channelId === r.id).map((m) => m.user),
       unreadCount: r.unreadCount,
       mentionCount: r.mentionCount,

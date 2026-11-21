@@ -30,7 +30,8 @@ export function canPost(ctx: AccessContext): boolean {
 
 /**
  * Rename, set the topic, archive. A public channel: its creator or a
- * workspace owner. A private channel: any of its members. Nobody outside a
+ * workspace owner. A private channel: any of its members. A DM: nobody — it
+ * has no name or topic, and is labelled by its members. Nobody outside a
  * private channel can see it, so if only its creator or an owner could
  * archive it, a last member who is neither could neither leave (the last
  * member is refused) nor archive it — a dead end nobody could clear.
@@ -38,7 +39,7 @@ export function canPost(ctx: AccessContext): boolean {
 export function canManage(
   ctx: AccessContext & { isCreator: boolean; isWorkspaceOwner: boolean },
 ): boolean {
-  if (!canRead(ctx)) return false;
+  if (!canRead(ctx) || ctx.kind === 'dm') return false;
   if (ctx.kind === 'private') return true;
   return ctx.isCreator || ctx.isWorkspaceOwner;
 }

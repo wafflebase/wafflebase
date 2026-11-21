@@ -257,6 +257,56 @@ describeDb('Chat integration', () => {
       expect(after.body).toHaveLength(2);
     });
 
+    it('summaries say who may manage each channel', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const ownersPublic = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'announcements',
+      });
+      const peersPublic = await channels.create(peer.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      const priv = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'leads',
+      });
+      await channels.invite(owner.id, priv.id, [peer.id]);
+      const dm = await channels.openDm(owner.id, workspace.id, [peer.id]);
+
+      const manage = async (userId: number) => {
+        const res = await as(userId === owner.id ? owner : peer)
+          .get(`${base(workspace.id)}/channels`)
+          .expect(200);
+        return Object.fromEntries(
+          (res.body as { id: string; canManage: boolean }[]).map((c) => [
+            c.id,
+            c.canManage,
+          ]),
+        );
+      };
+      // Public: its creator or a workspace owner. Private: any member.
+      // DM: nobody.
+      expect(await manage(owner.id)).toEqual({
+        [ownersPublic.id]: true,
+        [peersPublic.id]: true,
+        [priv.id]: true,
+        [dm.id]: false,
+      });
+      expect(await manage(peer.id)).toEqual({
+        [ownersPublic.id]: false,
+        [peersPublic.id]: true,
+        [priv.id]: true,
+        [dm.id]: false,
+      });
+      // The flag is the policy `update` enforces.
+      await as(peer)
+        .patch(`${base(workspace.id)}/channels/${ownersPublic.id}`)
+        .send({ topic: 'nope' })
+        .expect(403);
+    });
+
     it('non-member of the workspace gets 404', async () => {
       const { owner, workspace } = await team(0);
       const outsider = await createUser();
@@ -657,6 +707,77 @@ describeDb('Chat integration', () => {
       } finally {
         await listener.end();
       }
+    });
+
+    it('removing the last member of a private channel deletes the channel', async () => {
+      const { owner, members, workspace } = await team(2);
+      const [peer, third] = members;
+      const solo = await channels.create(peer.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await messages.post(peer.id, solo.id, { body: 'only I can read this' });
+      const shared = await channels.create(peer.id, workspace.id, {
+        kind: 'private',
+        name: 'shared',
+      });
+      await channels.invite(peer.id, shared.id, [third.id]);
+      const dm = await channels.openDm(peer.id, workspace.id, [owner.id]);
+
+      await as(owner)
+        .delete(`/workspaces/${workspace.id}/members/${peer.id}`)
+        .expect(200);
+
+      // Nobody could ever read it again, so it goes, messages and all, and
+      // its name is free once more.
+      expect(
+        await prisma.chatChannel.findUnique({ where: { id: solo.id } }),
+      ).toBeNull();
+      expect(
+        await prisma.chatMessage.count({ where: { channelId: solo.id } }),
+      ).toBe(0);
+      await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      // A private channel with somebody left in it, and a DM, both stay.
+      expect(
+        await prisma.chatChannel.findUnique({ where: { id: shared.id } }),
+      ).not.toBeNull();
+      expect(
+        await prisma.chatChannel.findUnique({ where: { id: dm.id } }),
+      ).not.toBeNull();
+    });
+
+    it('a thread-only reply leaves the channel unread; alsoInChannel marks it read', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'general',
+      });
+      await channels.join(peer.id, channel.id);
+      const root = await messages.post(owner.id, channel.id, { body: 'root' });
+      await messages.post(owner.id, channel.id, { body: 'unseen' });
+      const before = await channels.list(peer.id, workspace.id);
+      expect(before[0].unreadCount).toBe(2);
+
+      // Replying in a thread is not reading the channel.
+      await messages.post(peer.id, channel.id, {
+        body: 'reply',
+        threadRootId: root.id,
+      });
+      const [afterReply] = await channels.list(peer.id, workspace.id);
+      expect(afterReply.unreadCount).toBe(2);
+
+      // Sending the reply to the channel too is posting there.
+      await messages.post(peer.id, channel.id, {
+        body: 'reply, also here',
+        threadRootId: root.id,
+        alsoInChannel: true,
+      });
+      const [afterBroadcast] = await channels.list(peer.id, workspace.id);
+      expect(afterBroadcast.unreadCount).toBe(0);
     });
 
     it('list counts unread top-level messages and mentions', async () => {
