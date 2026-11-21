@@ -25,7 +25,11 @@ export type NotificationType =
   // left the gallery and is waiting to be reviewed again.
   | "template_needs_review"
   // Addressed to the reviewer allowlist: something is waiting in the queue.
-  | "template_review_queued";
+  | "template_review_queued"
+  // Created server-side when a chat message is posted. Both carry the channel
+  // id in `threadId` and the message id in `commentId`, and no document.
+  | "chat_mention"
+  | "chat_thread_reply";
 
 export interface Notification {
   id: string;

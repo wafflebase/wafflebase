@@ -46,6 +46,12 @@ export function notificationSentence(n: Notification): string {
     // Reviewer-facing, so it names the queue rather than "your template".
     case "template_review_queued":
       return `${document} is waiting in the template review queue`;
+    // Chat rows carry no document, and the channel name is not on the row;
+    // the preview line under the sentence says what was written.
+    case "chat_mention":
+      return `${actor} mentioned you in chat`;
+    case "chat_thread_reply":
+      return `${actor} replied to a thread you're in`;
     default:
       return `${actor} sent you a notification`;
   }
@@ -75,6 +81,16 @@ export function notificationHref(n: Notification): string | null {
     // a page nobody remembers to open on their own.
     case "template_review_queued":
       return "/admin/templates";
+    // The channel id rides in `threadId`, the message in `commentId`. The
+    // chat page opens the thread itself when that message is a reply.
+    case "chat_mention":
+    case "chat_thread_reply": {
+      if (!n.workspace || !n.threadId) return null;
+      const channel = `/w/${n.workspace.id}/chat/${encodeURIComponent(n.threadId)}`;
+      return n.commentId
+        ? `${channel}?message=${encodeURIComponent(n.commentId)}`
+        : channel;
+    }
     default:
       // Null when a document was deleted since — the row cascades away, but a
       // stale list in an open dropdown can still hold one.

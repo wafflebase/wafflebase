@@ -142,3 +142,58 @@ describe("notificationHref", () => {
     );
   });
 });
+
+// Chat rows carry no document: the channel id rides in `threadId` and the
+// message id in `commentId`.
+describe("chat notifications", () => {
+  const chat = (type: Notification["type"], over: Partial<Notification> = {}) =>
+    build({
+      type,
+      document: null,
+      threadId: "ch-1",
+      commentId: "m-1",
+      ...over,
+    });
+
+  it("describes a chat mention", () => {
+    expect(notificationSentence(chat("chat_mention"))).toBe(
+      "jinho mentioned you in chat",
+    );
+  });
+
+  it("describes a thread reply", () => {
+    expect(notificationSentence(chat("chat_thread_reply"))).toBe(
+      "jinho replied to a thread you're in",
+    );
+  });
+
+  it("opens the channel with the message focused", () => {
+    expect(notificationHref(chat("chat_mention"))).toBe(
+      "/w/ws-1/chat/ch-1?message=m-1",
+    );
+    expect(notificationHref(chat("chat_thread_reply"))).toBe(
+      "/w/ws-1/chat/ch-1?message=m-1",
+    );
+  });
+
+  it("has nowhere to go when the workspace is gone", () => {
+    expect(
+      notificationHref(chat("chat_mention", { workspace: null })),
+    ).toBeNull();
+    expect(
+      notificationHref(chat("chat_thread_reply", { workspace: null })),
+    ).toBeNull();
+  });
+
+  it("has nowhere to go without a channel", () => {
+    expect(
+      notificationHref(chat("chat_mention", { threadId: null })),
+    ).toBeNull();
+  });
+
+  it("opens the channel alone when the message id is missing", () => {
+    expect(notificationHref(chat("chat_mention", { commentId: null }))).toBe(
+      "/w/ws-1/chat/ch-1",
+    );
+  });
+});

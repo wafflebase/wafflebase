@@ -8,6 +8,9 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationHub, NotificationSummary } from './notification-hub';
 import { CommentNotificationDto } from './notification.dto';
 import { LIVE_DOCUMENT } from '../document/live-document';
+import { mentionBodyToPlainText } from '@wafflebase/sheets';
+import { canRead } from '../chat/chat-access';
+import { ChannelKind } from '../chat/chat.types';
 
 /** One report may not fan out further than this. */
 export const MAX_RECIPIENTS = 20;
@@ -328,6 +331,127 @@ export class NotificationService {
   }
 
   /**
+   * A chat message mentioned these users. Created server-side when the message
+   * is posted: chat lives in Postgres, so unlike a comment there is no client
+   * report to distrust.
+   *
+   * `recipients` arrive already authorized — the caller ran `mentionOutcome`
+   * against each mentioned user's channel access, which is what keeps a
+   * private channel or a DM from leaking to somebody outside it. Workspace
+   * membership is checked again here anyway, so a stale or careless caller
+   * still cannot address a non-member.
+   *
+   * The chat location rides in the existing opaque columns: the channel id in
+   * `threadId` and the message id in `commentId`, which is everything
+   * `notificationHref` needs. Keyed on the message, so an edit that re-runs
+   * this never notifies twice.
+   */
+  async createChatMention(input: {
+    workspaceId: string;
+    actorId: number;
+    channelId: string;
+    messageId: string;
+    threadRootId: string | null;
+    recipients: number[];
+    preview: string;
+  }): Promise<{ created: number }> {
+    const candidates = unique(input.recipients).filter(
+      (id) => id !== input.actorId,
+    );
+    if (candidates.length === 0) return { created: 0 };
+    const memberIds = await this.memberIdsAmong(input.workspaceId, candidates);
+    const recipients = candidates
+      .filter((id) => memberIds.has(id))
+      .slice(0, MAX_RECIPIENTS);
+
+    return this.insert(
+      recipients.map((recipientId) =>
+        chatRow(input, 'chat_mention', recipientId, input.messageId),
+      ),
+    );
+  }
+
+  /**
+   * A reply was posted in a thread. Everyone already in it — the root's
+   * author and anyone who replied before — hears about it, except the actor
+   * and `excludeUserIds` (the users this same message already reached through
+   * `createChatMention`, for whom a second row would be noise).
+   *
+   * Deduped **per thread per UTC hour**: a busy thread is one row an hour
+   * rather than one per message, and the next hour's first reply notifies
+   * again so a thread that comes back to life is not silent.
+   *
+   * Participation is history, not access: somebody who replied and has since
+   * left a private channel, or the workspace, must not keep receiving its
+   * content as previews. So every candidate is re-checked with `canRead`.
+   */
+  async createChatThreadReply(input: {
+    workspaceId: string;
+    actorId: number;
+    channelId: string;
+    messageId: string;
+    threadRootId: string;
+    preview: string;
+    excludeUserIds: number[];
+  }): Promise<{ created: number }> {
+    const [channel, root, replies] = await Promise.all([
+      this.prisma.chatChannel.findUnique({
+        where: { id: input.channelId },
+        select: { kind: true },
+      }),
+      this.prisma.chatMessage.findUnique({
+        where: { id: input.threadRootId },
+        select: { authorId: true },
+      }),
+      this.prisma.chatMessage.findMany({
+        where: { threadRootId: input.threadRootId, authorId: { not: null } },
+        select: { authorId: true },
+        distinct: ['authorId'],
+      }),
+    ]);
+    if (!channel || !root) return { created: 0 };
+
+    const excluded = new Set([input.actorId, ...input.excludeUserIds]);
+    const candidates = unique(
+      [root.authorId, ...replies.map((r) => r.authorId)].filter(
+        (id): id is number => id !== null && !excluded.has(id),
+      ),
+    );
+    if (candidates.length === 0) return { created: 0 };
+
+    const [workspaceMemberIds, channelMembers] = await Promise.all([
+      this.memberIdsAmong(input.workspaceId, candidates),
+      this.prisma.chatChannelMember.findMany({
+        where: { channelId: input.channelId, userId: { in: candidates } },
+        select: { userId: true },
+      }),
+    ]);
+    const channelMemberIds = new Set(channelMembers.map((m) => m.userId));
+    const recipients = candidates.filter((id) =>
+      canRead({
+        kind: channel.kind as ChannelKind,
+        // Reading needs no write access, so archiving changes nothing here.
+        archived: false,
+        isWorkspaceMember: workspaceMemberIds.has(id),
+        isChannelMember: channelMemberIds.has(id),
+      }),
+    );
+
+    // `2026-11-21T09:41:00.000Z` → `2026-11-21T09`.
+    const hour = new Date().toISOString().slice(0, 13);
+    return this.insert(
+      recipients.map((recipientId) =>
+        chatRow(
+          input,
+          'chat_thread_reply',
+          recipientId,
+          `${input.threadRootId}:${hour}`,
+        ),
+      ),
+    );
+  }
+
+  /**
    * One page, newest first. The cursor is the `(createdAt, id)` pair of the
    * last row of the previous page: a timestamp alone would skip every row
    * sharing the boundary instant, and one report inserts its whole batch at a
@@ -442,4 +566,33 @@ export class NotificationService {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+/**
+ * One chat notification row. The preview is flattened before sanitizing so a
+ * mention reads as `@username` rather than the raw `@[username](id)` token.
+ */
+function chatRow(
+  input: {
+    workspaceId: string;
+    actorId: number;
+    channelId: string;
+    messageId: string;
+    preview: string;
+  },
+  type: 'chat_mention' | 'chat_thread_reply',
+  recipientId: number,
+  dedupeKey: string,
+): Record<string, unknown> {
+  return {
+    type,
+    recipientId,
+    actorId: input.actorId,
+    workspaceId: input.workspaceId,
+    documentId: null,
+    threadId: input.channelId,
+    commentId: input.messageId,
+    dedupeKey,
+    preview: sanitizePreview(mentionBodyToPlainText(input.preview)),
+  };
 }
