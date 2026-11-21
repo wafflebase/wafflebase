@@ -354,6 +354,139 @@ describe('overflow', () => {
   });
 });
 
+describe('token-wrap', () => {
+  // 24pt → 32px, so every character is 16px wide with the test measurer.
+  it('flags a bracketed group split across lines', () => {
+    const d = deck([[text('t', frame(200, 200, 260, 200), 'Hit rate (58 / 174)')]]);
+    const [f] = rules(d, 'token-wrap');
+    expect(f).toMatchObject({ rule: 'token-wrap', severity: 'warning', elementId: 't' });
+    expect(f.message).toContain('"(58 / 174)" into "(58 /" / "174)"');
+  });
+
+  it('flags a number broken mid-word', () => {
+    const d = deck([[text('t', frame(200, 200, 100, 300), 'Revenue 1,234,567,890')]]);
+    expect(rules(d, 'token-wrap')[0].message).toMatch(/splits "1,234,567,890"/);
+  });
+
+  it('flags a number split from its unit at a style change', () => {
+    const b = para('Signed 87', 24);
+    b.inlines.push({ text: '건 total', style: { fontSize: 24, bold: true } });
+    // "Signed 87" is 9 chars = 144px: the "건" segment no longer fits.
+    const d = deck([[text('t', frame(200, 200, 150, 300), [b])]]);
+    expect(rules(d, 'token-wrap')[0].message).toMatch(/splits "87건"/);
+  });
+
+  it('leaves ordinary word wraps, long asides and explicit breaks alone', () => {
+    const words = deck([[text('t', frame(200, 200, 200, 300), 'Revenue grew steadily this year')]]);
+    const aside = deck([
+      [text('t', frame(200, 200, 400, 300), 'Revenue (which includes every regional channel)')],
+    ]);
+    const explicit = deck([[text('t', frame(200, 200, 600, 300), 'Hit rate (58 /\n174)')]]);
+    const fits = deck([[text('t', frame(200, 200, 400, 100), 'Hit rate (58 / 174)')]]);
+    expect(rules(words, 'token-wrap')).toEqual([]);
+    expect(rules(aside, 'token-wrap')).toEqual([]);
+    expect(rules(explicit, 'token-wrap')).toEqual([]);
+    expect(rules(fits, 'token-wrap')).toEqual([]);
+  });
+});
+
+describe('empty-region', () => {
+  const top = (n: number, y0 = 100) =>
+    Array.from({ length: n }, (_, i) => text(`t${i}`, frame(200, y0 + i * 80, 800, 60), `Row ${i}`));
+
+  it('warns when content stops in the top third of the safe area', () => {
+    const [f] = rules(deck([top(3)]), 'empty-region');
+    expect(f).toMatchObject({ rule: 'empty-region', severity: 'warning', slideId: 's1' });
+    expect(f.message).toMatch(/bottom \d+% of the safe area is empty/);
+  });
+
+  it('reports a moderately empty bottom band as info', () => {
+    const f = rules(deck([top(4, 160)]), 'empty-region');
+    expect(f).toEqual([expect.objectContaining({ severity: 'info' })]);
+  });
+
+  it('accepts content that reaches down the slide', () => {
+    const d = deck([[...top(3), image('i', frame(200, 500, 800, 380))]]);
+    expect(rules(d, 'empty-region')).toEqual([]);
+  });
+
+  it('skips sparse slides: covers, section layouts, fewer than three elements', () => {
+    const two = deck([top(2)]);
+    const cover = deck([top(3)]);
+    cover.slides[0].layoutId = 'title-slide';
+    expect(rules(two, 'empty-region')).toEqual([]);
+    expect(rules(cover, 'empty-region')).toEqual([]);
+  });
+
+  it('does not count footers, backgrounds or full-height decoration as content', () => {
+    const d = deck([
+      [
+        rect('bg', frame(0, 0, 1920, 1080), { kind: 'srgb', value: '#f5f5f5' }),
+        rect('side', frame(1700, 0, 220, 1080), { kind: 'srgb', value: '#334155' }),
+        ...top(3),
+        text('foot', frame(200, 1020, 400, 40), [para('Page 3', 14)]),
+      ],
+    ]);
+    expect(rules(d, 'empty-region')).toEqual([
+      expect.objectContaining({ severity: 'warning' }),
+    ]);
+  });
+});
+
+describe('inset-inconsistent', () => {
+  const fill = { kind: 'srgb', value: '#eeeeee' } as Fill;
+  const card = (i: number, inset: number, size = { w: 400, h: 300 }) => {
+    const x = 100 + i * 500;
+    return [
+      rect(`card${i}`, frame(x, 300, size.w, size.h), fill),
+      text(`label${i}`, frame(x + 30, 300 + inset, size.w - 60, 60), `Card ${i}`),
+    ];
+  };
+
+  it('flags the card whose text sits against its border while siblings are padded', () => {
+    const d = deck([[...card(0, 30), ...card(1, 0), ...card(2, 30)]]);
+    const f = rules(d, 'inset-inconsistent');
+    expect(f).toEqual([expect.objectContaining({ elementId: 'card1', severity: 'info' })]);
+    expect(f[0].message).toMatch(/top inset .* vs .* in its sibling cards/);
+  });
+
+  it('reports the cramped card of a pair', () => {
+    const f = rules(deck([[...card(0, 30), ...card(1, 2)]]), 'inset-inconsistent');
+    expect(f.map((x) => x.elementId)).toEqual(['card1']);
+  });
+
+  it('accepts consistent padding and differences within the tolerance', () => {
+    expect(rules(deck([[...card(0, 30), ...card(1, 30), ...card(2, 24)]]), 'inset-inconsistent')).toEqual([]);
+  });
+
+  it('only compares cards of similar size', () => {
+    const d = deck([[...card(0, 30), ...card(1, 0, { w: 200, h: 120 })]]);
+    expect(rules(d, 'inset-inconsistent')).toEqual([]);
+  });
+
+  it('measures a card with its own text by its inset, but not middle-anchored text', () => {
+    const own = (id: string, x: number, top: number, anchor?: 'middle') =>
+      ({
+        id,
+        type: 'shape',
+        frame: frame(x, 300, 400, 300),
+        data: {
+          kind: 'rect',
+          fill,
+          text: {
+            blocks: [para(`Card ${id}`)],
+            verticalAnchor: anchor ?? 'top',
+            inset: { left: 24, top, right: 24, bottom: 24 },
+          },
+        },
+      }) as unknown as Element;
+    const top = deck([[own('a', 100, 24), own('b', 600, 2), own('c', 1100, 24)]]);
+    expect(rules(top, 'inset-inconsistent').map((f) => f.elementId)).toEqual(['b']);
+    const mid = deck([[own('a', 100, 24, 'middle'), own('b', 600, 2, 'middle'), own('c', 1100, 24, 'middle')]]);
+    expect(rules(mid, 'inset-inconsistent')).toEqual([]);
+  });
+});
+
 describe('applyAllowlist', () => {
   const d = deck([[text('a', frame(200, 200, 600, 100), [para('01', 24, '#fdc433')]), text('b', frame(200, 400, 600, 100), [para('02', 24, '#fdc433')])]]);
   const findings = rules(d, 'contrast');

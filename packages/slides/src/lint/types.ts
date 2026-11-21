@@ -7,7 +7,10 @@ export type LintRuleId =
   | 'overlap'
   | 'edge-margin'
   | 'min-font'
-  | 'overflow';
+  | 'overflow'
+  | 'token-wrap'
+  | 'empty-region'
+  | 'inset-inconsistent';
 
 /**
  * `error` — almost certainly visible to a viewer (unreadable text, text
@@ -55,4 +58,17 @@ export type LintOptions = {
   boundsTolerance?: number;
   /** Pixels of slack before laid-out text counts as overflow. Default 1. */
   overflowTolerance?: number;
+  /**
+   * `empty-region`: a content slide is reported (info) when the empty band
+   * below its content covers at least this fraction of the safe area's
+   * height. Default 0.45.
+   */
+  emptyRegionMinFraction?: number;
+  /** `empty-region`: the band fraction at which the finding becomes a warning. Default 0.7. */
+  emptyRegionWarnFraction?: number;
+  /**
+   * `inset-inconsistent`: pixels a card's text inset may differ from its
+   * sibling cards' before it counts. Default 8.
+   */
+  insetTolerance?: number;
 };
