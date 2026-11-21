@@ -399,6 +399,7 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `DELETE` | `…/chat/channels/:cid/members/:uid` | Leave / remove |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |
 | `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }` |
+| `GET` | `…/chat/messages/:mid` | One message, for a bell deep link that must learn whether it is a thread reply; 404 unless its channel is readable |
 | `PATCH` / `DELETE` | `…/chat/messages/:mid` | Edit / delete own |
 | `POST` | `…/chat/channels/:cid/read` | `{ seq }` advance read position (never moves backwards) |
 | `GET` | `…/chat/search` | `?q=` over the caller's channels |

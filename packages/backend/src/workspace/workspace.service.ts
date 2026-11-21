@@ -112,16 +112,54 @@ export class WorkspaceService {
     // silently reactivate keys nobody re-issued. Revoking the rows makes the
     // removal permanent, and keeps the two halves in one transaction so a key
     // can never survive a committed removal.
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.workspaceMember.delete({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-      });
-      await tx.apiKey.updateMany({
-        where: { workspaceId, createdBy: targetUserId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      return deleted;
-    });
+    //
+    // Chat memberships go in the same transaction for the same reason: the
+    // chat stream fans out on `ChatChannelMember` rows alone, so a row that
+    // outlived the workspace membership would keep delivering that
+    // workspace's events to somebody who no longer belongs to it.
+    const { deleted, channelIds } = await this.prisma.$transaction(
+      async (tx) => {
+        const deleted = await tx.workspaceMember.delete({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        });
+        await tx.apiKey.updateMany({
+          where: { workspaceId, createdBy: targetUserId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        const memberships = await tx.chatChannelMember.findMany({
+          where: { userId: targetUserId, channel: { workspaceId } },
+          select: { channelId: true },
+        });
+        const channelIds = memberships.map((m) => m.channelId);
+        await tx.chatChannelMember.deleteMany({
+          where: { userId: targetUserId, channelId: { in: channelIds } },
+        });
+        return { deleted, channelIds };
+      },
+    );
+    await this.announceChatMembership(channelIds);
+    return deleted;
+  }
+
+  /**
+   * Tells every replica's chat hub that these channels' member sets changed,
+   * so a removed member's open stream stops receiving them at once. Raw
+   * `pg_notify` rather than `ChatBus`, since importing the chat module here
+   * would close a cycle. Runs after commit: a replica that reloaded before
+   * the delete was visible would cache the old set again. The removal has
+   * committed either way, so a failed notify is logged, not thrown.
+   */
+  private async announceChatMembership(channelIds: string[]): Promise<void> {
+    for (const channelId of channelIds) {
+      const payload = JSON.stringify({ t: 'mem', c: channelId });
+      try {
+        await this.prisma.$executeRaw`SELECT pg_notify('chat', ${payload})`;
+      } catch (err) {
+        this.logger.warn(
+          `chat membership notify failed for ${channelId}: ${String(err)}`,
+        );
+      }
+    }
   }
 
   async createInvite(

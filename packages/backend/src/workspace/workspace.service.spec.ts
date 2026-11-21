@@ -36,6 +36,11 @@ function createMockPrisma() {
     apiKey: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    chatChannelMember: {
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    $executeRaw: jest.fn().mockResolvedValue(1),
     // `removeMember` runs its membership delete + key revocation in one
     // interactive transaction. Passing the same mock client through means a
     // test sees the calls exactly as it would outside one; the value of the
@@ -337,6 +342,25 @@ describe('WorkspaceService', () => {
       });
       // Both halves land together, so a key cannot survive a committed removal.
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("drops the removed member's chat memberships and announces each", async () => {
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+      prisma.chatChannelMember.findMany.mockResolvedValue([
+        { channelId: 'c1' },
+        { channelId: 'c2' },
+      ]);
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      expect(prisma.chatChannelMember.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 2, channelId: { in: ['c1', 'c2'] } },
+      });
+      // One membership event per channel, so every hub evicts its cache.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
     });
 
     it('member can leave workspace (self-remove)', async () => {
