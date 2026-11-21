@@ -53,4 +53,6 @@ the P1/P2 bugs; sidebar badge counts mentions + DMs only.
 ## Known limitations (not in scope)
 
 - Archived channels still vanish from every list (unarchive by URL only)
+- Badge ignores unmentioned private-channel traffic (by the chosen rule)
+- "Already here" is not refreshed by other people joining while open
 - Unread divider / new-messages pill, member list panel, ⌘K, doc link chips

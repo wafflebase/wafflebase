@@ -12,6 +12,7 @@ import { AccessContext, canManage, canPost, canRead } from './chat-access';
 import { ChatBus } from './chat-bus';
 import { ChannelKind, ChannelSummary, ChatUserSummary } from './chat.types';
 import { dmKey } from './dm-key';
+import { ensureDefaultChannel, joinDefaultChannel } from './default-channel';
 
 /** A DM holds the caller plus 1–7 others. */
 const DM_MIN_MEMBERS = 2;
@@ -109,7 +110,22 @@ export class ChatChannelService {
       userId,
       workspaceId,
     );
-    return this.summaries(userId, Prisma.sql`c."workspaceId" = ${id}`);
+    const where = Prisma.sql`c."workspaceId" = ${id}`;
+    const rows = await this.summaries(userId, where);
+    const fallback = rows.find((r) => r.isDefault);
+    if (fallback?.isMember) return rows;
+    // Every member belongs to #general, but a pod from before defaults
+    // existed can create a workspace or accept an invite without it during
+    // a rolling deploy. Reading the list repairs that, so nothing has to
+    // run the backfill again by hand.
+    const healed = fallback
+      ? await this.prisma.$transaction((tx) =>
+          joinDefaultChannel(tx, id, userId),
+        )
+      : await this.prisma.$transaction((tx) => ensureDefaultChannel(tx, id));
+    if (!healed) return rows;
+    await this.announceMembership(healed);
+    return this.summaries(userId, where);
   }
 
   async create(
@@ -405,7 +421,14 @@ export class ChatChannelService {
       );
     }
     const rows = await this.prisma.chatChannelMember.findMany({
-      where: { channelId },
+      // A row that outlived its workspace membership grants nothing (see
+      // `ChatHub.membersOf`), so it does not list anybody either.
+      where: {
+        channelId,
+        user: {
+          workspaceMembers: { some: { workspaceId: channel.workspaceId } },
+        },
+      },
       select: { user: { select: { id: true, username: true, photo: true } } },
       orderBy: { user: { username: 'asc' } },
     });

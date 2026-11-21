@@ -17,16 +17,26 @@ import type { MentionMember } from "./components/CommentComposer";
 export function useWorkspaceMembers(
   workspaceId: string | undefined,
 ): MentionMember[] {
+  return useWorkspaceMembersQuery(workspaceId).members;
+}
+
+/**
+ * `useWorkspaceMembers` with the query state and roles alongside, for a
+ * caller that must tell "still loading" and "failed" from "nobody else here",
+ * or who the owners are.
+ */
+export function useWorkspaceMembersQuery(workspaceId: string | undefined) {
   // Same key/fetcher as the rest of the app's workspace-detail query, so the
   // member list shares one cache entry instead of issuing a duplicate fetch.
-  const { data } = useQuery({
+  const query = useQuery({
     queryKey: ["workspaces", workspaceId],
     queryFn: () => fetchWorkspace(workspaceId!),
     enabled: !!workspaceId,
     staleTime: 5 * 60 * 1000,
   });
+  const { data } = query;
 
-  return useMemo(
+  const members = useMemo(
     () =>
       (data?.members ?? []).map((m) => ({
         userId: String(m.user.id),
@@ -35,4 +45,5 @@ export function useWorkspaceMembers(
       })),
     [data],
   );
+  return { members, roles: data?.members, query };
 }

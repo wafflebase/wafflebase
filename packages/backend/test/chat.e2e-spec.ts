@@ -218,7 +218,7 @@ describeDb('Chat integration', () => {
 
       await as(owner)
         .post(`${base(workspace.id)}/channels`)
-        .send({ kind: 'public', name: 'General' })
+        .send({ kind: 'public', name: 'Water Cooler' })
         .expect(201);
       const secret = await as(owner)
         .post(`${base(workspace.id)}/channels`)
@@ -234,20 +234,24 @@ describeDb('Chat integration', () => {
       const mine = await as(owner)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
+      // `general` is the default channel, repaired into this workspace
+      // (made by a helper, not `WorkspaceService.create`) on first read.
       expect(mine.body.map((c: { name: string }) => c.name).sort()).toEqual([
         'general',
         'leadership-team',
+        'water-cooler',
       ]);
 
       const theirs = await as(peer)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
-      expect(theirs.body).toHaveLength(1);
-      expect(theirs.body[0]).toMatchObject({
-        name: 'general',
-        isMember: false,
-        unreadCount: 0,
-      });
+      expect(theirs.body.map((c: { name: string }) => c.name).sort()).toEqual([
+        'general',
+        'water-cooler',
+      ]);
+      expect(
+        theirs.body.find((c: { name: string }) => c.name === 'water-cooler'),
+      ).toMatchObject({ isMember: false, unreadCount: 0 });
 
       // Invited, the private channel appears for them too.
       await as(owner)
@@ -257,7 +261,7 @@ describeDb('Chat integration', () => {
       const after = await as(peer)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
-      expect(after.body).toHaveLength(2);
+      expect(after.body).toHaveLength(3);
     });
 
     it('summaries say who may manage each channel', async () => {
@@ -290,14 +294,14 @@ describeDb('Chat integration', () => {
         );
       };
       // Public: its creator or a workspace owner. Private: any member.
-      // DM: nobody.
-      expect(await manage(owner.id)).toEqual({
+      // DM: nobody. (The repaired #general is also listed; not asserted.)
+      expect(await manage(owner.id)).toMatchObject({
         [ownersPublic.id]: true,
         [peersPublic.id]: true,
         [priv.id]: true,
         [dm.id]: false,
       });
-      expect(await manage(peer.id)).toEqual({
+      expect(await manage(peer.id)).toMatchObject({
         [ownersPublic.id]: false,
         [peersPublic.id]: true,
         [priv.id]: true,
@@ -1472,8 +1476,9 @@ describeDb('Chat integration', () => {
           unreadCount: 0,
         });
         // The new member's open stream must start receiving #general.
+        const expected = JSON.stringify({ t: 'mem', c: general.id });
         const deadline = Date.now() + 2_000;
-        while (notified.length < 1 && Date.now() < deadline) {
+        while (!notified.includes(expected) && Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 25));
         }
         expect(notified.map((p) => JSON.parse(p))).toContainEqual({
@@ -1496,6 +1501,53 @@ describeDb('Chat integration', () => {
         .send({ name: 'lobby' })
         .expect(200);
       expect(renamed.body).toMatchObject({ name: 'lobby', isDefault: true });
+    });
+
+    it('reading the list repairs a workspace created without #general', async () => {
+      // `team()` writes rows directly, the way a pod from before defaults
+      // existed would during a rolling deploy.
+      const { owner, members, workspace } = await team(1);
+      expect(
+        await prisma.chatChannel.count({ where: { defaultKey: workspace.id } }),
+      ).toBe(0);
+
+      const [general] = await channels.list(owner.id, workspace.id);
+      expect(general).toMatchObject({
+        name: 'general',
+        isDefault: true,
+        isMember: true,
+      });
+      // Everyone joined, not just the reader.
+      const [theirs] = await channels.list(members[0].id, workspace.id);
+      expect(theirs).toMatchObject({ id: general.id, isMember: true });
+    });
+
+    it('reading the list joins a member an old pod left out', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      const late = await createUser();
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: late.id, role: 'member' },
+      });
+      await messages.post(owner.id, general.id, { body: 'before you came' });
+
+      const [summary] = await channels.list(late.id, workspace.id);
+      expect(summary).toMatchObject({
+        id: general.id,
+        isMember: true,
+        unreadCount: 0,
+      });
+    });
+
+    it('a private general is left alone', async () => {
+      const { owner, workspace } = await team(0);
+      const secret = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'general',
+      });
+
+      const rows = await channels.list(owner.id, workspace.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: secret.id, isDefault: false });
     });
 
     it('other channels are not default', async () => {
@@ -1523,6 +1575,29 @@ describeDb('Chat integration', () => {
       expect(res.body.map((u: { id: number }) => u.id).sort()).toEqual(
         [owner.id, members[0].id].sort(),
       );
+    });
+
+    it('omits a channel row that outlived its workspace membership', async () => {
+      const { owner, members, workspace } = await team(1);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      await channels.invite(owner.id, channel.id, [members[0].id]);
+      // Removed without `removeMember`'s cleanup.
+      await prisma.workspaceMember.delete({
+        where: {
+          workspaceId_userId: {
+            workspaceId: workspace.id,
+            userId: members[0].id,
+          },
+        },
+      });
+
+      const res = await as(owner)
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(200);
+      expect(res.body.map((u: { id: number }) => u.id)).toEqual([owner.id]);
     });
 
     it('a DM is refused: its members are on its summary', async () => {

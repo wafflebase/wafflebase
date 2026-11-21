@@ -5,7 +5,12 @@ import { MemberPicker } from "@/app/chat/member-picker";
 
 const renderPicker = (
   members: { userId: string; username: string }[],
-  opts: { excluded?: string[]; loading?: boolean; owner?: boolean } = {},
+  opts: {
+    excluded?: string[];
+    loading?: boolean;
+    failed?: boolean;
+    owner?: boolean;
+  } = {},
 ) =>
   render(
     <MemoryRouter>
@@ -15,6 +20,7 @@ const renderPicker = (
         onChange={() => {}}
         excluded={opts.excluded}
         loading={opts.loading}
+        failed={opts.failed}
         inviteHref={opts.owner === false ? undefined : "/w/team/settings"}
       />
     </MemoryRouter>,
@@ -36,6 +42,14 @@ describe("MemberPicker", () => {
     renderPicker([], { loading: true });
 
     expect(screen.getByText("Loading people…")).toBeInTheDocument();
+    expect(screen.queryByText(/only one/)).not.toBeInTheDocument();
+  });
+
+  it("reports a failed load rather than an empty workspace", () => {
+    renderPicker([], { failed: true });
+
+    expect(screen.getByText(/Couldn't load the people/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.queryByText(/only one/)).not.toBeInTheDocument();
   });
 

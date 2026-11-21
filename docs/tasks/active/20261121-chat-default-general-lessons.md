@@ -34,3 +34,14 @@
   and the Add-people "Already here" list not refreshing on others' joins.
 - Default params hide `undefined`: a test helper `inviteHref = "/x"` turned
   an explicit `undefined` back into the default. Use an explicit flag.
+- `/code-review` (high, after round 2): 9 findings. Fixed — picker showed
+  "you're alone" on a failed load (now an error + retry), self-heal for a
+  missing default / a member an old pod left out (`ensureDefaultChannel` on
+  list; replaces the rolling-deploy known limitation), Add people pickable
+  before channel members load, e2e wait loop keyed on any NOTIFY (now the
+  exact payload), members() listing rows that outlived workspace
+  membership, duplicated workspace-members query (`useWorkspaceMembersQuery`),
+  a DateTimeFormat per gutter line. Rejected — badge ignoring unmentioned
+  private-channel traffic: that is the rule the user chose (mentions + DMs).
+  Accepted — gutter time across noon reads without AM/PM, as in Slack; the
+  title tooltip has the full time.

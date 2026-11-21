@@ -17,6 +17,9 @@ interface MemberPickerProps {
   excluded?: string[];
   /** The member list is still loading: not the same as an empty one. */
   loading?: boolean;
+  /** It failed to load: say so, rather than "nobody else is here". */
+  failed?: boolean;
+  onRetry?: () => void;
   /**
    * Where to invite people, offered when nobody else is in the workspace.
    * Only owners can invite, so anyone else is told to ask one instead.
@@ -35,6 +38,8 @@ export function MemberPicker({
   max,
   excluded = [],
   loading = false,
+  failed = false,
+  onRetry,
   inviteHref,
 }: MemberPickerProps) {
   const [query, setQuery] = useState("");
@@ -54,6 +59,20 @@ export function MemberPicker({
 
   // Nobody to pick is not a search miss: say so, and say where people come
   // from, instead of a "No one matches" under an empty search box.
+  if (failed) {
+    return (
+      <p className="py-3 text-sm text-muted-foreground">
+        Couldn't load the people in this workspace.{" "}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          Try again
+        </button>
+      </p>
+    );
+  }
   if (loading) {
     return <p className="py-3 text-sm text-muted-foreground">Loading people…</p>;
   }

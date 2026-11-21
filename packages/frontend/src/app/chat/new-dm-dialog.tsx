@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { fetchMe } from "@/api/auth";
-import { fetchWorkspace } from "@/api/workspaces";
 import { userFacingError } from "@/api/http-error";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +18,7 @@ import {
   useInviteToChannel,
   useOpenDm,
 } from "@/components/chat/use-chat";
+import { useWorkspaceMembersQuery } from "@/components/comments/use-workspace-members";
 import { MemberPicker } from "./member-picker";
 
 /**
@@ -27,26 +27,20 @@ import { MemberPicker } from "./member-picker";
  * only role that can create an invite.
  */
 function usePickableMembers(workspaceId: string) {
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
-  // The key `useWorkspaceMembers` uses, so this shares its cache entry.
-  const { data: workspace, isPending } = useQuery({
-    queryKey: ["workspaces", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
-    staleTime: 5 * 60 * 1000,
-  });
-  const members = (workspace?.members ?? [])
-    .filter((m) => m.user.id !== me?.id)
-    .map((m) => ({
-      userId: String(m.user.id),
-      username: m.user.username,
-      photo: m.user.photo || undefined,
-    }));
-  const isOwner = !!workspace?.members.some(
-    (m) => m.user.id === me?.id && m.role === "owner",
+  const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const { members, roles, query } = useWorkspaceMembersQuery(workspaceId);
+  const myId = me.data?.id;
+  const isOwner = !!roles?.some(
+    (m) => m.user.id === myId && m.role === "owner",
   );
   return {
-    members,
-    loading: isPending || !me,
+    members: members.filter((m) => m.userId !== String(myId)),
+    loading: query.isPending || me.isPending,
+    failed: query.isError || me.isError,
+    retry: () => {
+      void query.refetch();
+      void me.refetch();
+    },
     inviteHref: isOwner ? `/w/${workspaceId}/settings` : undefined,
   };
 }
@@ -72,7 +66,8 @@ export function NewDmDialog({
   onOpenChange,
   onOpened,
 }: NewDmDialogProps) {
-  const { members, loading, inviteHref } = usePickableMembers(workspaceId);
+  const { members, loading, failed, retry, inviteHref } =
+    usePickableMembers(workspaceId);
   const [selected, setSelected] = useState<string[]>([]);
   const openDm = useOpenDm(workspaceId);
 
@@ -109,6 +104,8 @@ export function NewDmDialog({
           onChange={setSelected}
           max={MAX_DM_OTHERS}
           loading={loading}
+          failed={failed}
+          onRetry={retry}
           inviteHref={inviteHref}
         />
         <DialogFooter>
@@ -143,16 +140,14 @@ export function AddPeopleDialog({
   open,
   onOpenChange,
 }: AddPeopleDialogProps) {
-  const { members, loading, inviteHref } = usePickableMembers(workspaceId);
+  const { members, loading, failed, retry, inviteHref } =
+    usePickableMembers(workspaceId);
   const [selected, setSelected] = useState<string[]>([]);
   const invite = useInviteToChannel(workspaceId);
   // Those already here stay listed but unpickable ("Already here").
-  const { data: channelMembers } = useChannelMembers(
-    workspaceId,
-    channelId,
-    open,
-  );
-  const inChannel = (channelMembers ?? []).map((m) => String(m.id));
+  // Until it loads, nobody would read as "Already here", so the picker waits.
+  const channelMembers = useChannelMembers(workspaceId, channelId, open);
+  const inChannel = (channelMembers.data ?? []).map((m) => String(m.id));
 
   const close = (next: boolean) => {
     if (!next) setSelected([]);
@@ -196,7 +191,12 @@ export function AddPeopleDialog({
           selected={selected}
           onChange={setSelected}
           excluded={inChannel}
-          loading={loading}
+          loading={loading || channelMembers.isPending}
+          failed={failed || channelMembers.isError}
+          onRetry={() => {
+            retry();
+            void channelMembers.refetch();
+          }}
           inviteHref={inviteHref}
         />
         <DialogFooter>

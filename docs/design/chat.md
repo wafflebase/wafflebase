@@ -302,7 +302,13 @@ model ChatDocumentRef {
   member joins at the tail. A workspace whose `general` is **private** gets
   none — names are unique per workspace, and making that channel public would
   expose its history — and `joinDefaultChannel` treats a missing default as a
-  no-op.
+  no-op. Reading the channel list repairs the rest (`ensureDefaultChannel`,
+  the backfill scoped to one workspace): during a rolling deploy a pod from
+  before defaults existed can still create a workspace without #general or
+  accept an invite without joining it, so `list` creates or adopts the
+  default when it is missing and joins the reader when they are not in it.
+  Both are idempotent and yield on conflict, so the common path costs one
+  extra row in the result, nothing more.
 - `seq` is allocated inside the insert transaction (`lastSeq + 1` on the
   channel row, locked), so ordering is total per channel and survives clock
   skew between replicas.
