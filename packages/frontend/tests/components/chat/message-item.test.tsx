@@ -94,6 +94,23 @@ describe("MessageLine on a coarse pointer", () => {
     expect(onOpenThread).toHaveBeenCalledWith("m1");
   });
 
+  it("does not swallow a tap inside the sheet a long-press opened", () => {
+    vi.useFakeTimers();
+    const { line } = renderLine(msg());
+    fireEvent.touchStart(line, { touches: [{ clientX: 10, clientY: 10 }] });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.touchEnd(line);
+    vi.useRealTimers();
+    // The sheet is portalled, but React bubbles its touches through the row.
+    const reply = screen.getByRole("button", { name: "Reply in thread" });
+    const touch = { clientX: 50, clientY: 50 };
+    fireEvent.touchStart(reply, { touches: [touch], changedTouches: [touch] });
+    const notPrevented = fireEvent.touchEnd(reply, { changedTouches: [touch] });
+    expect(notPrevented).toBe(true);
+  });
+
   it("does not open when the finger moves (a scroll)", () => {
     vi.useFakeTimers();
     const { line } = renderLine(msg());

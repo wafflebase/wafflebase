@@ -61,7 +61,7 @@ export function useLongPress(onLongPress: () => void, enabled: boolean) {
       cancel();
       // React attaches touchend non-passively, so this suppresses the
       // compatibility click.
-      if (fired.current) e.preventDefault();
+      if (fired.current && own(e)) e.preventDefault();
     },
     onTouchCancel: cancel,
     onContextMenu: (e: MouseEvent) => {

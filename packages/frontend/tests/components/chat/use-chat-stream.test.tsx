@@ -129,10 +129,16 @@ describe("useChatStream", () => {
     expect(source.closed).toBe(true);
   });
 
-  it("ready event refetches the open channel after its last seq", async () => {
-    // Messages 4 and 5 were posted while the client was offline; nothing
-    // announced them, so only the reconnect can.
-    fetchMessagesSpy.mockResolvedValue([msg(4), msg(5)]);
+  it("ready event refetches the open channel's loaded range and its tail", async () => {
+    // Messages 4 and 5 were posted while the client was offline, and message
+    // 2 was edited; nothing announced either, so only the reconnect can.
+    fetchMessagesSpy.mockResolvedValue([
+      msg(1),
+      msg(2, { body: "edited", editedAt: "2026-11-20T10:05:00.000Z" }),
+      msg(3),
+      msg(4),
+      msg(5),
+    ]);
     const { queryClient, source } = harness();
     queryClient.setQueryData(chatKeys.messages("c1"), [msg(1), msg(2), msg(3)]);
     setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
@@ -146,7 +152,127 @@ describe("useChatStream", () => {
           ?.map((m) => m.seq),
       ).toEqual([1, 2, 3, 4, 5]),
     );
-    expect(fetchMessagesSpy).toHaveBeenCalledWith("w1", "c1", { after: 3 });
+    expect(fetchMessagesSpy).toHaveBeenCalledWith("w1", "c1", { after: 0 });
+    expect(
+      queryClient.getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))?.[1]
+        .body,
+    ).toBe("edited");
+  });
+
+  it("ready event invalidates thread caches and closed channels' caches", async () => {
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    queryClient.setQueryData(chatKeys.messages("c2"), [msg(1)]);
+    queryClient.setQueryData(chatKeys.thread("m1"), [msg(1)]);
+    fetchMessagesSpy.mockResolvedValue([msg(1)]);
+    setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
+
+    act(() => source.emit("ready", {}));
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(chatKeys.thread("m1"))?.isInvalidated,
+      ).toBe(true),
+    );
+    expect(
+      queryClient.getQueryState(chatKeys.messages("c2"))?.isInvalidated,
+    ).toBe(true);
+    // The open channel keeps its loaded history; it is caught up in place.
+    expect(
+      queryClient.getQueryState(chatKeys.messages("c1"))?.isInvalidated,
+    ).toBe(false);
+  });
+
+  it("fetches from the start when the open channel loaded empty", async () => {
+    fetchMessagesSpy.mockResolvedValue([msg(1)]);
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), []);
+    setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
+
+    act(() =>
+      source.emit("message", {
+        workspaceId: "w1",
+        channelId: "c1",
+        seq: 1,
+        threadRootId: null,
+        authorId: 2,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+          ?.map((m) => m.seq),
+      ).toEqual([1]),
+    );
+    expect(fetchMessagesSpy).toHaveBeenCalledWith("w1", "c1", { after: 0 });
+  });
+
+  it("a rerun starts from the earliest hint, not a tail a local post moved", async () => {
+    let release: (v: ChatMessageDto[]) => void = () => {};
+    fetchMessagesSpy
+      .mockImplementationOnce(
+        () => new Promise<ChatMessageDto[]>((r) => (release = r)),
+      )
+      .mockResolvedValue([msg(12)]);
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(10)]);
+    setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
+    const event = (seq: number) => ({
+      workspaceId: "w1",
+      channelId: "c1",
+      seq,
+      threadRootId: null,
+      authorId: 2,
+    });
+
+    act(() => source.emit("message", event(11)));
+    act(() => source.emit("message", event(12)));
+    // Our own post lands in the cache while the first request is out.
+    queryClient.setQueryData<ChatMessageDto[]>(chatKeys.messages("c1"), (old) => [
+      ...(old ?? []),
+      msg(13),
+    ]);
+    release([msg(11)]);
+
+    await waitFor(() => expect(fetchMessagesSpy).toHaveBeenCalledTimes(2));
+    expect(fetchMessagesSpy).toHaveBeenLastCalledWith("w1", "c1", {
+      after: 11,
+    });
+  });
+
+  it("an older refresh finishing last does not undo a newer one", async () => {
+    const resolvers: Array<(v: ChatMessageDto | null) => void> = [];
+    fetchMessageSpy.mockImplementation(
+      () => new Promise((r) => resolvers.push(r)),
+    );
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    const update = {
+      workspaceId: "w1",
+      channelId: "c1",
+      messageId: "m1",
+      threadRootId: null,
+    };
+
+    act(() => source.emit("update", update)); // the edit
+    act(() => source.emit("update", update)); // then the delete
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    resolvers[1](msg(1, { body: "", deleted: true }));
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))?.[0]
+          .deleted,
+      ).toBe(true),
+    );
+    resolvers[0](msg(1, { body: "edited" }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(
+      queryClient.getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))?.[0],
+    ).toMatchObject({ body: "", deleted: true });
   });
 
   it("keeps paging a catch-up until a short page", async () => {

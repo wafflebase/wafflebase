@@ -14,7 +14,11 @@ export const chatKeys = {
   /** Prefix of every workspace's channel list, for a blanket invalidate. */
   allChannels: ["chat", "channels"] as const,
   channels: (workspaceId: string) => ["chat", "channels", workspaceId] as const,
+  /** Prefix of every channel's message cache. */
+  allMessages: ["chat", "messages"] as const,
   messages: (channelId: string) => ["chat", "messages", channelId] as const,
+  /** Prefix of every thread's cache. */
+  allThreads: ["chat", "thread"] as const,
   thread: (rootId: string) => ["chat", "thread", rootId] as const,
 };
 
