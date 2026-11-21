@@ -820,8 +820,15 @@ threadRootId }` and the client refetches that message; `ping` is a 25 s
 keep-alive. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
 `chat` channel (`ChatBus`), fanned out per replica by `ChatHub` to the
 connected members of the channel from a member cache that a membership event
-evicts and a listener reconnect clears. A missed event costs latency, never
-messages: the next `ready` catches up.
+evicts, that expires after 60 s in case that event was lost, and that a
+listener reconnect clears. A reconnect also sends `ready` down every open
+stream, since whatever was NOTIFYed during the outage never arrived. On
+`ready` the client re-reads the open channel's whole loaded range (so it
+picks up missed edits and deletes, not only appends) and invalidates its
+threads and other cached channels. A missed event costs latency, never
+messages. The listener's connect and `LISTEN` are bounded at 10 s, so a
+database that accepts TCP and then stalls reaches the retry path instead of
+holding boot open.
 
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 

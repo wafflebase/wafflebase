@@ -534,10 +534,26 @@ say:
   `{t:'upd',c,w,id,r}`, `{t:'mem',c}`, plus a self-sent probe that warns when
   the listener sits behind a pooler. Payloads are validated on receipt, since
   any database session can `pg_notify('chat', …)`.
-- **Reconnect clears the hub cache.** `ChatBus.resets$` fires on every
-  listener reconnect after the first, and `ChatHub` drops every cached member
-  set: a `mem` sent while the listener was down never arrives, and a stale set
-  would keep feeding a removed member.
+- **Reconnect clears the hub cache and resyncs streams.** `ChatBus.resets$`
+  fires on every successful listener connection (the first too, since a
+  listener down at boot may already have streams), and `ChatHub` drops every
+  cached member set, bumps a generation so a member load in flight across the
+  reset is reloaded rather than cached, and sends `ready` down every open
+  stream: a `mem` or `msg` sent while the listener was down never arrives. A
+  cached set also expires after 60 s (`MEMBER_CACHE_TTL_MS`), because a `mem`
+  NOTIFY is best effort and can fail with the listener still up; that bounds
+  how long a removed member keeps receiving a channel's ids-only events, and
+  every fetch those events prompt re-checks access. The listener's connect and
+  `LISTEN` time out at 10 s so a stalled handshake reaches the retry path.
+- **`ready` reconciles, it does not only append.** On `ready` the client
+  re-reads the open channel's whole loaded range (`after = oldest − 1`, paged,
+  merged by id) so edits and deletes missed during a disconnect land without
+  dropping the history scrolled back through, invalidates every thread and
+  every other cached channel so they refetch when shown, and refreshes the
+  channel lists. Catch-up reruns start from the earliest point any request
+  asked for, not from a tail a local post may have moved; a channel that
+  loaded empty catches up from seq 0; and only the newest refresh of a given
+  message may land.
 - **Heartbeat is a `ping` event.** Nest's SSE writer has no comment lines, so
   the 25 s keep-alive is a named `ping` event the client ignores. `ready`
   opens every (re)connect.
@@ -567,8 +583,9 @@ say:
 
 ## Risks and Mitigation
 
-- **LISTEN connection loss.** The hub reconnects with backoff; clients catch up
-  by `after=<seq>` on reconnect, so loss costs latency, not messages.
+- **LISTEN connection loss.** The bus reconnects with backoff and the hub
+  sends `ready` to every open stream; clients re-read what they have open, so
+  loss costs latency, not messages.
 - **Pooled databases.** A transaction-mode pooler silently breaks `LISTEN`.
   Log a startup check that a self-NOTIFY round-trips; document
   `CHAT_LISTEN_DATABASE_URL`.
