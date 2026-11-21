@@ -1,13 +1,48 @@
-import {
-  boldMoneyFormula,
-  cell,
-  formula,
-  money,
-  moneyFormula,
-  rows,
-  th,
-} from '../builders';
+import type { Cell, CellStyle } from '@wafflebase/sheets';
+import { cell, formula, money, moneyFormula, rows } from '../builders';
 import type { TemplateSeed } from '../types';
+
+/*
+ * One visual grammar for every sheet in this file, so the seven templates
+ * read as a set. Colours come from the formatting picker's own swatches
+ * (`formatting-colors.ts`), so whoever extends a template can match them, and
+ * every fill is light enough that the dark theme's ink-flip
+ * (`getCellTextColor`) keeps it readable without an explicit text colour.
+ *
+ * - Header: bold on the warm rule tone. The grid's own column headers are a
+ *   cool grey, so a grey header row disappeared into the chrome.
+ * - Side block (a summary beside the data): cream wash on its body, so it
+ *   reads as a panel rather than a second table that happens to be nearby.
+ * - Total: bold under a ruled top border — the ledger's sum line.
+ * - Note: italic in the picker's mid ink, so guidance stays out of the way of
+ *   the data. #857060 is 4.68:1 on white and 3.56:1 on the dark grid.
+ *
+ * Placeholders (`<name>`) deliberately carry no colour: typing over a cell
+ * keeps its style, so a grey placeholder would leave the user's own text grey.
+ */
+const HEAD_BG = '#E8DCC4';
+const WASH_BG = '#FBF6EC';
+const NOTE_TC = '#857060';
+
+/** Restyle a built cell, keeping its number format. */
+const styled = (c: Cell, s: CellStyle): Cell => ({ ...c, s: { ...c.s, ...s } });
+
+/** Header cell; `right` for a column of numbers, so it sits over them. */
+const th = (v: string, right = false): Cell =>
+  cell(v, { b: true, bg: HEAD_BG, ...(right ? { al: 'right' } : {}) });
+const thr = (v: string): Cell => th(v, true);
+
+/** The sum line: bold, ruled above. */
+const total = (c: Cell): Cell => styled(c, { b: true, bt: true });
+
+/** Body of a side block. */
+const wash = (c: Cell): Cell => styled(c, { bg: WASH_BG });
+
+/** A field name beside the value it labels (invoice header fields). */
+const label = (v: string): Cell => cell(v, { tc: NOTE_TC });
+
+/** Guidance text. */
+const note = (v: string): Cell => cell(v, { i: true, tc: NOTE_TC });
 
 export const monthlyBudgetTracker: TemplateSeed = {
   slug: 'monthly-budget-tracker',
@@ -22,7 +57,7 @@ export const monthlyBudgetTracker: TemplateSeed = {
     frozenRows: 1,
     cells: {
       ...rows('A1', [
-        [th('Category'), th('Planned'), th('Actual'), th('Variance')],
+        [th('Category'), thr('Planned'), thr('Actual'), thr('Variance')],
         [cell('Rent'), money('1500'), money('1500'), moneyFormula('=B2-C2', '0')],
         [cell('Groceries'), money('600'), money('648'), moneyFormula('=B3-C3', '-48')],
         [cell('Transport'), money('180'), money('142'), moneyFormula('=B4-C4', '38')],
@@ -33,10 +68,10 @@ export const monthlyBudgetTracker: TemplateSeed = {
       ]),
       ...rows('A10', [
         [
-          cell('Total', { b: true }),
-          boldMoneyFormula('=SUM(B2:B8)', '3610'),
-          boldMoneyFormula('=SUM(C2:C8)', '3707'),
-          boldMoneyFormula('=SUM(D2:D8)', '-97'),
+          total(cell('Total')),
+          total(moneyFormula('=SUM(B2:B8)', '3610')),
+          total(moneyFormula('=SUM(C2:C8)', '3707')),
+          total(moneyFormula('=SUM(D2:D8)', '-97')),
         ],
       ]),
     },
@@ -60,12 +95,14 @@ export const sprintTaskTracker: TemplateSeed = {
           th('Task'),
           th('Owner'),
           th('Status'),
-          th('Estimate (d)'),
-          th('Actual (d)'),
+          thr('Estimate (d)'),
+          thr('Actual (d)'),
           th('Notes'),
         ],
+        // Task names stay within a default-width column: the Owner cell
+        // beside them is never empty, so a longer name would be clipped.
         [
-          cell('Draft the API contract'),
+          cell('Draft API spec'),
           cell('—'),
           cell('Done'),
           cell('2'),
@@ -73,7 +110,7 @@ export const sprintTaskTracker: TemplateSeed = {
           cell(''),
         ],
         [
-          cell('Wire the read path'),
+          cell('Wire read path'),
           cell('—'),
           cell('In progress'),
           cell('3'),
@@ -81,7 +118,7 @@ export const sprintTaskTracker: TemplateSeed = {
           cell(''),
         ],
         [
-          cell('Migration + backfill'),
+          cell('Data migration'),
           cell('—'),
           cell('Blocked'),
           cell('2'),
@@ -89,7 +126,7 @@ export const sprintTaskTracker: TemplateSeed = {
           cell('Waiting on staging data'),
         ],
         [
-          cell('Tests for the failure path'),
+          cell('Failure tests'),
           cell('—'),
           cell('To do'),
           cell('1'),
@@ -97,7 +134,7 @@ export const sprintTaskTracker: TemplateSeed = {
           cell(''),
         ],
         [
-          cell('Docs + changelog'),
+          cell('Update docs'),
           cell('—'),
           cell('To do'),
           cell('1'),
@@ -106,18 +143,26 @@ export const sprintTaskTracker: TemplateSeed = {
         ],
       ]),
       ...rows('H1', [
-        [th('Summary'), th('Count')],
-        [cell('To do'), formula('=COUNTIF(C2:C50,"To do")', '2')],
-        [cell('In progress'), formula('=COUNTIF(C2:C50,"In progress")', '1')],
-        [cell('Blocked'), formula('=COUNTIF(C2:C50,"Blocked")', '1')],
-        [cell('Done'), formula('=COUNTIF(C2:C50,"Done")', '1')],
+        [th('Summary'), thr('Count')],
+        [wash(cell('To do')), wash(formula('=COUNTIF(C2:C50,"To do")', '2'))],
         [
-          cell('Days estimated', { b: true }),
-          formula('=SUM(D2:D50)', '9', { b: true }),
+          wash(cell('In progress')),
+          wash(formula('=COUNTIF(C2:C50,"In progress")', '1')),
         ],
         [
-          cell('Days spent', { b: true }),
-          formula('=SUM(E2:E50)', '3', { b: true }),
+          wash(cell('Blocked')),
+          wash(formula('=COUNTIF(C2:C50,"Blocked")', '1')),
+        ],
+        [wash(cell('Done')), wash(formula('=COUNTIF(C2:C50,"Done")', '1'))],
+        [
+          // Named after the columns they sum; a bold 'Days estimated' ran
+          // into the Count column.
+          wash(total(cell('Estimate (d)'))),
+          wash(total(formula('=SUM(D2:D50)', '9'))),
+        ],
+        [
+          wash(cell('Actual (d)', { b: true })),
+          wash(formula('=SUM(E2:E50)', '3', { b: true })),
         ],
       ]),
     },
@@ -147,7 +192,7 @@ export const contentCalendar: TemplateSeed = {
         ],
         [
           cell('2026-09-07'),
-          cell('Launch announcement'),
+          cell('Launch post'),
           cell('Blog'),
           cell('—'),
           cell('Published'),
@@ -155,7 +200,7 @@ export const contentCalendar: TemplateSeed = {
         ],
         [
           cell('2026-09-09'),
-          cell('Feature deep dive'),
+          cell('Feature dive'),
           cell('Newsletter'),
           cell('—'),
           cell('Draft'),
@@ -179,10 +224,13 @@ export const contentCalendar: TemplateSeed = {
         ],
       ]),
       ...rows('H1', [
-        [th('Status'), th('Count')],
-        [cell('Idea'), formula('=COUNTIF(E2:E100,"Idea")', '2')],
-        [cell('Draft'), formula('=COUNTIF(E2:E100,"Draft")', '1')],
-        [cell('Published'), formula('=COUNTIF(E2:E100,"Published")', '1')],
+        [th('Status'), thr('Count')],
+        [wash(cell('Idea')), wash(formula('=COUNTIF(E2:E100,"Idea")', '2'))],
+        [wash(cell('Draft')), wash(formula('=COUNTIF(E2:E100,"Draft")', '1'))],
+        [
+          wash(cell('Published')),
+          wash(formula('=COUNTIF(E2:E100,"Published")', '1')),
+        ],
       ]),
     },
   },
@@ -199,24 +247,33 @@ export const invoice: TemplateSeed = {
     kind: 'sheet',
     tabName: 'Invoice',
     cells: {
-      ...rows('A1', [[cell('INVOICE', { b: true })]]),
+      // The title rules off the page head, as wide as the Bill to block.
+      ...rows('A1', [
+        [
+          cell('INVOICE', { b: true, bb: true }),
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+        ],
+      ]),
       ...rows('A3', [
-        [cell('From', { b: true }), cell('<your name>')],
+        [label('From'), cell('<your name>')],
         [cell(''), cell('<address>')],
         [cell(''), cell('<email>')],
       ]),
       ...rows('D3', [
-        [cell('Bill to', { b: true }), cell('<client name>')],
+        [label('Bill to'), cell('<client name>')],
         [cell(''), cell('<address>')],
         [cell(''), cell('<email>')],
       ]),
       ...rows('A7', [
-        [cell('Invoice no.', { b: true }), cell('0001')],
-        [cell('Issued', { b: true }), cell('2026-09-04')],
-        [cell('Due', { b: true }), cell('2026-10-04')],
+        [label('Invoice no.'), cell('0001')],
+        [label('Issued'), cell('2026-09-04')],
+        [label('Due'), cell('2026-10-04')],
       ]),
       ...rows('A11', [
-        [th('Description'), th('Qty'), th('Unit price'), th('Amount')],
+        [th('Description'), thr('Qty'), thr('Unit price'), thr('Amount')],
         [
           cell('<service>'),
           cell('1'),
@@ -230,20 +287,38 @@ export const invoice: TemplateSeed = {
           moneyFormula('=B13*C13', '600'),
         ],
         [cell(''), cell(''), cell(''), cell('')],
-        [cell(''), cell(''), cell(''), cell('')],
+        // Rule off the item rows, so the two blank ones read as room for
+        // more lines rather than as the end of the table.
+        [
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+          cell('', { bb: true }),
+        ],
       ]),
       ...rows('C17', [
-        [cell('Subtotal', { b: true }), moneyFormula('=SUM(D12:D15)', '1800')],
-        [cell('Tax (10%)'), moneyFormula('=D17*0.1', '180')],
-        [cell('Total due', { b: true }), boldMoneyFormula('=D17+D18', '1980')],
+        [
+          styled(label('Subtotal'), { al: 'right' }),
+          moneyFormula('=SUM(D12:D15)', '1800'),
+        ],
+        [
+          styled(label('Tax (10%)'), { al: 'right' }),
+          moneyFormula('=D17*0.1', '180'),
+        ],
+        [
+          cell('Total due', { b: true, al: 'right', bg: HEAD_BG }),
+          styled(moneyFormula('=D17+D18', '1980'), { b: true, bg: HEAD_BG }),
+        ],
       ]),
-      ...rows('A21', [[cell('Payment terms: net 30. Thank you.')]]),
+      ...rows('A21', [[note('Payment terms: net 30. Thank you.')]]),
     },
   },
 };
 
-const pct = (f: string, v: string, b = false) =>
-  formula(f, v, b ? { nf: 'percent', b: true } : { nf: 'percent' });
+const pct = (f: string, v: string) => formula(f, v, { nf: 'percent' });
+
+/** A derived figure read beside the table rather than as part of it. */
+const aside = (c: Cell): Cell => styled(c, { i: true, tc: NOTE_TC });
 
 export const regionalSalesReport: TemplateSeed = {
   slug: 'regional-sales-report',
@@ -260,12 +335,12 @@ export const regionalSalesReport: TemplateSeed = {
       ...rows('A1', [
         [
           th('Region'),
-          th('Q1'),
-          th('Q2'),
-          th('Q3'),
-          th('Q4'),
-          th('Year total'),
-          th('Share'),
+          thr('Q1'),
+          thr('Q2'),
+          thr('Q3'),
+          thr('Q4'),
+          thr('Year total'),
+          thr('Share'),
         ],
         [
           cell('North'),
@@ -304,20 +379,20 @@ export const regionalSalesReport: TemplateSeed = {
           pct('=F5/$F$6', '0.1960449566083369'),
         ],
         [
-          cell('Total', { b: true }),
-          boldMoneyFormula('=SUM(B2:B5)', '161500'),
-          boldMoneyFormula('=SUM(C2:C5)', '169100'),
-          boldMoneyFormula('=SUM(D2:D5)', '179900'),
-          boldMoneyFormula('=SUM(E2:E5)', '192400'),
-          boldMoneyFormula('=SUM(F2:F5)', '702900'),
-          pct('=SUM(G2:G5)', '1', true),
+          total(cell('Total')),
+          total(moneyFormula('=SUM(B2:B5)', '161500')),
+          total(moneyFormula('=SUM(C2:C5)', '169100')),
+          total(moneyFormula('=SUM(D2:D5)', '179900')),
+          total(moneyFormula('=SUM(E2:E5)', '192400')),
+          total(moneyFormula('=SUM(F2:F5)', '702900')),
+          total(pct('=SUM(G2:G5)', '1')),
         ],
         [
-          cell('Change vs previous quarter'),
+          note('Change vs previous quarter'),
           cell(''),
-          pct('=C6/B6-1', '0.04705882352941182'),
-          pct('=D6/C6-1', '0.06386753400354817'),
-          pct('=E6/D6-1', '0.06948304613674261'),
+          aside(pct('=C6/B6-1', '0.04705882352941182')),
+          aside(pct('=D6/C6-1', '0.06386753400354817')),
+          aside(pct('=E6/D6-1', '0.06948304613674261')),
           cell(''),
           cell(''),
         ],
@@ -325,12 +400,12 @@ export const regionalSalesReport: TemplateSeed = {
       ...rows('A9', [
         [cell('How to use', { b: true })],
         [
-          cell(
+          note(
             'Rename the regions to your own territories, teams or products, and type each quarter’s revenue.',
           ),
         ],
         [
-          cell(
+          note(
             'Need another region? Insert a row above West and copy the Year total and Share formulas into it, so every sum picks it up.',
           ),
         ],
@@ -390,12 +465,12 @@ export const teamDirectory: TemplateSeed = {
         ],
       ]),
       ...rows('I1', [
-        [th('Summary'), th('Count')],
-        [cell('People listed'), formula('=COUNTA(A2:A200)', '3')],
+        [th('Summary'), thr('Count')],
+        [wash(cell('People listed')), wash(formula('=COUNTA(A2:A200)', '3'))],
       ]),
       ...rows('I4', [
-        [cell('One row per person; sort by Team.')],
-        [cell('Ask me about: what to come to them for.')],
+        [note('One row per person; sort by Team.')],
+        [note('Ask me about: what to come to them for.')],
       ]),
     },
   },
@@ -414,7 +489,7 @@ export const sharedExpenseSplitter: TemplateSeed = {
     frozenRows: 1,
     cells: {
       ...rows('A1', [
-        [th('Item'), th('Category'), th('Paid by'), th('Amount'), th('Notes')],
+        [th('Item'), th('Category'), th('Paid by'), thr('Amount'), th('Notes')],
         [
           cell('Rent'),
           cell('Housing'),
@@ -459,51 +534,51 @@ export const sharedExpenseSplitter: TemplateSeed = {
         ],
       ]),
       ...rows('G1', [
-        [th('Flatmate'), th('Paid'), th('Fair share'), th('Balance')],
+        [th('Flatmate'), thr('Paid'), thr('Fair share'), thr('Balance')],
         [
-          cell('Flatmate 1'),
-          moneyFormula('=SUMIF($C$2:$C$200,G2,$D$2:$D$200)', '2238'),
-          moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864'),
-          moneyFormula('=H2-I2', '1374'),
+          wash(cell('Flatmate 1')),
+          wash(moneyFormula('=SUMIF($C$2:$C$200,G2,$D$2:$D$200)', '2238')),
+          wash(moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864')),
+          wash(moneyFormula('=H2-I2', '1374')),
         ],
         [
-          cell('Flatmate 2'),
-          moneyFormula('=SUMIF($C$2:$C$200,G3,$D$2:$D$200)', '280'),
-          moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864'),
-          moneyFormula('=H3-I3', '-584'),
+          wash(cell('Flatmate 2')),
+          wash(moneyFormula('=SUMIF($C$2:$C$200,G3,$D$2:$D$200)', '280')),
+          wash(moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864')),
+          wash(moneyFormula('=H3-I3', '-584')),
         ],
         [
-          cell('Flatmate 3'),
-          moneyFormula('=SUMIF($C$2:$C$200,G4,$D$2:$D$200)', '74'),
-          moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864'),
-          moneyFormula('=H4-I4', '-790'),
+          wash(cell('Flatmate 3')),
+          wash(moneyFormula('=SUMIF($C$2:$C$200,G4,$D$2:$D$200)', '74')),
+          wash(moneyFormula('=SUM($D$2:$D$200)/COUNTA($G$2:$G$4)', '864')),
+          wash(moneyFormula('=H4-I4', '-790')),
         ],
         [
-          cell('Total', { b: true }),
-          boldMoneyFormula('=SUM(H2:H4)', '2592'),
-          boldMoneyFormula('=SUM(I2:I4)', '2592'),
-          boldMoneyFormula('=SUM(J2:J4)', '0'),
+          wash(total(cell('Total'))),
+          wash(total(moneyFormula('=SUM(H2:H4)', '2592'))),
+          wash(total(moneyFormula('=SUM(I2:I4)', '2592'))),
+          wash(total(moneyFormula('=SUM(J2:J4)', '0'))),
         ],
       ]),
       ...rows('G7', [
         [cell('How to read it', { b: true })],
         [
-          cell(
+          note(
             'Positive balance: the flat owes you. Negative: you owe the flat.',
           ),
         ],
         [
-          cell(
+          note(
             'Rename flatmates here; a "Paid by" name must match exactly to count.',
           ),
         ],
         [
-          cell(
+          note(
             'Settled up? Duplicate the tab for next month and clear the expense rows.',
           ),
         ],
         [
-          cell(
+          note(
             'Another flatmate? Insert a row above Flatmate 3 and copy its formulas.',
           ),
         ],

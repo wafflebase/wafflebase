@@ -25,13 +25,22 @@
  * upscaling more than twice and looked it. 1280 covers the card at 2× as well,
  * since a card is ~640 CSS px at its widest.
  */
-const MAX_EDGE = 1280;
+export const THUMBNAIL_MAX_EDGE = 1280;
+
+/**
+ * Width over height of the box every thumbnail is shown in: the gallery card
+ * and the `/t/:id` landing page are both `aspect-[16/10]`, `object-contain`.
+ * A source that chooses its own framing (a sheet's used range, a board's
+ * content bounds) frames to this, so the picture fills the card instead of
+ * floating in bands of wash.
+ */
+export const THUMBNAIL_ASPECT = 16 / 10;
 
 /**
  * Ceiling on the device-pixel ratio a capture composites at. Retina bitmaps
  * are worth reading at their real size — compositing at CSS pixels threw away
  * half of every docs and sheet capture before it was even downscaled — but a
- * 3× display would quadruple the work for pixels {@link MAX_EDGE} discards.
+ * 3× display would quadruple the work for pixels {@link THUMBNAIL_MAX_EDGE} discards.
  */
 const MAX_CAPTURE_DPR = 2;
 
@@ -123,7 +132,7 @@ function warn(reason: string, err?: unknown): void {
 }
 
 /**
- * Downscale `canvas` to fit {@link MAX_EDGE} and encode it.
+ * Downscale `canvas` to fit {@link THUMBNAIL_MAX_EDGE} and encode it.
  *
  * No backdrop is painted here. Producing an opaque canvas is the *source's*
  * job, because only the source knows what colour "empty" is — a hardcoded
@@ -139,7 +148,7 @@ export async function encodeThumbnail(
   const { width, height } = canvas;
   if (!(width > 0) || !(height > 0)) return null;
 
-  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
   const target = document.createElement("canvas");
   target.width = Math.max(1, Math.round(width * scale));
   target.height = Math.max(1, Math.round(height * scale));
@@ -156,6 +165,164 @@ export async function encodeThumbnail(
     (await toBlob(target, "image/webp", WEBP_QUALITY)) ??
     (await toBlob(target, "image/png"))
   );
+}
+
+/** A rectangle in CSS (or world) pixels. */
+export interface FrameRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FrameOptions {
+  /** Space added around the content: every side, or only right and bottom for `start`. */
+  pad?: number;
+  /** Width / height to grow the frame to. Omit to keep the content's own shape. */
+  aspect?: number;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  /**
+   * `center` grows and shrinks around the content's centre (a board, whose
+   * plane extends in every direction). `start` pins the top-left corner and
+   * moves only the right and bottom edges (a sheet, which has nothing above
+   * row 1 or left of column A to show).
+   */
+  anchor?: "center" | "start";
+}
+
+/**
+ * The frame a thumbnail should show around `content`. Pure.
+ *
+ * In order: pad, grow to the minimum size, grow the short side to `aspect`,
+ * then shrink both sides by one factor until the maximum holds — one factor so
+ * the aspect survives the clamp. Growing rather than cropping to the aspect is
+ * the point: what is added is more of the document's own surface (empty grid,
+ * empty plane), never less of its content. Only the maximum can cut content,
+ * and it exists for a sheet whose data runs past what a card can show legibly.
+ */
+export function frameContent(
+  content: FrameRect,
+  {
+    pad = 0,
+    aspect,
+    minWidth = 0,
+    minHeight = 0,
+    maxWidth = Infinity,
+    maxHeight = Infinity,
+    anchor = "center",
+  }: FrameOptions = {},
+): FrameRect {
+  const start = anchor === "start";
+  let width = Math.max(0, content.width) + (start ? pad : pad * 2);
+  let height = Math.max(0, content.height) + (start ? pad : pad * 2);
+  width = Math.max(width, minWidth);
+  height = Math.max(height, minHeight);
+  if (aspect && aspect > 0 && width > 0 && height > 0) {
+    if (width / height < aspect) width = height * aspect;
+    else height = width / aspect;
+  }
+  const shrink = Math.min(1, maxWidth / width, maxHeight / height);
+  width *= shrink;
+  height *= shrink;
+
+  if (start) return { x: content.x, y: content.y, width, height };
+  const cx = content.x + content.width / 2;
+  const cy = content.y + content.height / 2;
+  return { x: cx - width / 2, y: cy - height / 2, width, height };
+}
+
+/**
+ * Run `paint` with an editor switched to `target`'s theme, then switch it back.
+ *
+ * A thumbnail is a picture of the *document*, and a document has one
+ * appearance — the light one every reader of a published template sees —
+ * whatever the publisher's app theme is. The editors whose paint path is only
+ * reachable through the mounted view (docs) are flipped, photographed and
+ * flipped back. `paint` must be synchronous: the browser does not paint
+ * between the two switches of one task, so the author never sees the flash.
+ * The restore runs even when `paint` throws.
+ */
+export function withTheme<Mode extends string, T>(
+  current: Mode,
+  target: Mode,
+  setTheme: (mode: Mode) => void,
+  paint: () => T,
+): T {
+  if (current === target) return paint();
+  setTheme(target);
+  try {
+    return paint();
+  } finally {
+    setTheme(current);
+  }
+}
+
+/**
+ * A detached-looking host for an offscreen editor mount: in the document (an
+ * engine measures its container and its canvases need a layout box) but
+ * parked far outside the viewport, inert and unseen. Returns the host and its
+ * removal.
+ */
+export function mountOffscreenHost(
+  width: number,
+  height: number,
+): { host: HTMLDivElement; dispose: () => void } {
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.inert = true;
+  Object.assign(host.style, {
+    position: "fixed",
+    left: "-100000px",
+    top: "0",
+    width: `${Math.ceil(width)}px`,
+    height: `${Math.ceil(height)}px`,
+    overflow: "hidden",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(host);
+  return { host, dispose: () => host.remove() };
+}
+
+/**
+ * Decode encoded image bytes (a renderer that hands back a PNG rather than a
+ * canvas) into a canvas the encoder can read. `null` when it cannot be decoded.
+ */
+export async function canvasFromImageBytes(
+  bytes: Uint8Array,
+  type = "image/png",
+): Promise<HTMLCanvasElement | null> {
+  try {
+    const bitmap = await createImageBitmap(
+      new Blob([bytes as Uint8Array<ArrayBuffer>], { type }),
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return canvas;
+  } catch {
+    return null;
+  }
+}
+
+export interface CaptureOptions {
+  /**
+   * Fill under transparent layers. Defaults to the container's resolved
+   * background, which follows the app theme — pass the document's own
+   * surface colour when capturing a document forced to its light appearance.
+   */
+  background?: string;
+  /**
+   * Crop to this rectangle, in CSS pixels relative to the container's
+   * top-left, instead of to the union of the drawn canvases.
+   */
+  frame?: FrameRect;
 }
 
 /**
@@ -186,6 +353,7 @@ export async function encodeThumbnail(
  */
 export function captureFromContainer(
   container: HTMLElement | null,
+  options: CaptureOptions = {},
 ): HTMLCanvasElement | null {
   if (!container) return null;
 
@@ -205,6 +373,13 @@ export function captureFromContainer(
     top = Math.min(top, rect.top);
     right = Math.max(right, rect.right);
     bottom = Math.max(bottom, rect.bottom);
+  }
+  if (options.frame) {
+    const origin = container.getBoundingClientRect();
+    left = origin.left + options.frame.x;
+    top = origin.top + options.frame.y;
+    right = left + options.frame.width;
+    bottom = top + options.frame.height;
   }
   const width = Math.round(right - left);
   const height = Math.round(bottom - top);
@@ -229,7 +404,7 @@ export function captureFromContainer(
   // part-transparent canvas reads as the card's own background showing
   // through. The editor's own background is the honest colour to put under
   // it — and, unlike a constant, it is right in both themes.
-  ctx.fillStyle = resolveBackgroundColor(container);
+  ctx.fillStyle = options.background ?? resolveBackgroundColor(container);
   ctx.fillRect(0, 0, width, height);
 
   let painted = false;

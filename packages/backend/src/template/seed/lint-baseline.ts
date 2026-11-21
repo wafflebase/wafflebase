@@ -14,15 +14,4 @@ export type LintBaselineEntry = {
   reason: string;
 };
 
-export const LINT_BASELINE: LintBaselineEntry[] = [
-  {
-    template: 'product-launch-plan',
-    slide: 1,
-    rule: 'contrast',
-    text: '<product> · Launch <date>',
-    reason:
-      'Known defect, not intentional: the coral theme secondary text on its cream background ' +
-      'measures 4.4:1, just under the 4.5:1 a 16pt subtitle needs. A theme color change, ' +
-      'left for a template follow-up.',
-  },
-];
+export const LINT_BASELINE: LintBaselineEntry[] = [];

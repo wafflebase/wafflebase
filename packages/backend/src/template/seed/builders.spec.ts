@@ -210,9 +210,13 @@ describe('decorate presets', () => {
     (decor) => {
       // Exactly the colours the layout + theme gave it, not merely "not
       // background": an undecorated build of the same slide is the reference.
-      const reference = placeholders(one('title-slide', [['Title'], ['Subtitle']]));
+      const reference = placeholders(
+        one('title-slide', [['Title'], ['Subtitle']]),
+      );
       const s = one('title-slide', [['Title'], ['Subtitle']], decor);
-      expect(placeholders(s).map(inlineColors)).toEqual(reference.map(inlineColors));
+      expect(placeholders(s).map(inlineColors)).toEqual(
+        reference.map(inlineColors),
+      );
     },
   );
 
@@ -259,6 +263,61 @@ describe('decorate presets', () => {
       const [, pl, pr] = plain;
       expect(pr.frame.x - (pl.frame.x + pl.frame.w)).toBeGreaterThan(0);
       expect(right.frame.x - (left.frame.x + left.frame.w)).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe('display type', () => {
+  const sizes = (t: SlidesTextElement): unknown[] =>
+    t.data.blocks.flatMap((b) =>
+      b.inlines.map((i) => (i.style as Record<string, unknown>)?.fontSize),
+    );
+
+  it('gives a title slide a cover scale: a large bold title on its subtitle', () => {
+    const [title, subtitle] = placeholders(
+      one('title-slide', [['Title'], ['Subtitle']]),
+    );
+    const [titlePt] = sizes(title) as number[];
+    const [subtitlePt] = sizes(subtitle) as number[];
+    expect(titlePt).toBeGreaterThanOrEqual(subtitlePt * 1.75);
+    expect(title.data.blocks[0].inlines[0].style.bold).toBe(true);
+    expect(title.data.verticalAnchor).toBe('bottom');
+    // The subtitle sits below the title, not over it.
+    expect(subtitle.frame.y).toBeGreaterThan(title.frame.y + title.frame.h);
+    expect(subtitle.frame.y + subtitle.frame.h).toBeLessThanOrEqual(
+      SLIDE_HEIGHT,
+    );
+  });
+
+  it.each(['main-point', 'section-header', 'section-title-description'])(
+    '%s sets its title larger than a body-slide title',
+    (layoutId) => {
+      const statement = sizes(placeholders(one(layoutId, [['Point']]))[0]);
+      const heading = sizes(placeholders(one('title-body', [['T']]))[0]);
+      expect(statement[0] as number).toBeGreaterThan(heading[0] as number);
+    },
+  );
+
+  it('sets a big-number figure bold, above the cover title, on its centred label', () => {
+    const [figure, label] = placeholders(
+      one('big-number', [['42%'], ['label']]),
+    );
+    const cover = sizes(placeholders(one('title-slide', [['T'], ['S']]))[0]);
+    expect(sizes(figure)[0] as number).toBeGreaterThan(cover[0] as number);
+    expect(figure.data.blocks[0].inlines[0].style.bold).toBe(true);
+    expect(figure.data.verticalAnchor).toBe('bottom');
+    expect(label.frame.y).toBeGreaterThan(figure.frame.y + figure.frame.h);
+    expect(label.data.blocks[0].style.alignment).toBe('center');
+  });
+
+  it.each<Decor>(['sidebar', 'split'])(
+    '%s paints no edge rule along its column',
+    (decor) => {
+      const ids = shapes(one('title-slide', [['T'], ['S']], decor)).map(
+        (e) => e.id,
+      );
+      expect(ids.some((i) => i.endsWith('-sl'))).toBe(false);
+      expect(ids.some((i) => i.endsWith('-so'))).toBe(true);
     },
   );
 });

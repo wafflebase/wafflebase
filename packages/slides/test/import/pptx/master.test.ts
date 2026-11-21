@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_MASTER } from '../../../src/model/master';
 import { parseMaster } from '../../../src/import/pptx/master';
 import type { ImageParseContext } from '../../../src/import/pptx/image';
 import { ImportReport } from '../../../src/import/pptx/report';
@@ -54,10 +55,13 @@ describe('parseMaster', () => {
     expect(master.background.fill).toEqual({ kind: 'srgb', value: '#F3F3F3' });
   });
 
-  it('inherits the default placeholder-style table for now', async () => {
+  it('starts placeholders at physical PowerPoint sizes, not the native default', async () => {
     const { master } = await parseMaster(MIN_MASTER, 'm', 't', stubImageCtx());
+    // An imported deck paints a point at 2 px/pt; the native default master
+    // is scaled for 96 DPI, so cloning it would draw unsized text 1.5x large.
     expect(master.placeholderStyles.title.fontSize).toBe(44);
     expect(master.placeholderStyles.body.fontSize).toBe(18);
+    expect(master.placeholderStyles.body.fontSize).not.toBe(DEFAULT_MASTER.placeholderStyles.body.fontSize);
   });
 
   it('parses <p:txStyles> marker defaults per slot × level', async () => {

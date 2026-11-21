@@ -1,7 +1,6 @@
 import type { SlidesDocument, Layout, Slide } from '../../model/presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from '../../model/presentation';
 import type { Master } from '../../model/master';
-import { DEFAULT_MASTER } from '../../model/master';
 import { BUILT_IN_LAYOUTS, scaleLayoutsToHeight } from '../../model/layout';
 import { BUILT_IN_THEMES } from '../../themes';
 import type { Theme } from '../../model/theme';
@@ -12,7 +11,12 @@ import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
 import { parseRels, resolveRelsTarget } from './rels';
 import { parseTheme } from './theme';
-import { parseMaster, type TxStylesAlignments, type TxStylesMarkers } from './master';
+import {
+  parseMaster,
+  pptxFallbackMaster,
+  type TxStylesAlignments,
+  type TxStylesMarkers,
+} from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
 
@@ -177,7 +181,7 @@ export async function importPptx(
     : [...BUILT_IN_THEMES];
   const masters: Master[] = masterAndLayouts.master
     ? [masterAndLayouts.master]
-    : [DEFAULT_MASTER];
+    : [pptxFallbackMaster()];
   // Built-in layouts are always available; imported layouts ride on top
   // (deduped by id — multiple OOXML layouts can collapse onto the same
   // built-in, and storing duplicates would break BUILT_IN_LAYOUTS' usage

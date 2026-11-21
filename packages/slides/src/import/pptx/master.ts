@@ -1,5 +1,5 @@
 import type { BlockMarker, BlockStyle } from '@wafflebase/docs';
-import type { Master, MasterBackground } from '../../model/master';
+import type { Master, MasterBackground, PlaceholderStyle } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
@@ -21,10 +21,40 @@ const CLR_MAP_KEYS = [
 ] as const;
 
 /**
+ * The placeholder-style table an imported master starts from, in **physical**
+ * points.
+ *
+ * Not `DEFAULT_MASTER.placeholderStyles`: an imported deck carries
+ * `pxPerPt` and paints a stored point at the slide's own 2 px/pt, while the
+ * default master's sizes are scaled for a native deck, which paints a point
+ * at 96 DPI (two thirds of that). Cloning the default here would make a
+ * placeholder the file leaves unsized 1.5x larger than PowerPoint draws it.
+ * Body text is OOXML's own default run size (`sz` 1800, 18pt).
+ */
+const PPTX_PLACEHOLDER_STYLES: Record<string, PlaceholderStyle> = {
+  title: { fontRole: 'heading', fontSize: 44, colorRole: 'text', align: 'left', lineHeight: 1.2 },
+  body: { fontRole: 'body', fontSize: 18, colorRole: 'text', align: 'left', lineHeight: 1.5 },
+  subtitle: { fontRole: 'body', fontSize: 24, colorRole: 'textSecondary', align: 'left', lineHeight: 1.4 },
+  caption: { fontRole: 'body', fontSize: 14, colorRole: 'textSecondary', align: 'left', lineHeight: 1.4 },
+  'big-number': { fontRole: 'heading', fontSize: 96, colorRole: 'text', align: 'center', lineHeight: 1.1 },
+};
+
+/**
+ * The master an imported deck uses when the file has none: the default
+ * master's background and identity, with the physical placeholder table.
+ */
+export function pptxFallbackMaster(): Master {
+  return {
+    ...clone(DEFAULT_MASTER),
+    placeholderStyles: clone(PPTX_PLACEHOLDER_STYLES) as Master['placeholderStyles'],
+  };
+}
+
+/**
  * Parse `ppt/slideMasters/slideMaster1.xml` into a `Master`.
  *
- * v1 scope: read just the master-level background and inherit the rest
- * of the placeholder-style table from `DEFAULT_MASTER`. Per-placeholder
+ * v1 scope: read just the master-level background and start the rest of
+ * the placeholder-style table from {@link PPTX_PLACEHOLDER_STYLES}. Per-placeholder
  * style overrides on the master are reachable via `<p:txStyles>` and
  * will land alongside Task 3 text parsing — the first consumer is the
  * docs-style block emitter, not the master importer itself.
@@ -101,7 +131,7 @@ export async function parseMaster(
       id,
       themeId,
       background,
-      placeholderStyles: clone(DEFAULT_MASTER.placeholderStyles),
+      placeholderStyles: clone(PPTX_PLACEHOLDER_STYLES) as Master['placeholderStyles'],
     },
     clrMap,
     txStylesMarkers,

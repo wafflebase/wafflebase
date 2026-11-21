@@ -19,7 +19,7 @@ export const devDesignReview: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('geometric', 'Design Review (Engineering)', [
-      ['title-slide', [['Design Review (Engineering)'], ['<system or feature> · <author> · <date>']], 'sidebar'],
+      ['title-slide', [['Design Review (Engineering)'], ['<system or feature> · <author> · <date>']], 'header'],
       [
         'title-body',
         [
@@ -163,7 +163,7 @@ export const allHandsUpdate: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('streamline', 'All-Hands Update', [
-      ['title-slide', [['All-Hands Update'], ['<team or company> · <date>']], 'geo'],
+      ['title-slide', [['All-Hands Update'], ['<team or company> · <date>']], 'gradient'],
       [
         'title-body',
         [
@@ -216,7 +216,7 @@ export const caseStudy: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('shift', 'Case Study', [
-      ['title-slide', [['Case Study'], ['<customer> · <date>']], 'split'],
+      ['title-slide', [['Case Study'], ['<customer> · <date>']], 'header'],
       [
         'title-body',
         [
@@ -277,7 +277,7 @@ export const customerOnboardingReview: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('tropic', 'Customer Onboarding Review', [
-      ['title-slide', [['Customer Onboarding Review'], ['<product> · <number> customer conversations · <period>']], 'split'],
+      ['title-slide', [['Customer Onboarding Review'], ['<product> · <number> customer conversations · <period>']], 'dots'],
       [
         'title-body',
         [

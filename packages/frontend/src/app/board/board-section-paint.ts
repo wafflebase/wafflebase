@@ -136,7 +136,11 @@ function paintTitle(
   const rect = titleRect(section.frame, zoom, measure(label) * zoom);
   if (!rect) return;
   const pad = TITLE_PAD_PX / zoom;
-  const text = truncateToWidth(label, rect.w - pad * 2, measure);
+  // The pill was sized to this label, but its width went through
+  // `* zoom / zoom` on the way, which can land a hair under the label's own
+  // width and cut a title that fits ("Ideas" → "Ide…"). Half a screen pixel
+  // of slack absorbs the rounding without letting a real overflow through.
+  const text = truncateToWidth(label, rect.w - pad * 2 + 0.5 / zoom, measure);
   if (!text) return;
   const color = sectionColorOf(section);
   const r = 4 / zoom;

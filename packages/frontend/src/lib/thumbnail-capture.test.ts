@@ -3,8 +3,10 @@ import {
   captureFromContainer,
   captureThumbnail,
   encodeThumbnail,
+  frameContent,
   hasThumbnailSource,
   registerThumbnailSource,
+  withTheme,
 } from "./thumbnail-capture";
 
 /**
@@ -177,13 +179,17 @@ describe("captureFromContainer", () => {
    * real one is called with, so a test can mark a layer as chrome the same way
    * the docs ruler and the board minimap do.
    */
-  function makeContainer(canvases: HTMLCanvasElement[]): HTMLElement {
+  function makeContainer(
+    canvases: HTMLCanvasElement[],
+    origin: { left: number; top: number } = { left: 0, top: 0 },
+  ): HTMLElement {
     const el = {
       querySelectorAll: (selector: string) =>
         selector.includes("data-canvas-chrome")
           ? canvases.filter((c) => !c.dataset?.canvasChrome)
           : canvases,
       parentElement: null,
+      getBoundingClientRect: () => origin,
     } as unknown as HTMLElement;
     vi.spyOn(window, "getComputedStyle").mockReturnValue({
       backgroundColor: "rgb(20, 20, 20)",
@@ -310,5 +316,137 @@ describe("captureFromContainer", () => {
 
   it("returns null for a container with no canvases", () => {
     expect(captureFromContainer(makeContainer([]))).toBeNull();
+  });
+
+  it("crops to an explicit frame, relative to the container", () => {
+    // A sheet thumbnail frames its used range inside a much larger grid.
+    const out = fakeCanvas(0, 0);
+    const ctx = out.getContext("2d")!;
+    const grid = fakeCanvas(1280, 800);
+    stubCreatedCanvas(out);
+
+    captureFromContainer(makeContainer([grid]), {
+      frame: { x: 0, y: 0, width: 640, height: 400 },
+    });
+    expect(out.width).toBe(640);
+    expect(out.height).toBe(400);
+    expect(ctx.drawImage).toHaveBeenCalledWith(grid, 0, 0, 1280, 800);
+  });
+
+  it("reads the frame from the container's origin, not the page's", () => {
+    // The sheet thumbnail renders in a host parked far off-screen, with its
+    // grid inset inside it. A frame read from the page origin, or from the
+    // canvases' own union, would crop empty space there.
+    const out = fakeCanvas(0, 0);
+    const ctx = out.getContext("2d")!;
+    const host = { left: -100000, top: 50 };
+    const grid = fakeCanvas(1280, 800, { rect: { left: -99990, top: 70 } });
+    stubCreatedCanvas(out);
+
+    captureFromContainer(makeContainer([grid], host), {
+      frame: { x: 30, y: 40, width: 200, height: 100 },
+    });
+    expect(out.width).toBe(200);
+    expect(out.height).toBe(100);
+    // The frame starts at host + (30, 40) = (-99970, 90); the grid sits 20px
+    // up and left of that.
+    expect(ctx.drawImage).toHaveBeenCalledWith(grid, -20, -20, 1280, 800);
+  });
+
+  it("paints a given background instead of the app theme's", () => {
+    // A document forced to its light appearance must not sit on the dark
+    // app background the container resolves to.
+    const out = fakeCanvas(0, 0);
+    const ctx = out.getContext("2d")!;
+    stubCreatedCanvas(out);
+    captureFromContainer(makeContainer([fakeCanvas(800, 600)]), {
+      background: "#f0f0f0",
+    });
+    expect(ctx.fillStyle).toBe("#f0f0f0");
+  });
+});
+
+describe("frameContent", () => {
+  it("grows the short side to the aspect around the centre", () => {
+    // A wide board row framed for a 16:10 card gains plane above and below.
+    expect(
+      frameContent({ x: 0, y: 0, width: 1600, height: 400 }, { aspect: 1.6 }),
+    ).toEqual({ x: 0, y: -300, width: 1600, height: 1000 });
+  });
+
+  it("pads every side before fitting the aspect", () => {
+    expect(
+      frameContent(
+        { x: 100, y: 100, width: 140, height: 80 },
+        { pad: 10, aspect: 1.6 },
+      ),
+    ).toEqual({ x: 90, y: 90, width: 160, height: 100 });
+  });
+
+  it("pins the top-left and pads only right and bottom for a start anchor", () => {
+    // A sheet has nothing above row 1 or left of column A to show.
+    expect(
+      frameContent(
+        { x: 0, y: 0, width: 300, height: 400 },
+        { pad: 20, aspect: 1.6, anchor: "start" },
+      ),
+    ).toEqual({ x: 0, y: 0, width: 672, height: 420 });
+  });
+
+  it("grows a small used range to the minimum, keeping the aspect", () => {
+    // Three cells must not become a picture of three giant cells.
+    expect(
+      frameContent(
+        { x: 0, y: 0, width: 250, height: 70 },
+        { anchor: "start", aspect: 1.6, minWidth: 640, minHeight: 400 },
+      ),
+    ).toEqual({ x: 0, y: 0, width: 640, height: 400 });
+  });
+
+  it("shrinks both sides by one factor to the maximum, keeping the aspect", () => {
+    // A sheet whose data runs past what a card can show is cropped to its
+    // top-left, not squeezed out of shape.
+    expect(
+      frameContent(
+        { x: 0, y: 0, width: 3000, height: 600 },
+        { anchor: "start", aspect: 1.6, maxWidth: 1280, maxHeight: 800 },
+      ),
+    ).toEqual({ x: 0, y: 0, width: 1280, height: 800 });
+  });
+
+  it("keeps the content's own shape without an aspect", () => {
+    expect(
+      frameContent({ x: 10, y: 20, width: 30, height: 40 }, { pad: 5 }),
+    ).toEqual({ x: 5, y: 15, width: 40, height: 50 });
+  });
+});
+
+describe("withTheme", () => {
+  it("switches to the target, paints, and switches back", () => {
+    const calls: string[] = [];
+    const result = withTheme("dark", "light", (m) => calls.push(m), () => {
+      calls.push("paint");
+      return 42;
+    });
+    expect(result).toBe(42);
+    expect(calls).toEqual(["light", "paint", "dark"]);
+  });
+
+  it("does not touch the theme when it is already the target", () => {
+    const setTheme = vi.fn();
+    withTheme("light", "light", setTheme, () => null);
+    expect(setTheme).not.toHaveBeenCalled();
+  });
+
+  it("restores the theme even when painting throws", () => {
+    // An author left on the light theme by a failed capture would be the
+    // one visible side effect of publishing.
+    const calls: string[] = [];
+    expect(() =>
+      withTheme("dark", "light", (m) => calls.push(m), () => {
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    expect(calls).toEqual(["light", "dark"]);
   });
 });
