@@ -19,8 +19,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
+| release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./active/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./active/20261121-release-v0.6.17-lessons.md) |
 | template design polish (2026-11-21) | [20261121-template-design-polish-todo.md](./active/20261121-template-design-polish-todo.md) | [20261121-template-design-polish-lessons.md](./active/20261121-template-design-polish-lessons.md) |
-| release v0.6.16 (2026-11-19) | [20261119-release-v0.6.16-todo.md](./active/20261119-release-v0.6.16-todo.md) | [20261119-release-v0.6.16-lessons.md](./active/20261119-release-v0.6.16-lessons.md) |
 | template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./active/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./active/20261119-template-catalog-ops-lessons.md) |
 | mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./active/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./active/20261118-mobile-before-after-lessons.md) |
 | mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./active/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./active/20261118-mobile-clipping-lessons.md) |
@@ -76,7 +76,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 645
+- Archived task count: 646
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: font relative leading (2026-11-21)
