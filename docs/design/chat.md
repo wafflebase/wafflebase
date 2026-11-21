@@ -565,7 +565,18 @@ say:
 - **Canonical mention tokens.** Post and edit rewrite every
   `@[name](userId)` to the target's real username and flatten a token whose
   id is not a workspace member to plain `@name`, so a body cannot render
-  `@ceo` for somebody else's id.
+  `@ceo` for somebody else's id. A flattened name loses its token syntax
+  (`@ [ ] ( )`) and the pass repeats to a fixpoint, so an unresolved token
+  cannot lend its brackets to the text around it and re-form one
+  (`@[[x](9)](42)`). Deleting a message also deletes the `chat_mention` /
+  `chat_thread_reply` rows whose preview quotes it.
+- **The last member of a private channel cannot leave it** (`409`): an empty
+  private channel is unreadable to everyone, so archiving is the way out.
+- **One stream per session.** `ChatStreamHost` is rendered by
+  `PrivateRoute`, not by `AppSidebar`, which has a mount per shell — so
+  moving between the list layout and an editor neither reopens the stream nor
+  replays its `ready` refetch. The `message` event carries `alsoInChannel`,
+  so the client counts an also-sent reply as unread, as the server does.
 - **Search is not in P1.** `GET …/chat/search` moves with `pg_trgm` to P3.
 
 ### Testing

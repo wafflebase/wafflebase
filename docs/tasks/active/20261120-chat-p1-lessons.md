@@ -37,6 +37,42 @@ Lesson: a paging loop that is wrong in its first iteration still passes every
 test that fits in one page. Test any "fetch until short page" loop with more
 than one page, against a fake that pages the way the server does.
 
+### Panel round 1 (`/self-review`, six lenses)
+
+Panel round 1 (correctness/test-adequacy weighting): blocked on 6 items —
+(1) the last member could leave a private channel and orphan it; (2)
+flattening an unresolved mention token could re-form a valid one
+(`@[[FAKE](999999)](42)` stored as `@[FAKE](42)`); (3) `useChatStream` was
+mounted in `AppSidebar` (seven mounts), so every list↔editor hop reopened the
+stream and replayed `ready`'s blanket refetch; (4) `Conversation` had no
+test; (5) `parsePayload` had no rejection test; (6) `useMarkRead` /
+`usePostMessage` ran only behind mocks. Fixed all 6 plus minors 7–12 (hub
+routing survives a rejection, delete takes its bell previews, `seq` capped at
+`MAX_SAFE_INTEGER`, `memPayload`/`CHAT_NOTIFY_CHANNEL` exported and used by
+`WorkspaceService`, bounded member reload + unref'd retry timer,
+`alsoInChannel` on the `msg` event so the client counts such replies unread)
+and the stale `prependAnchor` after an empty older page. Deferred: removing a
+workspace member who is a private channel's sole member still orphans it;
+`mentionCount` is a `LIKE '%](id)%'` substring match; `summaries` /
+`summaryOf` carry no workspace check of their own; only posting is per-user
+throttled (edit, channel create, invite are not); `mentionOutcome` notifies a
+non-member about an archived public channel they cannot join; hub subjects
+are not completed on shutdown; module-level chat caches (`exhausted`, open
+channel, catch-up state) and the last-channel key survive sign-out;
+notification → `chat-access` import couples the two modules; the 500-reply
+thread cap, the rename/topic/archive routes with no UI and the extra
+`ChatMessage` index are not in the design doc's "P1 as built"; untested:
+`ChannelList` / sidebar badge rules, `useCoarsePointer`, backend
+`normalizeChannelName`, and `chat-cache`'s identity-vs-equality nit.
+
+Lesson: a sanitizer that rewrites part of its input is only safe if it is a
+fixpoint. Stripping the brackets from a flattened name still left a trailing
+`@` that the next text segment could close into a token (`@[](9)[](42)`); a
+structural fuzz (nested tokens and near-tokens) found that in one run where
+hand-picked cases and a character-level fuzz both passed. Assert
+`f(f(x)) === f(x)` and the output invariant directly, over generated nested
+input.
+
 ### CodeRabbit round (PR #1186, 12 inline findings)
 
 | Comment | Finding | Verdict | Outcome |

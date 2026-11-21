@@ -23,7 +23,7 @@ describe('ChatBus', () => {
     $executeRaw: jest.fn(() => Promise.resolve(0)),
   } as unknown as PrismaService;
 
-  it('bounds the listener connect and LISTEN so a stalled server reaches retry', async () => {
+  it('bounds the listener connect and LISTEN with finite timeouts', async () => {
     const bus = new ChatBus(prisma);
     await bus.onModuleInit();
     await bus.onModuleDestroy();
