@@ -121,7 +121,9 @@ describe('UserService.findOrCreateUser', () => {
   it('creates the user, their workspace and their membership', async () => {
     const { service: users, state } = service();
 
-    const user = await users.findOrCreateUser(google('Ada Lovelace', 'a@x.com'));
+    const user = await users.findOrCreateUser(
+      google('Ada Lovelace', 'a@x.com'),
+    );
 
     expect(user!.email).toBe('a@x.com');
     expect(state.workspaces()[0].slug).toBe('ada-lovelace-s-workspace');
@@ -174,9 +176,11 @@ describe('UserService.findOrCreateUser', () => {
 
   it('leaves no user row behind when the workspace cannot be created', async () => {
     const { service: users, client, state } = service();
-    const workspace = (client as unknown as {
-      workspace: { create: (args: unknown) => Promise<unknown> };
-    }).workspace;
+    const workspace = (
+      client as unknown as {
+        workspace: { create: (args: unknown) => Promise<unknown> };
+      }
+    ).workspace;
     workspace.create = () => Promise.reject(new Error('database is down'));
 
     await expect(
@@ -291,6 +295,7 @@ function makeClaimPrisma(
     authorID: number | null;
   }>,
 ) {
+  const joins: Array<{ channelId: string; userId: number }> = [];
   const members: Array<{ workspaceId: string; userId: number; role: string }> =
     [];
   const client = {
@@ -341,9 +346,26 @@ function makeClaimPrisma(
         return Promise.resolve({ count: rows.length });
       },
     },
+    chatChannel: {
+      findUnique: ({ where }: { where: { defaultKey: string } }) =>
+        Promise.resolve({ id: `general-${where.defaultKey}`, lastSeq: 0n }),
+    },
+    chatChannelMember: {
+      createMany: ({
+        data,
+      }: {
+        data: { channelId: string; userId: number }[];
+      }) => {
+        joins.push(
+          ...data.map((d) => ({ channelId: d.channelId, userId: d.userId })),
+        );
+        return Promise.resolve({ count: data.length });
+      },
+    },
+    $executeRaw: () => Promise.resolve(1),
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(client),
   };
-  return { client: client as unknown as PrismaService, members };
+  return { client: client as unknown as PrismaService, members, joins };
 }
 
 describe('UserService.claimGithubWorkspaces', () => {
@@ -371,6 +393,15 @@ describe('UserService.claimGithubWorkspaces', () => {
     expect(documents.map((d) => d.authorID)).toEqual([5, 99, null]);
     expect(claims[0]).toMatchObject({ claimedBy: 5 });
     expect(claims[2]).not.toHaveProperty('claimedBy');
+  });
+
+  it("joins the claimer to each claimed workspace's #general", async () => {
+    const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
+    const { client, joins } = makeClaimPrisma(claims, []);
+
+    await new UserService(client).claimGithubWorkspaces(5, '7');
+
+    expect(joins).toEqual([{ channelId: 'general-w1', userId: 5 }]);
   });
 
   it('does not claim a workspace twice', async () => {

@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { User, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
-import { createDefaultChannel } from 'src/chat/default-channel';
+import { CHAT_NOTIFY_CHANNEL, memPayload } from 'src/chat/chat-bus';
+import {
+  createDefaultChannel,
+  joinDefaultChannel,
+} from 'src/chat/default-channel';
 import { PrismaService } from 'src/database/prisma.service';
 
 /**
@@ -253,7 +257,7 @@ export class UserService {
           where: { id: claim.id, claimedAt: null },
           data: { claimedAt: new Date(), claimedBy: userId },
         });
-        if (count === 0) return false;
+        if (count === 0) return null;
 
         await tx.workspaceMember.upsert({
           where: {
@@ -266,10 +270,33 @@ export class UserService {
           where: { workspaceId: claim.workspaceId, authorID: null },
           data: { authorID: userId },
         });
-        return true;
+        // Every member is in #general, the claimer included.
+        const channelId = await joinDefaultChannel(
+          tx,
+          claim.workspaceId,
+          userId,
+        );
+        return { channelId };
       });
-      if (took) claimed++;
+      if (!took) continue;
+      claimed++;
+      if (took.channelId) await this.announceChatMembership(took.channelId);
     }
     return claimed;
+  }
+
+  /**
+   * Tells every replica's chat hub that the channel's member set changed, the
+   * way `WorkspaceService` does: a raw `pg_notify` with the chat bus's own
+   * payload, so this module needs none of chat's providers. After commit, and
+   * best-effort — the claim stands either way.
+   */
+  private async announceChatMembership(channelId: string): Promise<void> {
+    try {
+      await this.prisma
+        .$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${memPayload(channelId)})`;
+    } catch {
+      // A replica's cached member set expires on its own within a minute.
+    }
   }
 }
