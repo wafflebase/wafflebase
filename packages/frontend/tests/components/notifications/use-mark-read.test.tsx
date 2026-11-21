@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Notification } from "@/api/notifications";
 import {
+  NOTIFICATIONS_KEY,
+  type NotificationPages,
   UNREAD_COUNT_KEY,
   useMarkRead,
   useUnreadCount,
@@ -15,7 +18,23 @@ vi.mock("@/api/notifications", () => ({
   markNotificationsRead: () => markSpy(),
   fetchUnreadCount: () => countSpy(),
   fetchNotifications: () => Promise.resolve([]),
+  NOTIFICATIONS_PAGE_SIZE: 20,
 }));
+
+function row(id: string): Notification {
+  return {
+    id,
+    type: "comment_mention",
+    actor: null,
+    document: null,
+    workspace: null,
+    threadId: null,
+    commentId: null,
+    preview: null,
+    readAt: null,
+    createdAt: "2026-11-14T00:00:00.000Z",
+  };
+}
 
 /**
  * Mirrors the real tree: the bell always mounts `useUnreadCount`, so the badge
@@ -108,5 +127,24 @@ describe("useMarkRead", () => {
     // 0 while the authoritative read is still in flight.
     await waitFor(() => expect(badge(queryClient)).toBe(0));
     release(0);
+  });
+
+  it("stamps a row read on a later page, not just the first", async () => {
+    markSpy.mockResolvedValue(undefined);
+    countSpy.mockResolvedValueOnce(2).mockResolvedValue(1);
+    const { queryClient, result } = harness();
+    await waitFor(() => expect(badge(queryClient)).toBe(2));
+    queryClient.setQueryData<NotificationPages>(NOTIFICATIONS_KEY, {
+      pages: [[row("p1")], [row("p2")]],
+      pageParams: [undefined, { before: "x", beforeId: "p1" }],
+    });
+
+    result.current.markRead.mutate(["p2"]);
+
+    await waitFor(() => expect(result.current.markRead.isSuccess).toBe(true));
+    const pages =
+      queryClient.getQueryData<NotificationPages>(NOTIFICATIONS_KEY)!.pages;
+    expect(pages[0][0].readAt).toBeNull();
+    expect(pages[1][0].readAt).not.toBeNull();
   });
 });

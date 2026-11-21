@@ -51,7 +51,12 @@ mention source.
 
 - A bell in `SiteHeader` (one insertion point, visible on the documents list
   and in every editor) showing an unread count, with a dropdown of the 20 most
-  recent notifications, per-item read and "mark all read".
+  recent notifications, a "Load more" that pages back through the
+  `(createdAt, id)` cursor, per-item read and "mark all read". "Mark all
+  read" is offered whenever the *badge* is non-zero, not when a loaded row is
+  unread: with more recent read rows than one page holds, every unread row
+  sits on a page not yet fetched, and gating on the loaded rows left a badge
+  nothing could clear.
 - Four notification types: `comment_mention`, `comment_reply`,
   `thread_resolved`, `workspace_member_joined`.
 - Clicking a notification opens the referenced document, routed by document

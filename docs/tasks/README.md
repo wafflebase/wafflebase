@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
+| notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./active/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./active/20261121-notification-unread-paging-lessons.md) |
 | release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./active/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./active/20261121-release-v0.6.17-lessons.md) |
 | template design polish (2026-11-21) | [20261121-template-design-polish-todo.md](./active/20261121-template-design-polish-todo.md) | [20261121-template-design-polish-lessons.md](./active/20261121-template-design-polish-lessons.md) |
 | template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./active/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./active/20261119-template-catalog-ops-lessons.md) |
