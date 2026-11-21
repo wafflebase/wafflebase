@@ -47,8 +47,9 @@ export interface ChatMessageDto {
 /**
  * What crosses replicas on the `chat` NOTIFY channel. Ids only — never
  * message content — and short keys, since a NOTIFY payload is capped at 8 kB.
- * `msg`: channel, workspace, seq, thread root, author. `mem`: a channel's
- * membership changed, so cached member sets for it are stale.
+ * `msg`: channel, workspace, seq, thread root, author. `upd`: a message
+ * was edited or deleted — channel, workspace, message id, thread root. `mem`:
+ * a channel's membership changed, so cached member sets for it are stale.
  */
 export type ChatBusEvent =
   | {
@@ -59,7 +60,11 @@ export type ChatBusEvent =
       r: string | null;
       a: number | null;
     }
+  | { t: 'upd'; c: string; w: string; id: string; r: string | null }
   | { t: 'mem'; c: string };
+
+/** The bus events `ChatHub` routes to a channel's connected members. */
+export type ChatRoutedEvent = Extract<ChatBusEvent, { t: 'msg' | 'upd' }>;
 
 /** The `message` event of `GET /chat/stream`. Carries no body. */
 export interface StreamMessageEvent {
@@ -68,4 +73,15 @@ export interface StreamMessageEvent {
   seq: number;
   threadRootId: string | null;
   authorId: number | null;
+}
+
+/**
+ * The `update` event of `GET /chat/stream`: a message was edited or
+ * deleted. Ids only; the client refetches the message.
+ */
+export interface StreamUpdateEvent {
+  workspaceId: string;
+  channelId: string;
+  messageId: string;
+  threadRootId: string | null;
 }

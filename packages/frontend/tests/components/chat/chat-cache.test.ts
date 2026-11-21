@@ -8,8 +8,10 @@ import {
   applyChatEvent,
   lastSeqOf,
   markChannelRead,
+  markMessageDeleted,
   mergeMessages,
   parseStreamMessage,
+  parseStreamUpdate,
   totalUnread,
 } from "@/components/chat/chat-cache";
 
@@ -174,5 +176,50 @@ describe("parseStreamMessage", () => {
     expect(parseStreamMessage("nope")).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":"3","threadRootId":null,"authorId":1}')).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":5,"authorId":1}')).toBeNull();
+  });
+});
+
+describe("parseStreamUpdate", () => {
+  it("accepts an update frame", () => {
+    const frame = {
+      workspaceId: "w1",
+      channelId: "c1",
+      messageId: "m1",
+      threadRootId: null,
+    };
+    expect(parseStreamUpdate(JSON.stringify(frame))).toEqual(frame);
+  });
+
+  it("rejects a malformed frame", () => {
+    expect(parseStreamUpdate("nope")).toBeNull();
+    expect(
+      parseStreamUpdate(
+        JSON.stringify({ workspaceId: "w1", channelId: "c1", messageId: 4 }),
+      ),
+    ).toBeNull();
+    expect(
+      parseStreamUpdate(
+        JSON.stringify({
+          workspaceId: "w1",
+          channelId: "c1",
+          messageId: "m1",
+          threadRootId: 7,
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("markMessageDeleted", () => {
+  it("blanks one message and leaves the rest", () => {
+    const next = markMessageDeleted([msg(1), msg(2)], "m2");
+    expect(next?.map((m) => [m.body, m.deleted])).toEqual([
+      ["message 1", false],
+      ["", true],
+    ]);
+  });
+
+  it("leaves a missing cache missing", () => {
+    expect(markMessageDeleted(undefined, "m1")).toBeUndefined();
   });
 });

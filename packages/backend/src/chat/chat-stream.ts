@@ -1,10 +1,14 @@
 import { MessageEvent } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
-import { ChatBusEvent, StreamMessageEvent } from './chat.types';
+import {
+  ChatRoutedEvent,
+  StreamMessageEvent,
+  StreamUpdateEvent,
+} from './chat.types';
 
 export interface ChatStreamSources {
-  /** This user's message events, from `ChatHub.subscribe`. */
-  hub: Observable<Extract<ChatBusEvent, { t: 'msg' }>>;
+  /** This user's message and update events, from `ChatHub.subscribe`. */
+  hub: Observable<ChatRoutedEvent>;
   /** Keep-alive ticks. */
   heartbeat: Observable<unknown>;
 }
@@ -15,7 +19,8 @@ export interface ChatStreamSources {
  * `ready` goes first, on every (re)connect: it is the client's cue to
  * re-read unread counts and fetch the open channel after its last seen seq,
  * which is how a dropped connection or a missed NOTIFY self-corrects.
- * `message` carries ids only — the client fetches what it shows. `ping`
+ * `message` carries ids only — the client fetches what it shows — and so
+ * does `update`, an edit or delete the client refetches by id. `ping`
  * exists only so an idle connection keeps flowing through proxies; Nest's
  * SSE writer has no comment lines, so it is an event the client ignores.
  */
@@ -24,6 +29,15 @@ export function chatStream(
 ): Observable<MessageEvent> {
   const messages = sources.hub.pipe(
     map((e): MessageEvent => {
+      if (e.t === 'upd') {
+        const update: StreamUpdateEvent = {
+          workspaceId: e.w,
+          channelId: e.c,
+          messageId: e.id,
+          threadRootId: e.r,
+        };
+        return { type: 'update', data: update };
+      }
       const data: StreamMessageEvent = {
         workspaceId: e.w,
         channelId: e.c,

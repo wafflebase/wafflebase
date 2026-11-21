@@ -876,6 +876,62 @@ describeDb('Chat integration', () => {
         .expect(404);
     });
 
+    it('edit and delete announce an update with ids only', async () => {
+      const { owner, members, workspace, channel } = await publicChannel();
+      const root = await messages.post(owner.id, channel.id, { body: 'root' });
+      const reply = await messages.post(members[0].id, channel.id, {
+        body: 'reply',
+        threadRootId: root.id,
+      });
+      const update = jest.spyOn(bus, 'notifyUpdate');
+
+      await as(owner)
+        .patch(`${base(workspace.id)}/messages/${root.id}`)
+        .send({ body: 'root, edited' })
+        .expect(200);
+      expect(update).toHaveBeenLastCalledWith({
+        t: 'upd',
+        c: channel.id,
+        w: workspace.id,
+        id: root.id,
+        r: null,
+      });
+
+      await as(members[0])
+        .delete(`${base(workspace.id)}/messages/${reply.id}`)
+        .expect(204);
+      expect(update).toHaveBeenLastCalledWith({
+        t: 'upd',
+        c: channel.id,
+        w: workspace.id,
+        id: reply.id,
+        r: root.id,
+      });
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+
+    it('mention tokens are rewritten to the real username', async () => {
+      const { owner, members, channel } = await publicChannel();
+      const [bob] = members;
+      const stranger = await createUser();
+
+      const posted = await messages.post(owner.id, channel.id, {
+        body: `hi @[ceo](${bob.id}) and @[boss](${stranger.id}) @[x](nope)`,
+      });
+      expect(posted.body).toBe(`hi @[${bob.username}](${bob.id}) and @boss @x`);
+      const row = await prisma.chatMessage.findUniqueOrThrow({
+        where: { id: posted.id },
+      });
+      expect(row.body).toBe(posted.body);
+
+      const edited = await messages.edit(
+        owner.id,
+        posted.id,
+        `now @[ceo](${bob.id})`,
+      );
+      expect(edited.body).toBe(`now @[${bob.username}](${bob.id})`);
+    });
+
     it('archived channel refuses posts but serves reads', async () => {
       const { owner, workspace, channel } = await publicChannel();
       await messages.post(owner.id, channel.id, { body: 'before' });

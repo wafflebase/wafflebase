@@ -3,17 +3,22 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   CHAT_PAGE_SIZE,
   chatStreamUrl,
+  fetchMessage,
   fetchMessages,
   type ChannelSummary,
   type ChatMessageDto,
+  type StreamUpdateEvent,
 } from "@/api/chat";
 import type { User } from "@/types/users";
 import {
   applyChatEvent,
   chatKeys,
   lastSeqOf,
+  markMessageDeleted,
   mergeMessages,
   parseStreamMessage,
+  parseStreamUpdate,
+  replaceMessage,
 } from "./chat-cache";
 
 /** The channel whose conversation is on screen, if any. */
@@ -144,10 +149,40 @@ async function refreshRoot(
 }
 
 /**
+ * Apply an edit or delete announced by an `update` event. Cached pages never
+ * refetch on their own (`staleTime: Infinity`), so without this a peer would
+ * keep showing the old text. The message is refetched by id and replaced
+ * wherever it is cached: its channel, its thread, and — for a root — the
+ * thread it heads. A message the caller can no longer fetch is shown deleted.
+ */
+export async function refreshMessage(
+  queryClient: QueryClient,
+  e: StreamUpdateEvent,
+): Promise<void> {
+  const keys = [
+    chatKeys.messages(e.channelId),
+    chatKeys.thread(e.threadRootId ?? e.messageId),
+  ];
+  // Nothing on screen holds it: skip the request.
+  if (keys.every((key) => !queryClient.getQueryData(key))) return;
+  try {
+    const next = await fetchMessage(e.workspaceId, e.messageId);
+    for (const key of keys) {
+      queryClient.setQueryData<ChatMessageDto[]>(key, (old) =>
+        next ? replaceMessage(old, next) : markMessageDeleted(old, e.messageId),
+      );
+    }
+  } catch (err) {
+    console.warn("[chat] message refresh failed", err);
+  }
+}
+
+/**
  * Subscribe to `GET /chat/stream`, once per shell.
  *
  * The stream carries ids only. A `message` event marks another channel
  * unread, fetches what the open channel is missing, and invalidates a thread.
+ * An `update` event (an edit or delete) refetches that one message.
  * `ready` arrives on every (re)connect: it refreshes every channel list and
  * catches the open channel up from its last cached seq, so a dropped
  * connection or a missed NOTIFY costs latency rather than messages.
@@ -231,6 +266,11 @@ export function useChatStream(enabled: boolean): void {
       }
     };
 
+    const onUpdate = (event: MessageEvent<string>) => {
+      const e = parseStreamUpdate(event.data);
+      if (e) void refreshMessage(queryClient, e);
+    };
+
     const onError = () => {
       if (source.readyState === EventSource.CLOSED) {
         console.warn("[chat] stream closed; live updates stopped");
@@ -239,11 +279,13 @@ export function useChatStream(enabled: boolean): void {
 
     source.addEventListener("ready", onReady);
     source.addEventListener("message", onMessage as EventListener);
+    source.addEventListener("update", onUpdate as EventListener);
     source.addEventListener("error", onError);
     return () => {
       for (const timer of refreshTimers.values()) clearTimeout(timer);
       source.removeEventListener("ready", onReady);
       source.removeEventListener("message", onMessage as EventListener);
+      source.removeEventListener("update", onUpdate as EventListener);
       source.removeEventListener("error", onError);
       source.close();
     };

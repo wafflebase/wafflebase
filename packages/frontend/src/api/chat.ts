@@ -57,6 +57,17 @@ export interface StreamMessageEvent {
   authorId: number | null;
 }
 
+/**
+ * The `update` event of `GET /chat/stream`: a message was edited or
+ * deleted. Ids only; the client refetches the message.
+ */
+export interface StreamUpdateEvent {
+  workspaceId: string;
+  channelId: string;
+  messageId: string;
+  threadRootId: string | null;
+}
+
 /** One page of messages, as the server sizes it. */
 export const CHAT_PAGE_SIZE = 50;
 /** Longest body the server accepts. */

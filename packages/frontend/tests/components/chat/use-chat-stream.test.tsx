@@ -17,7 +17,13 @@ const fetchMessagesSpy = vi.fn<
   ) => Promise<ChatMessageDto[]>
 >();
 
+const fetchMessageSpy =
+  vi.fn<
+    (workspaceId: string, messageId: string) => Promise<ChatMessageDto | null>
+  >();
+
 vi.mock("@/api/chat", () => ({
+  fetchMessage: (w: string, id: string) => fetchMessageSpy(w, id),
   CHAT_PAGE_SIZE: 50,
   chatStreamUrl: () => "http://api.test/chat/stream",
   fetchMessages: (
@@ -244,6 +250,88 @@ describe("useChatStream", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("an update event replaces the cached message in channel and thread", async () => {
+    fetchMessageSpy.mockResolvedValue(
+      msg(2, {
+        body: "edited",
+        editedAt: "2026-11-20T10:05:00.000Z",
+        threadRootId: "m1",
+      }),
+    );
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1), msg(2)]);
+    queryClient.setQueryData(chatKeys.thread("m1"), [
+      msg(1),
+      msg(2, { threadRootId: "m1" }),
+    ]);
+
+    act(() =>
+      source.emit("update", {
+        workspaceId: "w1",
+        channelId: "c1",
+        messageId: "m2",
+        threadRootId: "m1",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+          ?.map((m) => m.body),
+      ).toEqual(["message 1", "edited"]),
+    );
+    expect(
+      queryClient
+        .getQueryData<ChatMessageDto[]>(chatKeys.thread("m1"))
+        ?.map((m) => m.body),
+    ).toEqual(["message 1", "edited"]);
+    expect(fetchMessageSpy).toHaveBeenCalledWith("w1", "m2");
+  });
+
+  it("an update for a root refreshes it inside its own thread", async () => {
+    fetchMessageSpy.mockResolvedValue(msg(1, { body: "root, edited" }));
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.thread("m1"), [msg(1)]);
+
+    act(() =>
+      source.emit("update", {
+        workspaceId: "w1",
+        channelId: "c1",
+        messageId: "m1",
+        threadRootId: null,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<ChatMessageDto[]>(chatKeys.thread("m1"))?.[0]
+          .body,
+      ).toBe("root, edited"),
+    );
+  });
+
+  it("an update the caller can no longer fetch marks the message deleted", async () => {
+    fetchMessageSpy.mockResolvedValue(null);
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+
+    act(() =>
+      source.emit("update", {
+        workspaceId: "w1",
+        channelId: "c1",
+        messageId: "m1",
+        threadRootId: null,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))?.[0],
+      ).toMatchObject({ body: "", deleted: true }),
+    );
   });
 
   it("ignores a malformed frame", () => {

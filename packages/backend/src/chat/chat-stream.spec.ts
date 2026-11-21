@@ -1,9 +1,9 @@
 import { MessageEvent } from '@nestjs/common';
 import { Subject, firstValueFrom, toArray } from 'rxjs';
 import { chatStream } from './chat-stream';
-import { ChatBusEvent } from './chat.types';
+import { ChatRoutedEvent } from './chat.types';
 
-type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
+type MsgEvent = ChatRoutedEvent;
 
 /** Drive the stream with hand-fed sources and record what a client sees. */
 function harness() {
@@ -34,6 +34,22 @@ describe('chatStream', () => {
         seq: 7,
         threadRootId: 'root',
         authorId: 3,
+      },
+    });
+  });
+
+  it('maps an edit or delete to an update event with ids only', () => {
+    const h = harness();
+
+    h.hub.next({ t: 'upd', c: 'c1', w: 'w1', id: 'm9', r: 'root' });
+
+    expect(h.seen[1]).toEqual({
+      type: 'update',
+      data: {
+        workspaceId: 'w1',
+        channelId: 'c1',
+        messageId: 'm9',
+        threadRootId: 'root',
       },
     });
   });

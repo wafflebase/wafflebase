@@ -63,5 +63,16 @@ describeDb('ChatBus LISTEN/NOTIFY integration', () => {
     const memAtA = next(busA, `${channelId}-mem`);
     await busB.notifyMembership(`${channelId}-mem`);
     expect(await memAtA).toEqual({ t: 'mem', c: `${channelId}-mem` });
+
+    const upd = {
+      t: 'upd' as const,
+      c: `${channelId}-upd`,
+      w: 'w-e2e',
+      id: 'm-e2e',
+      r: 'root-e2e',
+    };
+    const updAtB = next(busB, upd.c);
+    await busA.notifyUpdate(upd);
+    expect(await updAtB).toEqual(upd);
   });
 });

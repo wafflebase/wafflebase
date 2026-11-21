@@ -2,7 +2,7 @@ import { Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
 import { ChatHub } from './chat-hub';
-import { ChatBusEvent } from './chat.types';
+import { ChatBusEvent, ChatRoutedEvent } from './chat.types';
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 
@@ -31,7 +31,7 @@ function harness() {
   hub.onModuleInit();
 
   function collect(userId: number) {
-    const seen: MsgEvent[] = [];
+    const seen: ChatRoutedEvent[] = [];
     const sub = hub.subscribe(userId).subscribe((e) => seen.push(e));
     return { seen, stop: () => sub.unsubscribe() };
   }
@@ -57,6 +57,26 @@ describe('ChatHub', () => {
 
     expect(a.seen).toEqual([msg('c1', 1)]);
     expect(b.seen).toEqual([msg('c1', 1)]);
+    expect(outsider.seen).toEqual([]);
+  });
+
+  it('delivers an update only to channel members', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const a = h.collect(1);
+    const outsider = h.collect(3);
+    const upd: ChatRoutedEvent = {
+      t: 'upd',
+      c: 'c1',
+      w: 'w1',
+      id: 'm1',
+      r: null,
+    };
+
+    h.events.next(upd);
+    await flush();
+
+    expect(a.seen).toEqual([upd]);
     expect(outsider.seen).toEqual([]);
   });
 
@@ -120,7 +140,7 @@ describe('ChatHub', () => {
     h.events.next(msg('c1', 3));
     await flush();
 
-    expect(a.seen.map((e) => e.s)).toEqual([1, 2, 3]);
+    expect(a.seen.map((e) => (e.t === 'msg' ? e.s : null))).toEqual([1, 2, 3]);
   });
 
   it('does not query membership while nobody is connected', async () => {

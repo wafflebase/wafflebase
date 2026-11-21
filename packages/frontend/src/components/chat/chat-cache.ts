@@ -2,6 +2,7 @@ import type {
   ChannelSummary,
   ChatMessageDto,
   StreamMessageEvent,
+  StreamUpdateEvent,
 } from "@/api/chat";
 
 /**
@@ -103,6 +104,45 @@ export function replaceMessage(
 ): ChatMessageDto[] | undefined {
   if (!messages) return messages;
   return messages.map((m) => (m.id === next.id ? next : m));
+}
+
+/**
+ * A cached message blanked the way the server deletes it: the row stays, so a
+ * thread root keeps its replies reachable. Used when an `update` names a
+ * message the caller can no longer fetch.
+ */
+export function markMessageDeleted(
+  messages: ChatMessageDto[] | undefined,
+  messageId: string,
+): ChatMessageDto[] | undefined {
+  if (!messages) return messages;
+  return messages.map((m) =>
+    m.id === messageId ? { ...m, body: "", deleted: true } : m,
+  );
+}
+
+/** Parse an `update` frame, or null for anything that is not one. */
+export function parseStreamUpdate(raw: string): StreamUpdateEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const { workspaceId, channelId, messageId, threadRootId } = parsed as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof workspaceId !== "string" ||
+    typeof channelId !== "string" ||
+    typeof messageId !== "string"
+  ) {
+    return null;
+  }
+  if (threadRootId !== null && typeof threadRootId !== "string") return null;
+  return { workspaceId, channelId, messageId, threadRootId };
 }
 
 /** Parse a `message` frame, or null for anything that is not one. */

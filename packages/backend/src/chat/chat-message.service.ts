@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ChatChannel, ChatMessage, Prisma } from '@prisma/client';
-import { extractMentionedUserIds } from '@wafflebase/sheets';
+import {
+  extractMentionedUserIds,
+  parseMentionBody,
+  serializeMention,
+} from '@wafflebase/sheets';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { AccessContext, canPost, mentionOutcome } from './chat-access';
@@ -89,9 +93,10 @@ export class ChatMessageService {
     channelId: string,
     data: { body: string; threadRootId?: string; alsoInChannel?: boolean },
   ): Promise<ChatMessageDto> {
-    const body = checkBody(data.body);
+    checkBody(data.body);
     const { channel, ctx } = await this.channels.resolve(userId, channelId);
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
+    const body = await this.canonicalBody(data.body, channel.workspaceId);
 
     const threadRootId = data.threadRootId ?? null;
     if (threadRootId !== null) {
@@ -251,13 +256,19 @@ export class ChatMessageService {
     body: string,
     workspaceIdOrSlug?: string,
   ): Promise<ChatMessageDto> {
-    const text = checkBody(body);
-    await this.ownMessage(userId, messageId, workspaceIdOrSlug);
+    checkBody(body);
+    const { message, channel } = await this.ownMessage(
+      userId,
+      messageId,
+      workspaceIdOrSlug,
+    );
+    const text = await this.canonicalBody(body, channel.workspaceId);
     const updated = await this.prisma.chatMessage.update({
       where: { id: messageId },
       data: { body: text, editedAt: new Date() },
       include: { author: AUTHOR },
     });
+    await this.announceUpdate(message, channel);
     return toDto(updated);
   }
 
@@ -271,11 +282,16 @@ export class ChatMessageService {
     messageId: string,
     workspaceIdOrSlug?: string,
   ): Promise<void> {
-    await this.ownMessage(userId, messageId, workspaceIdOrSlug);
+    const { message, channel } = await this.ownMessage(
+      userId,
+      messageId,
+      workspaceIdOrSlug,
+    );
     await this.prisma.chatMessage.update({
       where: { id: messageId },
       data: { body: '', deletedAt: new Date() },
     });
+    await this.announceUpdate(message, channel);
   }
 
   /**
@@ -304,20 +320,89 @@ export class ChatMessageService {
     userId: number,
     messageId: string,
     workspaceIdOrSlug?: string,
-  ): Promise<ChatMessage> {
+  ): Promise<{ message: ChatMessage; channel: ChatChannel }> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
     });
     if (!message || message.authorId !== userId || message.deletedAt) {
       throw new NotFoundException('Message not found');
     }
-    const { ctx } = await this.channels.resolve(
+    const { channel, ctx } = await this.channels.resolve(
       userId,
       message.channelId,
       workspaceIdOrSlug,
     );
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
-    return message;
+    return { message, channel };
+  }
+
+  /**
+   * Tell the channel's open streams that a message changed, after the write
+   * has committed. Ids only: each client refetches the message, so the new
+   * text (or its absence) is read under the reader's own access. A failure
+   * is logged, never thrown — the edit stands, as a post does.
+   */
+  private async announceUpdate(
+    message: ChatMessage,
+    channel: ChatChannel,
+  ): Promise<void> {
+    try {
+      await this.bus.notifyUpdate({
+        t: 'upd',
+        c: channel.id,
+        w: channel.workspaceId,
+        id: message.id,
+        r: message.threadRootId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `chat update notify failed for ${message.id}: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * The body as stored: every mention token rewritten to its target's real
+   * username, so `@[ceo](42)` cannot dress user 42 up as somebody else. A
+   * token whose id is not a member of the workspace is flattened to plain
+   * `@name` — it names nobody who could be notified or rendered as a chip.
+   * The result is checked again, since a longer real username can push a
+   * body past the cap.
+   */
+  private async canonicalBody(
+    raw: string,
+    workspaceId: string,
+  ): Promise<string> {
+    const segments = parseMentionBody(raw);
+    const ids = [
+      ...new Set(
+        extractMentionedUserIds(raw)
+          .filter((id) => /^[1-9]\d*$/.test(id))
+          .map(Number)
+          .filter((id) => Number.isSafeInteger(id)),
+      ),
+    ];
+    const users =
+      ids.length === 0
+        ? []
+        : await this.prisma.user.findMany({
+            where: {
+              id: { in: ids },
+              workspaceMembers: { some: { workspaceId } },
+            },
+            select: { id: true, username: true },
+          });
+    const names = new Map(users.map((u) => [String(u.id), u.username]));
+    const body = segments
+      .map((segment) => {
+        if (segment.type === 'text') return segment.value;
+        const username = names.get(segment.userId);
+        return username === undefined
+          ? `@${segment.username}`
+          : serializeMention({ userId: segment.userId, username });
+      })
+      .join('');
+    return checkBody(body);
   }
 
   /**
