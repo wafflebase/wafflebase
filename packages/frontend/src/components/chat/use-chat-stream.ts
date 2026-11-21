@@ -176,8 +176,14 @@ async function refreshRoot(
   }
 }
 
-/** The newest refresh started per message id; see `refreshMessage`. */
+/**
+ * The newest refresh started per message id; see `refreshMessage`. The
+ * numbers come from one counter that only ever grows, so a finished refresh
+ * dropping its entry cannot hand its number to a later one while an older
+ * request still holds it.
+ */
 const refreshGeneration = new Map<string, number>();
+let lastRefreshGeneration = 0;
 
 /**
  * Apply an edit or delete announced by an `update` event. Cached pages never
@@ -198,7 +204,7 @@ export async function refreshMessage(
   if (keys.every((key) => !queryClient.getQueryData(key))) return;
   // Two updates in a row (an edit, then a delete) race; only the latest
   // request's answer may land, or the older one can resurrect the edit.
-  const generation = (refreshGeneration.get(e.messageId) ?? 0) + 1;
+  const generation = ++lastRefreshGeneration;
   refreshGeneration.set(e.messageId, generation);
   try {
     const next = await fetchMessage(e.workspaceId, e.messageId);

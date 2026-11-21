@@ -73,6 +73,30 @@ hand-picked cases and a character-level fuzz both passed. Assert
 `f(f(x)) === f(x)` and the output invariant directly, over generated nested
 input.
 
+### Panel round 2 (`/self-review`, six lenses)
+
+Panel round 2 (design-fit/blast-radius weighting): blocked on 5; fixed 1–4,
+item 5 copy fixed + disputed (rebuttal). (1) A private channel's last member
+who was neither creator nor owner could neither leave nor archive it —
+`canManage` now lets any member manage a private channel; (2)
+`refreshMessage` reused generation numbers after deleting the map entry, so
+a slow edit could resurrect a delete — one module-wide counter that only
+grows; (3) the hub spec's `findMany` ignored the workspace clause — the
+harness now honours it and a test asserts the `where` (fails with the clause
+removed); (4) `chat-page.tsx` had no test — `tests/app/chat/chat-page.test.tsx`
+covers the deep-link thread open, `alsoInChannel`, the `?thread`
+short-circuit and the desktop/phone last-channel restore, each
+mutation-checked; (5) the duplicate-name `409` reveals a private channel's
+name — kept (workspace-wide uniqueness is Slack parity and leaks no
+content), but the `409` no longer echoes the name and the dialog no longer
+claims a private channel cannot be found.
+
+Lesson: a "nothing happened" assertion after a microtask flush proves
+nothing when the effect under test waits on a React Query notification,
+which is timer-batched. Two of the first chat-page tests passed against the
+mutation they existed to catch; settle on a real timer, and mutation-check
+every negative test before trusting it.
+
 ### CodeRabbit round (PR #1186, 12 inline findings)
 
 | Comment | Finding | Verdict | Outcome |

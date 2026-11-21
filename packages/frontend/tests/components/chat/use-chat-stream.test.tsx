@@ -277,6 +277,36 @@ describe("useChatStream", () => {
     ).toMatchObject({ body: "", deleted: true });
   });
 
+  it("a stale refresh cannot reuse a finished one's generation", async () => {
+    const resolvers: Array<(v: ChatMessageDto | null) => void> = [];
+    fetchMessageSpy.mockImplementation(
+      () => new Promise((r) => resolvers.push(r)),
+    );
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    const update = {
+      workspaceId: "w1",
+      channelId: "c1",
+      messageId: "m1",
+      threadRootId: null,
+    };
+    const first = () =>
+      queryClient.getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))?.[0];
+
+    act(() => source.emit("update", update)); // #1 the edit, slow
+    act(() => source.emit("update", update)); // #2 the delete
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    resolvers[1](msg(1, { body: "", deleted: true }));
+    await waitFor(() => expect(first()?.deleted).toBe(true));
+    act(() => source.emit("update", update)); // #3 starts after #2 finished
+    await waitFor(() => expect(resolvers).toHaveLength(3));
+    resolvers[0](msg(1, { body: "edited" })); // #1 finally answers
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    expect(first()).toMatchObject({ body: "", deleted: true });
+    resolvers[2](msg(1, { body: "", deleted: true }));
+  });
+
   it("keeps paging a catch-up until a short page", async () => {
     const full = Array.from({ length: 50 }, (_, i) => msg(i + 4));
     fetchMessagesSpy

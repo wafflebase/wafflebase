@@ -18,11 +18,27 @@ function harness() {
   const events = new Subject<ChatBusEvent>();
   const resets = new Subject<void>();
   const members = new Map<string, number[]>();
-  const findMany = jest.fn(({ where }: { where: { channelId: string } }) =>
-    Promise.resolve(
-      (members.get(where.channelId) ?? []).map((userId) => ({ userId })),
-    ),
-  );
+  // Workspaces each user belongs to; a user not listed belongs to `w1`, the
+  // workspace every `msg()` event is in.
+  const workspacesOf = new Map<number, string[]>();
+  type Where = {
+    channelId: string;
+    user?: { workspaceMembers?: { some?: { workspaceId?: string } } };
+  };
+  // Honours both halves of the hub's `where`, so dropping the workspace
+  // clause lets a user outside the workspace through and a test fails.
+  const findMany = jest.fn(({ where }: { where: Where }) => {
+    const workspaceId = where.user?.workspaceMembers?.some?.workspaceId;
+    return Promise.resolve(
+      (members.get(where.channelId) ?? [])
+        .filter(
+          (userId) =>
+            workspaceId === undefined ||
+            (workspacesOf.get(userId) ?? ['w1']).includes(workspaceId),
+        )
+        .map((userId) => ({ userId })),
+    );
+  });
   const bus = { events$: events, resets$: resets } as unknown as ChatBus;
   const prisma = {
     chatChannelMember: { findMany },
@@ -36,7 +52,7 @@ function harness() {
     return { seen, stop: () => sub.unsubscribe() };
   }
 
-  return { events, resets, members, findMany, hub, collect };
+  return { events, resets, members, workspacesOf, findMany, hub, collect };
 }
 
 /** Let the hub's sequential routing drain its pending cache loads. */
@@ -45,6 +61,25 @@ async function flush(): Promise<void> {
 }
 
 describe('ChatHub', () => {
+  it("scopes channel members to the event's workspace", async () => {
+    const h = harness();
+    h.members.set('c1', [1, 2]);
+    // User 2's channel row outlived their workspace membership.
+    h.workspacesOf.set(2, ['other']);
+    const a = h.collect(1);
+    const removed = h.collect(2);
+
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    expect(h.findMany.mock.calls[0][0].where).toEqual({
+      channelId: 'c1',
+      user: { workspaceMembers: { some: { workspaceId: 'w1' } } },
+    });
+    expect(a.seen).toEqual([msg('c1', 1)]);
+    expect(removed.seen).toEqual([]);
+  });
+
   it('delivers a message only to channel members', async () => {
     const h = harness();
     h.members.set('c1', [1, 2]);
