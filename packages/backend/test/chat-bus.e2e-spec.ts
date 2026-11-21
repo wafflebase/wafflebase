@@ -51,6 +51,7 @@ describeDb('ChatBus LISTEN/NOTIFY integration', () => {
       s: 42,
       r: null,
       a: 7,
+      i: false,
     };
 
     const atA = next(busA, channelId);

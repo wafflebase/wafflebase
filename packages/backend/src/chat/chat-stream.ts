@@ -46,6 +46,7 @@ export function chatStream(
         seq: e.s,
         threadRootId: e.r,
         authorId: e.a,
+        alsoInChannel: e.i,
       };
       return { type: 'message', data };
     }),

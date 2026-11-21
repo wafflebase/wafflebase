@@ -267,14 +267,38 @@ export class ChatChannelService {
     return this.summaryOf(userId, channelId);
   }
 
-  /** Leave a public or private channel. Leaving one you are not in is a no-op. */
+  /**
+   * Leave a public or private channel. Leaving one you are not in is a no-op.
+   *
+   * The last member of a private channel is refused: `canRead` needs channel
+   * membership there, so an empty private channel can never be read,
+   * rejoined, managed or deleted, and its name stays taken. Archiving is the
+   * way out. The channel row is locked so two last members leaving at once
+   * cannot both see the other still in it.
+   */
   async leave(userId: number, channelId: string): Promise<void> {
     const { channel } = await this.resolve(userId, channelId);
     if (channel.kind === 'dm') {
       throw new BadRequestException('A direct message cannot be left');
     }
-    const { count } = await this.prisma.chatChannelMember.deleteMany({
-      where: { channelId, userId },
+    const count = await this.prisma.$transaction(async (tx) => {
+      if (channel.kind === 'private') {
+        await tx.$queryRaw`
+          SELECT id FROM "ChatChannel" WHERE id = ${channelId} FOR UPDATE`;
+      }
+      const { count: removed } = await tx.chatChannelMember.deleteMany({
+        where: { channelId, userId },
+      });
+      if (
+        removed > 0 &&
+        channel.kind === 'private' &&
+        (await tx.chatChannelMember.count({ where: { channelId } })) === 0
+      ) {
+        throw new ConflictException(
+          'You are the last member — archive the channel instead',
+        );
+      }
+      return removed;
     });
     if (count > 0) await this.announceMembership(channelId);
   }

@@ -6,16 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ChatChannel, ChatMessage, Prisma } from '@prisma/client';
-import {
-  extractMentionedUserIds,
-  parseMentionBody,
-  serializeMention,
-} from '@wafflebase/sheets';
+import { extractMentionedUserIds } from '@wafflebase/sheets';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { AccessContext, canPost, mentionOutcome } from './chat-access';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
+import { canonicalMentions } from './chat-mentions';
 import { MAX_BODY_LENGTH } from './chat.dto';
 import { ChatMessageDto, ChatUserSummary } from './chat.types';
 
@@ -165,6 +162,7 @@ export class ChatMessageService {
         s: dto.seq,
         r: threadRootId,
         a: userId,
+        i: alsoInChannel,
       });
     } catch (err) {
       // Committed already: a client that misses this event catches up by
@@ -280,8 +278,10 @@ export class ChatMessageService {
 
   /**
    * Soft delete: the row stays so its `seq` keeps the channel gap-free and a
-   * thread root keeps its replies reachable; the body is cleared, so the
-   * text is gone from the database and not merely hidden.
+   * thread root keeps its replies reachable. The body is cleared, and so are
+   * the bell rows that quote it — a `chat_mention` or `chat_thread_reply`
+   * carries a preview of the message in `commentId` — so the text is gone
+   * from the database and not merely hidden.
    */
   async remove(
     userId: number,
@@ -293,10 +293,18 @@ export class ChatMessageService {
       messageId,
       workspaceIdOrSlug,
     );
-    await this.prisma.chatMessage.update({
-      where: { id: messageId },
-      data: { body: '', deletedAt: new Date() },
-    });
+    await this.prisma.$transaction([
+      this.prisma.chatMessage.update({
+        where: { id: messageId },
+        data: { body: '', deletedAt: new Date() },
+      }),
+      this.prisma.notification.deleteMany({
+        where: {
+          commentId: messageId,
+          type: { in: ['chat_mention', 'chat_thread_reply'] },
+        },
+      }),
+    ]);
     await this.announceUpdate(message, channel);
   }
 
@@ -372,14 +380,15 @@ export class ChatMessageService {
    * username, so `@[ceo](42)` cannot dress user 42 up as somebody else. A
    * token whose id is not a member of the workspace is flattened to plain
    * `@name` — it names nobody who could be notified or rendered as a chip.
-   * The result is checked again, since a longer real username can push a
-   * body past the cap.
+   * `canonicalMentions` repeats that to a fixpoint, so a flattened token
+   * cannot hand its brackets to the text around it and re-form a token
+   * nobody resolved. The result is checked again, since a longer real
+   * username can push a body past the cap.
    */
   private async canonicalBody(
     raw: string,
     workspaceId: string,
   ): Promise<string> {
-    const segments = parseMentionBody(raw);
     const ids = [
       ...new Set(
         extractMentionedUserIds(raw)
@@ -399,15 +408,10 @@ export class ChatMessageService {
             select: { id: true, username: true },
           });
     const names = new Map(users.map((u) => [String(u.id), u.username]));
-    const body = segments
-      .map((segment) => {
-        if (segment.type === 'text') return segment.value;
-        const username = names.get(segment.userId);
-        return username === undefined
-          ? `@${segment.username}`
-          : serializeMention({ userId: segment.userId, username });
-      })
-      .join('');
+    const body = canonicalMentions(raw, names);
+    if (body === null) {
+      throw new BadRequestException('Message body has malformed mentions');
+    }
     return checkBody(body);
   }
 

@@ -47,7 +47,8 @@ export interface ChatMessageDto {
 /**
  * What crosses replicas on the `chat` NOTIFY channel. Ids only — never
  * message content — and short keys, since a NOTIFY payload is capped at 8 kB.
- * `msg`: channel, workspace, seq, thread root, author. `upd`: a message
+ * `msg`: channel, workspace, seq, thread root, author, and whether a reply
+ * was also sent to the channel (so it counts as unread there). `upd`: a message
  * was edited or deleted — channel, workspace, message id, thread root. `mem`:
  * a channel's membership changed, so cached member sets for it are stale.
  */
@@ -59,6 +60,7 @@ export type ChatBusEvent =
       s: number;
       r: string | null;
       a: number | null;
+      i: boolean;
     }
   | { t: 'upd'; c: string; w: string; id: string; r: string | null }
   | { t: 'mem'; c: string };
@@ -79,6 +81,8 @@ export interface StreamMessageEvent {
   seq: number;
   threadRootId: string | null;
   authorId: number | null;
+  /** A thread reply also sent to the channel; false for a top-level message. */
+  alsoInChannel: boolean;
 }
 
 /**

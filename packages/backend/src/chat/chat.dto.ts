@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -109,12 +110,14 @@ export class ListMessagesQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(Number.MAX_SAFE_INTEGER)
   before?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(Number.MAX_SAFE_INTEGER)
   after?: number;
 
   /** A thread root's id: return that thread (root first) instead. */
@@ -124,8 +127,13 @@ export class ListMessagesQueryDto {
   thread?: string;
 }
 
+/**
+ * `@IsInt` is `Number.isInteger`, which takes `1e20`; past the safe range
+ * `BigInt(seq)` overflows the `bigint` column and Postgres answers a 500.
+ */
 export class MarkReadDto {
   @IsInt()
   @Min(0)
+  @Max(Number.MAX_SAFE_INTEGER)
   seq!: number;
 }

@@ -24,7 +24,7 @@ describe('chatStream', () => {
   it('maps hub events to message events with no body', () => {
     const h = harness();
 
-    h.hub.next({ t: 'msg', c: 'c1', w: 'w1', s: 7, r: 'root', a: 3 });
+    h.hub.next({ t: 'msg', c: 'c1', w: 'w1', s: 7, r: 'root', a: 3, i: true });
 
     expect(h.seen[1]).toEqual({
       type: 'message',
@@ -34,6 +34,7 @@ describe('chatStream', () => {
         seq: 7,
         threadRootId: 'root',
         authorId: 3,
+        alsoInChannel: true,
       },
     });
   });
@@ -81,7 +82,15 @@ describe('chatStream', () => {
     const h = harness();
     h.stop();
 
-    h.hub.next({ t: 'msg', c: 'c1', w: 'w1', s: 1, r: null, a: null });
+    h.hub.next({
+      t: 'msg',
+      c: 'c1',
+      w: 'w1',
+      s: 1,
+      r: null,
+      a: null,
+      i: false,
+    });
     h.heartbeat.next();
 
     expect(h.seen).toHaveLength(1);

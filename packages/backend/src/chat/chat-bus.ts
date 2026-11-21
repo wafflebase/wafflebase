@@ -11,7 +11,8 @@ import { PrismaService } from '../database/prisma.service';
 import { ChatBusEvent } from './chat.types';
 
 /** The Postgres NOTIFY channel every replica listens on. */
-const CHANNEL = 'chat';
+export const CHAT_NOTIFY_CHANNEL = 'chat';
+const CHANNEL = CHAT_NOTIFY_CHANNEL;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 /** How long a self-sent probe may take before we suspect a pooler. */
@@ -31,7 +32,7 @@ type UpdEvent = Extract<ChatBusEvent, { t: 'upd' }>;
  * database session can `pg_notify('chat', …)`, so a malformed payload is
  * dropped rather than routed. Returns the probe id for a probe.
  */
-function parsePayload(
+export function parsePayload(
   raw: string | undefined,
 ): ChatBusEvent | { probe: string } | null {
   if (!raw) return null;
@@ -51,9 +52,10 @@ function parsePayload(
     typeof o.w === 'string' &&
     typeof o.s === 'number' &&
     (o.r === null || typeof o.r === 'string') &&
-    (o.a === null || typeof o.a === 'number')
+    (o.a === null || typeof o.a === 'number') &&
+    typeof o.i === 'boolean'
   ) {
-    return { t: 'msg', c: o.c, w: o.w, s: o.s, r: o.r, a: o.a };
+    return { t: 'msg', c: o.c, w: o.w, s: o.s, r: o.r, a: o.a, i: o.i };
   }
   if (
     o.t === 'upd' &&
@@ -64,6 +66,16 @@ function parsePayload(
     return { t: 'upd', c: o.c, w: o.w, id: o.id, r: o.r };
   }
   return null;
+}
+
+/**
+ * The `mem` payload: a channel's membership changed. Exported for modules
+ * that announce one without depending on `ChatBus` (see
+ * `WorkspaceService.removeMember`), so the wire shape has one author.
+ */
+export function memPayload(channelId: string): string {
+  const event: ChatBusEvent = { t: 'mem', c: channelId };
+  return JSON.stringify(event);
 }
 
 /**
@@ -126,7 +138,15 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
   }
 
   async notifyMessage(e: MsgEvent): Promise<void> {
-    await this.send({ t: 'msg', c: e.c, w: e.w, s: e.s, r: e.r, a: e.a });
+    await this.send({
+      t: 'msg',
+      c: e.c,
+      w: e.w,
+      s: e.s,
+      r: e.r,
+      a: e.a,
+      i: e.i,
+    });
   }
 
   /** A message was edited or deleted. Ids only, like `notifyMessage`. */
@@ -135,7 +155,7 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
   }
 
   async notifyMembership(channelId: string): Promise<void> {
-    await this.send({ t: 'mem', c: channelId });
+    await this.sendRaw(memPayload(channelId));
   }
 
   /**
@@ -144,8 +164,11 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
    * next reconnect — so it is logged and swallowed.
    */
   private async send(payload: object): Promise<void> {
+    await this.sendRaw(JSON.stringify(payload));
+  }
+
+  private async sendRaw(json: string): Promise<void> {
     try {
-      const json = JSON.stringify(payload);
       await this.prisma.$executeRaw`SELECT pg_notify(${CHANNEL}, ${json})`;
     } catch (err) {
       this.logger.warn(`chat NOTIFY failed: ${(err as Error).message}`);
@@ -212,6 +235,8 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
       this.retryTimer = null;
       void this.connect();
     }, delay);
+    // Waiting to reconnect is no reason to keep a process alive.
+    this.retryTimer.unref?.();
   }
 
   /**

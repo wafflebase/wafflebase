@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as cookieParser from 'cookie-parser';
 import { Client } from 'pg';
 import * as request from 'supertest';
+import { extractMentionedUserIds, parseMentionBody } from '@wafflebase/sheets';
 import { AppModule } from 'src/app.module';
 import { ChatBus } from 'src/chat/chat-bus';
 import { ChatChannelService } from 'src/chat/chat-channel.service';
@@ -479,6 +480,61 @@ describeDb('Chat integration', () => {
       expect(notify).toHaveBeenCalledWith(channel.id);
     });
 
+    it('the last member cannot leave a private channel', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      const leave = (u: TestUser) =>
+        as(u).delete(`${base(workspace.id)}/channels/${channel.id}/members/me`);
+
+      const refused = await leave(owner).expect(409);
+      expect(refused.body.message).toMatch(/last member/i);
+      expect(
+        await prisma.chatChannelMember.count({
+          where: { channelId: channel.id },
+        }),
+      ).toBe(1);
+
+      // With somebody else still in it, leaving is fine; then they are last.
+      await channels.invite(owner.id, channel.id, [peer.id]);
+      await leave(owner).expect(204);
+      await leave(peer).expect(409);
+
+      // A public channel is reachable empty, so its last member may leave.
+      const open = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'open',
+      });
+      await as(owner)
+        .delete(`${base(workspace.id)}/channels/${open.id}/members/me`)
+        .expect(204);
+    });
+
+    it('two last members leaving at once leave one behind', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await channels.invite(owner.id, channel.id, [peer.id]);
+
+      const results = await Promise.allSettled([
+        channels.leave(owner.id, channel.id),
+        channels.leave(peer.id, channel.id),
+      ]);
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      expect(
+        await prisma.chatChannelMember.count({
+          where: { channelId: channel.id },
+        }),
+      ).toBe(1);
+    });
+
     it('a DM cannot be left, joined or renamed', async () => {
       const { owner, members, workspace } = await team(1);
       const dm = await channels.openDm(owner.id, workspace.id, [members[0].id]);
@@ -876,6 +932,80 @@ describeDb('Chat integration', () => {
         .expect(404);
     });
 
+    it('a mention cannot be forged by nesting a token in an unknown one', async () => {
+      const { owner, members, channel } = await publicChannel();
+      const [victim] = members;
+      const forged = [
+        `@[[FAKE](999999)](${victim.id})`,
+        `@[[FAKE](abc)](${victim.id})`,
+        `@[@[FAKE](999999)](${victim.id})`,
+        `@[x(](999999)](${victim.id})`,
+        `@[[[a](0)](0)](${victim.id})`,
+      ];
+      const real = new Map(
+        [owner, victim].map((u) => [String(u.id), u.username]),
+      );
+
+      for (const body of forged) {
+        const res = await messages.post(owner.id, channel.id, { body });
+        for (const segment of parseMentionBody(res.body)) {
+          if (segment.type !== 'mention') continue;
+          // Every chip in the stored body is a real member, by real name.
+          expect(real.get(segment.userId)).toBe(segment.username);
+        }
+        expect(extractMentionedUserIds(res.body)).not.toContain(
+          String(victim.id),
+        );
+      }
+      expect(
+        await prisma.notification.count({
+          where: { recipientId: victim.id, type: 'chat_mention' },
+        }),
+      ).toBe(0);
+    });
+
+    it('deleting a message takes its notification previews with it', async () => {
+      const { owner, members, workspace, channel } = await publicChannel();
+      const [peer] = members;
+      const root = await messages.post(peer.id, channel.id, { body: 'root' });
+      const reply = await messages.post(owner.id, channel.id, {
+        body: `secret for @[${peer.username}](${peer.id})`,
+        threadRootId: root.id,
+      });
+      const kept = await messages.post(owner.id, channel.id, {
+        body: `keep @[${peer.username}](${peer.id})`,
+      });
+      const rows = () =>
+        prisma.notification.findMany({
+          where: { recipientId: peer.id },
+          select: { commentId: true, type: true },
+        });
+      expect((await rows()).map((r) => r.commentId)).toEqual(
+        expect.arrayContaining([reply.id, kept.id]),
+      );
+
+      await as(owner)
+        .delete(`${base(workspace.id)}/messages/${reply.id}`)
+        .expect(204);
+
+      const after = await rows();
+      expect(after.map((r) => r.commentId)).not.toContain(reply.id);
+      expect(after.map((r) => r.commentId)).toContain(kept.id);
+    });
+
+    it('a seq beyond the safe-integer range is 400, not 500', async () => {
+      const { owner, workspace, channel } = await publicChannel();
+      const url = `${base(workspace.id)}/channels/${channel.id}`;
+
+      await as(owner).post(`${url}/read`).send({ seq: 1e20 }).expect(400);
+      await as(owner).get(`${url}/messages?before=1e20`).expect(400);
+      await as(owner).get(`${url}/messages?after=1e20`).expect(400);
+      await as(owner)
+        .post(`${url}/read`)
+        .send({ seq: Number.MAX_SAFE_INTEGER })
+        .expect(204);
+    });
+
     it('an edit racing a delete cannot restore the deleted body', async () => {
       const { owner, channel } = await publicChannel();
       const mine = await messages.post(owner.id, channel.id, { body: 'mine' });
@@ -1025,6 +1155,7 @@ describeDb('Chat integration', () => {
         s: res.body.seq,
         r: null,
         a: peer.id,
+        i: false,
       });
 
       const [summary] = await channels.list(peer.id, workspace.id);

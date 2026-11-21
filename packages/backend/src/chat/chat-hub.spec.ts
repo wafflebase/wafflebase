@@ -7,7 +7,7 @@ import { ChatBusEvent, ChatHubEvent } from './chat.types';
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 
 function msg(c: string, s: number): MsgEvent {
-  return { t: 'msg', c, w: 'w1', s, r: null, a: 1 };
+  return { t: 'msg', c, w: 'w1', s, r: null, a: 1, i: false };
 }
 
 /**
@@ -253,5 +253,37 @@ describe('ChatHub', () => {
     expect(h.hub.subscriberCount(1)).toBe(1);
     tab2.stop();
     expect(h.hub.subscriberCount(1)).toBe(0);
+  });
+  it('keeps routing after an event fails to route', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const a = h.collect(1);
+    const route = jest
+      .spyOn(h.hub as unknown as { route: () => Promise<void> }, 'route')
+      .mockRejectedValueOnce(new Error('boom'));
+
+    h.events.next(msg('c1', 1));
+    h.events.next(msg('c1', 2));
+    await flush();
+
+    expect(route).toHaveBeenCalledTimes(2);
+    expect(a.seen).toEqual([msg('c1', 2)]);
+  });
+
+  it('gives up a membership load that every reset interrupts', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const a = h.collect(1);
+    h.findMany.mockImplementation(() => {
+      // Every attempt straddles a reconnect.
+      h.resets.next();
+      return Promise.resolve([{ userId: 1 }]);
+    });
+
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    expect(h.findMany).toHaveBeenCalledTimes(3);
+    expect(a.seen.filter((e) => e.t === 'msg')).toEqual([]);
   });
 });

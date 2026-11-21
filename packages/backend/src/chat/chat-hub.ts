@@ -18,6 +18,9 @@ import { ChatBusEvent, ChatHubEvent, ChatRoutedEvent } from './chat.types';
  */
 export const MEMBER_CACHE_TTL_MS = 60_000;
 
+/** Loads of one member set that a bus reset may interrupt before giving up. */
+const MEMBER_LOAD_ATTEMPTS = 3;
+
 /**
  * Per-replica routing from the chat bus to the SSE handlers connected here.
  *
@@ -53,8 +56,19 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    // A rejection escaping `route` would error this process-lifetime
+    // subscription and silently end delivery on the replica, so each event
+    // fails alone.
     this.subscription = this.bus.events$
-      .pipe(concatMap((event) => this.route(event)))
+      .pipe(
+        concatMap((event) =>
+          this.route(event).catch((err: unknown) => {
+            this.logger.warn(
+              `chat event routing failed for ${event.c}: ${String(err)}`,
+            );
+          }),
+        ),
+      )
       .subscribe();
     this.subscription.add(this.bus.resets$.subscribe(() => this.reset()));
   }
@@ -141,8 +155,10 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
       return cached.set;
     }
     // A reset while the query is in flight means a `mem` may have been lost
-    // after the query read its rows, so its answer is reloaded, not used.
-    for (;;) {
+    // after the query read its rows, so its answer is reloaded, not used. A
+    // flapping listener could interrupt every attempt, so they are bounded;
+    // giving up drops this event, and the channel's next one loads again.
+    for (let attempt = 0; attempt < MEMBER_LOAD_ATTEMPTS; attempt += 1) {
       const generation = this.generation;
       const rows = await this.prisma.chatChannelMember.findMany({
         where: {
@@ -156,5 +172,8 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
       this.members.set(event.c, { set, loadedAt: Date.now() });
       return set;
     }
+    throw new Error(
+      `membership load interrupted by ${MEMBER_LOAD_ATTEMPTS} resets`,
+    );
   }
 }

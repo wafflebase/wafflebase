@@ -6,6 +6,7 @@ import {
   GoneException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 
@@ -143,17 +144,20 @@ export class WorkspaceService {
 
   /**
    * Tells every replica's chat hub that these channels' member sets changed,
-   * so a removed member's open stream stops receiving them at once. Raw
-   * `pg_notify` rather than `ChatBus`, since importing the chat module here
-   * would close a cycle. Runs after commit: a replica that reloaded before
-   * the delete was visible would cache the old set again. The removal has
-   * committed either way, so a failed notify is logged, not thrown.
+   * so a removed member's open stream stops receiving them at once. A raw
+   * `pg_notify` keeps `WorkspaceModule` from depending on the chat module's
+   * providers, but the channel name and payload come from `chat-bus`, so
+   * the wire shape still has one author. Runs after commit: a replica that
+   * reloaded before the delete was visible would cache the old set again.
+   * The removal has committed either way, so a failed notify is logged, not
+   * thrown.
    */
   private async announceChatMembership(channelIds: string[]): Promise<void> {
     for (const channelId of channelIds) {
-      const payload = JSON.stringify({ t: 'mem', c: channelId });
+      const payload = memPayload(channelId);
       try {
-        await this.prisma.$executeRaw`SELECT pg_notify('chat', ${payload})`;
+        await this.prisma
+          .$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${payload})`;
       } catch (err) {
         this.logger.warn(
           `chat membership notify failed for ${channelId}: ${String(err)}`,
