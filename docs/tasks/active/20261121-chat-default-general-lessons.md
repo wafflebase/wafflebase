@@ -16,3 +16,8 @@
 ## Self-review log
 
 (rounds recorded below)
+- Round 1 (correctness/tests): blocked by design-fit + blast-radius on the
+  same defect — `UserService.claimGithubWorkspaces` adds an owner without
+  joining #general. Fixed (join in the claim transaction + pg_notify), test
+  added. Lesson: grep every `workspaceMember.(create|upsert|createMany)` when
+  an invariant is "every member is in X", not just the paths you remember.
