@@ -394,7 +394,16 @@ export class ChatChannelService {
     channelId: string,
     workspaceIdOrSlug: string,
   ): Promise<ChatUserSummary[]> {
-    await this.resolve(userId, channelId, workspaceIdOrSlug);
+    const { channel } = await this.resolve(
+      userId,
+      channelId,
+      workspaceIdOrSlug,
+    );
+    if (channel.kind === 'dm') {
+      throw new BadRequestException(
+        "A direct message's members are on its summary",
+      );
+    }
     const rows = await this.prisma.chatChannelMember.findMany({
       where: { channelId },
       select: { user: { select: { id: true, username: true, photo: true } } },

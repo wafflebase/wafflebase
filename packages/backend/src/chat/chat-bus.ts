@@ -79,6 +79,29 @@ export function memPayload(channelId: string): string {
 }
 
 /**
+ * Announces membership changes with a raw `pg_notify`, for the modules that
+ * change membership without `ChatBus` (workspace removal, invite accept,
+ * workspace claim). Runs after commit — a replica that reloaded before the
+ * change was visible would cache the old set again — and is best-effort: the
+ * change has committed either way, so a failure is logged, not thrown.
+ */
+export async function announceMembershipRaw(
+  prisma: Pick<PrismaService, '$executeRaw'>,
+  channelIds: string[],
+  logger: { warn(message: string): void },
+): Promise<void> {
+  for (const channelId of channelIds) {
+    try {
+      await prisma.$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${memPayload(channelId)})`;
+    } catch (err) {
+      logger.warn(
+        `chat membership notify failed for ${channelId}: ${String(err)}`,
+      );
+    }
+  }
+}
+
+/**
  * Cross-replica fan-out of chat events over Postgres `LISTEN/NOTIFY`.
  *
  * Every replica holds one dedicated `pg.Client` listening on `chat`; a

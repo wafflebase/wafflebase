@@ -5,7 +5,7 @@ import { MemberPicker } from "@/app/chat/member-picker";
 
 const renderPicker = (
   members: { userId: string; username: string }[],
-  excluded: string[] = [],
+  opts: { excluded?: string[]; loading?: boolean; owner?: boolean } = {},
 ) =>
   render(
     <MemoryRouter>
@@ -13,8 +13,9 @@ const renderPicker = (
         members={members}
         selected={[]}
         onChange={() => {}}
-        excluded={excluded}
-        inviteHref="/w/team/settings"
+        excluded={opts.excluded}
+        loading={opts.loading}
+        inviteHref={opts.owner === false ? undefined : "/w/team/settings"}
       />
     </MemoryRouter>,
   );
@@ -31,13 +32,27 @@ describe("MemberPicker", () => {
     expect(screen.queryByText(/No one matches/)).not.toBeInTheDocument();
   });
 
+  it("does not claim the caller is alone while members are loading", () => {
+    renderPicker([], { loading: true });
+
+    expect(screen.getByText("Loading people…")).toBeInTheDocument();
+    expect(screen.queryByText(/only one/)).not.toBeInTheDocument();
+  });
+
+  it("tells somebody who cannot invite to ask an owner", () => {
+    renderPicker([], { owner: false });
+
+    expect(screen.getByText(/Ask a workspace owner/)).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("shows people already in the channel as unpickable", () => {
     renderPicker(
       [
         { userId: "2", username: "minji" },
         { userId: "3", username: "jiyu" },
       ],
-      ["2"],
+      { excluded: ["2"] },
     );
 
     const minji = screen.getByRole("checkbox", { name: /minji/ });

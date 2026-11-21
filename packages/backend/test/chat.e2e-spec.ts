@@ -1525,6 +1525,14 @@ describeDb('Chat integration', () => {
       );
     });
 
+    it('a DM is refused: its members are on its summary', async () => {
+      const { owner, members, workspace } = await team(1);
+      const dm = await channels.openDm(owner.id, workspace.id, [members[0].id]);
+      await as(owner)
+        .get(`${base(workspace.id)}/channels/${dm.id}/members`)
+        .expect(400);
+    });
+
     it("a private channel's members are 404 to a non-member", async () => {
       const { owner, members, workspace } = await team(1);
       const channel = await channels.create(owner.id, workspace.id, {

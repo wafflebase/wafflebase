@@ -15,8 +15,13 @@ interface MemberPickerProps {
   max?: number;
   /** Members shown but not pickable (already in the channel). */
   excluded?: string[];
-  /** Where to invite people, offered when nobody else is in the workspace. */
-  inviteHref: string;
+  /** The member list is still loading: not the same as an empty one. */
+  loading?: boolean;
+  /**
+   * Where to invite people, offered when nobody else is in the workspace.
+   * Only owners can invite, so anyone else is told to ask one instead.
+   */
+  inviteHref?: string;
 }
 
 /**
@@ -29,6 +34,7 @@ export function MemberPicker({
   onChange,
   max,
   excluded = [],
+  loading = false,
   inviteHref,
 }: MemberPickerProps) {
   const [query, setQuery] = useState("");
@@ -48,17 +54,26 @@ export function MemberPicker({
 
   // Nobody to pick is not a search miss: say so, and say where people come
   // from, instead of a "No one matches" under an empty search box.
+  if (loading) {
+    return <p className="py-3 text-sm text-muted-foreground">Loading people…</p>;
+  }
   if (members.length === 0) {
     return (
       <p className="py-3 text-sm text-muted-foreground">
         You're the only one in this workspace so far.{" "}
-        <Link
-          to={inviteHref}
-          className="font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          Invite people
-        </Link>{" "}
-        from workspace settings.
+        {inviteHref ? (
+          <>
+            <Link
+              to={inviteHref}
+              className="font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              Invite people
+            </Link>{" "}
+            from workspace settings.
+          </>
+        ) : (
+          "Ask a workspace owner to invite people."
+        )}
       </p>
     );
   }

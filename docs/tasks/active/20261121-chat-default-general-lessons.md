@@ -21,3 +21,16 @@
   joining #general. Fixed (join in the claim transaction + pg_notify), test
   added. Lesson: grep every `workspaceMember.(create|upsert|createMany)` when
   an invariant is "every member is in X", not just the paths you remember.
+- Round 2 (design fit / blast radius, panel + superpowers-style code review):
+  panel clean on cddf7e93b — loop stops. The parallel code review raised
+  non-blocking items, fixed in a follow-up: picker said "only one here"
+  while members loaded (now a loading state), invite link offered to
+  non-owners who cannot invite (now "ask an owner"), Browse opened on Create
+  for one frame (dialog tab now owned by the page, effect removed), members
+  route answered for DMs (now 400), and a duplicated pg_notify helper
+  (`announceMembershipRaw` in chat-bus). Deferred to the PR body: rolling
+  deploy window (an old pod creating a workspace/accepting an invite after
+  the backfill leaves it without #general; the backfill SQL is re-runnable),
+  and the Add-people "Already here" list not refreshing on others' joins.
+- Default params hide `undefined`: a test helper `inviteHref = "/x"` turned
+  an explicit `undefined` back into the default. Use an explicit flag.

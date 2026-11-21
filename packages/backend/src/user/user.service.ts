@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { User, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
-import { CHAT_NOTIFY_CHANNEL, memPayload } from 'src/chat/chat-bus';
+import { announceMembershipRaw } from 'src/chat/chat-bus';
 import {
   createDefaultChannel,
   joinDefaultChannel,
@@ -76,6 +76,8 @@ function isSlugConflict(error: unknown): boolean {
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async user(
@@ -280,23 +282,10 @@ export class UserService {
       });
       if (!took) continue;
       claimed++;
-      if (took.channelId) await this.announceChatMembership(took.channelId);
+      if (took.channelId) {
+        await announceMembershipRaw(this.prisma, [took.channelId], this.logger);
+      }
     }
     return claimed;
-  }
-
-  /**
-   * Tells every replica's chat hub that the channel's member set changed, the
-   * way `WorkspaceService` does: a raw `pg_notify` with the chat bus's own
-   * payload, so this module needs none of chat's providers. After commit, and
-   * best-effort — the claim stands either way.
-   */
-  private async announceChatMembership(channelId: string): Promise<void> {
-    try {
-      await this.prisma
-        .$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${memPayload(channelId)})`;
-    } catch {
-      // A replica's cached member set expires on its own within a minute.
-    }
   }
 }

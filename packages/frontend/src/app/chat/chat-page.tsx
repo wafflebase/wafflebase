@@ -49,7 +49,7 @@ import {
 } from "./channel-settings-dialog";
 import { channelMenu, chatLayout, landingChannelId } from "./chat-layout";
 import { channelLabel } from "./group-channels";
-import { NewChannelDialog } from "./new-channel-dialog";
+import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
 import { AddPeopleDialog, NewDmDialog } from "./new-dm-dialog";
 
 const LAST_CHANNEL_KEY = (workspaceId: string) =>
@@ -80,7 +80,6 @@ function forgetLastChannel(workspaceId: string, channelId: string): void {
     // A convenience only.
   }
 }
-
 
 /**
  * `/w/:workspaceId/chat/:channelId?` — channel list, conversation and, with
@@ -117,10 +116,9 @@ export default function ChatPage() {
   const hrefFor = useCallback((id: string) => `${base}/${id}`, [base]);
 
   const [newChannelOpen, setNewChannelOpen] = useState(false);
-  const [newChannelTab, setNewChannelTab] = useState<"create" | "browse">(
-    "create",
-  );
-  const openChannelDialog = (tab: "create" | "browse") => {
+  const [newChannelTab, setNewChannelTab] =
+    useState<ChannelDialogTab>("create");
+  const openChannelDialog = (tab: ChannelDialogTab) => {
     setNewChannelTab(tab);
     setNewChannelOpen(true);
   };
@@ -440,7 +438,8 @@ export default function ChatPage() {
         workspaceId={workspaceId}
         channels={channels}
         open={newChannelOpen}
-        initialTab={newChannelTab}
+        tab={newChannelTab}
+        onTabChange={setNewChannelTab}
         onOpenChange={setNewChannelOpen}
         onOpened={(id) => navigate(hrefFor(id))}
       />

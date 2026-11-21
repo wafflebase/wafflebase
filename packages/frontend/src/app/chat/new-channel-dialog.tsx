@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { IconHash } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -24,12 +24,19 @@ import {
   validChannelName,
 } from "./channel-name";
 
+export type ChannelDialogTab = "create" | "browse";
+
 interface NewChannelDialogProps {
   workspaceId: string;
   channels: ChannelSummary[];
   open: boolean;
-  /** The tab the dialog opens on; "Browse channels" opens on Browse. */
-  initialTab?: "create" | "browse";
+  /**
+   * The open tab. Owned by the caller, which picks it when it opens the
+   * dialog ("Browse channels" opens on Browse), so it is right on the first
+   * frame rather than corrected after it.
+   */
+  tab: ChannelDialogTab;
+  onTabChange: (tab: ChannelDialogTab) => void;
   onOpenChange: (open: boolean) => void;
   onOpened: (channelId: string) => void;
 }
@@ -42,14 +49,11 @@ export function NewChannelDialog({
   workspaceId,
   channels,
   open,
-  initialTab = "create",
+  tab,
+  onTabChange,
   onOpenChange,
   onOpened,
 }: NewChannelDialogProps) {
-  const [tab, setTab] = useState<"create" | "browse">(initialTab);
-  useEffect(() => {
-    if (open) setTab(initialTab);
-  }, [open, initialTab]);
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
@@ -68,7 +72,6 @@ export function NewChannelDialog({
       setName("");
       setTopic("");
       setIsPrivate(false);
-      setTab("create");
     }
     onOpenChange(next);
   };
@@ -104,7 +107,7 @@ export function NewChannelDialog({
             Create a channel for a topic, or join one that already exists.
           </DialogDescription>
         </DialogHeader>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+        <Tabs value={tab} onValueChange={(v) => onTabChange(v as ChannelDialogTab)}>
           <TabsList>
             <TabsTrigger value="create">Create</TabsTrigger>
             <TabsTrigger value="browse">
