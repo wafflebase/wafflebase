@@ -17,7 +17,10 @@ import {
   fetchApiKeys,
   createApiKey,
   revokeApiKey,
+  fetchWorkspaceDataSources,
 } from "@/api/workspaces";
+import { deleteDataSource, testDataSourceConnection } from "@/api/datasources";
+import type { DataSource } from "@/types/datasource";
 import type {
   ApiKey,
   WorkspaceDetail,
@@ -45,6 +48,15 @@ vi.mock("@/api/workspaces", () => ({
   fetchApiKeys: vi.fn(),
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn(),
+  fetchWorkspaceDataSources: vi.fn(),
+  createWorkspaceDataSource: vi.fn(),
+  testWorkspaceDataSourceConfig: vi.fn(),
+}));
+
+vi.mock("@/api/datasources", () => ({
+  deleteDataSource: vi.fn(),
+  testDataSourceConnection: vi.fn(),
+  updateDataSource: vi.fn(),
 }));
 
 const OWNER = {
@@ -103,7 +115,11 @@ const MEMBER_KEY = apiKey("k-member", "Member CLI", MEMBER.user.id);
  * Renders the settings page as the user with the given id. `keys` is what the
  * server hands this caller back — a member only ever sees their own.
  */
-function renderAs(userId: number, keys: ApiKey[] = []) {
+function renderAs(
+  userId: number,
+  keys: ApiKey[] = [],
+  datasources: DataSource[] = [],
+) {
   vi.mocked(fetchMe).mockResolvedValue({
     id: userId,
     username: "u",
@@ -112,6 +128,7 @@ function renderAs(userId: number, keys: ApiKey[] = []) {
   vi.mocked(fetchWorkspace).mockResolvedValue(WORKSPACE);
   vi.mocked(fetchInvites).mockResolvedValue([INVITE]);
   vi.mocked(fetchApiKeys).mockResolvedValue(keys);
+  vi.mocked(fetchWorkspaceDataSources).mockResolvedValue(datasources);
 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -361,5 +378,80 @@ describe("WorkspaceSettings action hierarchy and errors", () => {
       new HttpError("Only the workspace owner can delete it.", 403),
     );
     expect(message).toBe("Only the workspace owner can delete it.");
+  });
+});
+
+const REPLICA: DataSource = {
+  id: "ds-1",
+  name: "Production replica",
+  host: "db.internal.acme.io",
+  port: 5432,
+  database: "analytics",
+  username: "readonly",
+  password: "",
+  sslEnabled: true,
+  authorID: OWNER.user.id,
+  workspaceId: WORKSPACE.id,
+  createdAt: "2026-02-01T00:00:00.000Z",
+  updatedAt: "2026-02-01T00:00:00.000Z",
+};
+
+describe("WorkspaceSettings data sources", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lists the workspace's connections to a non-owner member", async () => {
+    renderAs(MEMBER.user.id, [], [REPLICA]);
+
+    expect(await screen.findByText("Production replica")).toBeTruthy();
+    expect(
+      screen.getByText("readonly@db.internal.acme.io:5432/analytics"),
+    ).toBeTruthy();
+    expect(screen.getByText("New data source")).toBeTruthy();
+    expect(vi.mocked(fetchWorkspaceDataSources)).toHaveBeenCalledWith("acme");
+  });
+
+  it("says so when there are none", async () => {
+    renderAs(OWNER.user.id);
+    expect(await screen.findByText("No data sources.")).toBeTruthy();
+  });
+
+  it("shows the outcome of Test connection on the row", async () => {
+    vi.mocked(testDataSourceConnection).mockResolvedValue({
+      success: false,
+      error: "timeout",
+    });
+    renderAs(OWNER.user.id, [], [REPLICA]);
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByLabelText("Actions for Production replica"),
+    );
+    await user.click(await screen.findByText("Test connection"));
+
+    expect(await screen.findByLabelText("Couldn't connect")).toBeTruthy();
+    expect(vi.mocked(testDataSourceConnection)).toHaveBeenCalledWith("ds-1");
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      "Couldn't connect: timeout",
+    );
+  });
+
+  it("deletes from the row menu and refetches", async () => {
+    vi.mocked(deleteDataSource).mockResolvedValue(undefined);
+    renderAs(OWNER.user.id, [], [REPLICA]);
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByLabelText("Actions for Production replica"),
+    );
+    await user.click(await screen.findByText("Delete"));
+
+    await waitFor(() =>
+      expect(vi.mocked(deleteDataSource)).toHaveBeenCalledWith("ds-1"),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(fetchWorkspaceDataSources)).toHaveBeenCalledTimes(2),
+    );
   });
 });

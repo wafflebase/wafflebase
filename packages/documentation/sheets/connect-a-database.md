@@ -61,11 +61,11 @@ A formula in another tab can't read a data source tab. A reference such as `=Sal
 
 ## Edit or delete a connection
 
-1. In the workspace sidebar, click **Data sources**.
-2. Find the connection and open its row menu (**⋯**).
+1. In the workspace sidebar, click **Settings**, then scroll to **Data sources**.
+2. Find the connection and open its menu (**⋯**).
 3. Select **Test connection**, **Edit**, or **Delete**.
 
-In **Edit data source**, leave **Password** blank to keep the current one, then click **Save changes**. To add a connection from this page, click **New data source**.
+In **Edit data source**, leave **Password** blank to keep the current one, then click **Save changes**. To add a connection from settings, click **New data source**.
 
 ::: warning
 **Delete** removes the connection right away, with no confirmation, for everyone in the workspace.

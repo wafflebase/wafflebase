@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconChartBar,
-  IconDatabase,
   IconFolder,
   IconLayoutGrid,
   IconMessages,
@@ -27,7 +26,7 @@ export interface NavItems {
  *
  * `workspaceSlug` is undefined until the current workspace resolves (an editor
  * learns it from the document it just fetched). That fallback keeps the
- * workspace-less `/documents` · `/datasources` · `/settings` routes, and omits
+ * workspace-less `/documents` · `/settings` routes, and omits
  * Chat, Templates and Analytics because they exist only under
  * `/w/:workspaceId`.
  */
@@ -46,7 +45,6 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
       return {
         main: [
           { title: "Documents", url: "/documents", icon: IconFolder },
-          { title: "Data sources", url: "/datasources", icon: IconDatabase },
           { title: "Settings", url: "/settings", icon: IconSettings },
         ],
         secondary: [],
@@ -59,11 +57,6 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
         { title: "Documents", url: root, icon: IconFolder },
         { title: "Chat", url: `${root}/chat`, icon: IconMessages },
         { title: "Templates", url: `${root}/templates`, icon: IconLayoutGrid },
-        {
-          title: "Data sources",
-          url: `${root}/datasources`,
-          icon: IconDatabase,
-        },
         ...(analyticsEnabled
           ? [
               {

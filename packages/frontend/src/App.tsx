@@ -1,4 +1,10 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Navigate,
+  Routes,
+  Route,
+  useParams,
+} from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -32,7 +38,6 @@ const Documents = lazyWithRetry(() => import("@/app/documents/page"));
 const DocumentDetail = lazyWithRetry(
   () => import("@/app/documents/document-detail"),
 );
-const DataSourcesPage = lazyWithRetry(() => import("@/app/datasources/page"));
 const SharedDocument = lazyWithRetry(
   () => import("@/app/shared/shared-document"),
 );
@@ -98,12 +103,18 @@ const WorkspaceTrash = lazyWithRetry(
   () => import("@/app/documents/trash-page"),
 );
 const WorkspaceChat = lazyWithRetry(() => import("@/app/chat/chat-page"));
-const WorkspaceDataSources = lazyWithRetry(
-  () => import("@/app/workspaces/workspace-datasources"),
-);
 const InviteAccept = lazyWithRetry(
   () => import("@/app/workspaces/invite-accept"),
 );
+
+/**
+ * Data sources moved into workspace settings; keep old links and bookmarks
+ * landing on the section instead of a blank route.
+ */
+function WorkspaceDataSourcesRedirect() {
+  const { workspaceId } = useParams<{ workspaceId: string }>();
+  return <Navigate to={`/w/${workspaceId}/settings#datasources`} replace />;
+}
 
 function App() {
   const [queryClient] = useState(
@@ -162,7 +173,7 @@ function App() {
                       />
                       <Route
                         path="/w/:workspaceId/datasources"
-                        element={<WorkspaceDataSources />}
+                        element={<WorkspaceDataSourcesRedirect />}
                       />
                       <Route
                         path="/w/:workspaceId/trash"
@@ -177,7 +188,8 @@ function App() {
                         element={<WorkspaceSettings />}
                       />
                       <Route path="/documents" element={<Documents />} />
-                      <Route path="/datasources" element={<DataSourcesPage />} />
+                      {/* Workspace-less: "/" resolves the user's workspace. */}
+                      <Route path="/datasources" element={<Navigate to="/" replace />} />
                       {/* The reviewer allowlist lives in the backend, so this
                           route is behind PrivateRoute and nothing more: a
                           non-reviewer who reaches it gets a 403 from the queue

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Key, Plus, Trash2 } from "lucide-react";
@@ -45,6 +45,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { LoadErrorState } from "@/components/load-error-state";
+import {
+  DATASOURCES_SECTION_ID,
+  WorkspaceDataSourcesSection,
+} from "./workspace-datasources-section";
 
 /**
  * Renders the workspace settings page with name editing, members, and invites.
@@ -52,6 +56,7 @@ import { LoadErrorState } from "@/components/load-error-state";
 export default function WorkspaceSettings() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
+  const { hash } = useLocation();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -82,6 +87,14 @@ export default function WorkspaceSettings() {
       setSlug(workspace.slug);
     }
   }, [workspace]);
+
+  // `/w/:id/datasources` redirects to `#datasources`. The browser's own
+  // anchor jump fires before the page has data, so scroll once it renders.
+  const loaded = !!workspace;
+  useEffect(() => {
+    if (!loaded || hash !== `#${DATASOURCES_SECTION_ID}`) return;
+    document.getElementById(DATASOURCES_SECTION_ID)?.scrollIntoView();
+  }, [loaded, hash]);
 
   const { data: me } = useQuery({
     queryKey: ["me"],
@@ -521,6 +534,9 @@ export default function WorkspaceSettings() {
           <p className="text-sm text-muted-foreground">No API keys.</p>
         )}
       </section>
+
+      <Separator />
+      <WorkspaceDataSourcesSection workspaceId={workspaceId!} />
 
       {/* Delete workspace */}
       {isOwner && <Separator />}

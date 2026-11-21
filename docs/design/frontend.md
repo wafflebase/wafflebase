@@ -57,8 +57,10 @@ flowchart TD
   children in `YorkieProvider`. Redirects to `/login` on failure.
 - Documents are organized into workspaces (`/w/:workspaceId`) and arbitrary-depth
   folders; there are also top-level `/shared/:token`, `/invite/:token`,
-  `/datasources`, workspace analytics/settings/datasources, and `/harness/*`
-  routes.
+  workspace analytics/settings, and `/harness/*` routes. Data sources are
+  managed in a workspace-settings section; `/w/:workspaceId/datasources`
+  redirects to `/w/:workspaceId/settings#datasources` and the workspace-less
+  `/datasources` to `/`.
 - Route components are code-split, so the login, list, settings, and
   document-detail pages are separate chunks. They are loaded through
   `lazyWithRetry`, not bare `React.lazy` — see below.

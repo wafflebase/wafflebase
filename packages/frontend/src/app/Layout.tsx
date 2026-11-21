@@ -12,14 +12,12 @@ import { UploadPanel } from "@/app/documents/upload-panel";
 const ROUTE_TITLES: Array<{ path: string; title: string }> = [
   { path: "/w/:workspaceId/chat", title: "Chat" },
   { path: "/w/:workspaceId/chat/:channelId", title: "Chat" },
-  { path: "/w/:workspaceId/datasources", title: "Data sources" },
   { path: "/w/:workspaceId/analytics", title: "Analytics" },
   { path: "/w/:workspaceId/analytics/:id", title: "Document analytics" },
   { path: "/w/:workspaceId/templates", title: "Templates" },
   { path: "/w/:workspaceId/settings", title: "Settings" },
   { path: "/w/:workspaceId/trash", title: "Trash" },
   { path: "/w/:workspaceId", title: "Documents" },
-  { path: "/datasources", title: "Data sources" },
   { path: "/settings", title: "Settings" },
   { path: "/documents", title: "Documents" },
   { path: "/", title: "Documents" },
@@ -85,7 +83,7 @@ export default function Layout() {
       </SidebarInset>
       {/* The upload queue is an app-scoped module singleton, so its panel
           belongs to the shell, not to any one page. Rendered here it survives
-          navigation between Documents / Data Sources / Analytics / Settings,
+          navigation between Documents / Chat / Analytics / Settings,
           so a background import (a Miro board can run for a minute) stays
           visible while the user works elsewhere — the whole point of moving
           that work off the modal.
