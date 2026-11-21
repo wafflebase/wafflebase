@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { User, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { createDefaultChannel } from 'src/chat/default-channel';
 import { PrismaService } from 'src/database/prisma.service';
 
 /**
@@ -64,7 +65,9 @@ function isSlugConflict(error: unknown): boolean {
   if (code !== 'P2002') return false;
   const target = meta?.target;
   const fields = Array.isArray(target) ? target : [target];
-  return fields.some((field) => typeof field === 'string' && field.includes('slug'));
+  return fields.some(
+    (field) => typeof field === 'string' && field.includes('slug'),
+  );
 }
 
 @Injectable()
@@ -177,7 +180,10 @@ export class UserService {
           const newUser = await tx.user.create({
             // Every caller has verified the address (see `findOrCreateUser`),
             // so the row starts out in the mergeable population.
-            data: { ...data, emailVerifiedAt: data.emailVerifiedAt ?? new Date() },
+            data: {
+              ...data,
+              emailVerifiedAt: data.emailVerifiedAt ?? new Date(),
+            },
           });
           const slug = await freeSlug(tx, base, attempt);
           const workspace = await tx.workspace.create({
@@ -190,6 +196,7 @@ export class UserService {
               role: 'owner',
             },
           });
+          await createDefaultChannel(tx, workspace.id, newUser.id);
           return newUser;
         });
       } catch (error) {

@@ -7,6 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
+import {
+  createDefaultChannel,
+  joinDefaultChannel,
+} from '../chat/default-channel';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 
@@ -21,13 +25,16 @@ export class WorkspaceService {
 
   async create(userId: number, data: { name: string }) {
     const slug = await this.generateUniqueSlug(data.name);
-    const workspace = await this.prisma.workspace.create({
-      data: { name: data.name, slug },
+    return this.prisma.$transaction(async (tx) => {
+      const workspace = await tx.workspace.create({
+        data: { name: data.name, slug },
+      });
+      await tx.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId, role: 'owner' },
+      });
+      await createDefaultChannel(tx, workspace.id, userId);
+      return workspace;
     });
-    await this.prisma.workspaceMember.create({
-      data: { workspaceId: workspace.id, userId, role: 'owner' },
-    });
-    return workspace;
   }
 
   async findAllByUser(userId: number) {
@@ -240,13 +247,19 @@ export class WorkspaceService {
     if (existing) {
       return { workspaceId: invite.workspaceId };
     }
+    // Joining the workspace joins its default channel in the same
+    // transaction, so nobody is a member without being in #general.
+    let defaultChannelId: string | null;
     try {
-      await this.prisma.workspaceMember.create({
-        data: {
-          workspaceId: invite.workspaceId,
-          userId,
-          role: invite.role,
-        },
+      defaultChannelId = await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: invite.workspaceId,
+            userId,
+            role: invite.role,
+          },
+        });
+        return joinDefaultChannel(tx, invite.workspaceId, userId);
       });
     } catch (err) {
       // A concurrent accept (double-click, two tabs) can create the row
@@ -259,6 +272,9 @@ export class WorkspaceService {
         return { workspaceId: invite.workspaceId };
       }
       throw err;
+    }
+    if (defaultChannelId) {
+      await this.announceChatMembership([defaultChannelId]);
     }
 
     // Only a genuinely new membership notifies — both idempotent paths above

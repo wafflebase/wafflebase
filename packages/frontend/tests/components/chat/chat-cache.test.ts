@@ -12,7 +12,7 @@ import {
   mergeMessages,
   parseStreamMessage,
   parseStreamUpdate,
-  totalUnread,
+  chatBadgeCount,
 } from "@/components/chat/chat-cache";
 
 const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
@@ -22,6 +22,7 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     name: id,
     topic: null,
     archived: false,
+    isDefault: false,
     isMember: true,
     canManage: false,
     members: [],
@@ -155,14 +156,16 @@ describe("markChannelRead", () => {
   });
 });
 
-describe("totalUnread", () => {
-  it("sums followed, live channels only", () => {
+describe("chatBadgeCount", () => {
+  it("counts what needs you: DM unread and channel mentions", () => {
     expect(
-      totalUnread([
-        channel("a", { unreadCount: 2 }),
-        channel("b", { unreadCount: 3, kind: "dm" }),
-        channel("c", { unreadCount: 5, isMember: false }),
-        channel("d", { unreadCount: 7, archived: true }),
+      chatBadgeCount([
+        // A busy channel without a mention is a dot in the list, not a count.
+        channel("a", { unreadCount: 12, mentionCount: 0 }),
+        channel("b", { unreadCount: 4, mentionCount: 2 }),
+        channel("c", { unreadCount: 3, kind: "dm" }),
+        channel("d", { unreadCount: 5, mentionCount: 5, isMember: false }),
+        channel("e", { unreadCount: 7, mentionCount: 7, archived: true }),
       ]),
     ).toBe(5);
   });

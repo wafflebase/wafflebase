@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { IconHash } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -28,6 +28,8 @@ interface NewChannelDialogProps {
   workspaceId: string;
   channels: ChannelSummary[];
   open: boolean;
+  /** The tab the dialog opens on; "Browse channels" opens on Browse. */
+  initialTab?: "create" | "browse";
   onOpenChange: (open: boolean) => void;
   onOpened: (channelId: string) => void;
 }
@@ -40,10 +42,14 @@ export function NewChannelDialog({
   workspaceId,
   channels,
   open,
+  initialTab = "create",
   onOpenChange,
   onOpened,
 }: NewChannelDialogProps) {
-  const [tab, setTab] = useState<"create" | "browse">("create");
+  const [tab, setTab] = useState<"create" | "browse">(initialTab);
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [open, initialTab]);
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);

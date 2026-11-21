@@ -66,6 +66,7 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     name: id,
     topic: null,
     archived: false,
+    isDefault: false,
     isMember: true,
     canManage: false,
     members: [],

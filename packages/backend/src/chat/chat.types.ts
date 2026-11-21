@@ -19,6 +19,11 @@ export interface ChannelSummary {
   name: string | null;
   topic: string | null;
   archived: boolean;
+  /**
+   * The workspace's default channel (#general): every member is in it, and
+   * it cannot be left or archived. It can be renamed.
+   */
+  isDefault: boolean;
   isMember: boolean;
   /**
    * Whether this user may rename, set the topic of, or archive it

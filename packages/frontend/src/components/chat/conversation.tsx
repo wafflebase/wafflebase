@@ -15,6 +15,7 @@ import { fetchMe } from "@/api/auth";
 import { userFacingError } from "@/api/http-error";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
+import { useChatConnection } from "./chat-connection";
 import { Composer } from "./composer";
 import { groupMessages, type MessageGroup } from "./group-messages";
 import { MessageGroupView } from "./message-item";
@@ -253,6 +254,7 @@ export function Conversation({
         )}
       </div>
       <div className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <ConnectionNotice />
         {readOnlyPreview ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
@@ -295,4 +297,34 @@ function startsNewDay(groups: MessageGroup[], i: number): boolean {
   if (i === 0) return true;
   const prev = new Date(groups[i - 1].first.createdAt).toDateString();
   return prev !== new Date(groups[i].first.createdAt).toDateString();
+}
+
+/**
+ * Says so when messages are not arriving live. Sending still works over
+ * plain HTTP either way, so this informs rather than blocks.
+ */
+function ConnectionNotice() {
+  const connection = useChatConnection();
+  if (connection !== "reconnecting" && connection !== "stopped") return null;
+  return (
+    <p
+      role="status"
+      className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"
+    >
+      {connection === "reconnecting" ? (
+        "Reconnecting… New messages will appear once the connection is back."
+      ) : (
+        <>
+          Live updates stopped. New messages won't appear until you reload.
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            Reload
+          </button>
+        </>
+      )}
+    </p>
+  );
 }

@@ -55,6 +55,7 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     name: id,
     topic: null,
     archived: false,
+    isDefault: false,
     isMember: true,
     canManage: false,
     members: [],
@@ -170,6 +171,32 @@ describe("ChatPage last channel", () => {
     await waitFor(() => expect(location.current).toBe("/w/team/chat/c2"));
   });
 
+  it("does not return to a channel the caller has left", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("general", { isDefault: true }),
+      // Left: a public channel stays in the list after you leave it.
+      channel("c2", { isMember: false }),
+    ]);
+    window.localStorage.setItem("wafflebase:chat-last:w1", "c2");
+    const location = renderAt("/w/team/chat");
+
+    await waitFor(() =>
+      expect(location.current).toBe("/w/team/chat/general"),
+    );
+  });
+
+  it("opens the default channel when there is no last channel", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c2"),
+      channel("general", { isDefault: true }),
+    ]);
+    const location = renderAt("/w/team/chat");
+
+    await waitFor(() =>
+      expect(location.current).toBe("/w/team/chat/general"),
+    );
+  });
+
   it("stays on the list on a phone", async () => {
     mobile.value = true;
     window.localStorage.setItem("wafflebase:chat-last:w1", "c2");
@@ -211,6 +238,32 @@ describe("ChatPage channel actions", () => {
     expect(menu).not.toHaveTextContent("Rename");
     expect(menu).not.toHaveTextContent("topic");
     expect(menu).not.toHaveTextContent("Archive");
+  });
+
+  it("offers only rename and topic on the default channel", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { canManage: true, isDefault: true }),
+    ]);
+    renderAt("/w/team/chat/c1");
+
+    const menu = await openMenu();
+    expect(menu).toHaveTextContent("Rename channel…");
+    expect(menu).toHaveTextContent("Edit topic…");
+    expect(menu).not.toHaveTextContent("Add people");
+    expect(menu).not.toHaveTextContent("Archive");
+    expect(menu).not.toHaveTextContent("Leave");
+  });
+
+  it("offers no menu on the default channel to somebody who may not manage it", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { canManage: false, isDefault: true }),
+    ]);
+    renderAt("/w/team/chat/c1");
+
+    await screen.findByTestId("conversation");
+    expect(
+      screen.queryByRole("button", { name: "Channel actions" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers unarchiving, not posting-time actions, on an archived channel", async () => {

@@ -10,6 +10,7 @@ import { ChatBus } from 'src/chat/chat-bus';
 import { ChatChannelService } from 'src/chat/chat-channel.service';
 import { ChatMessageService } from 'src/chat/chat-message.service';
 import { PrismaService } from 'src/database/prisma.service';
+import { WorkspaceService } from 'src/workspace/workspace.service';
 import { YorkieAdminService } from 'src/yorkie/yorkie-admin.service';
 import { YorkieService } from 'src/yorkie/yorkie.service';
 import {
@@ -44,6 +45,7 @@ describeDb('Chat integration', () => {
   let channels: ChatChannelService;
   let messages: ChatMessageService;
   let bus: ChatBus;
+  let workspaces: WorkspaceService;
   let createUser: ReturnType<typeof createUserFactory>;
 
   function authCookie(user: TestUser) {
@@ -101,6 +103,7 @@ describeDb('Chat integration', () => {
     channels = moduleRef.get(ChatChannelService);
     messages = moduleRef.get(ChatMessageService);
     bus = moduleRef.get(ChatBus);
+    workspaces = moduleRef.get(WorkspaceService);
     createUser = createUserFactory(prisma, 'chat');
     await prisma.$connect();
   });
@@ -1407,6 +1410,130 @@ describeDb('Chat integration', () => {
         body: `hi ${mention(members[0])}`,
       });
       expect(posted.seq).toBe(1);
+    });
+  });
+
+  describe('default channel', () => {
+    /** A workspace made the way the app makes one, with #general. */
+    async function realWorkspace() {
+      const owner = await createUser();
+      const workspace = await workspaces.create(owner.id, { name: 'team' });
+      const general = await prisma.chatChannel.findUniqueOrThrow({
+        where: { defaultKey: workspace.id },
+      });
+      return { owner, workspace, general };
+    }
+
+    /** Joins `user` to `workspaceId` through an invite, as the UI does. */
+    async function acceptInvite(
+      workspaceId: string,
+      ownerId: number,
+      user: TestUser,
+    ) {
+      const invite = await workspaces.createInvite(workspaceId, ownerId, {
+        role: 'member',
+      });
+      await workspaces.acceptInvite(invite.token, user.id);
+    }
+
+    it('creating a workspace creates #general with the owner in it', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      expect(general).toMatchObject({ kind: 'public', name: 'general' });
+
+      const [summary] = await channels.list(owner.id, workspace.id);
+      expect(summary).toMatchObject({
+        id: general.id,
+        isDefault: true,
+        isMember: true,
+      });
+    });
+
+    it('accepting an invite joins #general at the tail', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      await messages.post(owner.id, general.id, { body: 'before you came' });
+      const joiner = await createUser();
+
+      const listener = new Client({
+        connectionString: process.env.DATABASE_URL,
+      });
+      await listener.connect();
+      const notified: string[] = [];
+      listener.on('notification', (n) => {
+        if (n.channel === 'chat' && n.payload) notified.push(n.payload);
+      });
+      await listener.query('LISTEN chat');
+      try {
+        await acceptInvite(workspace.id, owner.id, joiner);
+
+        const [summary] = await channels.list(joiner.id, workspace.id);
+        expect(summary).toMatchObject({
+          id: general.id,
+          isMember: true,
+          unreadCount: 0,
+        });
+        // The new member's open stream must start receiving #general.
+        const deadline = Date.now() + 2_000;
+        while (notified.length < 1 && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        expect(notified.map((p) => JSON.parse(p))).toContainEqual({
+          t: 'mem',
+          c: general.id,
+        });
+      } finally {
+        await listener.end();
+      }
+    });
+
+    it('#general cannot be left or archived, but can be renamed', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      const url = `${base(workspace.id)}/channels/${general.id}`;
+
+      await as(owner).delete(`${url}/members/me`).expect(400);
+      await as(owner).patch(url).send({ archived: true }).expect(400);
+      const renamed = await as(owner)
+        .patch(url)
+        .send({ name: 'lobby' })
+        .expect(200);
+      expect(renamed.body).toMatchObject({ name: 'lobby', isDefault: true });
+    });
+
+    it('other channels are not default', async () => {
+      const { owner, workspace } = await realWorkspace();
+      const other = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      expect(other.isDefault).toBe(false);
+    });
+  });
+
+  describe('channel members', () => {
+    it('lists who is in a channel, by username', async () => {
+      const { owner, members, workspace } = await team(2);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      await channels.invite(owner.id, channel.id, [members[0].id]);
+
+      const res = await as(members[1])
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(200);
+      expect(res.body.map((u: { id: number }) => u.id).sort()).toEqual(
+        [owner.id, members[0].id].sort(),
+      );
+    });
+
+    it("a private channel's members are 404 to a non-member", async () => {
+      const { owner, members, workspace } = await team(1);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await as(members[0])
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(404);
     });
   });
 });

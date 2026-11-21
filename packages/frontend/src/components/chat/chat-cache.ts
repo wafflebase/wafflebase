@@ -20,6 +20,7 @@ export const chatKeys = {
   /** Prefix of every thread's cache. */
   allThreads: ["chat", "thread"] as const,
   thread: (rootId: string) => ["chat", "thread", rootId] as const,
+  members: (channelId: string) => ["chat", "members", channelId] as const,
 };
 
 export interface ChatEventState {
@@ -179,13 +180,25 @@ export function parseStreamMessage(raw: string): StreamMessageEvent | null {
 }
 
 /**
- * The sidebar's Chat badge: unread across the channels the caller follows.
- * Public channels they have not joined and archived ones do not count — they
- * are not in the channel list either.
+ * The sidebar's Chat badge: what needs you — unread in a DM, mentions in a
+ * channel. The same rule the channel list draws a count by, so the number
+ * over Chat is the sum of the numbers in the list; a channel that is merely
+ * busy shows a dot there and adds nothing here. Public channels the caller
+ * has not joined and archived ones do not count.
  */
-export function totalUnread(channels: ChannelSummary[]): number {
+export function chatBadgeCount(channels: ChannelSummary[]): number {
   return channels.reduce(
-    (sum, c) => (c.isMember && !c.archived ? sum + c.unreadCount : sum),
+    (sum, c) => (c.isMember && !c.archived ? sum + channelCount(c) : sum),
     0,
   );
+}
+
+/**
+ * The number a channel row shows. A mention always counts; in a DM every
+ * message is addressed to you, so all of its unread does; anything else is
+ * a dot, not a number.
+ */
+export function channelCount(channel: ChannelSummary): number {
+  if (channel.mentionCount > 0) return channel.mentionCount;
+  return channel.kind === "dm" ? channel.unreadCount : 0;
 }

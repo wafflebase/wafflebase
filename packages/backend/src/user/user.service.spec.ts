@@ -12,6 +12,7 @@ function makePrisma() {
   let users: Array<Record<string, unknown>> = [];
   let workspaces: Array<Record<string, unknown>> = [];
   let members: Array<Record<string, unknown>> = [];
+  let channels: Array<Record<string, unknown>> = [];
   let nextUserId = 1;
   let nextWorkspaceId = 1;
 
@@ -69,11 +70,18 @@ function makePrisma() {
         return Promise.resolve(data);
       },
     },
+    chatChannel: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        channels.push(data);
+        return Promise.resolve(data);
+      },
+    },
     $transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       const snapshot = {
         users: [...users],
         workspaces: [...workspaces],
         members: [...members],
+        channels: [...channels],
       };
       try {
         return await cb(client);
@@ -81,6 +89,7 @@ function makePrisma() {
         users = snapshot.users;
         workspaces = snapshot.workspaces;
         members = snapshot.members;
+        channels = snapshot.channels;
         throw error;
       }
     },
@@ -92,6 +101,7 @@ function makePrisma() {
       users: () => users,
       workspaces: () => workspaces,
       members: () => members,
+      channels: () => channels,
     },
   };
 }
@@ -116,6 +126,12 @@ describe('UserService.findOrCreateUser', () => {
     expect(user!.email).toBe('a@x.com');
     expect(state.workspaces()[0].slug).toBe('ada-lovelace-s-workspace');
     expect(state.members()).toHaveLength(1);
+    expect(state.channels()).toEqual([
+      expect.objectContaining({
+        name: 'general',
+        defaultKey: state.workspaces()[0].id,
+      }),
+    ]);
     // Created from an address the strategy verified, so it is already in the
     // population a cross-provider sign-in may merge into.
     expect(user!.emailVerifiedAt).toBeInstanceOf(Date);

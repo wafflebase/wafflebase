@@ -14,7 +14,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
-import { useInviteToChannel, useOpenDm } from "@/components/chat/use-chat";
+import {
+  useChannelMembers,
+  useInviteToChannel,
+  useOpenDm,
+} from "@/components/chat/use-chat";
 import { MemberPicker } from "./member-picker";
 
 /** Others a DM may include; with the caller that is the server's 8. */
@@ -77,6 +81,7 @@ export function NewDmDialog({
           selected={selected}
           onChange={setSelected}
           max={MAX_DM_OTHERS}
+          inviteHref={`/w/${workspaceId}/settings`}
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)}>
@@ -116,6 +121,13 @@ export function AddPeopleDialog({
   );
   const [selected, setSelected] = useState<string[]>([]);
   const invite = useInviteToChannel(workspaceId);
+  // Those already here stay listed but unpickable ("Already here").
+  const { data: channelMembers } = useChannelMembers(
+    workspaceId,
+    channelId,
+    open,
+  );
+  const inChannel = (channelMembers ?? []).map((m) => String(m.id));
 
   const close = (next: boolean) => {
     if (!next) setSelected([]);
@@ -158,6 +170,8 @@ export function AddPeopleDialog({
           members={members}
           selected={selected}
           onChange={setSelected}
+          excluded={inChannel}
+          inviteHref={`/w/${workspaceId}/settings`}
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)}>
