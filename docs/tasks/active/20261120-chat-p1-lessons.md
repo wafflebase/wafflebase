@@ -97,6 +97,34 @@ which is timer-batched. Two of the first chat-page tests passed against the
 mutation they existed to catch; settle on a real timer, and mutation-check
 every negative test before trusting it.
 
+### Panel round 3 (`/self-review`, six lenses)
+
+Panel round 3 (security/docs weighting): rebuttal on private-name 409 upheld
+(security passed); blocked on 4 (removeMember orphan, thread reply marking
+read, missing manage UI, untested reconnect) — all fixed after the round;
+loop bound reached, no round 4. (1) `removeMember` deleted a last private
+member's row around the `leave` guard — the removal now deletes any private
+channel it empties, in the same transaction (unit + e2e: the name is free
+again, a DM and a still-populated private channel survive); (2) a
+thread-only reply moved the author's `lastReadSeq` to the channel tail —
+only top-level and `alsoInChannel` posts advance it now, a thread-only one
+joins with `DO NOTHING` (e2e both ways); (3) with no rename/topic/archive UI
+the `leave` 409's "archive instead" was a dead end — summaries carry
+`canManage` (DM → false, now in `chat-access` too), the actions menu offers
+rename, topic, archive (confirmed in its dialog) and unarchive, and an
+archived channel shows a read-only banner; (4) `ChatBus` reconnection was
+untested — `chat-bus.spec` drives `error`/`end` → backoff → second connect
+→ second `resets$`, plus a failed connect that also emits `error`
+scheduling one reconnect (mutation-checked: removing both guards fails it;
+a duplicate `error` on a connected client cannot, since `drop()` strips its
+listeners first).
+
+Lesson: a guard on one path (`leave`) is a claim about the state, not the
+path — every other writer of the same rows has to keep it too.
+`UserService.deleteUser`'s `ChatChannelMember` cascade has the same shape;
+it has no caller today, so it is recorded here rather than fixed. When adding a refusal, grep for every other
+statement that deletes the rows it protects.
+
 ### CodeRabbit round (PR #1186, 12 inline findings)
 
 | Comment | Finding | Verdict | Outcome |

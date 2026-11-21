@@ -18,7 +18,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCreateChannel, useJoinChannel } from "@/components/chat/use-chat";
-import { normalizeChannelName, validChannelName } from "./channel-name";
+import {
+  channelNameHint,
+  normalizeChannelName,
+  validChannelName,
+} from "./channel-name";
 
 interface NewChannelDialogProps {
   workspaceId: string;
@@ -47,7 +51,8 @@ export function NewChannelDialog({
   const join = useJoinChannel(workspaceId);
 
   const normalized = normalizeChannelName(name);
-  const invalid = name.trim() !== "" && !validChannelName(normalized);
+  const hint = channelNameHint(name, "created");
+  const invalid = hint.invalid;
   const browsable = channels
     .filter((c) => c.kind === "public" && !c.isMember && !c.archived)
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
@@ -122,11 +127,7 @@ export function NewChannelDialog({
                       : "text-xs text-muted-foreground"
                   }
                 >
-                  {invalid
-                    ? "Use letters, numbers, - and _, starting with a letter or number."
-                    : normalized && normalized !== name
-                      ? `Will be created as #${normalized}`
-                      : "Lower-case, no spaces. Spaces become dashes."}
+                  {hint.text}
                 </p>
               </div>
               <div className="flex flex-col gap-2">

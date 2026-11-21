@@ -283,7 +283,10 @@ model ChatDocumentRef {
   channel row, locked), so ordering is total per channel and survives clock
   skew between replicas.
 - Removing a workspace member (`WorkspaceService.removeMember`) deletes their
-  `ChatChannelMember` rows; their messages stay, attributed to them.
+  `ChatChannelMember` rows; their messages stay, attributed to them. A
+  private channel the removal leaves with no members is deleted in the same
+  transaction (see *Authorization*); a DM keeps its other participant and a
+  public channel stays open to the workspace, so neither is touched.
 
 ### Authorization
 
@@ -297,7 +300,17 @@ the way `/api/v1` checks it (`WorkspaceScopeGuard`). On top of that:
   public → its creator or a workspace owner; private → any of its members.
   Nobody outside a private channel can see it, so a creator-or-owner rule
   would strand a last member who is neither: refused leaving, refused
-  archiving, and unreachable by anyone who could help.
+  archiving, and unreachable by anyone who could help. A DM has no name,
+  topic or archive, so nobody manages one. Each channel summary carries the
+  caller's `canManage`, computed by the same `chat-access` function `PATCH`
+  enforces, so the page offers exactly the controls the server accepts.
+- **A private channel is never left empty.** Leaving refuses its last member
+  (`409`, archive instead), and a workspace removal that would empty one
+  deletes it, messages included, in the removal's transaction. With no member
+  left nobody can read, rejoin, archive or delete it, and its name would stay
+  reserved forever; the messages are unreadable by anyone, so deleting them
+  loses nothing a person could reach. Archiving instead would keep the dead
+  name reserved.
 - **Channel names are unique across the workspace, private ones included**
   (`@@unique([workspaceId, name])`), as in Slack. Creating or renaming onto a
   name a private channel holds is a `409` with the generic "That channel name
@@ -530,7 +543,10 @@ say:
   `GREATEST(current, LEAST(seq, channel.lastSeq))` — never backwards, and never
   past the last allocated `seq`, so a client cannot pre-read messages that do
   not exist yet. Joining or being invited starts the read position at the
-  channel tail rather than 0, so old history is not unread.
+  channel tail rather than 0, so old history is not unread. Posting a
+  top-level message, or a reply also sent to the channel, reads up to it; a
+  thread-only reply leaves an existing read position alone, since replying
+  in a thread is not reading the channel.
 - **DM membership is fixed.** A DM cannot be joined, left, renamed or
   archived. Leaving is `DELETE …/members/me` (only the caller), not the
   `…/members/:uid` removal the table above sketches; removing others is not
@@ -583,7 +599,11 @@ say:
 - **The last member of a private channel cannot leave it** (`409`): an empty
   private channel is unreadable to everyone, so archiving is the way out —
   and since every private-channel member may archive, that way is always
-  open to them.
+  open to them. The channel actions menu offers *Rename channel…*, *Edit
+  topic…* and *Archive channel…* (confirmed inside its dialog) when
+  `canManage`, and *Unarchive channel* on an archived one; an archived
+  channel shows a read-only banner above its history. A workspace removal
+  that empties a private channel deletes it (see *Authorization*).
 - **One stream per session.** `ChatStreamHost` is rendered by
   `PrivateRoute`, not by `AppSidebar`, which has a mount per shell — so
   moving between the list layout and an editor neither reopens the stream nor

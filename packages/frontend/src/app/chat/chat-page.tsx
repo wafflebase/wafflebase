@@ -7,10 +7,14 @@ import {
 } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
+  IconArchive,
+  IconArchiveOff,
   IconChevronLeft,
   IconDots,
   IconHash,
   IconLock,
+  IconPencil,
+  IconTextCaption,
   IconUserPlus,
   IconLogout,
   IconX,
@@ -26,14 +30,23 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Conversation } from "@/components/chat/conversation";
 import { ThreadView } from "@/components/chat/thread-view";
-import { useChannels, useLeaveChannel } from "@/components/chat/use-chat";
+import {
+  useChannels,
+  useLeaveChannel,
+  useUpdateChannel,
+} from "@/components/chat/use-chat";
 import { MOBILE_BREAKPOINT, useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { ChannelList } from "./channel-list";
+import {
+  ChannelSettingsDialog,
+  type ChannelSettingsMode,
+} from "./channel-settings-dialog";
 import { chatLayout } from "./chat-layout";
 import { channelLabel } from "./group-channels";
 import { NewChannelDialog } from "./new-channel-dialog";
@@ -95,6 +108,9 @@ export default function ChatPage() {
   const [newChannelOpen, setNewChannelOpen] = useState(false);
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+  const [settingsMode, setSettingsMode] = useState<ChannelSettingsMode | null>(
+    null,
+  );
 
   // Remember the open channel, and on desktop return to it when the page is
   // opened bare — a phone opens on the list, which is its top level.
@@ -152,6 +168,17 @@ export default function ChatPage() {
       onError: (err) =>
         toast.error(userFacingError(err, "Couldn't leave the channel.")),
     });
+
+  const update = useUpdateChannel(workspaceId ?? "");
+  const unarchive = (c: ChannelSummary) =>
+    update.mutate(
+      { channelId: c.id, archived: false },
+      {
+        onSuccess: () => toast.success(`Unarchived #${c.name}`),
+        onError: (err) =>
+          toast.error(userFacingError(err, "Couldn't unarchive the channel.")),
+      },
+    );
 
   const { show } = chatLayout({ isMobile, channelId, threadId });
   const unknownChannel =
@@ -249,7 +276,9 @@ export default function ChatPage() {
                     Archived
                   </span>
                 )}
-                {channel && channel.kind !== "dm" && channel.isMember && (
+                {channel &&
+                  channel.kind !== "dm" &&
+                  (channel.isMember || channel.canManage) && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -262,16 +291,56 @@ export default function ChatPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {!channel.archived && (
+                      {channel.canManage && !channel.archived && (
+                        <>
+                          <DropdownMenuItem
+                            onSelect={() => setSettingsMode("rename")}
+                          >
+                            <IconPencil />
+                            Rename channel…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => setSettingsMode("topic")}
+                          >
+                            <IconTextCaption />
+                            Edit topic…
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {channel.isMember && !channel.archived && (
                         <DropdownMenuItem onSelect={() => setAddPeopleOpen(true)}>
                           <IconUserPlus />
                           Add people
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem onSelect={() => leaveChannel(channel)}>
-                        <IconLogout />
-                        Leave channel
-                      </DropdownMenuItem>
+                      {channel.canManage &&
+                        (channel.archived ? (
+                          <DropdownMenuItem
+                            onSelect={() => unarchive(channel)}
+                            disabled={update.isPending}
+                          >
+                            <IconArchiveOff />
+                            Unarchive channel
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            onSelect={() => setSettingsMode("archive")}
+                          >
+                            <IconArchive />
+                            Archive channel…
+                          </DropdownMenuItem>
+                        ))}
+                      {channel.isMember && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => leaveChannel(channel)}
+                          >
+                            <IconLogout />
+                            Leave channel
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
@@ -353,6 +422,14 @@ export default function ChatPage() {
         onOpenChange={setNewDmOpen}
         onOpened={(id) => navigate(hrefFor(id))}
       />
+      {channel && channel.canManage && (
+        <ChannelSettingsDialog
+          workspaceId={workspaceId}
+          channel={channel}
+          mode={settingsMode}
+          onClose={() => setSettingsMode(null)}
+        />
+      )}
       {channel && channel.kind !== "dm" && (
         <AddPeopleDialog
           workspaceId={workspaceId}

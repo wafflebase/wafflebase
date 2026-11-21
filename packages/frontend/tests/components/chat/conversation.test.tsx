@@ -35,6 +35,7 @@ const channel = (over: Partial<ChannelSummary> = {}): ChannelSummary => ({
   topic: null,
   archived: false,
   isMember: true,
+  canManage: false,
   members: [],
   unreadCount: 0,
   mentionCount: 0,
@@ -258,6 +259,20 @@ describe("Conversation", () => {
     expect(joinMutate).toHaveBeenCalledWith("c1", expect.anything());
     // Previewing is reading, not joining: no read position to move.
     expect(markRead).not.toHaveBeenCalled();
+  });
+
+  it("says an archived channel is read-only", () => {
+    channels = [channel({ archived: true })];
+    renderConversation();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This channel is archived",
+    );
+    expect(screen.getByRole("textbox")).toBeDisabled();
+  });
+
+  it("shows no archive banner on a live channel", () => {
+    renderConversation();
+    expect(screen.queryByText(/This channel is archived\. Its history/)).toBeNull();
   });
 
   it("shows the composer to a member", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  channelNameHint,
   normalizeChannelName,
   validChannelName,
 } from "@/app/chat/channel-name";
@@ -21,5 +22,19 @@ describe("channel names", () => {
     expect(validChannelName("")).toBe(false);
     expect(validChannelName("a".repeat(81))).toBe(false);
     expect(validChannelName("a".repeat(80))).toBe(true);
+  });
+});
+
+describe("channelNameHint", () => {
+  it("states the rule, the normalized result, or the error", () => {
+    expect(channelNameHint("", "created")).toEqual({
+      text: "Lower-case, no spaces. Spaces become dashes.",
+      invalid: false,
+    });
+    expect(channelNameHint("Q4 Planning", "renamed")).toEqual({
+      text: "Will be renamed as #q4-planning",
+      invalid: false,
+    });
+    expect(channelNameHint("-x", "created").invalid).toBe(true);
   });
 });

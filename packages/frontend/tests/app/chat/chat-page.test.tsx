@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +56,7 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     topic: null,
     archived: false,
     isMember: true,
+    canManage: false,
     members: [],
     unreadCount: 0,
     mentionCount: 0,
@@ -176,5 +178,50 @@ describe("ChatPage last channel", () => {
     await waitFor(() => expect(fetchChannelsSpy).toHaveBeenCalled());
     await settle();
     expect(location.current).toBe("/w/team/chat");
+  });
+});
+
+describe("ChatPage channel actions", () => {
+  const openMenu = async () => {
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Channel actions" }),
+    );
+    return screen.findByRole("menu");
+  };
+
+  it("offers rename, topic and archive to somebody who may manage it", async () => {
+    fetchChannelsSpy.mockResolvedValue([channel("c1", { canManage: true })]);
+    renderAt("/w/team/chat/c1");
+
+    const menu = await openMenu();
+    expect(menu).toHaveTextContent("Rename channel…");
+    expect(menu).toHaveTextContent("Edit topic…");
+    expect(menu).toHaveTextContent("Archive channel…");
+    expect(menu).toHaveTextContent("Leave channel");
+  });
+
+  it("offers only membership actions to somebody who may not", async () => {
+    fetchChannelsSpy.mockResolvedValue([channel("c1", { canManage: false })]);
+    renderAt("/w/team/chat/c1");
+
+    const menu = await openMenu();
+    expect(menu).toHaveTextContent("Add people");
+    expect(menu).toHaveTextContent("Leave channel");
+    expect(menu).not.toHaveTextContent("Rename");
+    expect(menu).not.toHaveTextContent("topic");
+    expect(menu).not.toHaveTextContent("Archive");
+  });
+
+  it("offers unarchiving, not posting-time actions, on an archived channel", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { canManage: true, archived: true }),
+    ]);
+    renderAt("/w/team/chat/c1");
+
+    const menu = await openMenu();
+    expect(menu).toHaveTextContent("Unarchive channel");
+    expect(menu).not.toHaveTextContent("Rename");
+    expect(menu).not.toHaveTextContent("Add people");
   });
 });

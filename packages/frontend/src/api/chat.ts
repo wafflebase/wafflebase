@@ -24,6 +24,12 @@ export interface ChannelSummary {
   topic: string | null;
   archived: boolean;
   isMember: boolean;
+  /**
+   * May this user rename, set the topic of, or archive it. The server's
+   * `canManage`: a public channel's creator or a workspace owner, any member
+   * of a private channel, nobody for a DM.
+   */
+  canManage: boolean;
   /** DM only; empty for public and private channels. */
   members: ChatUserSummary[];
   unreadCount: number;

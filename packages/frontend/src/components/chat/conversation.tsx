@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { IconArchive } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import { fetchMe } from "@/api/auth";
@@ -179,6 +180,16 @@ export function Conversation({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {channel?.archived && (
+        <p
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
+        >
+          <IconArchive className="size-4 shrink-0" aria-hidden />
+          This channel is archived. Its history stays readable; nobody can
+          post in it.
+        </p>
+      )}
       <div
         ref={scrollRef}
         onScroll={onScroll}
