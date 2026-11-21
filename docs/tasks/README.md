@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| datasources in settings (2026-11-21) | [20261121-datasources-in-settings-todo.md](./active/20261121-datasources-in-settings-todo.md) | [20261121-datasources-in-settings-lessons.md](./active/20261121-datasources-in-settings-lessons.md) |
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
 | notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./active/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./active/20261121-notification-unread-paging-lessons.md) |
 | release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./active/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./active/20261121-release-v0.6.17-lessons.md) |
@@ -81,4 +82,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 646
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: font relative leading (2026-11-21)
+Latest active task: datasources in settings (2026-11-21)

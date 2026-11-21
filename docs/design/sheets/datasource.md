@@ -131,7 +131,7 @@ All endpoints require JWT authentication (`JwtAuthGuard`).
 | POST | `/workspaces/:workspaceId/datasources` | Create a datasource in a workspace |
 | GET | `/workspaces/:workspaceId/datasources` | List a workspace's datasources (passwords masked) |
 | POST | `/datasources` | Create a datasource (workspace given in the request body) |
-| GET | `/datasources` | List datasources across the user's workspaces (passwords masked) |
+| GET | `/datasources` | List datasources across the user's workspaces (passwords masked; no frontend caller since management moved into workspace settings) |
 | GET | `/datasources/:id` | Get single datasource |
 | PATCH | `/datasources/:id` | Update datasource fields |
 | DELETE | `/datasources/:id` | Delete datasource |
@@ -203,12 +203,12 @@ The `packages/backend/src/datasource/sql-validator.ts` module ensures only read 
 | `DataSourceView` | `packages/frontend/src/app/spreadsheet/datasource-view.tsx` | SQL editor textarea + Execute button + results grid. Ctrl/Cmd+Enter shortcut. Saves query to Yorkie on execution |
 | `DataSourceSelector` | `packages/frontend/src/components/datasource-selector.tsx` | Dialog to pick an existing datasource or create a new one when adding a datasource tab |
 | `DataSourceDialog` | `packages/frontend/src/components/datasource-dialog.tsx` | Form for creating a new datasource with connection test |
-| `DataSourceList` | `packages/frontend/src/app/datasources/datasource-list.tsx` | Management page with TanStack Table for all user datasources |
-| `DataSourceEditDialog` | `packages/frontend/src/app/datasources/datasource-edit-dialog.tsx` | Edit existing datasource properties |
+| `WorkspaceDataSourcesSection` | `packages/frontend/src/app/workspaces/workspace-datasources-section.tsx` | "Data sources" section of workspace settings: list, test connection, edit, delete. Datasources are configured once and picked day to day through `DataSourceSelector`, so management has no sidebar entry; `/w/:workspaceId/datasources` redirects to `/w/:workspaceId/settings#datasources` |
+| `DataSourceEditDialog` | `packages/frontend/src/components/datasource-edit-dialog.tsx` | Edit existing datasource properties |
 
 ### 5. User Workflow
 
-1. **Create datasource**: Navigate to `/datasources` → click "New DataSource" → fill connection form → optionally test → save
+1. **Create datasource**: Workspace settings → **Data sources** → click "New data source" (or "New connection" from the tab picker) → fill connection form → optionally test → save
 2. **Add datasource tab**: In a document, click "+" on the tab bar → select "DataSource" → pick from existing datasources
 3. **Run query**: Write SQL in the editor → click Execute (or Ctrl/Cmd+Enter) → results appear in the grid below
 4. **Query persistence**: The SQL query is saved to the Yorkie document, so collaborators see the same query

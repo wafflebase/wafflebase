@@ -58,7 +58,6 @@ describe("useWorkspaceNavItems", () => {
       "Documents",
       "Chat",
       "Templates",
-      "Data sources",
       "Trash",
       "Settings",
     ]);
@@ -66,7 +65,6 @@ describe("useWorkspaceNavItems", () => {
       "/w/acme",
       "/w/acme/chat",
       "/w/acme/templates",
-      "/w/acme/datasources",
       "/w/acme/trash",
       "/w/acme/settings",
     ]);
@@ -87,7 +85,6 @@ describe("useWorkspaceNavItems", () => {
       "Documents",
       "Chat",
       "Templates",
-      "Data sources",
       "Analytics",
       "Trash",
       "Settings",
@@ -98,7 +95,7 @@ describe("useWorkspaceNavItems", () => {
   });
 
   it("falls back to the workspace-less routes before a slug resolves", async () => {
-    // Enabled on purpose: the fallback must stay three entries even when the
+    // Enabled on purpose: the fallback must stay two entries even when the
     // warehouse exists, because `/templates` and `/analytics` are routed only
     // under `/w/:workspaceId`.
     vi.mocked(fetchAnalyticsEnabled).mockResolvedValue(true);
@@ -111,7 +108,6 @@ describe("useWorkspaceNavItems", () => {
 
     expect(result.current.main.map((i) => i.url)).toEqual([
       "/documents",
-      "/datasources",
       "/settings",
     ]);
   });

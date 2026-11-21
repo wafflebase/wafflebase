@@ -31,15 +31,6 @@ export async function createDataSource(payload: {
 }
 
 /**
- * Fetches data sources.
- */
-export async function fetchDataSources(): Promise<DataSource[]> {
-  const res = await fetchWithAuth(BASE);
-  await assertOk(res, "Couldn't load data sources");
-  return res.json();
-}
-
-/**
  * Fetches data source.
  */
 export async function fetchDataSource(id: string): Promise<DataSource> {

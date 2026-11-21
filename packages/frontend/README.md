@@ -147,7 +147,7 @@ src/
 | `/b/:id` | BoardDetail | Private | Board (infinite canvas) editor |
 | `/f/:id` | FileDetail | Private/shared | PDF & image viewer (static file types) |
 | `/shared/:token`, `/invite/:token` | — | Public | Share-link + workspace-invite entry |
-| `/w/:workspaceId` (+ `/analytics`, `/settings`, `/datasources`) | Workspace | Private | Workspace home + sub-pages |
+| `/w/:workspaceId` (+ `/analytics`, `/settings`) | Workspace | Private | Workspace home + sub-pages (`/datasources` redirects to `/settings#datasources`) |
 
 ## Key Features
 
