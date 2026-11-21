@@ -1,9 +1,9 @@
 import { MessageEvent } from '@nestjs/common';
 import { Subject, firstValueFrom, toArray } from 'rxjs';
 import { chatStream } from './chat-stream';
-import { ChatRoutedEvent } from './chat.types';
+import { ChatHubEvent } from './chat.types';
 
-type MsgEvent = ChatRoutedEvent;
+type MsgEvent = ChatHubEvent;
 
 /** Drive the stream with hand-fed sources and record what a client sees. */
 function harness() {
@@ -52,6 +52,17 @@ describe('chatStream', () => {
         threadRootId: 'root',
       },
     });
+  });
+
+  it('passes a hub resync on as another ready', () => {
+    const h = harness();
+
+    h.hub.next({ t: 'ready' });
+
+    expect(h.seen).toEqual([
+      { type: 'ready', data: {} },
+      { type: 'ready', data: {} },
+    ]);
   });
 
   it('heartbeats on the interval', () => {

@@ -16,6 +16,12 @@ const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 /** How long a self-sent probe may take before we suspect a pooler. */
 const PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Deadline for the listener's handshake and its `LISTEN`. `pg` waits forever
+ * on either by default, so a server that accepts TCP and then stalls would
+ * hold boot open and never reach the retry path.
+ */
+const CONNECT_TIMEOUT_MS = 10_000;
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 type UpdEvent = Extract<ChatBusEvent, { t: 'upd' }>;
@@ -80,9 +86,10 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
   private readonly resets = new Subject<void>();
   readonly events$: Observable<ChatBusEvent> = this.events.asObservable();
   /**
-   * Fires on every reconnect after the first connection. Events NOTIFYed
-   * while the listener was down are lost, `mem` included, so anything cached
-   * from them must be dropped.
+   * Fires on every successful (re)connection. Events NOTIFYed while the
+   * listener was down are lost, `mem` included, so anything cached from them
+   * must be dropped and open streams must catch up. The first connection
+   * fires too: a listener that was down at boot may already have streams.
    */
   readonly resets$: Observable<void> = this.resets.asObservable();
 
@@ -150,6 +157,9 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
     const client = new Client({
       connectionString:
         process.env.CHAT_LISTEN_DATABASE_URL || process.env.DATABASE_URL,
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      // The listener runs no query but `LISTEN`, so this bounds only that.
+      query_timeout: CONNECT_TIMEOUT_MS,
     });
     // Without a listener an `error` event would crash the process.
     client.on('error', (err) => this.drop(client, err));
@@ -174,11 +184,9 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
 
     this.client = client;
     this.backoffMs = BACKOFF_MIN_MS;
-    if (this.connectedOnce) {
-      this.logger.log('chat LISTEN reconnected');
-      this.resets.next();
-    }
+    if (this.connectedOnce) this.logger.log('chat LISTEN reconnected');
     this.connectedOnce = true;
+    this.resets.next();
     void this.probe();
   }
 

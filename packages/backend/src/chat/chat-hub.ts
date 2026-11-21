@@ -7,7 +7,16 @@ import {
 import { Observable, Subject, Subscription, concatMap } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
-import { ChatBusEvent, ChatRoutedEvent } from './chat.types';
+import { ChatBusEvent, ChatHubEvent, ChatRoutedEvent } from './chat.types';
+
+/**
+ * How long a cached member set is trusted. Eviction is `mem`-driven, and a
+ * `mem` NOTIFY is best effort (`ChatBus.send` logs and swallows a failure),
+ * so a lost one must not keep routing a removed member's channel events to
+ * them indefinitely. The age bounds that; the events are ids only, and every
+ * fetch they prompt re-checks access.
+ */
+export const MEMBER_CACHE_TTL_MS = 60_000;
 
 /**
  * Per-replica routing from the chat bus to the SSE handlers connected here.
@@ -16,8 +25,11 @@ import { ChatBusEvent, ChatRoutedEvent } from './chat.types';
  * Member sets are cached per channel, loaded lazily on the first event a
  * channel sends while somebody is connected, and evicted by that channel's
  * `mem` event — so a member removed while their stream is open stops
- * receiving it from the next event on. A bus reconnect evicts everything,
- * since a `mem` sent during the outage never arrived.
+ * receiving it from the next event on. An entry also expires after
+ * `MEMBER_CACHE_TTL_MS`, in case its `mem` was never sent. A bus reconnect
+ * evicts everything, since a `mem` sent during the outage never arrived, and
+ * tells every open stream `ready` so its client catches up on what the
+ * outage swallowed.
  *
  * Events are routed one at a time, in arrival order: a `mem` must take
  * effect before the `msg` behind it, and a channel's messages must not
@@ -26,11 +38,13 @@ import { ChatBusEvent, ChatRoutedEvent } from './chat.types';
 @Injectable()
 export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatHub.name);
-  private readonly subscribers = new Map<
-    number,
-    Set<Subject<ChatRoutedEvent>>
+  private readonly subscribers = new Map<number, Set<Subject<ChatHubEvent>>>();
+  private readonly members = new Map<
+    string,
+    { set: Set<number>; loadedAt: number }
   >();
-  private readonly members = new Map<string, Set<number>>();
+  /** Bumped by every reset, so a load that straddles one is not trusted. */
+  private generation = 0;
   private subscription: Subscription | null = null;
 
   constructor(
@@ -42,9 +56,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
     this.subscription = this.bus.events$
       .pipe(concatMap((event) => this.route(event)))
       .subscribe();
-    this.subscription.add(
-      this.bus.resets$.subscribe(() => this.members.clear()),
-    );
+    this.subscription.add(this.bus.resets$.subscribe(() => this.reset()));
   }
 
   onModuleDestroy(): void {
@@ -57,9 +69,9 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
    * Registration happens on subscribe, with a subject per subscription, for
    * the same reasons as `NotificationHub.subscribe`.
    */
-  subscribe(userId: number): Observable<ChatRoutedEvent> {
-    return new Observable<ChatRoutedEvent>((observer) => {
-      const subject = new Subject<ChatRoutedEvent>();
+  subscribe(userId: number): Observable<ChatHubEvent> {
+    return new Observable<ChatHubEvent>((observer) => {
+      const subject = new Subject<ChatHubEvent>();
       const existing = this.subscribers.get(userId);
       if (existing) {
         existing.add(subject);
@@ -81,6 +93,14 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   /** Open connections for a user on this replica. Exposed for tests. */
   subscriberCount(userId: number): number {
     return this.subscribers.get(userId)?.size ?? 0;
+  }
+
+  private reset(): void {
+    this.generation += 1;
+    this.members.clear();
+    for (const set of this.subscribers.values()) {
+      for (const subject of set) subject.next({ t: 'ready' });
+    }
   }
 
   private async route(event: ChatBusEvent): Promise<void> {
@@ -117,16 +137,24 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
    */
   private async membersOf(event: ChatRoutedEvent): Promise<Set<number>> {
     const cached = this.members.get(event.c);
-    if (cached) return cached;
-    const rows = await this.prisma.chatChannelMember.findMany({
-      where: {
-        channelId: event.c,
-        user: { workspaceMembers: { some: { workspaceId: event.w } } },
-      },
-      select: { userId: true },
-    });
-    const set = new Set(rows.map((row) => row.userId));
-    this.members.set(event.c, set);
-    return set;
+    if (cached && Date.now() - cached.loadedAt < MEMBER_CACHE_TTL_MS) {
+      return cached.set;
+    }
+    // A reset while the query is in flight means a `mem` may have been lost
+    // after the query read its rows, so its answer is reloaded, not used.
+    for (;;) {
+      const generation = this.generation;
+      const rows = await this.prisma.chatChannelMember.findMany({
+        where: {
+          channelId: event.c,
+          user: { workspaceMembers: { some: { workspaceId: event.w } } },
+        },
+        select: { userId: true },
+      });
+      if (generation !== this.generation) continue;
+      const set = new Set(rows.map((row) => row.userId));
+      this.members.set(event.c, { set, loadedAt: Date.now() });
+      return set;
+    }
   }
 }

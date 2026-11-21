@@ -66,6 +66,12 @@ export type ChatBusEvent =
 /** The bus events `ChatHub` routes to a channel's connected members. */
 export type ChatRoutedEvent = Extract<ChatBusEvent, { t: 'msg' | 'upd' }>;
 
+/**
+ * What `ChatHub` hands one user's streams: their channels' routed events,
+ * plus `ready` when the bus reconnected and anything may have been missed.
+ */
+export type ChatHubEvent = ChatRoutedEvent | { t: 'ready' };
+
 /** The `message` event of `GET /chat/stream`. Carries no body. */
 export interface StreamMessageEvent {
   workspaceId: string;

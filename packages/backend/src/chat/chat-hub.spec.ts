@@ -1,8 +1,8 @@
 import { Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
-import { ChatHub } from './chat-hub';
-import { ChatBusEvent, ChatRoutedEvent } from './chat.types';
+import { ChatHub, MEMBER_CACHE_TTL_MS } from './chat-hub';
+import { ChatBusEvent, ChatHubEvent } from './chat.types';
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 
@@ -31,7 +31,7 @@ function harness() {
   hub.onModuleInit();
 
   function collect(userId: number) {
-    const seen: ChatRoutedEvent[] = [];
+    const seen: ChatHubEvent[] = [];
     const sub = hub.subscribe(userId).subscribe((e) => seen.push(e));
     return { seen, stop: () => sub.unsubscribe() };
   }
@@ -65,7 +65,7 @@ describe('ChatHub', () => {
     h.members.set('c1', [1]);
     const a = h.collect(1);
     const outsider = h.collect(3);
-    const upd: ChatRoutedEvent = {
+    const upd: ChatHubEvent = {
       t: 'upd',
       c: 'c1',
       w: 'w1',
@@ -127,7 +127,70 @@ describe('ChatHub', () => {
     h.events.next(msg('c1', 2));
     await flush();
 
-    expect(removed.seen).toEqual([msg('c1', 1)]);
+    expect(removed.seen).toEqual([msg('c1', 1), { t: 'ready' }]);
+  });
+
+  it('tells every open stream to catch up when the bus reconnects', () => {
+    const h = harness();
+    const a = h.collect(1);
+    const b = h.collect(2);
+
+    h.resets.next();
+
+    expect(a.seen).toEqual([{ t: 'ready' }]);
+    expect(b.seen).toEqual([{ t: 'ready' }]);
+  });
+
+  it('expires a cached member set, so a lost `mem` cannot grant access forever', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const h = harness();
+      h.members.set('c1', [1, 2]);
+      const removed = h.collect(2);
+      h.events.next(msg('c1', 1));
+      await flush();
+
+      // Removed in the database, but its `mem` NOTIFY failed: no event, no
+      // reconnect. Only the cache's own age can evict the entry.
+      h.members.set('c1', [1]);
+      h.events.next(msg('c1', 2));
+      await flush();
+      expect(removed.seen).toEqual([msg('c1', 1), msg('c1', 2)]);
+
+      now.mockReturnValue(1_000_000 + MEMBER_CACHE_TTL_MS + 1);
+      h.events.next(msg('c1', 3));
+      await flush();
+      expect(removed.seen).toEqual([msg('c1', 1), msg('c1', 2)]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('does not cache or deliver a member set loaded across a reconnect', async () => {
+    const h = harness();
+    h.members.set('c1', [1, 2]);
+    const removed = h.collect(2);
+    let release: () => void = () => undefined;
+    h.findMany.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          // The query saw [1, 2]; it answers only after the reset below.
+          release = () => resolve([{ userId: 1 }, { userId: 2 }]);
+        }),
+    );
+
+    h.events.next(msg('c1', 1));
+    await flush();
+    // User 2 is removed while the listener is down; that `mem` is lost.
+    h.members.set('c1', [1]);
+    h.resets.next();
+    release();
+    await flush();
+    h.events.next(msg('c1', 2));
+    await flush();
+
+    expect(removed.seen).toEqual([{ t: 'ready' }]);
+    expect(h.findMany).toHaveBeenCalledTimes(2);
   });
 
   it('keeps per-channel order across a cache load', async () => {

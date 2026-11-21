@@ -876,6 +876,36 @@ describeDb('Chat integration', () => {
         .expect(404);
     });
 
+    it('an edit racing a delete cannot restore the deleted body', async () => {
+      const { owner, channel } = await publicChannel();
+      const mine = await messages.post(owner.id, channel.id, { body: 'mine' });
+      const update = jest.spyOn(bus, 'notifyUpdate');
+      // The delete commits after the edit has checked ownership but before
+      // its write: `canonicalBody` runs in exactly that window.
+      const svc = messages as unknown as {
+        canonicalBody: (body: string, workspaceId: string) => Promise<string>;
+      };
+      const real = svc.canonicalBody.bind(messages);
+      jest
+        .spyOn(svc, 'canonicalBody')
+        .mockImplementationOnce(async (body, workspaceId) => {
+          await messages.remove(owner.id, mine.id);
+          return real(body, workspaceId);
+        });
+
+      await expect(
+        messages.edit(owner.id, mine.id, 'revived'),
+      ).rejects.toMatchObject({ status: 404 });
+
+      const row = await prisma.chatMessage.findUniqueOrThrow({
+        where: { id: mine.id },
+      });
+      expect(row.body).toBe('');
+      expect(row.deletedAt).not.toBeNull();
+      // Only the delete was announced.
+      expect(update).toHaveBeenCalledTimes(1);
+    });
+
     it('edit and delete announce an update with ids only', async () => {
       const { owner, members, workspace, channel } = await publicChannel();
       const root = await messages.post(owner.id, channel.id, { body: 'root' });

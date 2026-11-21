@@ -263,9 +263,15 @@ export class ChatMessageService {
       workspaceIdOrSlug,
     );
     const text = await this.canonicalBody(body, channel.workspaceId);
-    const updated = await this.prisma.chatMessage.update({
-      where: { id: messageId },
+    // `deletedAt: null` in the write itself: a delete that commits after
+    // `ownMessage` read the row must not have its cleared body written back.
+    const { count } = await this.prisma.chatMessage.updateMany({
+      where: { id: messageId, deletedAt: null },
       data: { body: text, editedAt: new Date() },
+    });
+    if (count === 0) throw new NotFoundException('Message not found');
+    const updated = await this.prisma.chatMessage.findUniqueOrThrow({
+      where: { id: messageId },
       include: { author: AUTHOR },
     });
     await this.announceUpdate(message, channel);
