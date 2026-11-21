@@ -59,12 +59,28 @@ export interface CommentNotificationInput {
 
 const base = () => `${import.meta.env.VITE_BACKEND_API_URL}/notifications`;
 
-/** Most recent notifications, newest first. `before` pages backwards. */
+/** Mirrors the backend's `LIST_PAGE_SIZE`: a shorter page is the last one. */
+export const NOTIFICATIONS_PAGE_SIZE = 20;
+
+/**
+ * Where the next page starts: the `(createdAt, id)` of the previous page's
+ * last row. Both halves, because one report inserts its whole batch at a
+ * single instant and a timestamp alone would skip the rest of that batch.
+ */
+export interface NotificationCursor {
+  before: string;
+  beforeId: string;
+}
+
+/** Most recent notifications, newest first. `cursor` pages backwards. */
 export async function fetchNotifications(
-  before?: string,
+  cursor?: NotificationCursor,
 ): Promise<Notification[]> {
   const url = new URL(base());
-  if (before) url.searchParams.set("before", before);
+  if (cursor) {
+    url.searchParams.set("before", cursor.before);
+    url.searchParams.set("beforeId", cursor.beforeId);
+  }
   const response = await fetchWithAuth(url.toString());
   await assertOk(response, "Couldn't load notifications");
   return response.json();
