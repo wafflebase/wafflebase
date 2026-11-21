@@ -1,0 +1,174 @@
+import { Subject } from 'rxjs';
+import { PrismaService } from '../database/prisma.service';
+import { ChatBus } from './chat-bus';
+import { ChatHub } from './chat-hub';
+import { ChatBusEvent } from './chat.types';
+
+type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
+
+function msg(c: string, s: number): MsgEvent {
+  return { t: 'msg', c, w: 'w1', s, r: null, a: 1 };
+}
+
+/**
+ * A hub wired to a hand-fed bus and an in-memory membership table, so each
+ * test controls exactly which users the next cache load sees.
+ */
+function harness() {
+  const events = new Subject<ChatBusEvent>();
+  const resets = new Subject<void>();
+  const members = new Map<string, number[]>();
+  const findMany = jest.fn(({ where }: { where: { channelId: string } }) =>
+    Promise.resolve(
+      (members.get(where.channelId) ?? []).map((userId) => ({ userId })),
+    ),
+  );
+  const bus = { events$: events, resets$: resets } as unknown as ChatBus;
+  const prisma = {
+    chatChannelMember: { findMany },
+  } as unknown as PrismaService;
+  const hub = new ChatHub(bus, prisma);
+  hub.onModuleInit();
+
+  function collect(userId: number) {
+    const seen: MsgEvent[] = [];
+    const sub = hub.subscribe(userId).subscribe((e) => seen.push(e));
+    return { seen, stop: () => sub.unsubscribe() };
+  }
+
+  return { events, resets, members, findMany, hub, collect };
+}
+
+/** Let the hub's sequential routing drain its pending cache loads. */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
+describe('ChatHub', () => {
+  it('delivers a message only to channel members', async () => {
+    const h = harness();
+    h.members.set('c1', [1, 2]);
+    const a = h.collect(1);
+    const b = h.collect(2);
+    const outsider = h.collect(3);
+
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    expect(a.seen).toEqual([msg('c1', 1)]);
+    expect(b.seen).toEqual([msg('c1', 1)]);
+    expect(outsider.seen).toEqual([]);
+  });
+
+  it('drops events for a channel after membership is revoked', async () => {
+    const h = harness();
+    h.members.set('c1', [1, 2]);
+    const removed = h.collect(2);
+
+    h.events.next(msg('c1', 1));
+    await flush();
+    expect(removed.seen).toHaveLength(1);
+
+    // The member is removed in the database, and the change is announced.
+    h.members.set('c1', [1]);
+    h.events.next({ t: 'mem', c: 'c1' });
+    h.events.next(msg('c1', 2));
+    await flush();
+
+    expect(removed.seen).toEqual([msg('c1', 1)]);
+  });
+
+  it('caches membership until the channel changes', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    h.collect(1);
+
+    h.events.next(msg('c1', 1));
+    h.events.next(msg('c1', 2));
+    await flush();
+    expect(h.findMany).toHaveBeenCalledTimes(1);
+
+    h.events.next({ t: 'mem', c: 'c1' });
+    h.events.next(msg('c1', 3));
+    await flush();
+    expect(h.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets every cached channel when the bus reconnects', async () => {
+    const h = harness();
+    h.members.set('c1', [1, 2]);
+    const removed = h.collect(2);
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    // A `mem` sent while the LISTEN connection was down never arrives.
+    h.members.set('c1', [1]);
+    h.resets.next();
+    h.events.next(msg('c1', 2));
+    await flush();
+
+    expect(removed.seen).toEqual([msg('c1', 1)]);
+  });
+
+  it('keeps per-channel order across a cache load', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const a = h.collect(1);
+
+    h.events.next(msg('c1', 1));
+    h.events.next(msg('c1', 2));
+    h.events.next(msg('c1', 3));
+    await flush();
+
+    expect(a.seen.map((e) => e.s)).toEqual([1, 2, 3]);
+  });
+
+  it('does not query membership while nobody is connected', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    expect(h.findMany).not.toHaveBeenCalled();
+  });
+
+  it('survives a failed membership load', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const a = h.collect(1);
+    h.findMany.mockRejectedValueOnce(new Error('db down'));
+
+    h.events.next(msg('c1', 1));
+    h.events.next(msg('c1', 2));
+    await flush();
+
+    // The failed load is not cached; the next event retries it.
+    expect(a.seen).toEqual([msg('c1', 2)]);
+  });
+
+  it('delivers to every open connection of the same user', async () => {
+    const h = harness();
+    h.members.set('c1', [1]);
+    const tab1 = h.collect(1);
+    const tab2 = h.collect(1);
+
+    h.events.next(msg('c1', 1));
+    await flush();
+
+    expect(tab1.seen).toHaveLength(1);
+    expect(tab2.seen).toHaveLength(1);
+  });
+
+  it('unsubscribing the last connection removes the user', () => {
+    const h = harness();
+    const tab1 = h.collect(1);
+    const tab2 = h.collect(1);
+
+    expect(h.hub.subscriberCount(1)).toBe(2);
+    tab1.stop();
+    expect(h.hub.subscriberCount(1)).toBe(1);
+    tab2.stop();
+    expect(h.hub.subscriberCount(1)).toBe(0);
+  });
+});
