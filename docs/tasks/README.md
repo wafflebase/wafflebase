@@ -20,7 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
 | notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./active/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./active/20261121-notification-unread-paging-lessons.md) |
-| release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./active/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./active/20261121-release-v0.6.17-lessons.md) |
+| release v0.6.18 (2026-11-21) | [20261121-release-v0.6.18-todo.md](./active/20261121-release-v0.6.18-todo.md) | [20261121-release-v0.6.18-lessons.md](./active/20261121-release-v0.6.18-lessons.md) |
 | template design polish (2026-11-21) | [20261121-template-design-polish-todo.md](./active/20261121-template-design-polish-todo.md) | [20261121-template-design-polish-lessons.md](./active/20261121-template-design-polish-lessons.md) |
 | chat p1 (2026-11-20) | [20261120-chat-p1-todo.md](./active/20261120-chat-p1-todo.md) | [20261120-chat-p1-lessons.md](./active/20261120-chat-p1-lessons.md) |
 | template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./active/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./active/20261119-template-catalog-ops-lessons.md) |
@@ -78,7 +78,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 646
+- Archived task count: 647
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: font relative leading (2026-11-21)
