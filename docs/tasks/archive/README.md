@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 646
+Total archived tasks: 647
 
-## 2026/11 (16 tasks)
+## 2026/11 (17 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./2026/11/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./2026/11/20261121-release-v0.6.17-lessons.md) |
 | docs site content (2026-11-19) | [20261119-docs-site-content-todo.md](./2026/11/20261119-docs-site-content-todo.md) | [20261119-docs-site-content-lessons.md](./2026/11/20261119-docs-site-content-lessons.md) |
 | release v0.6.16 (2026-11-19) | [20261119-release-v0.6.16-todo.md](./2026/11/20261119-release-v0.6.16-todo.md) | [20261119-release-v0.6.16-lessons.md](./2026/11/20261119-release-v0.6.16-lessons.md) |
 | board sticky stamp polish (2026-11-18) | [20261118-board-sticky-stamp-polish-todo.md](./2026/11/20261118-board-sticky-stamp-polish-todo.md) | [20261118-board-sticky-stamp-polish-lessons.md](./2026/11/20261118-board-sticky-stamp-polish-lessons.md) |
