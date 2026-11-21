@@ -24,6 +24,7 @@ export function parseDatabaseUrl(databaseUrl: string) {
 }
 
 export async function clearDatabase(prisma: PrismaService) {
+  await prisma.chatChannel.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.apiKey.deleteMany();
   await prisma.shareLink.deleteMany();

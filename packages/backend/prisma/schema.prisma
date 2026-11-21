@@ -24,6 +24,8 @@ model User {
   notificationsActed    Notification[] @relation("NotificationActor")
   templateListings      TemplateListing[]
   templateReports       TemplateReport[]
+  chatMemberships       ChatChannelMember[]
+  chatMessages          ChatMessage[]
 }
 
 model UserDocStyles {
@@ -192,6 +194,7 @@ model Workspace {
   notifications Notification[]
   templateListings TemplateListing[]
   claim       WorkspaceClaim?
+  chatChannels ChatChannel[]
 }
 
 model WorkspaceMember {
@@ -457,4 +460,73 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+}
+
+/// A workspace chat conversation: a public or private channel, or a DM.
+/// See `docs/design/chat.md`.
+model ChatChannel {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// public | private | dm
+  kind          String
+  /// Null for a DM, which is labelled by its members.
+  name          String?
+  topic         String?
+  createdBy     Int?
+  archivedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  /// The last allocated `ChatMessage.seq`. Bumped under the row lock inside
+  /// the insert transaction, so ordering is total per channel and never
+  /// depends on a replica's clock.
+  lastSeq       BigInt    @default(0)
+  /// DM only: `<workspaceId>:<sorted member ids>`. The unique index is what
+  /// makes two people opening the same DM at once land in one channel.
+  dmKey         String?   @unique
+  lastMessageAt DateTime?
+  members       ChatChannelMember[]
+  messages      ChatMessage[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, kind])
+}
+
+model ChatChannelMember {
+  channelId   String
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId      Int
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Unread = top-level messages with `seq` above this.
+  lastReadSeq BigInt      @default(0)
+  joinedAt    DateTime    @default(now())
+
+  @@id([channelId, userId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id            String      @id @default(uuid())
+  channelId     String
+  channel       ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  /// Per-channel monotonic; the pagination and "after" cursor.
+  seq           BigInt
+  /// Null once the author is deleted — the message survives them.
+  authorId      Int?
+  author        User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  /// Set when posted with an API key.
+  apiKeyId      String?
+  /// Plain text; mentions as `@[username](userId)`. Cleared on soft delete.
+  body          String
+  /// Null = top-level.
+  threadRootId  String?
+  alsoInChannel Boolean     @default(false)
+  replyCount    Int         @default(0)
+  lastReplyAt   DateTime?
+  editedAt      DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime    @default(now())
+
+  @@unique([channelId, seq])
+  @@index([threadRootId, seq])
+  @@index([channelId, threadRootId, seq])
 }
