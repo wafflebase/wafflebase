@@ -30,7 +30,7 @@ export interface OpenChatChannel {
 let openChannel: OpenChatChannel | null = null;
 
 /**
- * Record which channel is on screen. The stream is mounted once per shell, far
+ * Record which channel is on screen. The stream is mounted once per session, far
  * from the conversation, so this module-level slot is how it learns which
  * channel to keep fresh rather than mark unread.
  */
@@ -218,7 +218,8 @@ export async function refreshMessage(
 }
 
 /**
- * Subscribe to `GET /chat/stream`, once per shell.
+ * Subscribe to `GET /chat/stream`. Mounted once per signed-in session, by
+ * `ChatStreamHost`.
  *
  * The stream carries ids only. A `message` event marks another channel
  * unread, fetches what the open channel is missing, and invalidates a thread.

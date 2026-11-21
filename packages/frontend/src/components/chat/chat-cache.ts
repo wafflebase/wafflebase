@@ -43,7 +43,8 @@ export interface ChatEventOutcome {
  * - the open channel fetches what it is missing (a reply too, since it may
  *   have been also sent to the channel, and its root's reply count moved);
  * - another channel's top-level message from someone else is one more
- *   unread. The mention count is not guessed — the event carries no body —
+ *   unread, and so is a reply also sent to the channel — the server's
+ *   unread count includes those too. The mention count is not guessed — the event carries no body —
  *   and is refreshed by the next channel-list fetch;
  * - a reply invalidates its thread.
  */
@@ -52,8 +53,8 @@ export function applyChatEvent(
   e: StreamMessageEvent,
 ): ChatEventOutcome {
   const isOpen = state.openChannelId === e.channelId;
-  const isReply = e.threadRootId !== null;
-  const countsAsUnread = !isOpen && !isReply && e.authorId !== state.me;
+  const inChannel = e.threadRootId === null || e.alsoInChannel;
+  const countsAsUnread = !isOpen && inChannel && e.authorId !== state.me;
 
   const channels = countsAsUnread
     ? state.channels.map((c) =>
@@ -158,7 +159,7 @@ export function parseStreamMessage(raw: string): StreamMessageEvent | null {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const { workspaceId, channelId, seq, threadRootId, authorId } =
+  const { workspaceId, channelId, seq, threadRootId, authorId, alsoInChannel } =
     parsed as Record<string, unknown>;
   if (typeof workspaceId !== "string" || typeof channelId !== "string") {
     return null;
@@ -166,12 +167,14 @@ export function parseStreamMessage(raw: string): StreamMessageEvent | null {
   if (!Number.isSafeInteger(seq)) return null;
   if (threadRootId !== null && typeof threadRootId !== "string") return null;
   if (authorId !== null && !Number.isSafeInteger(authorId)) return null;
+  if (typeof alsoInChannel !== "boolean") return null;
   return {
     workspaceId,
     channelId,
     seq: seq as number,
     threadRootId,
     authorId: authorId as number | null,
+    alsoInChannel,
   };
 }
 

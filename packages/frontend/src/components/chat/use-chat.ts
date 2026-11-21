@@ -83,9 +83,14 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   useEffect(() => setHasOlder(!exhausted.has(channelId)), [channelId, query.data]);
 
-  const loadOlder = useCallback(async () => {
+  /**
+   * Fetch the page before the oldest cached message. Resolves to whether it
+   * prepended anything: a channel holding an exact multiple of a page ends on
+   * an empty one, and the view must not wait for a prepend that never comes.
+   */
+  const loadOlder = useCallback(async (): Promise<boolean> => {
     const oldest = query.data?.[0];
-    if (!oldest || loadingOlder) return;
+    if (!oldest || loadingOlder) return false;
     setLoadingOlder(true);
     try {
       const page = await fetchMessages(workspaceId, channelId, {
@@ -95,10 +100,17 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
         exhausted.add(channelId);
         setHasOlder(false);
       }
+      if (page.length === 0) return false;
+      let prepended = false;
       queryClient.setQueryData<ChatMessageDto[]>(
         chatKeys.messages(channelId),
-        (old) => mergeMessages(old, page),
+        (old) => {
+          const next = mergeMessages(old, page);
+          prepended = next[0]?.id !== old?.[0]?.id;
+          return next;
+        },
       );
+      return prepended;
     } finally {
       setLoadingOlder(false);
     }

@@ -55,6 +55,8 @@ export interface StreamMessageEvent {
   seq: number;
   threadRootId: string | null;
   authorId: number | null;
+  /** A thread reply also sent to the channel; false for a top-level message. */
+  alsoInChannel: boolean;
 }
 
 /**

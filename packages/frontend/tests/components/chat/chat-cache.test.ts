@@ -36,6 +36,7 @@ const event = (over: Partial<StreamMessageEvent> = {}): StreamMessageEvent => ({
   seq: 7,
   threadRootId: null,
   authorId: 2,
+  alsoInChannel: false,
   ...over,
 });
 
@@ -91,6 +92,15 @@ describe("applyChatEvent", () => {
     const out = applyChatEvent(state("c1"), event({ threadRootId: "root" }));
     expect(out.invalidateThread).toBe("root");
     expect(out.channels.find((c) => c.id === "c2")?.unreadCount).toBe(1);
+  });
+
+  it("counts a reply also sent to another channel as unread, like the server", () => {
+    const out = applyChatEvent(
+      state("c1"),
+      event({ threadRootId: "root", alsoInChannel: true }),
+    );
+    expect(out.invalidateThread).toBe("root");
+    expect(out.channels.find((c) => c.id === "c2")?.unreadCount).toBe(2);
   });
 
   it("still fetches the open channel for a reply, which may be also-sent", () => {
@@ -161,7 +171,7 @@ describe("parseStreamMessage", () => {
   it("reads a well-formed frame", () => {
     expect(
       parseStreamMessage(
-        '{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":null}',
+        '{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":null,"alsoInChannel":true}',
       ),
     ).toEqual({
       workspaceId: "w",
@@ -169,6 +179,7 @@ describe("parseStreamMessage", () => {
       seq: 3,
       threadRootId: null,
       authorId: null,
+      alsoInChannel: true,
     });
   });
 
@@ -176,6 +187,8 @@ describe("parseStreamMessage", () => {
     expect(parseStreamMessage("nope")).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":"3","threadRootId":null,"authorId":1}')).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":5,"authorId":1}')).toBeNull();
+    expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":1,"alsoInChannel":"yes"}')).toBeNull();
+    expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":1}')).toBeNull();
   });
 });
 

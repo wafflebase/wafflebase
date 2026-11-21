@@ -124,7 +124,9 @@ export function Conversation({
     const el = scrollRef.current;
     if (el) prependAnchor.current = { height: el.scrollHeight, top: el.scrollTop };
     try {
-      await loadOlder();
+      // Nothing prepended means no layout run will consume the anchor, and a
+      // stale one would hold the next arriving message off the bottom.
+      if (!(await loadOlder())) prependAnchor.current = null;
     } catch (err) {
       prependAnchor.current = null;
       toast.error(userFacingError(err, "Couldn't load older messages."));

@@ -39,7 +39,6 @@ import type { Workspace } from "@/api/workspaces";
 import { createWorkspace } from "@/api/workspaces";
 import { totalUnread } from "@/components/chat/chat-cache";
 import { useChannels } from "@/components/chat/use-chat";
-import { useChatStream } from "@/components/chat/use-chat-stream";
 
 /**
  * Renders the AppSidebar component.
@@ -66,9 +65,7 @@ export function AppSidebar({
     retry: false,
   });
 
-  // One chat stream per shell: every page that shows the sidebar keeps the
-  // Chat badge live, and the Chat page's open channel fresh.
-  useChatStream(!!me);
+  // The badge only reads the channel list; `ChatStreamHost` keeps it live.
   const { data: chatChannels } = useChannels(
     me ? currentWorkspace?.id : undefined,
   );

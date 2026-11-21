@@ -196,6 +196,7 @@ describe("useChatStream", () => {
         seq: 1,
         threadRootId: null,
         authorId: 2,
+        alsoInChannel: false,
       }),
     );
 
@@ -225,6 +226,7 @@ describe("useChatStream", () => {
       seq,
       threadRootId: null,
       authorId: 2,
+      alsoInChannel: false,
     });
 
     act(() => source.emit("message", event(11)));
@@ -316,6 +318,7 @@ describe("useChatStream", () => {
         seq: 9,
         threadRootId: null,
         authorId: 2,
+        alsoInChannel: false,
       }),
     );
 
@@ -341,6 +344,7 @@ describe("useChatStream", () => {
         seq: 4,
         threadRootId: null,
         authorId: 2,
+        alsoInChannel: false,
       }),
     );
 
@@ -361,6 +365,7 @@ describe("useChatStream", () => {
         seq: 1,
         threadRootId: null,
         authorId: 2,
+        alsoInChannel: false,
       });
 
       // A message in w2 must not cancel w1's pending refresh.
