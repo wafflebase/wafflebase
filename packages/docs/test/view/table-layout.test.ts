@@ -6,6 +6,7 @@ import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js'
 import type { Block } from '../../src/model/types.js';
 import { stubMeasurer } from './_stub-measurer.js';
 import { ptToPx } from '../../src/view/theme.js';
+import { docsSingleLineMetrics } from '../../src/view/font-metrics.js';
 
 const stubCtx = () => stubMeasurer(7);
 
@@ -202,8 +203,9 @@ describe('computeTableLayout', () => {
     // And the *leading* resolves from the style too, not from the block's
     // sentinel 1.5 — `table-layout.ts` is the one `assignLineHeights` caller
     // that does not hand it a pre-resolved `BlockSpacing`, so this is the
-    // regression guard for that branch. 20pt -> 26.67px, x1.2 = 32px.
-    expect(headingHeight).toBeCloseTo(ptToPx(20) * 1.15, 5);
+    // regression guard for that branch. 20pt -> 26.67px, x 1.15 single lines.
+    const arial = docsSingleLineMetrics('Arial');
+    expect(headingHeight).toBeCloseTo(ptToPx(20) * 1.15 * (arial.above + arial.below), 5);
   });
 
   /**

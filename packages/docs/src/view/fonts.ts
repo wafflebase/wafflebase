@@ -269,6 +269,33 @@ export function resolveFontFamily(family: string): string {
   return result;
 }
 
+/**
+ * The families a stored `fontFamily` stands for, most specific first and
+ * without CSS generics — the same alias and suffix resolution
+ * `resolveFontFamily` applies, minus the Korean fallback it injects for
+ * glyph coverage. `'Gothic A1 Bold'` → `['Gothic A1 Bold', 'Gothic A1']`;
+ * `'맑은 고딕'` → `['맑은 고딕', 'Malgun Gothic', 'Noto Sans KR']`. A metric
+ * consumer (line sizing) walks this to the first family it knows, which is
+ * deterministic where the face the browser finally paints is not.
+ */
+export function fontFamilyCandidates(family: string): string[] {
+  const direct = FONT_MAP_INDEX.get(family.toLowerCase());
+  const normalized = direct ? family : stripTypefaceSuffixes(family);
+  const mapped = direct ?? FONT_MAP_INDEX.get(normalized.toLowerCase());
+  const out = [family, normalized];
+  if (mapped) {
+    for (const part of mapped.stack.split(',')) {
+      const name = part.trim().replace(/^["']|["']$/g, '');
+      if (name && !GENERIC_FAMILIES.has(name)) out.push(name);
+    }
+  }
+  return out;
+}
+
+const GENERIC_FAMILIES: ReadonlySet<string> = new Set([
+  'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+]);
+
 type FontStatus = 'pending' | 'loading' | 'loaded' | 'error';
 
 /**

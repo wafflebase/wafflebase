@@ -3,6 +3,13 @@ import { computeLayout, computeListCounters, DOCS_LAYOUT_OPTIONS } from '../../s
 import { createBlock } from '../../src/model/types.js';
 import { ptToPx } from '../../src/view/theme.js';
 import { StubMeasurer, stubMeasurer } from './_stub-measurer.js';
+import { docsSingleLineMetrics } from '../../src/view/font-metrics.js';
+
+/** Arial's single line in em; the docs host multiplies line spacing by it. */
+const ARIAL_LINE = (() => {
+  const m = docsSingleLineMetrics('Arial');
+  return m.above + m.below;
+})();
 
 describe('heading layout', () => {
   it('should apply heading default styles to layout runs', () => {
@@ -44,11 +51,12 @@ describe('heading layout', () => {
     const { layout } = computeLayout([h1, para], stubMeasurer(), 600,
       undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS);
     expect(layout.blocks[0].height).toBeGreaterThan(layout.blocks[1].height);
-    // Exact, not merely "greater": leading is Google's uniform 1.15, so the
-    // hierarchy here is carried by size alone (H1 20pt vs body 11pt). A future
-    // edit that narrowed it should fail loudly rather than quietly.
-    expect(layout.blocks[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
-    expect(layout.blocks[1].height).toBeCloseTo(ptToPx(11) * 1.15, 5);
+    // Exact, not merely "greater": leading is Google's uniform 1.15 single
+    // lines, so the hierarchy here is carried by size alone (H1 20pt vs body
+    // 11pt). A future edit that narrowed it should fail loudly rather than
+    // quietly.
+    expect(layout.blocks[0].height).toBeCloseTo(ptToPx(20) * 1.15 * ARIAL_LINE, 5);
+    expect(layout.blocks[1].height).toBeCloseTo(ptToPx(11) * 1.15 * ARIAL_LINE, 5);
   });
 
   it('leads a heading from its named style, not from the block sentinel', () => {
@@ -59,7 +67,7 @@ describe('heading layout', () => {
     expect(h1.style.lineHeight).toBe(1.5);
     const { layout } = computeLayout([h1], stubMeasurer(), 600,
       undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS);
-    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
+    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 1.15 * ARIAL_LINE, 5);
   });
 
   it('honours a document style override of the leading', () => {
@@ -69,7 +77,7 @@ describe('heading layout', () => {
       [h1], stubMeasurer(), 600, undefined, undefined, undefined,
       { 'heading-1': { block: { lineHeight: 2 } } }, DOCS_LAYOUT_OPTIONS,
     );
-    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 2, 5);
+    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 2 * ARIAL_LINE, 5);
   });
 });
 

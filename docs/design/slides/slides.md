@@ -467,6 +467,30 @@ The pasteboard is asymmetric by design: an axis where the slide
 overflows `scrollHost` gets no band on that axis, and above Fit zoom
 there is no pasteboard at all (drop to Fit to recover it).
 
+### Line spacing is a multiple of PowerPoint's single line
+
+> **Status: planned**
+> ([task](../../tasks/active/20261121-font-relative-leading-todo.md)).
+
+Slides text lays out through the docs engine, whose line box is `lineHeight ×
+fontSize`. Google Slides and PowerPoint multiply a single line of
+**1.2 × font size, whatever the font** (measured in Google Slides: Arial and
+Roboto, Single and Double, both exactly 1.2). So our picker's "1.0" is about
+17% tighter than theirs. The PPTX importer patched only the default case
+(`PPTX_SINGLE_LINE_HEIGHT = 1.2` when `<a:lnSpc>` is absent): an explicit
+`spcPct 90%` imports as 0.9 em instead of 1.08 em, and export writes the em
+value back as a percentage of a single line, so each round trip grows lines
+1.2×.
+
+The fix uses the engine seam the docs fix adds (`singleLineMetrics`), with a
+constant 1.2 em single line for slides. Stored values in existing decks mean em, so the switch
+is per deck: `meta.lineSpacing = 'single-line'` marks a deck whose values mean
+single lines. New decks and PPTX imports are marked. An unmarked deck renders
+exactly as before until a one-batch conversion divides every stored
+`lineHeight`, including the master/layout placeholder styles, by 1.2 and sets
+the marker. That conversion is pixel-identical by construction. Board keeps
+the em behaviour.
+
 ### Editor UI
 
 Default layout is two panes (thumbnails left, canvas center) plus a

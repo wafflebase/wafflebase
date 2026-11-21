@@ -195,8 +195,23 @@ export function lineBaselineY(
   lineY: number,
   lineHeight: number,
   maxFontSizePx: number,
+  baseline?: number,
 ): number {
+  // A line sized from font metrics knows where its baseline is
+  // (`LayoutLine.baseline`); only CSS-leaded lines centre the glyphs.
+  if (baseline !== undefined) return lineY + baseline;
   return lineY + (lineHeight + maxFontSizePx * 0.8) / 2;
+}
+
+/**
+ * How far down a line its content reaches — the bottom an inline image sits
+ * on and a caret or underline-style decoration stops at. A line sized from
+ * font metrics keeps its extra spacing *below* the content
+ * (`LayoutLine.textHeight`); a CSS-leaded line has no such split, so its
+ * content bottom is the line box bottom.
+ */
+export function lineContentBottom(line: { height: number; textHeight?: number }): number {
+  return line.textHeight ?? line.height;
 }
 
 /**

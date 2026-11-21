@@ -5,10 +5,11 @@ import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTa
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
-import { Theme } from './theme.js';
+import { Theme, lineContentBottom } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 import { computeTableRangeForPageLine } from './table-geometry.js';
+import type { LineRect } from './selection.js';
 import { getOrLoadImage } from './image-cache.js';
 import {
   drawImageSelection,
@@ -198,7 +199,7 @@ export class DocCanvas {
       rects: Array<{ x: number; y: number; width: number; height: number }>;
     }>,
     layout?: DocumentLayout,
-    searchHighlightRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
+    searchLineRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
     activeSearchIndex?: number,
     scaleFactor: number = 1,
     headerLayout?: DocumentLayout | null,
@@ -231,10 +232,11 @@ export class DocCanvas {
       y: number;
       width: number;
       height: number;
+      textHeight?: number;
     }>,
     /** Red wavy underlines for misspelled words. View-local; the canvas
      *  is spell-naive — it just strokes the rects it is given. */
-    spellErrorRects?: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
+    spellErrorRects?: ReadonlyArray<LineRect>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -417,11 +419,11 @@ export class DocCanvas {
       drawInlineRunBackgroundsForPage(this.ctx, page, layout, pageX, pageY);
 
       // Draw search match highlights for this page (behind all selections)
-      if (searchHighlightRects) {
-        for (let mi = 0; mi < searchHighlightRects.length; mi++) {
+      if (searchLineRects) {
+        for (let mi = 0; mi < searchLineRects.length; mi++) {
           const isActive = mi === activeSearchIndex;
           this.ctx.fillStyle = isActive ? '#f4a939' : '#fff2a8';
-          for (const rect of searchHighlightRects[mi]) {
+          for (const rect of searchLineRects[mi]) {
             if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
               this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
             }
@@ -435,10 +437,13 @@ export class DocCanvas {
       if (commentMarkers) {
         for (const rect of commentMarkers) {
           if (rect.y + rect.height <= pageY || rect.y >= pageY + page.height) continue;
+          // The text box, not the line box: a line's extra spacing sits
+          // below its text, and the rule belongs under the words.
+          const textHeight = rect.textHeight ?? rect.height;
           this.ctx.fillStyle = 'rgba(251, 188, 4, 0.25)';
-          this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          this.ctx.fillRect(rect.x, rect.y, rect.width, textHeight);
           this.ctx.fillStyle = '#fbbc04';
-          this.ctx.fillRect(rect.x, rect.y + rect.height - 1, rect.width, 1);
+          this.ctx.fillRect(rect.x, rect.y + textHeight - 1, rect.width, 1);
         }
       }
 
@@ -449,7 +454,7 @@ export class DocCanvas {
         this.ctx.lineWidth = 1;
         for (const rect of spellErrorRects) {
           if (rect.y + rect.height <= pageY || rect.y >= pageY + page.height) continue;
-          const baseY = rect.y + rect.height - 1;
+          const baseY = rect.y + (rect.textHeight ?? rect.height) - 1;
           const pts = squigglePoints(rect.x, rect.width, baseY);
           this.ctx.beginPath();
           this.ctx.moveTo(pts[0][0], pts[0][1]);
@@ -565,6 +570,8 @@ export class DocCanvas {
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
           paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, {
+            baseline: pl.line.baseline,
+            textHeight: pl.line.textHeight,
             theme: Theme,
             skipBackground: true,
             requestRender: this.requestRender ?? undefined,
@@ -582,7 +589,7 @@ export class DocCanvas {
             const drawH = run.imageHeight ?? pl.line.height;
             const box = {
               x: pageX + pl.x + run.x,
-              y: pageY + pl.y + pl.line.height - drawH,
+              y: pageY + pl.y + lineContentBottom(pl.line) - drawH,
               width: run.width,
               height: drawH,
             };
@@ -605,7 +612,7 @@ export class DocCanvas {
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
               : (listCounters.get(block.id) ?? '1.');
-            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, markerX, marker, Theme);
+            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, markerX, marker, Theme, undefined, pl.line.baseline);
           }
         }
       }
@@ -714,6 +721,8 @@ export class DocCanvas {
     lineHeight: number,
     lineMaxFontSizePx: number | undefined,
     pageNumber: number,
+    lineBaseline?: number,
+    lineTextHeight?: number,
   ): void {
     const target = run.inline.style.pageNumber
       ? {
@@ -723,6 +732,8 @@ export class DocCanvas {
         }
       : run;
     paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, lineMaxFontSizePx, {
+      baseline: lineBaseline,
+      textHeight: lineTextHeight,
       theme: Theme,
       skipBackground: false,
       requestRender: this.requestRender ?? undefined,
@@ -761,6 +772,7 @@ export class DocCanvas {
         for (const run of line.runs) {
           this.renderRunWithPageNumber(
             run, originX, originY + lb.y + line.y, line.height, line.maxFontSizePx, pageNumber,
+            line.baseline, line.textHeight,
           );
         }
       }

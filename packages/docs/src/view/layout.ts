@@ -18,6 +18,8 @@ import { normalizeListLevel } from '../model/list-level.js';
 import { Theme, ptToPx } from './theme.js';
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
 import { computeTableLayout, type LayoutTable } from './table-layout.js';
+import { docsSingleLineMetrics } from './font-metrics.js';
+import type { SingleLineMetricsFn } from '../model/line-metrics.js';
 
 /**
  * Stable string key for a `ResolvedFont`. Used as the prefix of the
@@ -221,6 +223,21 @@ export interface LayoutLine {
    * to the run's own size when it is absent.
    */
   maxFontSizePx?: number;
+  /**
+   * The line top to its shared baseline, in px. Set by `assignLineHeights`
+   * only when the host sizes lines from font metrics
+   * (`BlockSpacingContext.singleLineMetrics`); painters then put the baseline
+   * here instead of centring the glyphs (`lineBaselineY`).
+   */
+  baseline?: number;
+  /**
+   * The line top to the bottom of its text, in px — the box a decoration
+   * that underlines the text (spell squiggle, find match, comment rule)
+   * hangs from. Set with `baseline`; without it the line box is the text box.
+   * It differs from `height` because a line's extra spacing sits below its
+   * text.
+   */
+  textHeight?: number;
   nestedTable?: LayoutTable;
 }
 
@@ -409,6 +426,8 @@ export interface LayoutOptions {
    * count are identical on both surfaces.
    */
   surface?: StyleSurface;
+  /** See `BlockSpacingContext.singleLineMetrics`. Absent keeps CSS leading. */
+  singleLineMetrics?: SingleLineMetricsFn;
 }
 
 /**
@@ -427,7 +446,22 @@ export interface LayoutOptions {
 export const DOCS_LAYOUT_OPTIONS: LayoutOptions = Object.freeze({
   contextualListSpacing: true,
   namedStyleSpacing: true,
+  singleLineMetrics: docsSingleLineMetrics,
 });
+
+const leadingKeys = new WeakMap<SingleLineMetricsFn, number>();
+let nextLeadingKey = 0;
+
+/** A stable cache-key token per metrics function; `css` for none. */
+function leadingCacheKey(fn: SingleLineMetricsFn | undefined): string {
+  if (!fn) return 'css';
+  let key = leadingKeys.get(fn);
+  if (key === undefined) {
+    key = nextLeadingKey++;
+    leadingKeys.set(fn, key);
+  }
+  return `font:${key}`;
+}
 
 /**
  * Compute the full document layout.
@@ -453,7 +487,12 @@ export function computeLayout(
   // reusing lines across a theme toggle would repaint the previous surface's
   // grey. (`EditorAPI.setTheme` also drops the cache outright; this is the
   // belt that protects any other caller keeping a cache across a toggle.)
-  const docStylesKey = `${surface ?? 'light'}|${JSON.stringify(docStyles ?? {})}`;
+  // Which leading model sized the lines joins it too: cached line heights
+  // from one are wrong under another. Keyed on the function's identity, not
+  // its presence, because a slides host may swap one metrics function for
+  // another on the same cache (a deck converted mid-session).
+  const leadingKey = leadingCacheKey(opts?.singleLineMetrics);
+  const docStylesKey = `${surface ?? 'light'}|${leadingKey}|${JSON.stringify(docStyles ?? {})}`;
   const canUseCache = cache != null
     && dirtyBlockIds != null
     && cache.contentWidth === contentWidth
@@ -485,6 +524,7 @@ export function computeLayout(
       next: blocks[i + 1],
       contextualListSpacing: opts?.contextualListSpacing,
       namedStyleSpacing: opts?.namedStyleSpacing,
+      singleLineMetrics: opts?.singleLineMetrics,
     };
     const spacing = effectiveBlockSpacing(block, docStyles, ctx);
     y += spacing.marginTop;
@@ -509,7 +549,7 @@ export function computeLayout(
     if (block.type === 'table' && block.tableData) {
       const tableLayout = computeTableLayout(
         block.tableData, block.id, measurer, availableWidth, composingContext, docStyles, surface,
-        { namedStyleSpacing: opts?.namedStyleSpacing },
+        { namedStyleSpacing: opts?.namedStyleSpacing, singleLineMetrics: opts?.singleLineMetrics },
       );
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
@@ -541,7 +581,7 @@ export function computeLayout(
       lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext, docStyles, surface);
       // Hand over the already-resolved spacing so the leading is not resolved
       // a second time (and cannot drift from the one this loop accumulated).
-      assignLineHeights(lines, effectiveBlock, docStyles, spacing);
+      assignLineHeights(lines, effectiveBlock, docStyles, spacing, ctx);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
       for (let li = 0; li < lines.length; li++) {
@@ -871,6 +911,11 @@ export function assignLineHeights(
   // import path can plant such values when <w:spacing w:line="N"
   // w:lineRule="exact|atLeast"/> is read as a 240ths-of-a-line multiplier.
   const resolved = spacing ?? effectiveBlockSpacing(block, docStyles, spacingCtx);
+  const metricsFor = spacingCtx?.singleLineMetrics;
+  if (metricsFor) {
+    assignFontRelativeLineHeights(lines, block, docStyles, resolved.lineHeight, metricsFor);
+    return;
+  }
   const lineHeightMultiplier = Math.max(1, resolved.lineHeight);
   let blockY = 0;
   for (const line of lines) {
@@ -884,6 +929,76 @@ export function assignLineHeights(
     line.y = blockY;
     line.height = lineHeight;
     line.maxFontSizePx = maxFontSize;
+    blockY += lineHeight;
+  }
+}
+
+/**
+ * Line spacing as Word and Google Docs read it: a multiple of the font's
+ * single line, not of its size. Measured in Google Docs (2026-11-21): a
+ * line's single height is the tallest `above` plus the tallest `below` among
+ * its runs, the spacing multiplies that, and every extra pixel goes *below*
+ * the text — the first baseline does not move between Single and Double.
+ *
+ * The floor is on the product, not the multiplier: Google Slides ships 0.8 in
+ * its own default theme, and what must not happen is a line shorter than the
+ * glyphs of its tallest font (characters of adjacent lines would overlap).
+ */
+function assignFontRelativeLineHeights(
+  lines: LayoutLine[],
+  block: Block,
+  docStyles: DocStyles | undefined,
+  multiplier: number,
+  metricsFor: SingleLineMetricsFn,
+): void {
+  let blockY = 0;
+  for (const line of lines) {
+    let above = 0;
+    let below = 0;
+    let maxFontSize = 0;
+    for (const run of line.runs) {
+      if (run.imageHeight !== undefined) continue;
+      const size = ptToPx(run.inline.style.fontSize ?? Theme.defaultFontSize);
+      const m = metricsFor(run.inline.style.fontFamily ?? Theme.defaultFontFamily);
+      above = Math.max(above, m.above * size);
+      below = Math.max(below, m.below * size);
+      maxFontSize = Math.max(maxFontSize, size);
+    }
+    if (maxFontSize === 0) {
+      // An empty (or image-only) line takes the block's own font: its first
+      // inline, else its named style, else the theme default.
+      maxFontSize = getLineMaxFontSizePx(line, block, docStyles);
+      const family = block.inlines[0]?.style.fontFamily
+        ?? resolveStyleInline(blockStyleId(block), docStyles).fontFamily
+        ?? Theme.defaultFontFamily;
+      const m = metricsFor(family);
+      above = m.above * maxFontSize;
+      below = m.below * maxFontSize;
+    }
+    // A host function returning a degenerate line (it cannot here, but the
+    // seam is public) falls back to the font's own height rather than
+    // dividing by zero below.
+    const single = above + below > 0 ? above + below : maxFontSize;
+    const spaced = Math.max(single * multiplier, maxFontSize);
+    // Spacing under 1.0 shrinks the glyph box itself, so the baseline moves
+    // up with it rather than staying `above` down a box now shorter than
+    // that (a CJK font's `above` alone exceeds its size).
+    const squeeze = Math.min(1, spaced / single);
+    const glyphBox = single * squeeze;
+    // Content is the glyph box or the tallest inline image, whichever is
+    // taller; images sit on its bottom (`lineContentBottom`) and the text's
+    // baseline moves down with it. The spacing goes below the content, so an
+    // image line at Double keeps the same gap under it a text line does.
+    let content = glyphBox;
+    for (const run of line.runs) {
+      if (run.imageHeight !== undefined && run.imageHeight > content) content = run.imageHeight;
+    }
+    const lineHeight = content + (spaced - glyphBox);
+    line.y = blockY;
+    line.height = lineHeight;
+    line.maxFontSizePx = maxFontSize;
+    line.baseline = above * squeeze + (content - glyphBox);
+    line.textHeight = content;
     blockY += lineHeight;
   }
 }

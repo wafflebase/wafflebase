@@ -74,7 +74,9 @@ export class Cursor {
       this.position, this.lineAffinity, paginatedLayout, layout, measurer, canvasWidth,
     );
     if (!pixel) return undefined;
-    return { ...pixel, visible: this.visible };
+    // The caret spans the content, not the line box: a line's extra spacing
+    // sits below its text (`lineContentBottom`).
+    return { x: pixel.x, y: pixel.y, height: pixel.textHeight ?? pixel.height, visible: this.visible };
   }
 
   /**

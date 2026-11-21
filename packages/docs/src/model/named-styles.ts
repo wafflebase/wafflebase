@@ -38,6 +38,7 @@
 import { DEFAULT_BLOCK_STYLE } from './types.js';
 import type { Block, BlockStyle, Document, HeadingLevel, InlineStyle } from './types.js';
 import { normalizeFontSize, normalizeLineHeight } from './numeric-attrs.js';
+import type { SingleLineMetricsFn } from './line-metrics.js';
 
 /**
  * Stable identifier for each built-in named style.
@@ -585,6 +586,14 @@ export interface BlockSpacingContext {
    * table rows. Only `DOCS_LAYOUT_OPTIONS` turns it on.
    */
   namedStyleSpacing?: boolean;
+  /**
+   * What one single line of a family measures, which the line spacing then
+   * multiplies (`assignLineHeights`). Absent means CSS leading — `lineHeight ×
+   * fontSize`, centred — which slides and board keep until their own
+   * conversion. Carried here rather than as a separate argument because this
+   * context already reaches every place a line is sized, table cells included.
+   */
+  singleLineMetrics?: SingleLineMetricsFn;
 }
 
 /**

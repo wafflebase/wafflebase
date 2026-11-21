@@ -343,6 +343,21 @@ function normalizeRange(
   return { start: range.focus, end: range.anchor };
 }
 
+/**
+ * One highlight rectangle on the page. `height` covers the whole line box;
+ * `textHeight`, when the line was sized from font metrics, is how far down it
+ * the text reaches — where an underline-style decoration (spell squiggle, find
+ * match, comment rule) belongs, since the line's extra spacing sits below the
+ * text (`LayoutLine.textHeight`).
+ */
+export interface LineRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  textHeight?: number;
+}
+
 function positionToPagePixel(
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
@@ -351,7 +366,7 @@ function positionToPagePixel(
   blockId: string,
   offset: number,
   lineAffinity: 'forward' | 'backward' = 'backward',
-): { x: number; y: number; height: number } | undefined {
+): { x: number; y: number; height: number; textHeight?: number } | undefined {
   const found = findPageForPosition(paginatedLayout, blockId, offset, layout, lineAffinity);
   if (!found) return undefined;
 
@@ -380,7 +395,10 @@ function positionToPagePixel(
         xOffset = caretOffsetX(run, localOff, measurer);
       }
       const x = pageX + pageLine.x + run.x + xOffset;
-      return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+      return {
+        x, y: pageY + pageLine.y, height: pageLine.line.height,
+        textHeight: pageLine.line.textHeight,
+      };
     }
     charCount += runLength;
   }
@@ -390,6 +408,7 @@ function positionToPagePixel(
     return {
       x: pageX + pageLine.x + lastRun.x + lastRun.width,
       y: pageY + pageLine.y, height: pageLine.line.height,
+      textHeight: pageLine.line.textHeight,
     };
   }
   return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
@@ -414,7 +433,7 @@ function buildRects(
   layout: DocumentLayout,
   measurer: TextMeasurer,
   canvasWidth: number,
-): Array<{ x: number; y: number; width: number; height: number }> {
+): LineRect[] {
   // A selection endpoint that landed on a visual wrap boundary carries the
   // affinity of the click (or caret move) that produced it. Without one,
   // keep the historical reading: the start looks forward (the highlight
@@ -574,7 +593,7 @@ function buildRects(
       return bestResult;
     };
 
-    const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const cellRects: LineRect[] = [];
     for (let li = startLineIdx; li <= endLineIdx; li++) {
       const line = layoutCell.lines[li];
       const ll = lineLayouts[li];
@@ -597,12 +616,14 @@ function buildRects(
         lineX = cellLeftX;
         lineWidth = cellRightX - cellLeftX;
       }
-      cellRects.push({ x: lineX, y: lineY, width: lineWidth, height: line.height });
+      cellRects.push({
+        x: lineX, y: lineY, width: lineWidth, height: line.height, textHeight: line.textHeight,
+      });
     }
     return cellRects;
   }
 
-  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const rects: LineRect[] = [];
 
   const startBlockIdx = getBlockIndex(layout, start.blockId);
   const endBlockIdx = getBlockIndex(layout, end.blockId);
@@ -652,6 +673,7 @@ function buildRects(
         y: startPixel.y,
         width: endPixel.x - startPixel.x,
         height: startPixel.height,
+        textHeight: startPixel.textHeight,
       });
     } else {
       const pageX = getPageXOffset(paginatedLayout, canvasWidth);
@@ -669,6 +691,7 @@ function buildRects(
         y: startPixel.y,
         width: firstLineEnd - startPixel.x,
         height: startPixel.height,
+        textHeight: startPixel.textHeight,
       });
 
       for (const page of paginatedLayout.pages) {
@@ -684,6 +707,7 @@ function buildRects(
             y: lineY,
             width: lineEndX - lineStartX,
             height: pl.line.height,
+            textHeight: pl.line.textHeight,
           });
         }
       }
@@ -694,6 +718,7 @@ function buildRects(
         y: endPixel.y,
         width: endPixel.x - lastLineStart,
         height: endPixel.height,
+        textHeight: endPixel.textHeight,
       });
     }
   }
@@ -718,7 +743,7 @@ export function computeSelectionRects(
   layout: DocumentLayout,
   measurer: TextMeasurer,
   canvasWidth: number,
-): Array<{ x: number; y: number; width: number; height: number }> {
+): LineRect[] {
   const normalized = normalizeRange(range, layout, MAX_MERGE_EXPANSION_CELLS);
   if (!normalized) return [];
 
@@ -745,7 +770,7 @@ function buildCellRangeRects(
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
   canvasWidth: number,
-): Array<{ x: number; y: number; width: number; height: number }> {
+): LineRect[] {
   // Resolve the table — may be top-level or nested
   const resolved = resolveNestedTableLayout(cellRange.blockId, layout);
   if (!resolved) return [];
@@ -815,7 +840,7 @@ function buildCellRangeRects(
   }
 
   const { start, end } = cellRange;
-  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const rects: LineRect[] = [];
   const tableData = dataBlock.tableData;
   const xBase = pageX + margins.left + nestedXOffset;
 
@@ -930,7 +955,7 @@ export class Selection {
     layout: DocumentLayout,
     measurer: TextMeasurer,
     canvasWidth: number,
-  ): Array<{ x: number; y: number; width: number; height: number }> {
+  ): LineRect[] {
     if (!this.range || !this.hasSelection()) return [];
     return computeSelectionRects(this.range, paginatedLayout, layout, measurer, canvasWidth);
   }

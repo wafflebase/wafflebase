@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeSelectionRects } from '../../src/view/selection.js';
+import { Cursor } from '../../src/view/cursor.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../../src/view/layout.js';
 import { getPageXOffset, getPageYOffset, type PaginatedLayout } from '../../src/view/pagination.js';
 import { DEFAULT_BLOCK_STYLE, DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
@@ -154,5 +155,38 @@ describe('selection endpoint lineAffinity', () => {
 
     expect(rects.length).toBeGreaterThan(1);
     expect(rects[rects.length - 1].y).toBe(LINE1_Y);
+  });
+});
+
+describe('selection rects carry the text box', () => {
+  it('passes each line\'s textHeight through, so decorations sit under the text', () => {
+    const { layout, paginatedLayout } = makeWrappedLayout();
+    for (const l of layout.blocks[0].lines) l.textHeight = 12;
+    const rects = computeSelectionRects(
+      { anchor: { blockId: 'b1', offset: 1 }, focus: { blockId: 'b1', offset: 9 } },
+      paginatedLayout, layout, stubMeasurer(CHAR_W), 816,
+    );
+    expect(rects.length).toBeGreaterThan(1);
+    for (const r of rects) {
+      expect(r.height).toBe(LINE_H); // the highlight still covers the line
+      expect(r.textHeight).toBe(12);
+    }
+  });
+});
+
+describe('caret spans the content box', () => {
+  it('stops at the line\'s textHeight, not its full height', () => {
+    const { layout, paginatedLayout } = makeWrappedLayout();
+    for (const l of layout.blocks[0].lines) l.textHeight = 12;
+    const cursor = new Cursor('b1', 2);
+    const pixel = cursor.getPixelPosition(paginatedLayout, layout, stubMeasurer(CHAR_W), 816);
+    expect(pixel?.height).toBe(12);
+  });
+
+  it('spans the whole line when the line has no split', () => {
+    const { layout, paginatedLayout } = makeWrappedLayout();
+    const cursor = new Cursor('b1', 2);
+    expect(cursor.getPixelPosition(paginatedLayout, layout, stubMeasurer(CHAR_W), 816)?.height)
+      .toBe(LINE_H);
   });
 });

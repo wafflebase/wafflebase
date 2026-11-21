@@ -4,7 +4,7 @@ import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { normalizeListLevel } from '../model/list-level.js';
 import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
-import { Theme, buildFont, ptToPx, lineBaselineY } from './theme.js';
+import { Theme, buildFont, ptToPx, lineBaselineY, lineContentBottom } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 import { imageIntersectsSelection } from './image-selection-overlay.js';
 import {
@@ -423,7 +423,7 @@ export function renderTableContent(
             const drawHeight = run.imageHeight ?? line.height;
             const box = {
               x: runX,
-              y: runLineY + line.height - drawHeight,
+              y: runLineY + lineContentBottom(line) - drawHeight,
               width: run.width,
               height: drawHeight,
             };
@@ -470,7 +470,7 @@ export function renderTableContent(
           // exactly at its top — the case at a paginated row split —
           // bled a sliver onto the previous page.
           const baselineY = Math.round(
-            lineBaselineY(runLineY, line.height, line.maxFontSizePx ?? fontSizePx),
+            lineBaselineY(runLineY, line.height, line.maxFontSizePx ?? fontSizePx, line.baseline),
           );
 
           // Inline run backgrounds (style.backgroundColor) were drawn
@@ -567,7 +567,7 @@ export function renderTableContent(
           const fontSize = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
           const fontSizePx = ptToPx(fontSize);
           const baselineY = Math.round(
-            lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx),
+            lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx, firstLine.baseline),
           );
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
           // Same '' guard as the cell-text pass above (issue #728).
