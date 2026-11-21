@@ -150,7 +150,8 @@ export function NewChannelDialog({
                 <div className="flex flex-col gap-0.5">
                   <Label htmlFor="new-channel-private">Make private</Label>
                   <p className="text-xs text-muted-foreground">
-                    Only people you add can find and read it.
+                    Only people you add can read it. Its name is still reserved across
+                    the workspace.
                   </p>
                 </div>
               </div>

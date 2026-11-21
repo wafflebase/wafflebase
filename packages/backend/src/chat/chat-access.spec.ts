@@ -71,13 +71,16 @@ describe('chat access policy', () => {
         expect(mentionOutcome(ctx)).toBe(mention);
       });
 
-      it('canManage needs canRead plus creator or owner', () => {
+      it('canManage: private → any member; otherwise creator or owner', () => {
         const as = (isCreator: boolean, isWorkspaceOwner: boolean) =>
           canManage({ ...ctx, isCreator, isWorkspaceOwner });
         expect(as(true, false)).toBe(read);
         expect(as(false, true)).toBe(read);
         expect(as(true, true)).toBe(read);
-        expect(as(false, false)).toBe(false);
+        // A private channel is managed by its members collectively: otherwise
+        // a last member who is neither creator nor owner could neither leave
+        // nor archive it, and nobody outside it can see it to help.
+        expect(as(false, false)).toBe(kind === 'private' && read);
       });
     },
   );

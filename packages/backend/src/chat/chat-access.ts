@@ -28,11 +28,19 @@ export function canPost(ctx: AccessContext): boolean {
   return canRead(ctx) && !ctx.archived;
 }
 
-/** Rename, set the topic, archive: the channel's creator or a workspace owner. */
+/**
+ * Rename, set the topic, archive. A public channel: its creator or a
+ * workspace owner. A private channel: any of its members. Nobody outside a
+ * private channel can see it, so if only its creator or an owner could
+ * archive it, a last member who is neither could neither leave (the last
+ * member is refused) nor archive it — a dead end nobody could clear.
+ */
 export function canManage(
   ctx: AccessContext & { isCreator: boolean; isWorkspaceOwner: boolean },
 ): boolean {
-  return canRead(ctx) && (ctx.isCreator || ctx.isWorkspaceOwner);
+  if (!canRead(ctx)) return false;
+  if (ctx.kind === 'private') return true;
+  return ctx.isCreator || ctx.isWorkspaceOwner;
 }
 
 /**

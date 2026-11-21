@@ -20,6 +20,14 @@ const DM_MAX_MEMBERS = 8;
 const CHANNEL_NAME = /^[a-z0-9가-힣][a-z0-9가-힣_-]{0,79}$/;
 
 /**
+ * Names are unique across a workspace's channels of every kind, private ones
+ * included (Slack refuses a taken private name the same way), so a refusal
+ * tells the caller a name is reserved and nothing about the channel holding
+ * it. The message does not echo the name back.
+ */
+const TAKEN_NAME = 'That channel name is taken';
+
+/**
  * Slack-style channel names: trimmed, lower-cased, whitespace runs turned
  * into a dash. Normalizing before the unique index sees the name is what
  * makes "Q4 Planning" and "q4-planning" one channel rather than two.
@@ -124,7 +132,7 @@ export class ChatChannelService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException(`A channel named "${name}" already exists`);
+        throw new ConflictException(TAKEN_NAME);
       }
       throw err;
     }
@@ -273,7 +281,8 @@ export class ChatChannelService {
    * The last member of a private channel is refused: `canRead` needs channel
    * membership there, so an empty private channel can never be read,
    * rejoined, managed or deleted, and its name stays taken. Archiving is the
-   * way out. The channel row is locked so two last members leaving at once
+   * way out, and every member of a private channel may archive it
+   * (`canManage`), so the refusal is never a dead end. The channel row is locked so two last members leaving at once
    * cannot both see the other still in it.
    */
   async leave(userId: number, channelId: string): Promise<void> {
@@ -303,7 +312,10 @@ export class ChatChannelService {
     if (count > 0) await this.announceMembership(channelId);
   }
 
-  /** Rename, set the topic, archive or unarchive: creator or workspace owner. */
+  /**
+   * Rename, set the topic, archive or unarchive. Public: creator or workspace
+   * owner. Private: any channel member (see `canManage`).
+   */
   async update(
     userId: number,
     channelId: string,
@@ -349,7 +361,7 @@ export class ChatChannelService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException(`A channel named "${name}" already exists`);
+        throw new ConflictException(TAKEN_NAME);
       }
       throw err;
     }

@@ -317,10 +317,12 @@ describeDb('Chat integration', () => {
         .send({ kind: 'public', name: 'Q4 Planning' })
         .expect(201);
       // Normalization makes these the same name.
-      await as(owner)
+      const taken = await as(owner)
         .post(`${base(workspace.id)}/channels`)
         .send({ kind: 'private', name: '  q4 planning ' })
         .expect(409);
+      // Names are reserved across kinds; the refusal does not echo the name.
+      expect(taken.body.message).toBe('That channel name is taken');
     });
 
     it('an invalid channel name is 400', async () => {
@@ -511,6 +513,25 @@ describeDb('Chat integration', () => {
       await as(owner)
         .delete(`${base(workspace.id)}/channels/${open.id}/members/me`)
         .expect(204);
+    });
+
+    it('the last member of a private channel can archive it even if they did not create it', async () => {
+      const { members, workspace } = await team(2);
+      const [creator, peer] = members;
+      const channel = await channels.create(creator.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await channels.invite(creator.id, channel.id, [peer.id]);
+      const url = `${base(workspace.id)}/channels/${channel.id}`;
+
+      await as(creator).delete(`${url}/members/me`).expect(204);
+      await as(peer).delete(`${url}/members/me`).expect(409);
+      const archived = await as(peer)
+        .patch(url)
+        .send({ archived: true })
+        .expect(200);
+      expect(archived.body.archived).toBe(true);
     });
 
     it('two last members leaving at once leave one behind', async () => {

@@ -293,8 +293,18 @@ the way `/api/v1` checks it (`WorkspaceScopeGuard`). On top of that:
 - Read/post in a channel: public → any workspace member (posting auto-joins);
   private and dm → channel members only. A channel the caller cannot see is a
   `404`, not `403`, matching the rest of the backend.
-- Edit/delete: author only. Archive a channel: its creator or a workspace
-  owner.
+- Edit/delete: author only. Rename, set the topic or archive a channel:
+  public → its creator or a workspace owner; private → any of its members.
+  Nobody outside a private channel can see it, so a creator-or-owner rule
+  would strand a last member who is neither: refused leaving, refused
+  archiving, and unreachable by anyone who could help.
+- **Channel names are unique across the workspace, private ones included**
+  (`@@unique([workspaceId, name])`), as in Slack. Creating or renaming onto a
+  name a private channel holds is a `409` with the generic "That channel name
+  is taken" — it reveals that the name is reserved, never the channel's
+  members, topic or messages, and the UI says so ("Only people you add can
+  read it. Its name is still reserved across the workspace.") rather than
+  promising a private channel cannot be found.
 - Document cards resolve **only for documents in the same workspace that are
   live** (not trashed). Because document access in Wafflebase is workspace
   membership, every member of a channel can open every card in it; there is
@@ -571,7 +581,9 @@ say:
   (`@[[x](9)](42)`). Deleting a message also deletes the `chat_mention` /
   `chat_thread_reply` rows whose preview quotes it.
 - **The last member of a private channel cannot leave it** (`409`): an empty
-  private channel is unreadable to everyone, so archiving is the way out.
+  private channel is unreadable to everyone, so archiving is the way out —
+  and since every private-channel member may archive, that way is always
+  open to them.
 - **One stream per session.** `ChatStreamHost` is rendered by
   `PrivateRoute`, not by `AppSidebar`, which has a mount per shell — so
   moving between the list layout and an editor neither reopens the stream nor
