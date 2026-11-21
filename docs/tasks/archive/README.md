@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 645
+Total archived tasks: 646
 
-## 2026/11 (15 tasks)
+## 2026/11 (16 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | docs site content (2026-11-19) | [20261119-docs-site-content-todo.md](./2026/11/20261119-docs-site-content-todo.md) | [20261119-docs-site-content-lessons.md](./2026/11/20261119-docs-site-content-lessons.md) |
+| release v0.6.16 (2026-11-19) | [20261119-release-v0.6.16-todo.md](./2026/11/20261119-release-v0.6.16-todo.md) | [20261119-release-v0.6.16-lessons.md](./2026/11/20261119-release-v0.6.16-lessons.md) |
 | board sticky stamp polish (2026-11-18) | [20261118-board-sticky-stamp-polish-todo.md](./2026/11/20261118-board-sticky-stamp-polish-todo.md) | [20261118-board-sticky-stamp-polish-lessons.md](./2026/11/20261118-board-sticky-stamp-polish-lessons.md) |
 | mobile editor header (2026-11-18) | [20261118-mobile-editor-header-todo.md](./2026/11/20261118-mobile-editor-header-todo.md) | [20261118-mobile-editor-header-lessons.md](./2026/11/20261118-mobile-editor-header-lessons.md) |
 | slides layout pass (2026-11-17) | [20261117-slides-layout-pass-todo.md](./2026/11/20261117-slides-layout-pass-todo.md) | [20261117-slides-layout-pass-lessons.md](./2026/11/20261117-slides-layout-pass-lessons.md) |
