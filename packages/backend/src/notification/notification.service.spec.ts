@@ -14,6 +14,16 @@ function createMockPrisma() {
     workspaceMember: {
       findMany: jest.fn(),
     },
+    chatChannel: {
+      findUnique: jest.fn(),
+    },
+    chatChannelMember: {
+      findMany: jest.fn(),
+    },
+    chatMessage: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
     notification: {
       createMany: jest.fn(),
       findMany: jest.fn(),
@@ -533,6 +543,217 @@ describe('NotificationService', () => {
       // Still no internal bookkeeping: the unique index shape stays server-side.
       expect(select.dedupeKey).toBeUndefined();
       expect(select.recipientId).toBeUndefined();
+    });
+  });
+
+  describe('createChatMention', () => {
+    function mention(over: Partial<Record<string, unknown>> = {}) {
+      return {
+        workspaceId: WORKSPACE,
+        actorId: 1,
+        channelId: 'ch-1',
+        messageId: 'msg-1',
+        threadRootId: null,
+        recipients: [2],
+        preview: 'hi @[bob](2)',
+        ...over,
+      } as Parameters<NotificationService['createChatMention']>[0];
+    }
+
+    it('writes one chat_mention row keyed on the message', async () => {
+      await service.createChatMention(mention());
+
+      expect(insertedRows()).toEqual([
+        {
+          type: 'chat_mention',
+          recipientId: 2,
+          actorId: 1,
+          workspaceId: WORKSPACE,
+          documentId: null,
+          // The existing opaque columns carry the chat location, so the
+          // schema needs no chat-specific fields.
+          threadId: 'ch-1',
+          commentId: 'msg-1',
+          dedupeKey: 'msg-1',
+          // The raw mention token must not leak into the dropdown line.
+          preview: 'hi @bob',
+        },
+      ]);
+    });
+
+    it('notifies every authorized recipient, as in a group DM', async () => {
+      await service.createChatMention(mention({ recipients: [2, 3] }));
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([2, 3]);
+    });
+
+    it('never notifies the actor about mentioning themselves', async () => {
+      const result = await service.createChatMention(
+        mention({ recipients: [1] }),
+      );
+
+      expect(result).toEqual({ created: 0 });
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    // Defense in depth: the caller authorized these through mentionOutcome,
+    // but a workspace membership revoked since must still be honoured here.
+    it('drops a recipient who is not a workspace member', async () => {
+      prisma.workspaceMember.findMany.mockResolvedValue(members(1, 2));
+
+      await service.createChatMention(mention({ recipients: [2, 9] }));
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([2]);
+    });
+
+    it('writes nothing when no recipient was authorized', async () => {
+      const result = await service.createChatMention(
+        mention({ recipients: [] }),
+      );
+
+      expect(result).toEqual({ created: 0 });
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    it('caps one message at 20 recipients', async () => {
+      const ids = Array.from({ length: 30 }, (_, i) => i + 2);
+      prisma.workspaceMember.findMany.mockResolvedValue(members(1, ...ids));
+
+      await service.createChatMention(mention({ recipients: ids }));
+
+      expect(insertedRows()).toHaveLength(20);
+    });
+  });
+
+  describe('createChatThreadReply', () => {
+    function reply(over: Partial<Record<string, unknown>> = {}) {
+      return {
+        workspaceId: WORKSPACE,
+        actorId: 1,
+        channelId: 'ch-1',
+        messageId: 'msg-9',
+        threadRootId: 'root-1',
+        preview: 'agreed',
+        excludeUserIds: [],
+        ...over,
+      } as Parameters<NotificationService['createChatThreadReply']>[0];
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: new Date('2026-11-21T09:41:00.000Z') });
+      prisma.chatChannel.findUnique.mockResolvedValue({ kind: 'public' });
+      prisma.chatChannelMember.findMany.mockResolvedValue([]);
+      prisma.chatMessage.findUnique.mockResolvedValue({ authorId: 2 });
+      prisma.chatMessage.findMany.mockResolvedValue([
+        { authorId: 1 },
+        { authorId: 3 },
+      ]);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('notifies the root author and prior repliers, never the actor', async () => {
+      await service.createChatThreadReply(reply());
+
+      const rows = insertedRows();
+      expect(rows.map((r) => r.recipientId)).toEqual([2, 3]);
+      expect(rows[0]).toEqual({
+        type: 'chat_thread_reply',
+        recipientId: 2,
+        actorId: 1,
+        workspaceId: WORKSPACE,
+        documentId: null,
+        threadId: 'ch-1',
+        commentId: 'msg-9',
+        dedupeKey: 'root-1:2026-11-21T09',
+        preview: 'agreed',
+      });
+    });
+
+    it('reads repliers of this thread only', async () => {
+      await service.createChatThreadReply(reply());
+
+      expect(prisma.chatMessage.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'root-1' } }),
+      );
+      const [arg] = prisma.chatMessage.findMany.mock.calls[0] as [
+        { where: { threadRootId: string } },
+      ];
+      expect(arg.where.threadRootId).toBe('root-1');
+    });
+
+    // A mentioned user already has a chat_mention row for this message; a
+    // second row about the same reply would be noise.
+    it('skips users the caller already notified by mention', async () => {
+      await service.createChatThreadReply(reply({ excludeUserIds: [3] }));
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([2]);
+    });
+
+    it('keys a second reply in the same hour onto the same row', async () => {
+      await service.createChatThreadReply(reply({ messageId: 'msg-9' }));
+      jest.setSystemTime(new Date('2026-11-21T09:59:00.000Z'));
+      await service.createChatThreadReply(reply({ messageId: 'msg-10' }));
+      jest.setSystemTime(new Date('2026-11-21T10:00:00.000Z'));
+      await service.createChatThreadReply(reply({ messageId: 'msg-11' }));
+
+      const calls = prisma.notification.createMany.mock.calls as Array<
+        [{ data: Array<Record<string, unknown>> }]
+      >;
+      const keys = calls.map(([arg]) => arg.data[0].dedupeKey);
+      // Same key → the unique index absorbs the second insert.
+      expect(keys).toEqual([
+        'root-1:2026-11-21T09',
+        'root-1:2026-11-21T09',
+        'root-1:2026-11-21T10',
+      ]);
+    });
+
+    it('drops a participant who has left the workspace', async () => {
+      prisma.workspaceMember.findMany.mockResolvedValue(members(1, 3));
+
+      await service.createChatThreadReply(reply());
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([3]);
+    });
+
+    // A participant who left a private channel must not keep receiving its
+    // content as previews.
+    it('drops a participant who can no longer read a private channel', async () => {
+      prisma.chatChannel.findUnique.mockResolvedValue({ kind: 'private' });
+      prisma.chatChannelMember.findMany.mockResolvedValue([{ userId: 3 }]);
+
+      await service.createChatThreadReply(reply());
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([3]);
+    });
+
+    it('writes nothing for a reply to a root the actor wrote alone', async () => {
+      prisma.chatMessage.findUnique.mockResolvedValue({ authorId: 1 });
+      prisma.chatMessage.findMany.mockResolvedValue([{ authorId: 1 }]);
+
+      const result = await service.createChatThreadReply(reply());
+
+      expect(result).toEqual({ created: 0 });
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    it('survives a root whose author was deleted', async () => {
+      prisma.chatMessage.findUnique.mockResolvedValue({ authorId: null });
+
+      await service.createChatThreadReply(reply());
+
+      expect(insertedRows().map((r) => r.recipientId)).toEqual([3]);
+    });
+
+    it('writes nothing when the channel is gone', async () => {
+      prisma.chatChannel.findUnique.mockResolvedValue(null);
+
+      const result = await service.createChatThreadReply(reply());
+
+      expect(result).toEqual({ created: 0 });
     });
   });
 });

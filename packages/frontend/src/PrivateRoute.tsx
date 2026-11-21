@@ -4,6 +4,7 @@ import { Loader } from "./components/loader";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe, fetchYorkieToken } from "./api/auth";
 import { YorkieProvider } from "@yorkie-js/react";
+import { ChatStreamHost } from "./components/chat/chat-stream-host";
 
 /**
  * Guards routes that require authenticated access.
@@ -26,6 +27,7 @@ export const PrivateRoute = (): ReactElement => {
       metadata={{ userID: encodeURIComponent(me.username || "anonymous-user") }}
       authTokenInjector={fetchYorkieToken}
     >
+      <ChatStreamHost />
       <Outlet />
     </YorkieProvider>
   ) : (

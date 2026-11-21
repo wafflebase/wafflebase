@@ -1,6 +1,6 @@
 import * as React from "react"
 
-const MOBILE_BREAKPOINT = 768
+export const MOBILE_BREAKPOINT = 768
 
 /**
  * React hook that tracks whether the viewport is below the mobile breakpoint.

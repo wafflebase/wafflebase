@@ -10,6 +10,8 @@ import { UploadPanel } from "@/app/documents/upload-panel";
 
 /** Declarative route → title mapping. First match wins. */
 const ROUTE_TITLES: Array<{ path: string; title: string }> = [
+  { path: "/w/:workspaceId/chat", title: "Chat" },
+  { path: "/w/:workspaceId/chat/:channelId", title: "Chat" },
   { path: "/w/:workspaceId/datasources", title: "Data sources" },
   { path: "/w/:workspaceId/analytics", title: "Analytics" },
   { path: "/w/:workspaceId/analytics/:id", title: "Document analytics" },

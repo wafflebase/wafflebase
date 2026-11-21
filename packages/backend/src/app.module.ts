@@ -26,6 +26,7 @@ import { logSafeUrl } from './logging/log-safe-url';
 import { LakehouseModule } from './lakehouse/lakehouse.module';
 import { TemplateModule } from './template/template.module';
 import { DemoResetModule } from './demo-reset/demo-reset.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -125,6 +126,7 @@ import { DemoResetModule } from './demo-reset/demo-reset.module';
     LakehouseModule,
     TemplateModule,
     DemoResetModule,
+    ChatModule,
     // Wires the SDK that `instrument.ts` already initialized into Nest's
     // lifecycle, so spans carry the handler that produced them. A no-op when
     // no `SENTRY_DSN` was configured — `Sentry.init` was never called, and the

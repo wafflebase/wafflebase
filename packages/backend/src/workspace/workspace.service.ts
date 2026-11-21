@@ -6,6 +6,7 @@ import {
   GoneException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 
@@ -112,16 +113,74 @@ export class WorkspaceService {
     // silently reactivate keys nobody re-issued. Revoking the rows makes the
     // removal permanent, and keeps the two halves in one transaction so a key
     // can never survive a committed removal.
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.workspaceMember.delete({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-      });
-      await tx.apiKey.updateMany({
-        where: { workspaceId, createdBy: targetUserId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      return deleted;
-    });
+    //
+    // Chat memberships go in the same transaction for the same reason: the
+    // chat stream fans out on `ChatChannelMember` rows alone, so a row that
+    // outlived the workspace membership would keep delivering that
+    // workspace's events to somebody who no longer belongs to it.
+    const { deleted, channelIds } = await this.prisma.$transaction(
+      async (tx) => {
+        const deleted = await tx.workspaceMember.delete({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        });
+        await tx.apiKey.updateMany({
+          where: { workspaceId, createdBy: targetUserId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        const memberships = await tx.chatChannelMember.findMany({
+          where: { userId: targetUserId, channel: { workspaceId } },
+          select: { channelId: true },
+        });
+        const channelIds = memberships.map((m) => m.channelId);
+        await tx.chatChannelMember.deleteMany({
+          where: { userId: targetUserId, channelId: { in: channelIds } },
+        });
+        // A private channel this removal empties is deleted with it. Only
+        // its members can read it, so with none left its messages are
+        // unreadable by anybody, nobody can rejoin or archive it, and its
+        // name would stay reserved forever — the dead end
+        // `ChatChannelService.leave` refuses to create. One statement, so
+        // the emptiness check and the delete see the same rows. A DM keeps
+        // its other participant and a public channel stays open to every
+        // workspace member, so neither is touched.
+        if (channelIds.length > 0) {
+          await tx.chatChannel.deleteMany({
+            where: {
+              id: { in: channelIds },
+              kind: 'private',
+              members: { none: {} },
+            },
+          });
+        }
+        return { deleted, channelIds };
+      },
+    );
+    await this.announceChatMembership(channelIds);
+    return deleted;
+  }
+
+  /**
+   * Tells every replica's chat hub that these channels' member sets changed,
+   * so a removed member's open stream stops receiving them at once. A raw
+   * `pg_notify` keeps `WorkspaceModule` from depending on the chat module's
+   * providers, but the channel name and payload come from `chat-bus`, so
+   * the wire shape still has one author. Runs after commit: a replica that
+   * reloaded before the delete was visible would cache the old set again.
+   * The removal has committed either way, so a failed notify is logged, not
+   * thrown.
+   */
+  private async announceChatMembership(channelIds: string[]): Promise<void> {
+    for (const channelId of channelIds) {
+      const payload = memPayload(channelId);
+      try {
+        await this.prisma
+          .$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${payload})`;
+      } catch (err) {
+        this.logger.warn(
+          `chat membership notify failed for ${channelId}: ${String(err)}`,
+        );
+      }
+    }
   }
 
   async createInvite(

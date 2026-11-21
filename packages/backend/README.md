@@ -20,6 +20,15 @@ Create a `.env` file in this package:
 ```env
 FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
+CHAT_LISTEN_DATABASE_URL=               # Optional. The connection chat's
+                                        # LISTEN/NOTIFY listener uses; unset
+                                        # falls back to DATABASE_URL. Point it
+                                        # at Postgres directly when
+                                        # DATABASE_URL goes through a
+                                        # transaction-mode pooler (PgBouncer),
+                                        # which silently drops LISTEN — a
+                                        # probe on every connect logs a
+                                        # warning when it does not round-trip.
 JWT_SECRET=your_jwt_secret
 JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
 JWT_ACCESS_EXPIRES_IN=1h                # Optional
@@ -768,6 +777,59 @@ same replica) merged with a 60-second database re-check, which is what makes
 the stream correct across multiple replicas without Redis or Kafka. No
 environment variable configures any of this.
 
+### Chat (`/workspaces/:workspaceId/chat`)
+
+Workspace chat: public and private channels, DMs of 2–8 people, threads,
+edit and soft delete, and a per-member read position that drives unread
+counts (design: [`docs/design/chat.md`](../../docs/design/chat.md)). All
+routes require JWT authentication; `:workspaceId` accepts the workspace id
+or its slug. A channel the caller cannot read — another workspace's, a private
+one they are not in, any channel once they leave the workspace — answers
+`404`, the same as an unknown id.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/workspaces/:wid/chat/channels` | Channels the caller can see, with `unreadCount` / `mentionCount` |
+| `POST` | `/workspaces/:wid/chat/channels` | Create a public/private channel (`{ kind, name, topic? }`), or find-or-create a DM (`{ kind: 'dm', userIds }`) |
+| `PATCH` | `/workspaces/:wid/chat/channels/:cid` | Rename, topic, archive/unarchive — channel creator or workspace owner; never a DM |
+| `POST` | `/workspaces/:wid/chat/channels/:cid/members` | No `userIds`: join a public channel. With `userIds`: invite |
+| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM) |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
+| `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
+| `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |
+| `GET` | `/workspaces/:wid/chat/messages/:mid` | One message (a bell deep link learns whether it is a thread reply) |
+| `PATCH` | `/workspaces/:wid/chat/messages/:mid` | Edit one's own message (`{ body }`) |
+| `DELETE` | `/workspaces/:wid/chat/messages/:mid` | Soft-delete one's own message: the row and its `seq` stay, the body is cleared |
+| `GET` | `/chat/stream` | Per-user SSE across every workspace: `ready`, `message`, `update`, `ping` |
+
+A post allocates the channel's next `seq` under its row lock inside the
+insert transaction, so a channel's order is total and gap-free, and
+`?after=<seq>` is the catch-up cursor. An archived channel is read-only:
+posting, editing and deleting answer `409`. Mention tokens
+(`@[username](userId)`) are rewritten to the target's real username on post
+and edit, and a token naming somebody outside the workspace is flattened to
+plain `@name`. Mentions and thread replies reach the bell through the
+`Notification` table (`chat_mention`, `chat_thread_reply`), each recipient
+checked against their own access to the channel.
+
+The stream carries ids only. `ready` opens every (re)connect and is the
+client's cue to re-read unread counts and catch the open channel up;
+`message` is `{ workspaceId, channelId, seq, threadRootId, authorId }`;
+`update` (an edit or delete) is `{ workspaceId, channelId, messageId,
+threadRootId }` and the client refetches that message; `ping` is a 25 s
+keep-alive. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
+`chat` channel (`ChatBus`), fanned out per replica by `ChatHub` to the
+connected members of the channel from a member cache that a membership event
+evicts, that expires after 60 s in case that event was lost, and that a
+listener reconnect clears. A reconnect also sends `ready` down every open
+stream, since whatever was NOTIFYed during the outage never arrived. On
+`ready` the client re-reads the open channel's whole loaded range (so it
+picks up missed edits and deletes, not only appends) and invalidates its
+threads and other cached channels. A missed event costs latency, never
+messages. The listener's connect and `LISTEN` are bounded at 10 s, so a
+database that accepts TCP and then stalls reaches the retry path instead of
+holding boot open.
+
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 
 All API key endpoints require JWT authentication.
@@ -1045,7 +1107,7 @@ blob with none (see
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
-| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` / `template_review_queued` |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` / `template_review_queued` / `chat_mention` / `chat_thread_reply` (channel id in `threadId`, message id in `commentId`) |
 | `recipientId` | Int | FK to User (`Cascade`) |
 | `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
 | `workspaceId` | String | FK to Workspace (`Cascade`) |
@@ -1074,6 +1136,46 @@ blob with none (see
 | `licensedAt` | DateTime? | The publisher's grant that others may copy and modify. Required before `public` |
 | `originId` | String? | The publisher's original, once `documentId` points at the frozen copy a public listing is promoted to |
 | `publishedAt` / `createdAt` / `updatedAt` | DateTime | `@@index([visibility, status, useCount])` covers the public browse query; `@@index([workspaceId, visibility])` the workspace one |
+
+**ChatChannel** — a public or private channel, or a DM
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID |
+| `workspaceId` | String | FK to Workspace (`Cascade`) — a workspace takes its whole chat with it |
+| `kind` | String | `public` / `private` / `dm` |
+| `name` | String? | Null for a DM, which is labelled by its members. `@@unique([workspaceId, name])` |
+| `topic` | String? | |
+| `createdBy` | Int? | Creator; with workspace owners, the only one who may rename or archive |
+| `archivedAt` | DateTime? | Set = read-only |
+| `lastSeq` | BigInt | Last allocated message `seq`, bumped under the row lock |
+| `dmKey` | String? | Unique; DM only, `<workspaceId>:<sorted member ids>`, so concurrent opens land in one channel |
+| `lastMessageAt` | DateTime? | Recency ordering (the DM list sorts by it) |
+| `createdAt` | DateTime | Auto-set |
+
+**ChatChannelMember** — one user's membership and read position
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `channelId` / `userId` | | Composite PK; both FKs `Cascade`. Removing a workspace member drops their rows in the same transaction |
+| `lastReadSeq` | BigInt | Unread = top-level messages above it. Starts at the channel tail on join or invite |
+| `joinedAt` | DateTime | Auto-set |
+
+**ChatMessage** — a message or thread reply
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID |
+| `channelId` | String | FK to ChatChannel (`Cascade`) |
+| `seq` | BigInt | Per-channel monotonic; `@@unique([channelId, seq])`. The pagination and catch-up cursor |
+| `authorId` | Int? | FK to User (`SetNull`) — a message survives its author |
+| `apiKeyId` | String? | Reserved for posts made with an API key (P3) |
+| `body` | String | Plain text, mentions as canonical `@[username](userId)`. Cleared on soft delete |
+| `threadRootId` | String? | Null = top-level |
+| `alsoInChannel` | Boolean | A reply also shown in the channel flow |
+| `replyCount` / `lastReplyAt` | | Thread summary on the root |
+| `editedAt` / `deletedAt` | DateTime? | Soft delete keeps the row so `seq` stays gap-free and a root keeps its replies |
+| `createdAt` | DateTime | Auto-set |
 
 ## Module Structure
 
@@ -1127,6 +1229,7 @@ src/
 ├── image/                     # Image document type upload/serve (image-viewer.md)
 ├── analytics/                 # View-event Kafka producer + StarRocks reader (share-link-analytics.md)
 ├── notification/              # In-app notifications: REST + SSE, in-process hub (notifications.md)
+├── chat/                      # Workspace chat: channels, DMs, messages, LISTEN/NOTIFY bus + SSE hub (chat.md)
 ├── user-doc-styles/           # Per-user default docs named styles
 ├── health/                    # Health-check endpoint
 └── database/

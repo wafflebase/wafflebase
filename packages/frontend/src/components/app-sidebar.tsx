@@ -37,6 +37,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
 import type { Workspace } from "@/api/workspaces";
 import { createWorkspace } from "@/api/workspaces";
+import { totalUnread } from "@/components/chat/chat-cache";
+import { useChannels } from "@/components/chat/use-chat";
 
 /**
  * Renders the AppSidebar component.
@@ -62,6 +64,19 @@ export function AppSidebar({
     queryFn: fetchMe,
     retry: false,
   });
+
+  // The badge only reads the channel list; `ChatStreamHost` keeps it live.
+  const { data: chatChannels } = useChannels(
+    me ? currentWorkspace?.id : undefined,
+  );
+  const chatUnread = chatChannels ? totalUnread(chatChannels) : 0;
+  const mainItems = React.useMemo(
+    () =>
+      items.main.map((item) =>
+        item.url.endsWith("/chat") ? { ...item, badge: chatUnread } : item,
+      ),
+    [items.main, chatUnread],
+  );
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -142,7 +157,7 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={items.main} workspace={currentWorkspace} />
+        <NavMain items={mainItems} workspace={currentWorkspace} />
         <NavSecondary items={items.secondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

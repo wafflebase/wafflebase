@@ -56,6 +56,7 @@ describe("useWorkspaceNavItems", () => {
 
     expect(titles(result.current)).toEqual([
       "Documents",
+      "Chat",
       "Templates",
       "Data sources",
       "Trash",
@@ -63,6 +64,7 @@ describe("useWorkspaceNavItems", () => {
     ]);
     expect(result.current.main.map((i) => i.url)).toEqual([
       "/w/acme",
+      "/w/acme/chat",
       "/w/acme/templates",
       "/w/acme/datasources",
       "/w/acme/trash",
@@ -83,6 +85,7 @@ describe("useWorkspaceNavItems", () => {
 
     expect(titles(result.current)).toEqual([
       "Documents",
+      "Chat",
       "Templates",
       "Data sources",
       "Analytics",

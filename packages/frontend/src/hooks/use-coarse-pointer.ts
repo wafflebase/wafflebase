@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Media query for "the primary pointer is imprecise" — a finger rather
  * than a mouse or trackpad. This is the axis touch accommodations
@@ -21,12 +23,23 @@ export function isCoarsePointer(): boolean {
   return window.matchMedia(COARSE_POINTER_QUERY).matches;
 }
 
-// There is deliberately no React hook here. Every component-level
-// accommodation in this pass is a size, and sizes go through Tailwind's
-// `pointer-coarse:` variant — which is a media query the browser
-// re-evaluates on its own, with no re-render and no listener. A hook
-// would only be needed by a component that has to *branch* on the
-// pointer, and none does.
+/**
+ * The same question as a hook, for a component that has to *branch* on
+ * the pointer rather than resize. Sizes still belong to Tailwind's
+ * `pointer-coarse:` variant, which needs no re-render; reach for this only
+ * when a touch screen should get different elements — chat messages, whose
+ * hover actions become a long-press sheet.
+ */
+export function useCoarsePointer(): boolean {
+  return useSyncExternalStore(subscribe, isCoarsePointer, () => false);
+}
+
+function subscribe(onChange: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mql = window.matchMedia(COARSE_POINTER_QUERY);
+  mql.addEventListener?.("change", onChange);
+  return () => mql.removeEventListener?.("change", onChange);
+}
 
 /**
  * Hit slack handed to the slides editor on coarse input. 22px expands
