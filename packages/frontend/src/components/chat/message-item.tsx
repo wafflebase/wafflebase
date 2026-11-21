@@ -117,8 +117,12 @@ function MessageLine({
   // and keyboard trigger) as a sheet, the way Slack and Google Chat do it.
   const coarse = useCoarsePointer();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [byGesture, setByGesture] = useState(false);
   const touchActions = coarse && mode === "view" && !message.deleted;
-  const longPress = useLongPress(() => setSheetOpen(true), touchActions);
+  const longPress = useLongPress(() => {
+    setByGesture(true);
+    setSheetOpen(true);
+  }, touchActions);
 
   return (
     <div
@@ -242,7 +246,11 @@ function MessageLine({
         <TouchActions
           message={message}
           open={sheetOpen}
-          onOpenChange={setSheetOpen}
+          byGesture={byGesture}
+          onOpenChange={(open) => {
+            setSheetOpen(open);
+            if (!open) setByGesture(false);
+          }}
           onReply={canReply ? () => onOpenThread!(message.id) : undefined}
           onEdit={canAct ? () => setMode("edit") : undefined}
           onDelete={canAct ? () => setMode("confirm-delete") : undefined}
@@ -303,6 +311,8 @@ function MessageLine({
 interface TouchActionsProps {
   message: ChatMessageDto;
   open: boolean;
+  /** Opened by a hold, not by the trigger: no item should look selected. */
+  byGesture: boolean;
   onOpenChange: (open: boolean) => void;
   onReply?: () => void;
   onEdit?: () => void;
@@ -320,6 +330,7 @@ const SHEET_ITEM =
 function TouchActions({
   message,
   open,
+  byGesture,
   onOpenChange,
   onReply,
   onEdit,
@@ -360,7 +371,12 @@ function TouchActions({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="gap-0 rounded-t-xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="gap-0 rounded-t-xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] outline-none"
+        onOpenAutoFocus={(e) => {
+          if (!byGesture) return;
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
         onCloseAutoFocus={(e) => {
           if (chose.current) e.preventDefault();
           chose.current = false;
