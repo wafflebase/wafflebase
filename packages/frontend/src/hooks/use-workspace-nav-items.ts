@@ -5,6 +5,7 @@ import {
   IconDatabase,
   IconFolder,
   IconLayoutGrid,
+  IconMessages,
   IconSettings,
   IconTrash,
 } from "@tabler/icons-react";
@@ -27,7 +28,8 @@ export interface NavItems {
  * `workspaceSlug` is undefined until the current workspace resolves (an editor
  * learns it from the document it just fetched). That fallback keeps the
  * workspace-less `/documents` · `/datasources` · `/settings` routes, and omits
- * Templates and Analytics because they exist only under `/w/:workspaceId`.
+ * Chat, Templates and Analytics because they exist only under
+ * `/w/:workspaceId`.
  */
 export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
   // Hide the Analytics entry when the deployment has no analytics warehouse
@@ -55,6 +57,7 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
     return {
       main: [
         { title: "Documents", url: root, icon: IconFolder },
+        { title: "Chat", url: `${root}/chat`, icon: IconMessages },
         { title: "Templates", url: `${root}/templates`, icon: IconLayoutGrid },
         {
           title: "Data sources",

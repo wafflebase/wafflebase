@@ -4,6 +4,7 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -82,8 +83,16 @@ export function NavMain({
                 >
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
+                  {!!item.badge && (
+                    <span className="sr-only">, {item.badge} unread</span>
+                  )}
                 </Link>
               </SidebarMenuButton>
+              {!!item.badge && (
+                <SidebarMenuBadge aria-hidden>
+                  {item.badge > 99 ? "99+" : item.badge}
+                </SidebarMenuBadge>
+              )}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

@@ -97,6 +97,7 @@ const WorkspaceTemplates = lazyWithRetry(
 const WorkspaceTrash = lazyWithRetry(
   () => import("@/app/documents/trash-page"),
 );
+const WorkspaceChat = lazyWithRetry(() => import("@/app/chat/chat-page"));
 const WorkspaceDataSources = lazyWithRetry(
   () => import("@/app/workspaces/workspace-datasources"),
 );
@@ -150,6 +151,10 @@ function App() {
                       <Route
                         path="/w/:workspaceId"
                         element={<WorkspaceDocuments />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/chat/:channelId?"
+                        element={<WorkspaceChat />}
                       />
                       <Route
                         path="/w/:workspaceId/templates"
