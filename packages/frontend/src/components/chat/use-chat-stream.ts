@@ -163,15 +163,20 @@ export function useChatStream(enabled: boolean): void {
     const source = new EventSource(chatStreamUrl(), {
       withCredentials: true,
     });
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    // One timer per workspace: a burst in one must not cancel another's
+    // pending refresh.
+    const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const scheduleChannelsRefresh = (workspaceId: string) => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        void queryClient.invalidateQueries({
-          queryKey: chatKeys.channels(workspaceId),
-        });
-      }, CHANNELS_REFRESH_MS);
+      clearTimeout(refreshTimers.get(workspaceId));
+      refreshTimers.set(
+        workspaceId,
+        setTimeout(() => {
+          refreshTimers.delete(workspaceId);
+          void queryClient.invalidateQueries({
+            queryKey: chatKeys.channels(workspaceId),
+          });
+        }, CHANNELS_REFRESH_MS),
+      );
     };
 
     const onReady = () => {
@@ -236,7 +241,7 @@ export function useChatStream(enabled: boolean): void {
     source.addEventListener("message", onMessage as EventListener);
     source.addEventListener("error", onError);
     return () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
+      for (const timer of refreshTimers.values()) clearTimeout(timer);
       source.removeEventListener("ready", onReady);
       source.removeEventListener("message", onMessage as EventListener);
       source.removeEventListener("error", onError);

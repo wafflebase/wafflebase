@@ -217,6 +217,35 @@ describe("useChatStream", () => {
     );
   });
 
+  it("debounces the channel-list refresh per workspace", () => {
+    vi.useFakeTimers();
+    try {
+      const { queryClient, source } = harness();
+      queryClient.setQueryData(chatKeys.channels("w1"), [channel("c1")]);
+      queryClient.setQueryData(chatKeys.channels("w2"), [channel("c2")]);
+      const event = (workspaceId: string, channelId: string) => ({
+        workspaceId,
+        channelId,
+        seq: 1,
+        threadRootId: null,
+        authorId: 2,
+      });
+
+      // A message in w2 must not cancel w1's pending refresh.
+      act(() => source.emit("message", event("w1", "c1")));
+      act(() => source.emit("message", event("w2", "c2")));
+      act(() => vi.advanceTimersByTime(5_000));
+
+      for (const w of ["w1", "w2"]) {
+        expect(
+          queryClient.getQueryState(chatKeys.channels(w))?.isInvalidated,
+        ).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores a malformed frame", () => {
     const { source } = harness();
     expect(() => source.emit("message", { channelId: 4 })).not.toThrow();

@@ -149,16 +149,22 @@ export function Composer({
     });
   };
 
+  const canSend = !disabled && !sending && !!trimmed && !tooLong;
+
   const send = async () => {
     if (!trimmed || sending || disabled || tooLong) return;
     const finalBody = applySelectedMentions(body, selectedRef.current).trim();
     setSending(true);
     try {
       await onSend(finalBody);
-      update("");
-      draftStore.clear(channelId);
-      selectedRef.current = [];
-      setMentionQuery(null);
+      // The box stays editable during the send; text typed meanwhile was
+      // never sent, so only the snapshot that went out is cleared.
+      if ((textareaRef.current?.value ?? body) === body) {
+        update("");
+        draftStore.clear(channelId);
+        selectedRef.current = [];
+        setMentionQuery(null);
+      }
     } catch {
       // The caller reports the failure; the text stays so nothing is lost.
     } finally {
@@ -241,12 +247,16 @@ export function Composer({
           // 16px below `md` so iOS does not zoom the page on focus.
           className="caret-primary placeholder:text-muted-foreground min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-base outline-none disabled:cursor-not-allowed md:text-sm"
         />
+        {/* Syrup only once there is something to send: a channel and its
+            open thread each mount a composer, and two idle primary buttons
+            side by side break the One Accent Rule. */}
         <Button
           type="button"
           size="icon"
+          variant={canSend ? "default" : "ghost"}
           aria-label="Send message"
           onClick={() => void send()}
-          disabled={disabled || sending || !trimmed || tooLong}
+          disabled={!canSend}
           className="size-8 shrink-0 pointer-coarse:size-11"
         >
           <IconSend />

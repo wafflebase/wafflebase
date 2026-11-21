@@ -390,6 +390,62 @@ describeDb('Chat integration', () => {
       ).toBe(3);
     });
 
+    it('reopening a DM restores a member whose row was removed', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const dm = await channels.openDm(owner.id, workspace.id, [peer.id]);
+      await messages.post(owner.id, dm.id, { body: 'before you left' });
+      // What `WorkspaceService.removeMember` leaves behind; the person is
+      // then invited back, so only their chat row is missing.
+      await prisma.chatChannelMember.deleteMany({
+        where: { channelId: dm.id, userId: peer.id },
+      });
+      const notify = jest.spyOn(bus, 'notifyMembership');
+
+      const reopened = await channels.openDm(peer.id, workspace.id, [owner.id]);
+
+      expect(reopened).toMatchObject({ id: dm.id, isMember: true });
+      expect(reopened.members).toHaveLength(2);
+      expect(notify).toHaveBeenCalledWith(dm.id);
+      // Reopening is not a new arrival: the history reads as unread, since
+      // it was addressed to them.
+      expect(reopened.unreadCount).toBe(1);
+
+      // The other side reopening it repairs it the same way.
+      await prisma.chatChannelMember.deleteMany({
+        where: { channelId: dm.id, userId: peer.id },
+      });
+      await channels.openDm(owner.id, workspace.id, [peer.id]);
+      const [seen] = await channels.list(peer.id, workspace.id);
+      expect(seen).toMatchObject({ id: dm.id, isMember: true });
+    });
+
+    it('joining or being invited starts the read position at the tail', async () => {
+      const { owner, members, workspace } = await team(2);
+      const [joiner, invitee] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'general',
+      });
+      for (const user of [joiner, invitee]) {
+        await messages.post(owner.id, channel.id, {
+          body: `old @[${user.username}](${user.id})`,
+        });
+      }
+
+      const joined = await channels.join(joiner.id, channel.id);
+      expect(joined).toMatchObject({ unreadCount: 0, mentionCount: 0 });
+
+      await channels.invite(owner.id, channel.id, [invitee.id]);
+      const [invited] = await channels.list(invitee.id, workspace.id);
+      expect(invited).toMatchObject({ unreadCount: 0, mentionCount: 0 });
+
+      // Whatever arrives afterwards counts as usual.
+      await messages.post(owner.id, channel.id, { body: 'new' });
+      const [later] = await channels.list(joiner.id, workspace.id);
+      expect(later.unreadCount).toBe(1);
+    });
+
     it('join, leave and membership notifications', async () => {
       const { owner, members, workspace } = await team(1);
       const [peer] = members;

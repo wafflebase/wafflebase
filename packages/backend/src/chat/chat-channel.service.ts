@@ -167,7 +167,20 @@ export class ChatChannelService {
       where: { dmKey: key },
       select: { id: true },
     });
-    if (existing) return this.summaryOf(userId, existing.id);
+    if (existing) {
+      // A DM's identity is its key, but its member rows are not permanent:
+      // removing someone from the workspace deletes them. Everyone here was
+      // just checked to be a workspace member again, so restore the set.
+      const { count } = await this.prisma.chatChannelMember.createMany({
+        data: ids.map((memberId) => ({
+          channelId: existing.id,
+          userId: memberId,
+        })),
+        skipDuplicates: true,
+      });
+      if (count > 0) await this.announceMembership(existing.id);
+      return this.summaryOf(userId, existing.id);
+    }
 
     let channelId: string;
     try {
@@ -202,8 +215,10 @@ export class ChatChannelService {
     }
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
     if (!ctx.isChannelMember) {
+      // A newcomer starts at the tail: history from before they joined is
+      // not unread, and its mentions were not addressed to a member.
       await this.prisma.chatChannelMember.createMany({
-        data: [{ channelId, userId }],
+        data: [{ channelId, userId, lastReadSeq: channel.lastSeq }],
         skipDuplicates: true,
       });
       await this.announceMembership(channelId);
@@ -241,7 +256,11 @@ export class ChatChannelService {
       );
     }
     const { count } = await this.prisma.chatChannelMember.createMany({
-      data: ids.map((id) => ({ channelId, userId: id })),
+      data: ids.map((id) => ({
+        channelId,
+        userId: id,
+        lastReadSeq: channel.lastSeq,
+      })),
       skipDuplicates: true,
     });
     if (count > 0) await this.announceMembership(channelId);

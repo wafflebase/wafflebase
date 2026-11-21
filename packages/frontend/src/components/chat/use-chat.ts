@@ -124,7 +124,9 @@ export function useThreadMessages(
     queryKey: chatKeys.thread(rootId),
     queryFn: async () => {
       let all: ChatMessageDto[] = [];
-      let after: number | undefined;
+      // Page forward from the start: without a cursor the server returns
+      // the newest page, after which nothing is newer and the loop stops.
+      let after = 0;
       for (let page = 0; page < MAX_THREAD_PAGES; page++) {
         const batch = await fetchMessages(workspaceId, channelId, {
           thread: rootId,
@@ -132,7 +134,9 @@ export function useThreadMessages(
         });
         all = mergeMessages(all, batch);
         if (batch.length < CHAT_PAGE_SIZE) break;
-        after = lastSeqOf(batch) ?? undefined;
+        const last = lastSeqOf(batch);
+        if (last === null) break;
+        after = last;
       }
       return all;
     },

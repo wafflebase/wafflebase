@@ -22,6 +22,30 @@ describe("Composer", () => {
     await vi.waitFor(() => expect(box()).toHaveValue(""));
   });
 
+  it("keeps text typed while a send is in flight", async () => {
+    let resolve!: () => void;
+    const onSend = vi.fn(
+      () => new Promise<void>((r) => (resolve = r)),
+    );
+    render(<Composer channelId="c1" onSend={onSend} />);
+    type("first");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("first");
+    type("first second thought");
+    resolve();
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(box()).toHaveValue("first second thought");
+  });
+
+  it("shows Send as primary only when there is something to send", () => {
+    render(<Composer channelId="c1" onSend={vi.fn()} />);
+    const send = screen.getByRole("button", { name: /send message/i });
+    expect(send).not.toHaveClass("bg-primary");
+    type("hello");
+    expect(send).toHaveClass("bg-primary");
+  });
+
   it("does not send on Shift+Enter, which is a newline", () => {
     const onSend = vi.fn();
     render(<Composer channelId="c1" onSend={onSend} />);

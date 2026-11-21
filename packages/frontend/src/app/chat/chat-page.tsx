@@ -31,7 +31,7 @@ import {
 import { Conversation } from "@/components/chat/conversation";
 import { ThreadView } from "@/components/chat/thread-view";
 import { useChannels, useLeaveChannel } from "@/components/chat/use-chat";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { MOBILE_BREAKPOINT, useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { ChannelList } from "./channel-list";
 import { chatLayout } from "./chat-layout";
@@ -102,7 +102,10 @@ export default function ChatPage() {
     if (workspaceId && channelId) writeLastChannel(workspaceId, channelId);
   }, [workspaceId, channelId]);
   useEffect(() => {
-    if (isMobile || channelId || !workspaceId || !channelsQuery.data) return;
+    // `useIsMobile` reads false until its own effect runs, and the channel
+    // list is often cached already, so ask the viewport directly.
+    const phone = isMobile || window.innerWidth < MOBILE_BREAKPOINT;
+    if (phone || channelId || !workspaceId || !channelsQuery.data) return;
     const last = readLastChannel(workspaceId);
     if (last && channelsQuery.data.some((c) => c.id === last && !c.archived)) {
       navigate(hrefFor(last), { replace: true });
