@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -14,6 +14,9 @@ import { groupMessages } from "./group-messages";
 import { MessageGroupView } from "./message-item";
 import { useFlashMessage } from "./use-flash-message";
 import { useChannels, usePostMessage, useThreadMessages } from "./use-chat";
+
+/** Within this of the end still counts as reading the newest reply. */
+const BOTTOM_SLACK_PX = 48;
 
 interface ThreadViewProps {
   workspaceId: string;
@@ -72,18 +75,41 @@ export function ThreadView({
     !!highlightMessageId && replies.some((m) => m.id === highlightMessageId);
   const flashing = useFlashMessage(highlightMessageId, present);
 
+  // A thread opens at its root, as Slack's does: the root is the context
+  // every reply answers. A deep link instead scrolls its reply into view
+  // (`useFlashMessage`). After that, a new reply is followed only by a
+  // reader already at the end, or by the one who just sent it.
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastReply = replies.at(-1)?.id;
-  useEffect(() => {
+  const atBottomRef = useRef(false);
+  const opened = useRef(false);
+  const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (el && !highlightMessageId) el.scrollTop = el.scrollHeight;
-  }, [lastReply, highlightMessageId]);
+    if (!el) return;
+    atBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX;
+  }, []);
+  const lastReply = replies.at(-1)?.id;
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || thread.isLoading) return;
+    if (!opened.current) {
+      opened.current = true;
+      if (!highlightMessageId) el.scrollTop = 0;
+    } else if (atBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+    onScroll();
+  }, [lastReply, thread.isLoading, highlightMessageId, onScroll]);
 
   const send = async (body: string) => {
+    // Set before the post: its success writes the reply into the cache
+    // before `mutateAsync` resolves, and the scroll effect runs on that.
+    atBottomRef.current = true;
     try {
       await post.mutateAsync({ body, threadRootId: rootId, alsoInChannel });
       setAlsoInChannel(false);
     } catch (err) {
+      onScroll();
       toast.error(userFacingError(err, "Couldn't send your reply. Try again."));
       throw err;
     }
@@ -98,6 +124,7 @@ export function ThreadView({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3"
         role="log"
         aria-label="Thread"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
+  IconCopy,
   IconDots,
   IconMessageReply,
   IconPencil,
@@ -19,17 +20,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
   mentionBodyToPlainText,
   parseMentionBody,
   applySelectedMentions,
 } from "@/components/comments/mentions";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { cn } from "@/lib/utils";
 import { formatTime } from "./format-time";
 import type { MessageGroup } from "./group-messages";
 import { MessageBody } from "./message-body";
 import { useDeleteMessage, useEditMessage } from "./use-chat";
+import { useLongPress } from "./use-long-press";
 
 const UNKNOWN_AUTHOR = "Deleted user";
 
@@ -102,16 +112,27 @@ function MessageLine({
   const remove = useDeleteMessage(workspaceId);
   const canAct = mine && !message.deleted;
   const canReply = !!onOpenThread && !message.threadRootId && !message.deleted;
+  // A finger has no hover, so a touch screen gets no hover toolbar: the
+  // actions open from a press-and-hold on the message (or its screen-reader
+  // and keyboard trigger) as a sheet, the way Slack and Google Chat do it.
+  const coarse = useCoarsePointer();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const touchActions = coarse && mode === "view" && !message.deleted;
+  const longPress = useLongPress(() => setSheetOpen(true), touchActions);
 
   return (
     <div
       id={`chat-message-${message.id}`}
       data-message-id={message.id}
+      {...longPress}
       className={cn(
         "group/message relative flex gap-3 px-4 py-1 hover:bg-muted/60",
         "motion-safe:transition-colors motion-safe:duration-700",
         highlighted && "bg-selected hover:bg-selected",
         showHeader && "mt-2 pt-2",
+        // The hold is ours, not the browser's text-selection callout.
+        touchActions && "select-none [-webkit-touch-callout:none]",
+        sheetOpen && "bg-muted/60",
       )}
     >
       <div className="w-8 shrink-0">
@@ -217,12 +238,21 @@ function MessageLine({
           </button>
         )}
       </div>
-      {mode === "view" && (canReply || canAct) && (
+      {touchActions && (
+        <TouchActions
+          message={message}
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          onReply={canReply ? () => onOpenThread!(message.id) : undefined}
+          onEdit={canAct ? () => setMode("edit") : undefined}
+          onDelete={canAct ? () => setMode("confirm-delete") : undefined}
+        />
+      )}
+      {!coarse && mode === "view" && (canReply || canAct) && (
         <div
           className={cn(
             "absolute top-0 right-3 -translate-y-1/3 flex items-center rounded-md border bg-background",
             "opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100",
-            "pointer-coarse:opacity-100",
           )}
         >
           {canReply && (
@@ -267,6 +297,111 @@ function MessageLine({
         </div>
       )}
     </div>
+  );
+}
+
+interface TouchActionsProps {
+  message: ChatMessageDto;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReply?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}
+
+const SHEET_ITEM =
+  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
+
+/**
+ * A message's actions on a touch screen: a bottom sheet opened by a
+ * press-and-hold, or by a trigger that stays invisible until focused so a
+ * screen reader or a keyboard reaches the same actions without a gesture.
+ */
+function TouchActions({
+  message,
+  open,
+  onOpenChange,
+  onReply,
+  onEdit,
+  onDelete,
+}: TouchActionsProps) {
+  // Edit focuses its textarea and Reply navigates; the sheet must not hand
+  // focus back to its trigger over either.
+  const chose = useRef(false);
+  const pick = (action: () => void) => () => {
+    chose.current = true;
+    onOpenChange(false);
+    action();
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(mentionBodyToPlainText(message.body));
+      toast.success("Message copied");
+    } catch {
+      toast.error("Couldn't copy the message. Select it and copy instead.");
+    }
+  };
+  const preview = mentionBodyToPlainText(message.body);
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetTrigger asChild>
+        <button
+          type="button"
+          aria-label="Message actions"
+          className={cn(
+            "sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-0 focus-visible:right-2",
+            "focus-visible:inline-flex focus-visible:size-11 focus-visible:items-center focus-visible:justify-center",
+            "rounded-md border bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          )}
+        >
+          <IconDots className="size-5" />
+        </button>
+      </SheetTrigger>
+      <SheetContent
+        side="bottom"
+        className="gap-0 rounded-t-xl px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        onCloseAutoFocus={(e) => {
+          if (chose.current) e.preventDefault();
+          chose.current = false;
+        }}
+      >
+        <div className="min-h-11 py-3 pr-12 pl-3">
+          <SheetTitle className="text-sm">Message actions</SheetTitle>
+          <SheetDescription className="line-clamp-2 break-words">
+            {preview}
+          </SheetDescription>
+        </div>
+        <div className="flex flex-col">
+          {onReply && (
+            <button type="button" className={SHEET_ITEM} onClick={pick(onReply)}>
+              <IconMessageReply />
+              Reply in thread
+            </button>
+          )}
+          <button type="button" className={SHEET_ITEM} onClick={pick(copy)}>
+            <IconCopy />
+            Copy text
+          </button>
+          {onEdit && (
+            <button type="button" className={SHEET_ITEM} onClick={pick(onEdit)}>
+              <IconPencil />
+              Edit message
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              className={cn(SHEET_ITEM, "text-destructive [&_svg]:text-destructive")}
+              onClick={pick(onDelete)}
+            >
+              <IconTrash />
+              Delete message
+            </button>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
