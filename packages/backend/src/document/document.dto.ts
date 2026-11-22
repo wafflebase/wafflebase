@@ -13,7 +13,7 @@ import {
 } from 'class-validator';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
-const DOCUMENT_TYPES = [
+export const DOCUMENT_TYPES = [
   'sheet',
   'doc',
   'slides',

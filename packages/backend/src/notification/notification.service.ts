@@ -197,6 +197,52 @@ export class NotificationService {
   }
 
   /**
+   * A webhook is failing (`webhook_failing`, sent once per failure streak) or
+   * was turned off (`webhook_disabled`). Created server-side by the webhook
+   * delivery worker and management service.
+   *
+   * Addressed to **every owner**, not the creator: the creator may be the
+   * reason it was disabled (`creator_removed`), and any owner can re-enable
+   * it. There is no document; `threadId` carries the webhook id so the
+   * client can link to its detail page, the way chat rows carry a channel.
+   *
+   * `dedupeKey` is `<webhookId>:<type>:<since>` — the streak start for a
+   * warning, the disable instant for a disable — so a retried call creates no
+   * second row while the next streak or disable still notifies.
+   */
+  async createWebhookAlert(input: {
+    workspaceId: string;
+    webhook: { id: string; name: string };
+    type: 'webhook_failing' | 'webhook_disabled';
+    /** Plain words, appended to the name in the preview. */
+    reason: string;
+    since: Date;
+    /** Who caused it, when a person did (a manual disable). */
+    actorId?: number | null;
+  }): Promise<{ created: number }> {
+    const owners = await this.prisma.workspaceMember.findMany({
+      where: { workspaceId: input.workspaceId, role: 'owner' },
+      select: { userId: true },
+    });
+    const actorId = input.actorId ?? null;
+    return this.insert(
+      unique(owners.map((o) => o.userId))
+        .filter((id) => id !== actorId)
+        .map((recipientId) => ({
+          type: input.type,
+          recipientId,
+          actorId,
+          workspaceId: input.workspaceId,
+          documentId: null,
+          threadId: input.webhook.id,
+          commentId: null,
+          dedupeKey: `${input.webhook.id}:${input.type}:${input.since.toISOString()}`,
+          preview: sanitizePreview(`${input.webhook.name}: ${input.reason}`),
+        })),
+    );
+  }
+
+  /**
    * A reviewer decided a template submission. Created server-side, like
    * `createMemberJoined` and unlike the comment events — review happens in
    * this backend, so no client reports it.

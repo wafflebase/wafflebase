@@ -444,6 +444,57 @@ describe('NotificationService', () => {
     });
   });
 
+  describe('createWebhookAlert', () => {
+    it('notifies every owner, keyed on the webhook and the streak', async () => {
+      prisma.workspaceMember.findMany.mockResolvedValue([
+        { userId: 10 },
+        { userId: 13 },
+      ]);
+      const since = new Date('2026-11-20T00:00:00.000Z');
+
+      await service.createWebhookAlert({
+        workspaceId: WORKSPACE,
+        webhook: { id: 'wh1', name: 'Zapier' },
+        type: 'webhook_failing',
+        reason: 'Last response: 502',
+        since,
+      });
+
+      expect(prisma.workspaceMember.findMany).toHaveBeenCalledWith({
+        where: { workspaceId: WORKSPACE, role: 'owner' },
+        select: { userId: true },
+      });
+      expect(
+        insertedRows()
+          .map((r) => r.recipientId)
+          .sort(),
+      ).toEqual([10, 13]);
+      expect(insertedRows()[0]).toMatchObject({
+        type: 'webhook_failing',
+        actorId: null,
+        documentId: null,
+        threadId: 'wh1',
+        dedupeKey: 'wh1:webhook_failing:2026-11-20T00:00:00.000Z',
+        preview: 'Zapier: Last response: 502',
+      });
+    });
+
+    it('does not notify the owner who disabled it themselves', async () => {
+      prisma.workspaceMember.findMany.mockResolvedValue([{ userId: 10 }]);
+
+      const result = await service.createWebhookAlert({
+        workspaceId: WORKSPACE,
+        webhook: { id: 'wh1', name: 'Zapier' },
+        type: 'webhook_disabled',
+        reason: 'Turned off',
+        since: new Date(),
+        actorId: 10,
+      });
+
+      expect(result).toEqual({ created: 0 });
+    });
+  });
+
   describe('markRead', () => {
     it('marks only the caller rows, so one user cannot read another inbox', async () => {
       prisma.notification.updateMany.mockResolvedValue({ count: 2 });
