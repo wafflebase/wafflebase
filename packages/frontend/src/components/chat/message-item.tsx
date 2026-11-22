@@ -640,6 +640,8 @@ function EditBox({
           ref={ref}
           value={text}
           aria-label="Edit message"
+          // The Chat page's channel keys stand down while this is open.
+          data-chat-edit=""
           aria-invalid={tooLong || undefined}
           className="min-h-16 resize-none"
           {...mention.inputProps}

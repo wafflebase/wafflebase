@@ -691,7 +691,15 @@ say:
   paging, catch-up and `ready` reconciles cannot drop or duplicate them. The
   POST's answer swaps the pending row for the server row in one tick; if the
   stream delivers that row first, the pending row is hidden by matching
-  author and body among rows newer than the send.
+  author and body among rows newer than the send. A failed row is never
+  hidden that way — a later message with the same words would make one that
+  never arrived disappear — so a post whose response alone was lost shows as
+  failed beside its copy. Posts queue per channel so quick sends keep their
+  order (a hung post is waited on for 15 s, then the queue moves on), and
+  unanswered sends are mirrored to `sessionStorage` under the user and the
+  channel: once the composer clears, that row is the only copy of the text,
+  so it has to survive a reload, and must not reach the next user to sign in
+  to the tab. One read back still pending comes back failed.
 - **Keyboard and screen readers.** The message scroller is a labelled
   region, not `role="log"`: a log is implicitly live, so a first load or
   "Load older" read whole pages aloud. A separate polite region announces

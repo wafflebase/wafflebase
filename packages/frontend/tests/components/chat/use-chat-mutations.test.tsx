@@ -437,6 +437,50 @@ describe("useSendMessage", () => {
     ]);
   });
 
+  it("does not wait forever on a post that hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      api.postMessage
+        .mockReturnValueOnce(new Promise(() => {}))
+        .mockResolvedValueOnce(msg(2, { body: "next" }));
+      const { result } = renderSend();
+      act(() => {
+        void result.current.sender.send({ body: "stuck" });
+        void result.current.sender.send({ body: "next" });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(api.postMessage).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(api.postMessage).toHaveBeenCalledTimes(2);
+      expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", {
+        body: "next",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never shows one user's unsent messages to the next in the tab", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const first = renderSend();
+    await act(async () => {
+      await first.result.current.sender.send({ body: "mine" }).catch(() => {});
+    });
+    await waitFor(() => expect(first.result.current.channel).toHaveLength(1));
+
+    // Signed out, and somebody else signed in, in the same tab.
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(["me"], { id: 2, username: "other", photo: "" });
+    const { result } = renderHook(() => usePendingMessages("c1", null), {
+      wrapper,
+    });
+    expect(result.current).toEqual([]);
+  });
+
   it("shows a thread reply in its thread, and in the channel only when also sent there", async () => {
     api.postMessage.mockReturnValue(new Promise(() => {}));
     const { result } = renderSend();

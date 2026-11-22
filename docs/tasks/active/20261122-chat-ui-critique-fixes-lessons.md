@@ -42,3 +42,16 @@
 - **Clearing input optimistically moves durability, not just UX.** The
   draft was the only persisted copy of unsent text; clearing it on send
   made the pending row the copy, so that row had to become persistent too.
+- Round 3 (security/docs — the bound): rebuttal upheld (overturned the
+  finding). Five new findings, all from round 2's changes, all fixed without
+  a fourth panel round: failed rows are no longer twin-hidden (text matching
+  could claim a later same-text message's row and hide an undelivered one —
+  reverting the round-2 reviewer suggestion); the pending store is keyed by
+  user so a sign-out/sign-in in one tab neither shows nor re-sends the last
+  user's text; the send queue waits at most 15 s on a hung post; channel
+  keys stand down while a message edit is open. Loop stopped at the bound;
+  the PR asks a human to look at the optimistic-send path first.
+- **A fix suggested by one reviewer can be the next round's critical.**
+  Hiding failed twins (round 2) traded a rare duplicate for a silent loss.
+  When a "fix" changes what the user can lose, weigh the failure modes
+  instead of applying it because it was asked for.

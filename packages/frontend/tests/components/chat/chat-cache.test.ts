@@ -299,14 +299,10 @@ describe("withPending", () => {
     expect(out.map((m) => m.id)).toEqual(["m3", "local-ok2"]);
   });
 
-  it("keeps a failed send drawn", () => {
-    const out = withPending([msg(2)], [local(2, "x", "failed")]);
-    expect(out.map((m) => m.id)).toEqual(["m2", "local-x"]);
-  });
-
-  it("hides a 'failed' send the server took anyway", () => {
-    // The post landed but its response was lost; the stream brought the row.
+  it("keeps a failed send drawn, even beside a later row with its words", () => {
+    // m3 may be a second "x" sent after this one failed; matching by text
+    // must not make an undelivered message disappear.
     const out = withPending([msg(3, { body: "x" })], [local(2, "x", "failed")]);
-    expect(out.map((m) => m.id)).toEqual(["m3"]);
+    expect(out.map((m) => m.id)).toEqual(["m3", "local-x"]);
   });
 });

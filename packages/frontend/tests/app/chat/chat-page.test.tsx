@@ -448,6 +448,20 @@ describe("ChatPage keyboard", () => {
     expect(location.current).toBe("/w/team/chat/d1");
   });
 
+  it("stays put while a message edit is open, so the edit is not lost", async () => {
+    const location = renderAt("/w/team/chat/alpha");
+    await screen.findByTestId("conversation");
+    const edit = document.createElement("textarea");
+    edit.setAttribute("data-chat-edit", "");
+    document.body.append(edit);
+    try {
+      await press("ArrowDown", { altKey: true });
+      expect(location.current).toBe("/w/team/chat/alpha");
+    } finally {
+      edit.remove();
+    }
+  });
+
   it("jumps to the next unread channel with Alt+Shift+arrows", async () => {
     const location = renderAt("/w/team/chat/alpha");
     await screen.findByTestId("conversation");

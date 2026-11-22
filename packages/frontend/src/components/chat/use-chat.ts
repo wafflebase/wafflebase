@@ -222,6 +222,7 @@ function applyPosted(
 const NO_PENDING: PendingSend[] = [];
 let lastClientId = 0;
 /** Each channel's last queued post, per client; see `run` in `useSendMessage`. */
+const SEND_QUEUE_WAIT_MS = 15_000;
 const sendQueues = new WeakMap<QueryClient, Map<string, Promise<void>>>();
 
 /**
@@ -242,7 +243,8 @@ export function usePendingMessages(
     queryKey: key,
     queryFn: () => queryClient.getQueryData<PendingSend[]>(key) ?? [],
     // What a reload left behind; `updatePending` keeps the two in step.
-    initialData: () => pendingStore.load(channelId),
+    initialData: () =>
+      pendingStore.load(queryClient.getQueryData<User>(["me"])?.id, channelId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -298,10 +300,16 @@ export function useSendMessage(workspaceId: string, channelId: string) {
         }
       };
       // One post at a time per channel: the composer clears at once, so two
-      // quick sends would otherwise race and could land out of order.
+      // quick sends would otherwise race and could land out of order. A post
+      // that hangs is waited on only so long, so it cannot hold every later
+      // send at "pending" with no Retry.
       let queues = sendQueues.get(queryClient);
       if (!queues) sendQueues.set(queryClient, (queues = new Map()));
-      const result = (queues.get(channelId) ?? Promise.resolve()).then(post);
+      const previous = queues.get(channelId) ?? Promise.resolve();
+      const result = Promise.race([
+        previous,
+        new Promise<void>((r) => setTimeout(r, SEND_QUEUE_WAIT_MS)),
+      ]).then(post);
       queues.set(
         channelId,
         result.then(
@@ -372,7 +380,10 @@ export function useSendMessage(workspaceId: string, channelId: string) {
     (clientId: string): Promise<ChatMessageDto> | null => {
       const entry = (
         queryClient.getQueryData<PendingSend[]>(chatKeys.pending(channelId)) ??
-        pendingStore.load(channelId)
+        pendingStore.load(
+          queryClient.getQueryData<User>(["me"])?.id,
+          channelId,
+        )
       ).find((p) => p.clientId === clientId);
       if (!entry || entry.state !== "failed") return null;
       updatePending(queryClient, channelId, (sends) =>

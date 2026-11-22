@@ -280,6 +280,8 @@ export default function ChatPage() {
     const onKey = (e: KeyboardEvent) => {
       const action = chatShortcut(e);
       if (!action) return;
+      // Moving channel would unmount an open message edit and lose it.
+      if (document.querySelector("[data-chat-edit]")) return;
       const { channels, channelId, hrefFor, navigate } = keysRef.current;
       if (action === "switcher") {
         // A second Mod+K closes it, as in Slack; any other dialog keeps it shut.
