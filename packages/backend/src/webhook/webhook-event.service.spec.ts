@@ -478,6 +478,8 @@ describe('WebhookEventService content_updated intake', () => {
     const { sql, values } = rawCall(prisma.$executeRaw);
     expect(sql).toContain('"apiWriters"');
     expect(sql).toContain("DISTINCT ON (w->>'api_key_id')");
+    // Keeps the window open for Yorkie's own (later) event for this write.
+    expect(sql).toMatch(/SET "lastIssuedAt" = GREATEST\(/);
     expect(values).toContain(
       JSON.stringify([
         { api_key_id: 'k1', user_id: 7, at: '2026-11-20T09:10:02.000Z' },

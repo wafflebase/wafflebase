@@ -306,7 +306,12 @@ export class WebhookEventService {
         AND d."deletedAt" IS NULL
         AND ${subscribedToContent()}
       ON CONFLICT ("documentId") DO UPDATE
-        SET "apiWriters" = (
+        -- Push the quiet window forward too: Yorkie's own event for this
+        -- write arrives later, and a window that flushed in between would
+        -- reopen with empty api_writers and defeat the receiver's loop guard.
+        SET "lastIssuedAt" = GREATEST(
+              "WebhookContentPending"."lastIssuedAt", EXCLUDED."lastIssuedAt"),
+            "apiWriters" = (
           SELECT COALESCE(jsonb_agg(w ORDER BY w->>'at'), '[]'::jsonb)
           FROM (
             SELECT DISTINCT ON (w->>'api_key_id') w
