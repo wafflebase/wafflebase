@@ -181,8 +181,9 @@ export function ChannelSettingsDialog({
             <DialogHeader>
               <DialogTitle>Archive #{channel.name}?</DialogTitle>
               <DialogDescription>
-                Nobody will be able to post in it. Everyone who can see it now
-                can still read its history, and it can be unarchived later.
+                Nobody will be able to post in it. It moves to Archived in the
+                channel list, where everyone who can see it now can still read
+                its history, and it can be unarchived later.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

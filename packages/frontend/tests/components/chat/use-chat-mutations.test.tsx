@@ -70,6 +70,8 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     isMember: true,
     canManage: false,
     members: [],
+    lastSeq: 6,
+    lastReadSeq: 3,
     unreadCount: 3,
     mentionCount: 1,
     lastMessageAt: null,
@@ -115,6 +117,7 @@ describe("useMarkRead", () => {
     expect(list?.find((c) => c.id === "c1")).toMatchObject({
       unreadCount: 0,
       mentionCount: 0,
+      lastReadSeq: 6,
     });
     // Other channels keep their counts.
     expect(list?.find((c) => c.id === "c2")?.unreadCount).toBe(3);

@@ -45,6 +45,27 @@ export function canManage(
 }
 
 /**
+ * Remove somebody else from a channel the caller can read: its creator or a
+ * workspace owner, on a public or private channel alike, and a workspace
+ * owner may only be removed by another owner. Stricter than `canManage` on
+ * purpose. Archiving is open to every member of a private channel so a last
+ * member is never stranded, but removing evicts a person, and there that
+ * rule would let any member evict the creator and every owner. Nothing is
+ * stranded by refusing it: the members can still leave or archive.
+ */
+export function canRemove(
+  ctx: AccessContext & {
+    isCreator: boolean;
+    isWorkspaceOwner: boolean;
+    targetIsWorkspaceOwner: boolean;
+  },
+): boolean {
+  if (!canRead(ctx) || ctx.kind === 'dm') return false;
+  if (ctx.targetIsWorkspaceOwner && !ctx.isWorkspaceOwner) return false;
+  return ctx.isCreator || ctx.isWorkspaceOwner;
+}
+
+/**
  * What a mention does for the mentioned user. A channel member is notified;
  * a workspace member outside a public channel is notified too, with the
  * preview being their way in (they can read it and join). Anyone who cannot

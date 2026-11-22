@@ -92,6 +92,16 @@ describe("groupMessages", () => {
     );
   });
 
+  it("starts a new group at the message a divider sits above", () => {
+    const a = msg(minji, "10:00");
+    const b = msg(minji, "10:01");
+    const c = msg(minji, "10:02");
+    expect(shape(groupMessages([a, b, c], b.id))).toEqual([
+      ["minji", 1],
+      ["minji", 2],
+    ]);
+  });
+
   it("is empty for no messages", () => {
     expect(groupMessages([])).toEqual([]);
   });

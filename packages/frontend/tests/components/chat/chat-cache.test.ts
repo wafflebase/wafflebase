@@ -26,6 +26,8 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     isMember: true,
     canManage: false,
     members: [],
+    lastSeq: 0,
+    lastReadSeq: 0,
     unreadCount: 0,
     mentionCount: 0,
     lastMessageAt: null,
@@ -78,6 +80,15 @@ describe("applyChatEvent", () => {
     const out = applyChatEvent(state("c1"), event());
     expect(out.channels.find((c) => c.id === "c2")?.unreadCount).toBe(2);
     expect(out.fetchAfter).toBeNull();
+  });
+
+  it("moves lastSeq for every message, the open channel's included", () => {
+    // A channel left open and scrolled up has unread messages it does not
+    // count; reopened, it places its divider up to lastSeq.
+    for (const open of ["c1", "c2"]) {
+      const out = applyChatEvent(state(open), event());
+      expect(out.channels.find((c) => c.id === "c2")?.lastSeq).toBe(7);
+    }
   });
 
   it("does not guess the mention count", () => {
@@ -146,13 +157,21 @@ describe("lastSeqOf", () => {
 describe("markChannelRead", () => {
   it("clears both counts on the one channel", () => {
     const out = markChannelRead(
-      [channel("c1", { unreadCount: 3, mentionCount: 1 }), channel("c2", { unreadCount: 2 })],
+      [
+        channel("c1", { unreadCount: 3, mentionCount: 1, lastReadSeq: 4 }),
+        channel("c2", { unreadCount: 2, lastReadSeq: 1 }),
+      ],
       "c1",
+      9,
     );
-    expect(out.map((c) => [c.unreadCount, c.mentionCount])).toEqual([
-      [0, 0],
-      [2, 0],
+    expect(
+      out.map((c) => [c.unreadCount, c.mentionCount, c.lastReadSeq]),
+    ).toEqual([
+      [0, 0, 9],
+      [2, 0, 1],
     ]);
+    // Never backwards.
+    expect(markChannelRead(out, "c1", 2)[0].lastReadSeq).toBe(9);
   });
 });
 

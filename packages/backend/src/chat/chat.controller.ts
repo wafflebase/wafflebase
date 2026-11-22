@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -26,7 +27,7 @@ import {
   PostMessageDto,
   UpdateChannelDto,
 } from './chat.dto';
-import { ChannelSummary, ChatMessageDto, ChatUserSummary } from './chat.types';
+import { ChannelMember, ChannelSummary, ChatMessageDto } from './chat.types';
 
 /**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
@@ -85,7 +86,7 @@ export class ChatController {
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
     @Req() req: AuthenticatedRequest,
-  ): Promise<ChatUserSummary[]> {
+  ): Promise<ChannelMember[]> {
     return this.channels.members(Number(req.user.id), channelId, workspaceId);
   }
 
@@ -114,6 +115,26 @@ export class ChatController {
     const userId = Number(req.user.id);
     await this.channels.resolve(userId, channelId, workspaceId);
     await this.channels.leave(userId, channelId);
+  }
+
+  /**
+   * Remove somebody else from a channel. Declared after `members/me` so
+   * that route keeps `me`; `ParseIntPipe` would refuse it here anyway.
+   */
+  @Delete('channels/:channelId/members/:userId')
+  @HttpCode(204)
+  async removeMember(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('userId', ParseIntPipe) targetId: number,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<void> {
+    await this.channels.removeMember(
+      Number(req.user.id),
+      channelId,
+      targetId,
+      workspaceId,
+    );
   }
 
   @Get('channels/:channelId/messages')

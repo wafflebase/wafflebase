@@ -38,11 +38,16 @@ const channel = (over: Partial<ChannelSummary> = {}): ChannelSummary => ({
   isMember: true,
   canManage: false,
   members: [],
+  // The log below runs 1..5, all read.
+  lastSeq: 5,
+  lastReadSeq: 5,
   unreadCount: 0,
   mentionCount: 0,
   lastMessageAt: null,
   ...over,
 });
+/** A channel whose newest `n` messages were unread at open. */
+const unread = (n: number) => channel({ lastReadSeq: 5 - n, unreadCount: n });
 
 /**
  * What `useChannelMessages` returns, held in a tiny store so a test can
@@ -98,9 +103,11 @@ vi.mock("@/components/chat/use-chat", () => ({
 // jsdom does no layout: give the scroller a content height the test controls
 // and a writable scrollTop, so the view's scroll decisions are observable.
 let contentHeight = 2000;
+let dividerTop = 0;
 const tops = new WeakMap<Element, number>();
 const intoView: string[] = [];
 const saved: Record<string, PropertyDescriptor | undefined> = {};
+const savedRect = Element.prototype.getBoundingClientRect;
 beforeAll(() => {
   for (const k of ["scrollHeight", "clientHeight", "scrollTop"]) {
     saved[k] = Object.getOwnPropertyDescriptor(Element.prototype, k);
@@ -125,8 +132,16 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = function (this: Element) {
     intoView.push(this.id);
   };
+  // The divider's place relative to the scroller's top, which the test sets.
+  // jsdom puts every rect at 0, so the log itself sits at 0.
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const r = savedRect.call(this);
+    if (this.getAttribute("aria-label") !== "New messages") return r;
+    return { ...r, top: dividerTop } as DOMRect;
+  };
 });
 afterAll(() => {
+  Element.prototype.getBoundingClientRect = savedRect;
   for (const [k, d] of Object.entries(saved)) {
     if (d) Object.defineProperty(Element.prototype, k, d);
   }
@@ -159,6 +174,7 @@ function scrollTo(top: number) {
 describe("Conversation", () => {
   beforeEach(() => {
     contentHeight = 2000;
+    dividerTop = 0;
     state = {
       messages: [1, 2, 3, 4, 5].map((s) => msg(s)),
       hasOlder: true,
@@ -271,6 +287,15 @@ describe("Conversation", () => {
     expect(screen.getByRole("textbox")).toBeDisabled();
   });
 
+  it("offers no Join on an archived public channel the reader is not in", () => {
+    // The server refuses to join an archived channel, so the page must not
+    // offer it: the reader gets the archived read-only state instead.
+    channels = [channel({ isMember: false, archived: true })];
+    renderConversation();
+    expect(screen.queryByRole("button", { name: "Join channel" })).toBeNull();
+    expect(screen.getByRole("textbox")).toBeDisabled();
+  });
+
   it("shows no archive banner on a live channel", () => {
     renderConversation();
     expect(screen.queryByText(/This channel is archived\. Its history/)).toBeNull();
@@ -280,5 +305,154 @@ describe("Conversation", () => {
     renderConversation();
     expect(screen.getByRole("textbox")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Join channel" })).toBeNull();
+  });
+  describe("unread orientation", () => {
+    const divider = () =>
+      screen.queryByRole("separator", { name: "New messages" });
+    const findDivider = () => screen.findByRole("separator", { name: "New messages" });
+
+    it("draws no divider when nothing was unread", async () => {
+      renderConversation();
+      await act(async () => {});
+      expect(divider()).toBeNull();
+    });
+
+    it("draws the divider above the first unread message", async () => {
+      channels = [unread(2)];
+      renderConversation();
+      const sep = await findDivider();
+      // Directly before m4's group.
+      expect(sep.nextElementSibling?.querySelector("#chat-message-m4")).not.toBeNull();
+    });
+
+    it("opens at the divider when it is out of view, without reading", async () => {
+      channels = [unread(3)];
+      dividerTop = -700;
+      renderConversation();
+      await findDivider();
+      // From the bottom (2000), up by the 700 above the viewport, plus margin.
+      expect(log().scrollTop).toBe(2000 - 700 - 8);
+      expect(markRead).not.toHaveBeenCalled();
+      // Everything below the divider is new.
+      expect(
+        screen.getByRole("button", { name: /3 new messages/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("stays at the bottom and reads when the divider is in view", async () => {
+      channels = [unread(1)];
+      renderConversation();
+      await findDivider();
+      expect(log().scrollTop).toBe(2000);
+      expect(markRead).toHaveBeenCalledWith(5);
+    });
+
+    it("keeps the divider in place as the read position advances", async () => {
+      channels = [unread(2)];
+      renderConversation();
+      await findDivider();
+      // Reading moves the cached read position; new messages arrive.
+      channels = [channel({ lastSeq: 7, lastReadSeq: 7 })];
+      act(() => setState({ messages: [...state.messages, msg(6), msg(7)] }));
+      const sep = divider();
+      expect(sep?.nextElementSibling?.querySelector("#chat-message-m4")).not.toBeNull();
+    });
+
+    it("draws no divider for a message that arrives while reading", async () => {
+      renderConversation();
+      act(() => setState({ messages: [...state.messages, msg(6)] }));
+      await act(async () => {});
+      expect(divider()).toBeNull();
+    });
+
+    it("places the divider once a stale cache catches up", async () => {
+      channels = [unread(2)];
+      setState({ messages: [1, 2, 3].map((s) => msg(s)) });
+      renderConversation();
+      await act(async () => {});
+      expect(divider()).toBeNull();
+
+      // The catch-up brings in the two unread messages.
+      act(() => setState({ messages: [1, 2, 3, 4, 5].map((s) => msg(s)) }));
+      const sep = await findDivider();
+      expect(sep.nextElementSibling?.querySelector("#chat-message-m4")).not.toBeNull();
+    });
+  });
+
+  describe("jump to latest", () => {
+    it("is hidden at the bottom", () => {
+      renderConversation();
+      expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+    });
+
+    it("appears when scrolled away and counts what arrives", async () => {
+      renderConversation();
+      await act(async () => {});
+      scrollTo(300);
+      expect(
+        screen.getByRole("button", { name: "Jump to latest" }),
+      ).toBeInTheDocument();
+
+      act(() =>
+        setState({
+          messages: [...state.messages, msg(6), msg(7, 1), msg(8)],
+        }),
+      );
+      // m7 is mine: not counted.
+      expect(
+        screen.getByRole("button", { name: "2 new messages" }),
+      ).toBeInTheDocument();
+      expect(document.querySelector("[aria-live=polite]")).toHaveTextContent(
+        "2 new messages",
+      );
+    });
+
+    it("scrolls to the bottom when clicked, smoothly unless motion is reduced", async () => {
+      const scrollToSpy = vi.fn();
+      Element.prototype.scrollTo = scrollToSpy as unknown as Element["scrollTo"];
+      const reduce = vi.fn(() => ({ matches: true }) as MediaQueryList);
+      vi.stubGlobal("matchMedia", reduce);
+      try {
+        renderConversation();
+        scrollTo(300);
+        fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
+        expect(scrollToSpy).toHaveBeenCalledWith({ top: 2000, behavior: "auto" });
+
+        reduce.mockReturnValue({ matches: false } as MediaQueryList);
+        fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
+        expect(scrollToSpy).toHaveBeenLastCalledWith({
+          top: 2000,
+          behavior: "smooth",
+        });
+      } finally {
+        vi.unstubAllGlobals();
+        // @ts-expect-error -- jsdom has no Element.scrollTo of its own.
+        delete Element.prototype.scrollTo;
+      }
+    });
+
+    it("moves focus to the composer only for a keyboard activation", () => {
+      renderConversation();
+      scrollTo(300);
+      const pill = screen.getByRole("button", { name: "Jump to latest" });
+      // Chrome focuses a button on mousedown, so focus alone cannot tell a
+      // tap from Enter; a pointer click carries detail >= 1.
+      pill.focus();
+      fireEvent.click(pill, { detail: 1 });
+      expect(screen.getByRole("textbox")).not.toHaveFocus();
+
+      scrollTo(300);
+      const again = screen.getByRole("button", { name: "Jump to latest" });
+      again.focus();
+      fireEvent.click(again, { detail: 0 });
+      expect(screen.getByRole("textbox")).toHaveFocus();
+    });
+
+    it("hides again once the reader is back at the bottom", () => {
+      renderConversation();
+      scrollTo(300);
+      scrollTo(1500);
+      expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+    });
   });
 });

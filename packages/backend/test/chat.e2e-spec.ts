@@ -9,6 +9,7 @@ import { AppModule } from 'src/app.module';
 import { ChatBus } from 'src/chat/chat-bus';
 import { ChatChannelService } from 'src/chat/chat-channel.service';
 import { ChatMessageService } from 'src/chat/chat-message.service';
+import { createDefaultChannel } from 'src/chat/default-channel';
 import { PrismaService } from 'src/database/prisma.service';
 import { WorkspaceService } from 'src/workspace/workspace.service';
 import { YorkieAdminService } from 'src/yorkie/yorkie-admin.service';
@@ -481,8 +482,8 @@ describeDb('Chat integration', () => {
     });
 
     it('joining or being invited starts the read position at the tail', async () => {
-      const { owner, members, workspace } = await team(2);
-      const [joiner, invitee] = members;
+      const { owner, members, workspace } = await team(3);
+      const [joiner, invitee, stranger] = members;
       const channel = await channels.create(owner.id, workspace.id, {
         kind: 'public',
         name: 'general',
@@ -494,7 +495,16 @@ describeDb('Chat integration', () => {
       }
 
       const joined = await channels.join(joiner.id, channel.id);
-      expect(joined).toMatchObject({ unreadCount: 0, mentionCount: 0 });
+      expect(joined).toMatchObject({
+        unreadCount: 0,
+        mentionCount: 0,
+        lastSeq: 2,
+        lastReadSeq: 2,
+      });
+      // Somebody outside a public channel has no read position. (`summaryOf`,
+      // not `list`, which would adopt this "general" as the default channel.)
+      const outside = await channels.summaryOf(stranger.id, channel.id);
+      expect(outside).toMatchObject({ isMember: false, lastReadSeq: null });
 
       await channels.invite(owner.id, channel.id, [invitee.id]);
       const [invited] = await channels.list(invitee.id, workspace.id);
@@ -503,7 +513,11 @@ describeDb('Chat integration', () => {
       // Whatever arrives afterwards counts as usual.
       await messages.post(owner.id, channel.id, { body: 'new' });
       const [later] = await channels.list(joiner.id, workspace.id);
-      expect(later.unreadCount).toBe(1);
+      expect(later).toMatchObject({
+        unreadCount: 1,
+        lastSeq: 3,
+        lastReadSeq: 2,
+      });
     });
 
     it('join, leave and membership notifications', async () => {
@@ -537,6 +551,81 @@ describeDb('Chat integration', () => {
       // create, join, leave.
       expect(notify).toHaveBeenCalledTimes(3);
       expect(notify).toHaveBeenCalledWith(channel.id);
+    });
+
+    it('removing someone else: who may, and what is refused', async () => {
+      const { owner, members, workspace } = await team(3);
+      const [creator, peer, other] = members;
+      const notify = jest.spyOn(bus, 'notifyMembership');
+      const channel = await channels.create(creator.id, workspace.id, {
+        kind: 'private',
+        name: 'squad',
+      });
+      await channels.invite(creator.id, channel.id, [
+        peer.id,
+        other.id,
+        owner.id,
+      ]);
+      const url = `${base(workspace.id)}/channels/${channel.id}/members`;
+      const inChannel = (u: TestUser) =>
+        prisma.chatChannelMember.count({
+          where: { channelId: channel.id, userId: u.id },
+        });
+
+      // `me` still means leave, and is not parsed as a user id.
+      await as(other).delete(`${url}/me`).expect(204);
+      await as(creator).delete(`${url}/abc`).expect(400);
+      await channels.invite(creator.id, channel.id, [other.id]);
+
+      // A plain member of a private channel may archive it, not evict people.
+      await as(peer).delete(`${url}/${other.id}`).expect(403);
+      // A creator who is not an owner cannot evict an owner.
+      await as(creator).delete(`${url}/${owner.id}`).expect(403);
+      expect(await inChannel(owner)).toBe(1);
+
+      // The member list marks exactly the rows the caller may remove.
+      const listed = await as(creator).get(url).expect(200);
+      const removable = Object.fromEntries(
+        (listed.body as { id: number; canRemove: boolean }[]).map((m) => [
+          m.id,
+          m.canRemove,
+        ]),
+      );
+      expect(removable).toEqual({
+        [owner.id]: false,
+        [creator.id]: false,
+        [peer.id]: true,
+        [other.id]: true,
+      });
+
+      notify.mockClear();
+      await as(creator).delete(`${url}/${peer.id}`).expect(204);
+      expect(await inChannel(peer)).toBe(0);
+      expect(notify).toHaveBeenCalledWith(channel.id);
+      // Removed, the channel is now unreadable to them.
+      await as(peer).get(url).expect(404);
+      // Twice is a 404, and so is yourself through this route a 400.
+      await as(creator).delete(`${url}/${peer.id}`).expect(404);
+      await as(creator).delete(`${url}/${creator.id}`).expect(400);
+      // An owner may remove anyone, the creator included.
+      await as(owner).delete(`${url}/${creator.id}`).expect(204);
+
+      // Never from a DM, nor from the default channel, even as an owner.
+      const dm = await channels.openDm(owner.id, workspace.id, [other.id]);
+      await as(owner)
+        .delete(`${base(workspace.id)}/channels/${dm.id}/members/${other.id}`)
+        .expect(400);
+      await prisma.$transaction((tx) =>
+        createDefaultChannel(tx, workspace.id, owner.id),
+      );
+      const general = await prisma.chatChannel.findUniqueOrThrow({
+        where: { defaultKey: workspace.id },
+      });
+      await as(owner)
+        .delete(
+          `${base(workspace.id)}/channels/${general.id}/members/${other.id}`,
+        )
+        .expect(400);
     });
 
     it('the last member cannot leave a private channel', async () => {

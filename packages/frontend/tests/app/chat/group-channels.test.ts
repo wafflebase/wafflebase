@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelSummary } from "@/api/chat";
-import { channelLabel, groupChannels } from "@/app/chat/group-channels";
+import {
+  browsableChannels,
+  channelLabel,
+  groupChannels,
+} from "@/app/chat/group-channels";
 
 const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
   ({
@@ -13,6 +17,8 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     isMember: true,
     canManage: false,
     members: [],
+    lastSeq: 0,
+    lastReadSeq: 0,
     unreadCount: 0,
     mentionCount: 0,
     lastMessageAt: null,
@@ -32,7 +38,7 @@ describe("groupChannels", () => {
     expect(out.directMessages.map((c) => c.id)).toEqual(["dm1"]);
   });
 
-  it("leaves out archived channels and DMs", () => {
+  it("moves archived channels the caller is in to their own group", () => {
     const out = groupChannels([
       channel("old", { archived: true }),
       channel("dm-old", { kind: "dm", name: null, archived: true }),
@@ -40,6 +46,23 @@ describe("groupChannels", () => {
     ]);
     expect(out.channels.map((c) => c.id)).toEqual(["live"]);
     expect(out.directMessages).toEqual([]);
+    expect(out.archived.map((c) => c.id)).toEqual(["old"]);
+  });
+
+  it("keeps archived channels the caller is not in out of the list", () => {
+    const out = groupChannels([
+      channel("public-old", { archived: true, isMember: false }),
+      channel("secret-old", { kind: "private", archived: true }),
+    ]);
+    expect(out.archived.map((c) => c.id)).toEqual(["secret-old"]);
+  });
+
+  it("sorts archived channels by name", () => {
+    const out = groupChannels([
+      channel("z", { name: "zeta", archived: true }),
+      channel("a", { name: "alpha", archived: true }),
+    ]);
+    expect(out.archived.map((c) => c.name)).toEqual(["alpha", "zeta"]);
   });
 
   it("leaves out public channels the caller has not joined", () => {
@@ -71,6 +94,33 @@ describe("groupChannels", () => {
       "newer",
       "older",
       "quiet",
+    ]);
+  });
+});
+
+describe("browsableChannels", () => {
+  const all = [
+    channel("z", { name: "zeta", archived: true, isMember: false }),
+    channel("a", { name: "alpha", archived: true, isMember: false }),
+    channel("joined-old", { archived: true }),
+    channel("joined"),
+    channel("open-b", { name: "beta", isMember: false }),
+    channel("open-a", { name: "able", isMember: false }),
+    channel("secret", { kind: "private", isMember: false }),
+    channel("dm", { kind: "dm", name: null, archived: true, isMember: false }),
+  ];
+
+  it("lists live public channels the caller has not joined, by name", () => {
+    expect(browsableChannels(all).live.map((c) => c.id)).toEqual([
+      "open-a",
+      "open-b",
+    ]);
+  });
+
+  it("lists archived public channels the caller is not in apart, by name", () => {
+    expect(browsableChannels(all).archived.map((c) => c.id)).toEqual([
+      "a",
+      "z",
     ]);
   });
 });

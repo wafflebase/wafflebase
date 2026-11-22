@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { IconHash } from "@tabler/icons-react";
+import { IconArchive, IconHash } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import type { ChannelSummary } from "@/api/chat";
@@ -18,11 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCreateChannel, useJoinChannel } from "@/components/chat/use-chat";
+import { cn } from "@/lib/utils";
 import {
   channelNameHint,
   normalizeChannelName,
   validChannelName,
 } from "./channel-name";
+import { browsableChannels } from "./group-channels";
 
 export type ChannelDialogTab = "create" | "browse";
 
@@ -44,6 +46,8 @@ interface NewChannelDialogProps {
 /**
  * Create a channel, or browse the public channels the caller has not joined
  * yet — those stay out of the channel list so it holds only what you follow.
+ * Archived public channels are behind a toggle under them: readable, so
+ * still openable, but not joinable.
  */
 export function NewChannelDialog({
   workspaceId,
@@ -57,23 +61,28 @@ export function NewChannelDialog({
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const create = useCreateChannel(workspaceId);
   const join = useJoinChannel(workspaceId);
 
   const normalized = normalizeChannelName(name);
   const hint = channelNameHint(name, "created");
   const invalid = hint.invalid;
-  const browsable = channels
-    .filter((c) => c.kind === "public" && !c.isMember && !c.archived)
-    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  const { live: browsable, archived } = browsableChannels(channels);
 
   const close = (next: boolean) => {
     if (!next) {
       setName("");
       setTopic("");
       setIsPrivate(false);
+      setShowArchived(false);
     }
     onOpenChange(next);
+  };
+
+  const openChannel = (channelId: string) => {
+    close(false);
+    onOpened(channelId);
   };
 
   const submit = (e: FormEvent) => {
@@ -195,21 +204,11 @@ export function NewChannelDialog({
                     className="flex items-center gap-3 border-b py-2 last:border-b-0"
                   >
                     <IconHash className="size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{c.name}</p>
-                      {c.topic && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {c.topic}
-                        </p>
-                      )}
-                    </div>
+                    <BrowseRowText channel={c} />
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => {
-                        close(false);
-                        onOpened(c.id);
-                      }}
+                      onClick={() => openChannel(c.id)}
                     >
                       Preview
                     </Button>
@@ -219,10 +218,7 @@ export function NewChannelDialog({
                       disabled={join.isPending}
                       onClick={() =>
                         join.mutate(c.id, {
-                          onSuccess: () => {
-                            close(false);
-                            onOpened(c.id);
-                          },
+                          onSuccess: () => openChannel(c.id),
                           onError: (err) =>
                             toast.error(
                               userFacingError(err, "Couldn't join the channel."),
@@ -236,9 +232,72 @@ export function NewChannelDialog({
                 ))}
               </ul>
             )}
+            {archived.length > 0 && (
+              <div className="mt-2 border-t pt-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="browse-show-archived"
+                    checked={showArchived}
+                    onCheckedChange={(v) => setShowArchived(v === true)}
+                  />
+                  <Label htmlFor="browse-show-archived">
+                    Show archived channels ({archived.length})
+                  </Label>
+                </div>
+                {showArchived && (
+                  // Archived channels can be read, not joined or posted in,
+                  // so each offers Open and nothing else.
+                  <ul className="mt-2 flex max-h-60 flex-col overflow-y-auto">
+                    {archived.map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex items-center gap-3 border-b py-2 last:border-b-0"
+                      >
+                        <IconArchive className="size-4 shrink-0 text-muted-foreground" />
+                        <BrowseRowText channel={c} muted />
+                        <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          Archived
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openChannel(c.id)}
+                        >
+                          Open
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BrowseRowText({
+  channel,
+  muted = false,
+}: {
+  channel: ChannelSummary;
+  muted?: boolean;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <p
+        className={cn(
+          "truncate text-sm font-medium",
+          muted && "text-muted-foreground",
+        )}
+      >
+        {channel.name}
+      </p>
+      {channel.topic && (
+        <p className="truncate text-xs text-muted-foreground">{channel.topic}</p>
+      )}
+    </div>
   );
 }

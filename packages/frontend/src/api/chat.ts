@@ -16,6 +16,16 @@ export interface ChatUserSummary {
   photo: string | null;
 }
 
+/** A row of a public or private channel's member list. */
+export interface ChannelMember extends ChatUserSummary {
+  /**
+   * Whether the caller may remove this person — the server's `canRemove`:
+   * the channel's creator or a workspace owner, an owner only by an owner,
+   * never yourself or anyone on the default channel.
+   */
+  canRemove: boolean;
+}
+
 export interface ChannelSummary {
   id: string;
   kind: ChannelKind;
@@ -37,6 +47,13 @@ export interface ChannelSummary {
   canManage: boolean;
   /** DM only; empty for public and private channels. */
   members: ChatUserSummary[];
+  /** The channel's newest allocated `seq`, thread replies included. */
+  lastSeq: number;
+  /**
+   * The newest `seq` the caller has read; null when they are not a member.
+   * The "New messages" divider goes after it.
+   */
+  lastReadSeq: number | null;
   unreadCount: number;
   mentionCount: number;
   lastMessageAt: string | null;
@@ -152,7 +169,7 @@ export async function joinChannel(
 export async function fetchChannelMembers(
   workspaceId: string,
   channelId: string,
-): Promise<ChatUserSummary[]> {
+): Promise<ChannelMember[]> {
   const res = await fetchWithAuth(
     `${channelBase(workspaceId, channelId)}/members`,
   );
@@ -181,6 +198,22 @@ export async function leaveChannel(
     { method: "DELETE" },
   );
   await assertOk(res, "Couldn't leave the channel");
+}
+
+/**
+ * Remove somebody else from a public or private channel — where the member
+ * row's `canRemove` says so; leaving is `leaveChannel`.
+ */
+export async function removeChannelMember(
+  workspaceId: string,
+  channelId: string,
+  userId: number,
+): Promise<void> {
+  const res = await fetchWithAuth(
+    `${channelBase(workspaceId, channelId)}/members/${userId}`,
+    { method: "DELETE" },
+  );
+  await assertOk(res, "Couldn't remove them from the channel");
 }
 
 export async function updateChannel(

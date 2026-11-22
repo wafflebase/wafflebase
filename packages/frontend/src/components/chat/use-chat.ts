@@ -19,6 +19,7 @@ import {
   markRead,
   openDm,
   postMessage,
+  removeChannelMember,
   updateChannel,
   type ChannelSummary,
   type ChatMessageDto,
@@ -253,7 +254,7 @@ export function useMarkRead(workspaceId: string, channelId: string) {
       sent.current = seq;
       queryClient.setQueryData<ChannelSummary[]>(
         chatKeys.channels(workspaceId),
-        (old) => (old ? markChannelRead(old, channelId) : old),
+        (old) => (old ? markChannelRead(old, channelId, seq) : old),
       );
       markRead(workspaceId, channelId, seq).catch((err) => {
         // Let the next visible message try again.
@@ -332,6 +333,19 @@ export function useLeaveChannel(workspaceId: string) {
   return useMutation({
     mutationFn: (channelId: string) => leaveChannel(workspaceId, channelId),
     onSuccess: () => invalidate(),
+  });
+}
+
+/** Remove somebody else from a channel; refreshes its member list. */
+export function useRemoveChannelMember(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { channelId: string; userId: number }) =>
+      removeChannelMember(workspaceId, input.channelId, input.userId),
+    onSuccess: (_, input) =>
+      queryClient.invalidateQueries({
+        queryKey: chatKeys.members(input.channelId),
+      }),
   });
 }
 

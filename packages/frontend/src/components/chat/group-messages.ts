@@ -15,8 +15,14 @@ export interface MessageGroup {
  * gap over five minutes, and after a message carrying a reply-count row (the
  * row would otherwise sit between two lines of one group). Messages whose
  * author was deleted never merge — nothing says they were one person.
+ *
+ * `breakBefore` names a message that must open its own group — the one the
+ * "New messages" divider sits above, which would otherwise land mid-group.
  */
-export function groupMessages(msgs: ChatMessageDto[]): MessageGroup[] {
+export function groupMessages(
+  msgs: ChatMessageDto[],
+  breakBefore?: string | null,
+): MessageGroup[] {
   const groups: MessageGroup[] = [];
   let current: MessageGroup | null = null;
   let previous: ChatMessageDto | null = null;
@@ -25,6 +31,7 @@ export function groupMessages(msgs: ChatMessageDto[]): MessageGroup[] {
     const joins =
       current !== null &&
       previous !== null &&
+      m.id !== breakBefore &&
       m.author !== null &&
       previous.author !== null &&
       m.author.id === previous.author.id &&

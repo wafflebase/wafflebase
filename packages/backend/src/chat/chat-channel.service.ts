@@ -8,9 +8,15 @@ import {
 } from '@nestjs/common';
 import { ChatChannel, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { AccessContext, canManage, canPost, canRead } from './chat-access';
+import {
+  AccessContext,
+  canManage,
+  canPost,
+  canRead,
+  canRemove,
+} from './chat-access';
 import { ChatBus } from './chat-bus';
-import { ChannelKind, ChannelSummary, ChatUserSummary } from './chat.types';
+import { ChannelKind, ChannelMember, ChannelSummary } from './chat.types';
 import { dmKey } from './dm-key';
 import { ensureDefaultChannel, joinDefaultChannel } from './default-channel';
 
@@ -61,6 +67,8 @@ type SummaryRow = {
   isWorkspaceMember: boolean;
   isWorkspaceOwner: boolean;
   lastMessageAt: Date | null;
+  lastSeq: bigint;
+  lastReadSeq: bigint | null;
   unreadCount: number;
   mentionCount: number;
 };
@@ -338,6 +346,83 @@ export class ChatChannelService {
   }
 
   /**
+   * Remove somebody else from a public or private channel: its creator or a
+   * workspace owner, and an owner only by another owner (`canRemove`).
+   * Removing yourself is leaving, which has its own route and rules; a DM's
+   * member set is its identity, and everyone is in the default channel.
+   *
+   * Like `leave`, an emptied private channel is refused under the channel
+   * row's lock. The caller is a member of a private channel they can read,
+   * so only a leave racing this removal can get there.
+   */
+  async removeMember(
+    userId: number,
+    channelId: string,
+    targetId: number,
+    workspaceIdOrSlug: string,
+  ): Promise<void> {
+    const { channel, ctx } = await this.resolve(
+      userId,
+      channelId,
+      workspaceIdOrSlug,
+    );
+    if (channel.kind === 'dm') {
+      throw new BadRequestException(
+        'A direct message has a fixed set of people; open a new one instead',
+      );
+    }
+    if (channel.defaultKey !== null) {
+      throw new BadRequestException(
+        'Everyone in the workspace is in this channel, so nobody can be removed from it',
+      );
+    }
+    if (targetId === userId) {
+      throw new BadRequestException(
+        'To leave a channel, use DELETE .../members/me',
+      );
+    }
+    const [callerRole, targetRole] = await Promise.all(
+      [userId, targetId].map((id) =>
+        this.workspaceRole(channel.workspaceId, id),
+      ),
+    );
+    const allowed = canRemove({
+      ...ctx,
+      isCreator: channel.createdBy === userId,
+      isWorkspaceOwner: callerRole === 'owner',
+      targetIsWorkspaceOwner: targetRole === 'owner',
+    });
+    if (!allowed) {
+      throw new ForbiddenException(
+        targetRole === 'owner' && callerRole !== 'owner'
+          ? 'Only a workspace owner can remove a workspace owner'
+          : "Only the channel's creator or a workspace owner can remove people from it",
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      if (channel.kind === 'private') {
+        await tx.$queryRaw`
+          SELECT id FROM "ChatChannel" WHERE id = ${channelId} FOR UPDATE`;
+      }
+      const { count } = await tx.chatChannelMember.deleteMany({
+        where: { channelId, userId: targetId },
+      });
+      if (count === 0) {
+        throw new NotFoundException('That person is not in this channel');
+      }
+      if (
+        channel.kind === 'private' &&
+        (await tx.chatChannelMember.count({ where: { channelId } })) === 0
+      ) {
+        throw new ConflictException(
+          'That would leave the channel empty — archive it instead',
+        );
+      }
+    });
+    await this.announceMembership(channelId);
+  }
+
+  /**
    * Rename, set the topic, archive or unarchive. Public: creator or workspace
    * owner. Private: any channel member (see `canManage`).
    */
@@ -352,22 +437,12 @@ export class ChatChannelService {
         'A direct message cannot be renamed or archived',
       );
     }
-    const owner = await this.prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: { workspaceId: channel.workspaceId, userId },
-      },
-      select: { role: true },
-    });
-    const allowed = canManage({
-      ...ctx,
-      isCreator: channel.createdBy === userId,
-      isWorkspaceOwner: owner?.role === 'owner',
-    });
-    if (!allowed) {
-      throw new ForbiddenException(
-        "Only the channel's creator or a workspace owner can change it",
-      );
-    }
+    await this.assertCanManage(
+      userId,
+      channel,
+      ctx,
+      "Only the channel's creator or a workspace owner can change it",
+    );
 
     if (data.archived && channel.defaultKey !== null) {
       throw new BadRequestException(
@@ -409,8 +484,8 @@ export class ChatChannelService {
     userId: number,
     channelId: string,
     workspaceIdOrSlug: string,
-  ): Promise<ChatUserSummary[]> {
-    const { channel } = await this.resolve(
+  ): Promise<ChannelMember[]> {
+    const { channel, ctx } = await this.resolve(
       userId,
       channelId,
       workspaceIdOrSlug,
@@ -429,10 +504,36 @@ export class ChatChannelService {
           workspaceMembers: { some: { workspaceId: channel.workspaceId } },
         },
       },
-      select: { user: { select: { id: true, username: true, photo: true } } },
+      select: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            photo: true,
+            workspaceMembers: {
+              where: { workspaceId: channel.workspaceId },
+              select: { role: true },
+            },
+          },
+        },
+      },
       orderBy: { user: { username: 'asc' } },
     });
-    return rows.map((r) => r.user);
+    // The rule `removeMember` enforces, per row, so the dialog offers Remove
+    // exactly where the server will accept it.
+    const callerRole = await this.workspaceRole(channel.workspaceId, userId);
+    return rows.map(({ user: { workspaceMembers, ...user } }) => ({
+      ...user,
+      canRemove:
+        user.id !== userId &&
+        channel.defaultKey === null &&
+        canRemove({
+          ...ctx,
+          isCreator: channel.createdBy === userId,
+          isWorkspaceOwner: callerRole === 'owner',
+          targetIsWorkspaceOwner: workspaceMembers[0]?.role === 'owner',
+        }),
+    }));
   }
 
   /**
@@ -474,6 +575,36 @@ export class ChatChannelService {
     return { channel, ctx };
   }
 
+  /**
+   * Refuses with 403 unless `userId` passes `canManage` on a channel
+   * `resolve` already loaded.
+   */
+  private async assertCanManage(
+    userId: number,
+    channel: ChatChannel,
+    ctx: AccessContext,
+    refusal: string,
+  ): Promise<void> {
+    const allowed = canManage({
+      ...ctx,
+      isCreator: channel.createdBy === userId,
+      isWorkspaceOwner:
+        (await this.workspaceRole(channel.workspaceId, userId)) === 'owner',
+    });
+    if (!allowed) throw new ForbiddenException(refusal);
+  }
+
+  private async workspaceRole(
+    workspaceId: string,
+    userId: number,
+  ): Promise<string | undefined> {
+    const row = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { role: true },
+    });
+    return row?.role;
+  }
+
   /** One channel's summary as `userId` sees it. */
   async summaryOf(userId: number, channelId: string): Promise<ChannelSummary> {
     const [summary] = await this.summaries(
@@ -506,6 +637,8 @@ export class ChatChannelService {
              wm."userId" IS NOT NULL AS "isWorkspaceMember",
              wm.role IS NOT DISTINCT FROM 'owner' AS "isWorkspaceOwner",
              c."lastMessageAt",
+             c."lastSeq",
+             m."lastReadSeq",
              COALESCE(u.unread, 0)::int AS "unreadCount",
              COALESCE(u.mentions, 0)::int AS "mentionCount"
       FROM "ChatChannel" c
@@ -558,6 +691,8 @@ export class ChatChannelService {
         isWorkspaceOwner: r.isWorkspaceOwner,
       }),
       members: dmMembers.filter((m) => m.channelId === r.id).map((m) => m.user),
+      lastSeq: Number(r.lastSeq),
+      lastReadSeq: r.lastReadSeq === null ? null : Number(r.lastReadSeq),
       unreadCount: r.unreadCount,
       mentionCount: r.mentionCount,
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,

@@ -19,6 +19,8 @@ const channel: ChannelSummary = {
   isMember: true,
   canManage: true,
   members: [],
+  lastSeq: 0,
+  lastReadSeq: 0,
   unreadCount: 0,
   mentionCount: 0,
   lastMessageAt: null,
@@ -87,5 +89,12 @@ describe("ChannelSettingsDialog", () => {
       { channelId: "c1", archived: true },
       expect.anything(),
     );
+  });
+
+  it("says where an archived channel goes", () => {
+    open("archive");
+    expect(
+      screen.getByText(/It moves to Archived in the channel list/),
+    ).toBeInTheDocument();
   });
 });

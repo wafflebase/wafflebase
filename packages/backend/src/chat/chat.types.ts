@@ -12,6 +12,16 @@ export interface ChatUserSummary {
   photo: string | null;
 }
 
+/** A row of a public or private channel's member list. */
+export interface ChannelMember extends ChatUserSummary {
+  /**
+   * Whether the caller may remove this person (`canRemove` in
+   * `chat-access.ts`): false for the caller themselves, and on the default
+   * channel, whose membership is the workspace's.
+   */
+  canRemove: boolean;
+}
+
 export interface ChannelSummary {
   id: string;
   kind: ChannelKind;
@@ -32,6 +42,14 @@ export interface ChannelSummary {
   canManage: boolean;
   /** DM only; empty for public and private channels. */
   members: ChatUserSummary[];
+  /** The channel's newest allocated `seq`, thread replies included. */
+  lastSeq: number;
+  /**
+   * The caller's read position: the newest `seq` they have read. Null when
+   * they are not a member. The client places its "New messages" divider
+   * after it.
+   */
+  lastReadSeq: number | null;
   unreadCount: number;
   mentionCount: number;
   lastMessageAt: string | null;

@@ -450,7 +450,8 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `PATCH` | `…/chat/channels/:cid` | Rename, topic, archive |
 | `GET` | `…/chat/channels/:cid/members` | Who is in a public or private channel (Add people marks them "Already here") |
 | `POST` | `…/chat/channels/:cid/members` | Join (public) / invite (private) |
-| `DELETE` | `…/chat/channels/:cid/members/:uid` | Leave / remove |
+| `DELETE` | `…/chat/channels/:cid/members/me` | Leave |
+| `DELETE` | `…/chat/channels/:cid/members/:uid` | Remove someone else (`canRemove`: creator or workspace owner; not a DM or the default channel) |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |
 | `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }` |
 | `GET` | `…/chat/messages/:mid` | One message, for a bell deep link that must learn whether it is a thread reply; 404 unless its channel is readable |
@@ -579,9 +580,51 @@ say:
   thread-only reply leaves an existing read position alone, since replying
   in a thread is not reading the channel.
 - **DM membership is fixed.** A DM cannot be joined, left, renamed or
-  archived. Leaving is `DELETE …/members/me` (only the caller), not the
-  `…/members/:uid` removal the table above sketches; removing others is not
-  in P1. Re-opening a DM restores member rows a workspace removal deleted.
+  archived. Leaving is `DELETE …/members/me` (only the caller).
+  Re-opening a DM restores member rows a workspace removal deleted.
+- **Removing someone else** is `DELETE …/members/:userId`, declared after
+  `members/me` and parsed as an integer so `me` still means leave. It is
+  authorized by `canRemove`, deliberately stricter than `canManage`: the
+  channel's creator or a workspace owner, on public and private channels
+  alike, and a workspace owner only by another owner. Archiving is open to
+  every member of a private channel so a last member is never stranded, but
+  removal evicts a person, and the same rule would let any member evict the
+  creator and every owner; refusing it strands nobody, since members can
+  still leave or archive. It refuses a DM and the default channel (`400`,
+  even for an owner), yourself (`400`, use `members/me`), and a target not
+  in the channel (`404`); like leaving, it never empties a private channel
+  (`409`) and sends the `mem` bus event that evicts the hub member cache.
+  The removed person's open client is not told; it learns on its next
+  channel-list fetch, when a private channel answers `404`. Removal from a
+  public channel does not stop them rejoining it.
+- **Members dialog.** The channel header shows a member count that opens the
+  member list (public and private channels, not DMs), with Add people and a
+  per-row Remove, confirmed inline on the row. `GET …/members` answers each
+  row's `canRemove` for the caller, so Remove appears exactly where the
+  server accepts it.
+- **Archived channels stay reachable.** The channel list ends in a collapsed
+  **Archived** section of archived channels the caller belongs to (collapsed
+  state remembered per workspace in the browser; the open channel stays
+  visible while collapsed). They carry no unread marks and never count toward
+  the Chat badge. Browse channels has a "Show archived channels" toggle; an
+  archived public channel opens read-only and offers no Join, since the
+  server refuses to join one. Unarchiving is the header's Unarchive action.
+- **Unread orientation.** Each channel summary carries the caller's
+  `lastReadSeq` (null outside the channel) and the channel's `lastSeq`.
+  Opening a channel captures that pair before reading moves it, and what
+  was unread at open is exactly the eligible messages in `(lastReadSeq,
+  lastSeq]` (top-level or also-sent-to-channel, not deleted, not the
+  reader's own — the server's unread rule). A **New messages** divider sits
+  above the first of them; when it is out of view the channel opens there
+  instead of at the bottom, without marking read until the reader scrolls to
+  the end. Because it is a range rather than a count, the divider is right
+  on a partial or stale log (it appears once a catch-up brings the messages
+  in), a message that arrives while the channel is open is never "new", and
+  a deleted message does not shift it. The stream moves a cached `lastSeq`
+  on every message, the open channel's included, so a channel left open and
+  scrolled up places its divider correctly when reopened. Scrolled away from
+  the bottom, a **Jump to latest** pill (it reads "N new messages" once
+  others post) returns to the end.
 - **`GET …/chat/messages/:mid`.** Added for the bell deep link, which knows
   only a message id and must learn whether it is a thread reply; it is `404`
   unless the message's channel is readable. The stream's `update` handling

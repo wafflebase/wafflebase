@@ -1,6 +1,7 @@
 import {
   AccessContext,
   canManage,
+  canRemove,
   canPost,
   canRead,
   mentionOutcome,
@@ -83,6 +84,29 @@ describe('chat access policy', () => {
         // a last member who is neither creator nor owner could neither leave
         // nor archive it, and nobody outside it can see it to help.
         expect(as(false, false)).toBe(kind === 'private' && read);
+      });
+
+      it('canRemove: creator or owner on any channel they can read; never a DM; owners only by owners', () => {
+        const as = (
+          isCreator: boolean,
+          isWorkspaceOwner: boolean,
+          targetIsWorkspaceOwner = false,
+        ) =>
+          canRemove({
+            ...ctx,
+            isCreator,
+            isWorkspaceOwner,
+            targetIsWorkspaceOwner,
+          });
+        const removable = kind !== 'dm' && read;
+        expect(as(true, false)).toBe(removable);
+        expect(as(false, true)).toBe(removable);
+        // Unlike archiving, removing evicts a person, so a plain member of a
+        // private channel cannot do it: leaving and archiving stay theirs.
+        expect(as(false, false)).toBe(false);
+        // A creator who is not an owner cannot evict an owner; an owner can.
+        expect(as(true, false, true)).toBe(false);
+        expect(as(false, true, true)).toBe(removable);
       });
     },
   );
