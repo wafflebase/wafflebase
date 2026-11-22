@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   useState,
   type FocusEvent,
   type KeyboardEvent,
@@ -94,5 +95,8 @@ export function useRovingMessages(
     [containerRef],
   );
 
-  return { activeId, onFocus, onKeyDown, focusRow };
+  return useMemo(
+    () => ({ activeId, onFocus, onKeyDown, focusRow }),
+    [activeId, onFocus, onKeyDown, focusRow],
+  );
 }

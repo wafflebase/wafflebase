@@ -250,11 +250,13 @@ export interface PendingSend {
 }
 
 /**
- * The log with the reader's unanswered sends at its tail. A send still in
- * flight is hidden once the stream has already brought in the server's copy
- * — the post's response, which retires it, can land after the event that
- * announced the same message — so it is never drawn twice. The server's copy
- * is matched by author and body, one server row per send.
+ * The log with the reader's unanswered sends at its tail. A send is hidden
+ * once the stream has brought in the server's copy, so it is never drawn
+ * twice: the post's response, which retires it, can land after the event
+ * that announced the same message — or never land at all, when the server
+ * took the post and only the response was lost, which would otherwise leave
+ * a "Not sent" row whose Retry posts it again. The server's copy is matched
+ * by author and body among rows newer than the send, one server row per send.
  */
 export function withPending(
   server: ChatMessageDto[],
@@ -263,7 +265,6 @@ export function withPending(
   if (pending.length === 0) return server;
   const claimed = new Set<string>();
   const visible = pending.filter((p) => {
-    if (p.localState !== 'pending') return true;
     const twin = server.find(
       (m) =>
         !claimed.has(m.id) &&

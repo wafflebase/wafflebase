@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ChannelSummary } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,11 @@ export function LeaveChannelDialog({
   onConfirm,
   onCancel,
 }: LeaveChannelDialogProps) {
-  const name = channel?.name ?? "";
+  // Held past `channel` going null, so the closing animation still names it
+  // instead of fading out as "Leave #?".
+  const [shown, setShown] = useState(channel);
+  if (channel && channel !== shown) setShown(channel);
+  const name = (channel ?? shown)?.name ?? "";
   return (
     <Dialog open={channel !== null} onOpenChange={(next) => !next && onCancel()}>
       <DialogContent>

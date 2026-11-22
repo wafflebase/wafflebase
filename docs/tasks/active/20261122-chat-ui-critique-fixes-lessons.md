@@ -26,3 +26,19 @@
   Layout and the Chat page both wrote `document.title` and Layout's effect
   (parent, runs after child) overwrote the page on mount — route titles
   moved to `route-titles.ts` with `null` meaning "the page owns it".
+- Round 2 (design fit + `requesting-code-review`): panel blocked on 4,
+  reviewer flagged 1 important + minors. Fixed: posts are queued per channel
+  (the composer clears at once, so quick sends raced); unanswered sends are
+  mirrored to `sessionStorage` (`pending-store.ts`) since the cleared draft
+  was the only copy of a failed message's text; an empty channel draws its
+  pending/failed first send instead of the empty state; same-origin links
+  route in-app only for app paths (`/docs`, API and images load normally);
+  a failed row whose message the server took is hidden like a pending one;
+  arrivals and the waiting count got separate live regions; one send path
+  (`usePostMessage` removed). Disputed: "restore-to-draft path untested" —
+  that path was deleted in round 1 (rebuttal with grep evidence). Deferred:
+  sharing `modalSurfaceOpen` with board's identical selector; focus dropping
+  when a focused pending row swaps for the server row.
+- **Clearing input optimistically moves durability, not just UX.** The
+  draft was the only persisted copy of unsent text; clearing it on send
+  made the pending row the copy, so that row had to become persistent too.

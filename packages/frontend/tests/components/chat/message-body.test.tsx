@@ -56,6 +56,27 @@ describe("MessageBody", () => {
     expect(screen.getByTestId("where")).toHaveTextContent("/w/w1/chat/c2?message=m9");
   });
 
+  it("leaves same-origin pages the router does not own to the browser", () => {
+    const url = `${window.location.origin}/docs/guide/chat`;
+    function Where() {
+      const loc = useLocation();
+      return <span data-testid="where">{loc.pathname}</span>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/start"]}>
+        <Routes>
+          <Route path="*" element={<><MessageBody body={`see ${url}`} /><Where /></>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole("link");
+    expect(link).not.toHaveAttribute("target");
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("where")).toHaveTextContent("/start");
+  });
+
   it("keeps a link out of the tab order when asked", () => {
     render(<MessageBody body="https://example.test" tabbable={false} />);
     expect(screen.getByRole("link")).toHaveAttribute("tabindex", "-1");

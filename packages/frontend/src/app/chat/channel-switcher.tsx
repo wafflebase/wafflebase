@@ -39,12 +39,16 @@ export function ChannelSwitcher({
     [channels, me, query],
   );
 
-  // Each opening starts empty, at the top.
-  useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setActive(0);
-  }, [open]);
+  // Each opening starts empty, at the top — reset while rendering the open,
+  // not in an effect after it, so the last query never flashes.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery("");
+      setActive(0);
+    }
+  }
 
   const index = Math.min(active, Math.max(items.length - 1, 0));
   const activeItem = items[index];

@@ -26,6 +26,15 @@ const MEASURE_MIN_CHARS = 240;
 
 const LINK_CLASS = "text-link underline-offset-2 break-all hover:underline";
 
+/**
+ * The app's own pages: a workspace, a document of any type, a share or
+ * template link. The origin also serves things the router has no route for —
+ * the docs site under `/docs`, the API, images — so a same-origin link is
+ * routed in place only when its path (after the basename) is one of these.
+ */
+const IN_APP_PATH =
+  /^\/(?:(?:w|d|p|s|f|n|b|shared|t|invite)\/|(?:documents|templates|settings)(?:[/?#]|$))/;
+
 /** Whether `url` is this app's own origin, and so opens in this tab. */
 function isSameOrigin(url: string): boolean {
   try {
@@ -56,10 +65,11 @@ function InAppLink({
     }
     const target = new URL(url);
     if (base && !target.pathname.startsWith(base)) return;
+    const path = target.pathname.slice(base.length) || "/";
+    // Anything else on this origin is a plain same-tab page load.
+    if (!IN_APP_PATH.test(path)) return;
     e.preventDefault();
-    navigate(
-      `${target.pathname.slice(base.length) || "/"}${target.search}${target.hash}`,
-    );
+    navigate(`${path}${target.search}${target.hash}`);
   };
   return (
     <a href={url} onClick={onClick} tabIndex={tabIndex} className={LINK_CLASS}>

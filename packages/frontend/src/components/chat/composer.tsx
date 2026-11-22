@@ -21,10 +21,7 @@ const MAX_TEXTAREA_HEIGHT_PX = 200;
 interface ComposerProps {
   /** Keys the draft; a thread passes its own key so drafts stay apart. */
   channelId: string;
-  /**
-   * Sends the body. It should resolve rather than throw: the box has already
-   * cleared, and a failed send is the caller's to show and retry.
-   */
+  /** Sends the body; must not reject (see the component's note). */
   onSend: (body: string) => void | Promise<void>;
   members?: MentionMember[];
   placeholder?: string;
@@ -47,9 +44,9 @@ interface ComposerProps {
  * autocomplete, and picked mentions are tokenized on send exactly as the
  * comment composer does. The draft is kept per channel in `sessionStorage`.
  *
- * Sending is optimistic: the box clears at once, and the text (with its
- * mentions and draft) comes back only if the send throws. The caller reports
- * the failure.
+ * Sending is optimistic: the box clears at once and the caller shows the
+ * message as pending. `onSend` must not reject — a failed send is the
+ * caller's to show and retry on its row, so the text never comes back here.
  */
 export function Composer({
   channelId,
@@ -65,8 +62,6 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // The channel this composer shows now, read by a send that resolves after
-  // the reader moved on.
 
   const update = (value: string) => {
     setBody(value);
@@ -133,8 +128,8 @@ export function Composer({
 
   // The box clears at once: the caller shows the message as pending and
   // owns failure (the row offers Retry), so `onSend` never hands the text
-  // back. `sending` still holds a second Enter until the first is queued,
-  // which keeps messages in order.
+  // back. Order across quick sends is kept where the posts are made
+  // (`useSendMessage` queues them per channel), not here.
   const send = async () => {
     if (!trimmed || sending || disabled || tooLong) return;
     const finalBody = mention.applyMentions(body).trim();

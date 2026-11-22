@@ -378,6 +378,8 @@ export function Conversation({
     },
     [focusComposer, roving],
   );
+  // The server's rows only: a pending or failed send has no id to edit, so
+  // ↑ right after one opens the message before it.
   const editLast = useCallback(() => {
     const last = lastOwnMessage(messages, meId);
     if (!last) return;
@@ -399,14 +401,10 @@ export function Conversation({
 
   const showJump = !atBottom && messages.length > 0 && !isLoading && !error;
   const newLabel = `${newCount} new ${newCount === 1 ? 'message' : 'messages'}`;
-  // One polite region for both: what arrived, then — away from the end —
-  // how many are waiting below.
-  const announcement = [
-    arrival,
-    showJump && newCount > 0 ? `${newLabel} below.` : '',
-  ]
-    .filter(Boolean)
-    .join('. ');
+  // Away from the end, how many are waiting below. Its own region, apart
+  // from arrivals: sharing one would re-read the last arrival every time
+  // the count moved.
+  const waiting = showJump && newCount > 0 ? `${newLabel} below.` : '';
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
@@ -445,7 +443,7 @@ export function Conversation({
                 Retry
               </Button>
             </div>
-          ) : messages.length === 0 ? (
+          ) : display.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
               <p className="text-sm font-medium text-foreground">
                 No messages yet
@@ -529,7 +527,10 @@ export function Conversation({
           </div>
         )}
         <span aria-live="polite" className="sr-only">
-          {announcement}
+          {arrival}
+        </span>
+        <span aria-live="polite" className="sr-only">
+          {waiting}
         </span>
       </div>
       <div

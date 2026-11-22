@@ -417,9 +417,11 @@ describe("Conversation", () => {
       expect(
         screen.getByRole("button", { name: "2 new messages" }),
       ).toBeInTheDocument();
-      expect(document.querySelector("[aria-live=polite]")).toHaveTextContent(
-        "2 new messages below.",
-      );
+      const regions = document.querySelectorAll("[aria-live=polite]");
+      // Arrivals and the waiting count are separate regions, so a change in
+      // the count does not re-read the last arrival.
+      expect(regions[1]).toHaveTextContent("2 new messages below.");
+      expect(regions[0]).not.toHaveTextContent("new messages below");
     });
 
     it("scrolls to the bottom when clicked, smoothly unless motion is reduced", async () => {
@@ -491,6 +493,21 @@ describe("Conversation", () => {
 
       act(() => setState({ messages: [...state.messages, msg(7, 3)] }));
       expect(live()).toHaveTextContent("user3: message 7");
+    });
+
+    it("re-announces the same words arriving twice", async () => {
+      renderConversation();
+      await act(async () => {});
+      const same = { body: "ok" };
+      act(() =>
+        setState({ messages: [...state.messages, { ...msg(6, 3), ...same }] }),
+      );
+      const first = live()?.textContent;
+      act(() =>
+        setState({ messages: [...state.messages, { ...msg(7, 3), ...same }] }),
+      );
+      expect(live()).toHaveTextContent("user3: ok");
+      expect(live()?.textContent).not.toBe(first);
     });
 
     it("says nothing when older messages are prepended", async () => {
@@ -576,6 +593,22 @@ describe("Conversation", () => {
       fireEvent.keyDown(box, { key: "Enter" });
       expect(send).toHaveBeenCalledWith({ body: "hello" });
       expect(box).toHaveValue("");
+    });
+
+    it("draws a first send in an empty channel, not the empty state", () => {
+      state = { ...state, messages: [] };
+      pending = [
+        {
+          ...msg(0, 1),
+          id: "local-a",
+          body: "first!",
+          localState: "failed",
+          clientId: "a",
+        } as ChatMessageDto,
+      ];
+      renderConversation();
+      expect(screen.queryByText("No messages yet")).toBeNull();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     });
 
     it("draws a pending send dimmed and a failed one with Retry", () => {

@@ -49,7 +49,11 @@ export function useArrivalAnnouncement(
         include(m),
     );
     if (arrived.length === 0) return;
-    setText(arrived.slice(-MAX_SPOKEN_MESSAGES).map(spoken).join(". "));
+    const next = arrived.slice(-MAX_SPOKEN_MESSAGES).map(spoken).join(". ");
+    // The same words twice ("ok", then "ok") would leave the region's text
+    // unchanged, and an unchanged region says nothing; a trailing no-break
+    // space makes it a change.
+    setText((last) => (last === next ? `${next}\u00a0` : next));
     // `include` is a filter the caller may rebuild each render; the tail
     // moving is what announces.
     // eslint-disable-next-line react-hooks/exhaustive-deps
