@@ -43,10 +43,12 @@ describe("localUrlProblem", () => {
     expect(localUrlProblem("")).toBeNull();
   });
 
-  it("flags http with the setting, and garbage with an example", () => {
-    expect(localUrlProblem("http://n8n.local/hook")).toMatch(
-      /WAFFLEBASE_WEBHOOK_ALLOW_HTTP/,
-    );
+  it("leaves http to the server, which knows whether it is allowed", () => {
+    expect(localUrlProblem("http://n8n.local/hook")).toBeNull();
+  });
+
+  it("flags other schemes, and garbage with an example", () => {
+    expect(localUrlProblem("ftp://files.example.com/x")).toMatch(/https:\/\//);
     expect(localUrlProblem("not a url")).toMatch(/https:\/\/example\.com/);
   });
 });

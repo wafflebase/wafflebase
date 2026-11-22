@@ -75,8 +75,11 @@ export function formProblem(values: WebhookFormValues): string | null {
 
 /**
  * The quick, local half of "validated as typed against the SSRF rules": the
- * scheme and shape. Address checks need DNS, so the server does those on
- * save and the form shows what it says.
+ * shape and a scheme no deployment accepts. `http://` is left to the server:
+ * whether it is allowed is the operator's `WAFFLEBASE_WEBHOOK_ALLOW_HTTP`,
+ * which this page cannot see, and flagging it here put a false error under
+ * every working http webhook. Address checks need DNS, so the server does
+ * those on save and the form shows what it says.
  */
 export function localUrlProblem(url: string): string | null {
   const trimmed = url.trim();
@@ -87,10 +90,7 @@ export function localUrlProblem(url: string): string | null {
   } catch {
     return "That isn't a complete URL. It should look like https://example.com/hooks/wafflebase.";
   }
-  if (parsed.protocol === "http:") {
-    return "Webhook URLs must use https://. Your server administrator can allow http:// with WAFFLEBASE_WEBHOOK_ALLOW_HTTP=true.";
-  }
-  if (parsed.protocol !== "https:") {
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     return "Webhook URLs must use https://.";
   }
   return null;
