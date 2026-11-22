@@ -20,6 +20,8 @@ import {
   fetchWorkspaceDataSources,
 } from "@/api/workspaces";
 import { deleteDataSource, testDataSourceConnection } from "@/api/datasources";
+import { fetchMemberRemovalImpact, fetchWebhooks } from "@/api/webhooks";
+import type { WebhookList } from "@/api/webhooks";
 import type { DataSource } from "@/types/datasource";
 import type {
   ApiKey,
@@ -51,6 +53,13 @@ vi.mock("@/api/workspaces", () => ({
   fetchWorkspaceDataSources: vi.fn(),
   createWorkspaceDataSource: vi.fn(),
   testWorkspaceDataSourceConfig: vi.fn(),
+}));
+
+vi.mock("@/api/webhooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/webhooks")>()),
+  fetchWebhooks: vi.fn(),
+  fetchMemberRemovalImpact: vi.fn(),
+  createWebhook: vi.fn(),
 }));
 
 vi.mock("@/api/datasources", () => ({
@@ -119,6 +128,11 @@ function renderAs(
   userId: number,
   keys: ApiKey[] = [],
   datasources: DataSource[] = [],
+  webhooks: WebhookList = {
+    enabled: true,
+    canManage: userId === OWNER.user.id,
+    webhooks: [],
+  },
 ) {
   vi.mocked(fetchMe).mockResolvedValue({
     id: userId,
@@ -129,6 +143,11 @@ function renderAs(
   vi.mocked(fetchInvites).mockResolvedValue([INVITE]);
   vi.mocked(fetchApiKeys).mockResolvedValue(keys);
   vi.mocked(fetchWorkspaceDataSources).mockResolvedValue(datasources);
+  vi.mocked(fetchWebhooks).mockResolvedValue(webhooks);
+  vi.mocked(fetchMemberRemovalImpact).mockResolvedValue({
+    privateChannelsDeleted: 0,
+    webhooksDisabled: 0,
+  });
 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -223,6 +242,12 @@ describe("WorkspaceSettings owner-only controls", () => {
       within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
     );
     await userEvent.click(selfButton);
+    // The click opens a confirm dialog rather than removing on the spot.
+    expect(vi.mocked(removeMember)).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Leave" }),
+    );
 
     await waitFor(() =>
       expect(vi.mocked(removeMember)).toHaveBeenCalledWith(
@@ -230,6 +255,110 @@ describe("WorkspaceSettings owner-only controls", () => {
         MEMBER.user.id,
       ),
     );
+  });
+
+  it("names what removing a member deletes and turns off", async () => {
+    vi.mocked(removeMember).mockResolvedValue(undefined);
+    renderAs(OWNER.user.id);
+    vi.mocked(fetchMemberRemovalImpact).mockResolvedValue({
+      privateChannelsDeleted: 2,
+      webhooksDisabled: 1,
+    });
+
+    await userEvent.click(
+      await waitFor(() =>
+        within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
+      ),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      await within(dialog).findByText(
+        "2 private channels only they belonged to will be deleted, messages included.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText("1 webhook they created will be turned off."),
+    ).toBeTruthy();
+    // The impact is asked for by the workspace's real id.
+    expect(vi.mocked(fetchMemberRemovalImpact)).toHaveBeenCalledWith(
+      "ws-1",
+      MEMBER.user.id,
+    );
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(vi.mocked(removeMember)).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
+    );
+    await userEvent.click(
+      await within(await screen.findByRole("dialog")).findByRole("button", {
+        name: "Remove",
+      }),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(removeMember)).toHaveBeenCalledWith(
+        "acme",
+        MEMBER.user.id,
+      ),
+    );
+  });
+});
+
+describe("WorkspaceSettings webhooks section", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const HOOK = {
+    id: "wh-1",
+    name: "Zapier weekly",
+    host: "hooks.zapier.com",
+    status: "disabled" as const,
+    disabledReason: "failing" as const,
+    events: [],
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    createdBy: { id: 1, username: "owner" },
+    createdAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  it("lists webhooks with status and links an owner to the detail page", async () => {
+    renderAs(OWNER.user.id, [], [], {
+      enabled: true,
+      canManage: true,
+      webhooks: [HOOK],
+    });
+    const link = await screen.findByRole("link", { name: /Zapier weekly/ });
+    expect(link.getAttribute("href")).toBe("/w/acme/settings/webhooks/wh-1");
+    expect(within(link).getByText("Off · failing")).toBeTruthy();
+    expect(within(link).getByText(/hooks\.zapier\.com/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add webhook" })).toBeTruthy();
+    // Asked for by the workspace's real id, not the slug in the URL.
+    expect(vi.mocked(fetchWebhooks)).toHaveBeenCalledWith("ws-1");
+  });
+
+  it("shows a member the hosts read-only", async () => {
+    renderAs(MEMBER.user.id, [], [], {
+      enabled: true,
+      canManage: false,
+      webhooks: [HOOK],
+    });
+    expect(await screen.findByText("Zapier weekly")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Zapier weekly/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add webhook" })).toBeNull();
+  });
+
+  it("tells an owner which setting turns the feature on", async () => {
+    renderAs(OWNER.user.id, [], [], {
+      enabled: false,
+      canManage: true,
+      webhooks: [],
+    });
+    expect(
+      await screen.findByText("WAFFLEBASE_WEBHOOKS_ENABLED=true"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add webhook" })).toBeNull();
   });
 });
 
