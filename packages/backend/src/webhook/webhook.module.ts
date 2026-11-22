@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationModule } from '../notification/notification.module';
 import { WorkspaceModule } from '../workspace/workspace.module';
+import { MemberRemovalImpactController } from './member-removal-impact.controller';
 import { WebhookController } from './webhook.controller';
 import { WebhookDeliveryWorker } from './webhook-delivery.worker';
 import { WebhookEventModule } from './webhook-event.module';
@@ -15,7 +16,7 @@ import { WebhookService } from './webhook.service';
  */
 @Module({
   imports: [WebhookEventModule, WorkspaceModule, NotificationModule],
-  controllers: [WebhookController],
+  controllers: [WebhookController, MemberRemovalImpactController],
   providers: [WebhookService, WebhookDeliveryWorker, PrismaService],
   exports: [WebhookEventModule, WebhookService],
 })
