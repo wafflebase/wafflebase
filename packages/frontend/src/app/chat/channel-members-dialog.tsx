@@ -2,7 +2,7 @@ import { useState } from "react";
 import { IconUserPlus, IconUsers } from "@tabler/icons-react";
 import { toast } from "sonner";
 
-import type { ChannelSummary, ChatUserSummary } from "@/api/chat";
+import type { ChannelMember, ChannelSummary } from "@/api/chat";
 import { userFacingError } from "@/api/http-error";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,6 @@ import {
   useChannelMembers,
   useRemoveChannelMember,
 } from "@/components/chat/use-chat";
-import { canRemoveMembers } from "./channel-members";
 import { channelMenu } from "./chat-layout";
 
 interface ChannelMembersButtonProps {
@@ -74,7 +73,6 @@ export function ChannelMembersDialog({
   const remove = useRemoveChannelMember(workspaceId);
   // The row asking "Remove …?" in place, rather than a second modal on top.
   const [confirming, setConfirming] = useState<number | null>(null);
-  const removable = canRemoveMembers(channel);
   const { addPeople } = channelMenu(channel);
   const name = channel.name ?? "";
 
@@ -83,7 +81,7 @@ export function ChannelMembersDialog({
     onOpenChange(next);
   };
 
-  const removeMember = (member: ChatUserSummary) =>
+  const removeMember = (member: ChannelMember) =>
     remove.mutate(
       { channelId: channel.id, userId: member.id },
       {
@@ -202,7 +200,7 @@ export function ChannelMembersDialog({
                       <span className="text-muted-foreground"> (you)</span>
                     )}
                   </span>
-                  {removable && !isMe && (
+                  {m.canRemove && (
                     <Button
                       variant="ghost"
                       size="sm"

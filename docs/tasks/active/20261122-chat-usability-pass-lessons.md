@@ -22,3 +22,4 @@
   failing tests first. Nits taken: divider ref instead of a global id,
   members dialog refetches on a failed remove, dialog closes on channel
   change, duplicate "Archived" accessible name.
+- Round 1 (panel): 2 blocking — security: private-channel removal reused canManage, letting any member evict the creator and owners → new stricter `canRemove` (creator/owner; owners only by owners) with per-row `canRemove` on GET members; test-adequacy: no e2e for the route → added, run on a scratch DB (58/58).

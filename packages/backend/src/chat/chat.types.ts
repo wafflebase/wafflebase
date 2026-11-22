@@ -12,6 +12,16 @@ export interface ChatUserSummary {
   photo: string | null;
 }
 
+/** A row of a public or private channel's member list. */
+export interface ChannelMember extends ChatUserSummary {
+  /**
+   * Whether the caller may remove this person (`canRemove` in
+   * `chat-access.ts`): false for the caller themselves, and on the default
+   * channel, whose membership is the workspace's.
+   */
+  canRemove: boolean;
+}
+
 export interface ChannelSummary {
   id: string;
   kind: ChannelKind;

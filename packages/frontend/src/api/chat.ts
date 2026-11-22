@@ -16,6 +16,16 @@ export interface ChatUserSummary {
   photo: string | null;
 }
 
+/** A row of a public or private channel's member list. */
+export interface ChannelMember extends ChatUserSummary {
+  /**
+   * Whether the caller may remove this person — the server's `canRemove`:
+   * the channel's creator or a workspace owner, an owner only by an owner,
+   * never yourself or anyone on the default channel.
+   */
+  canRemove: boolean;
+}
+
 export interface ChannelSummary {
   id: string;
   kind: ChannelKind;
@@ -152,7 +162,7 @@ export async function joinChannel(
 export async function fetchChannelMembers(
   workspaceId: string,
   channelId: string,
-): Promise<ChatUserSummary[]> {
+): Promise<ChannelMember[]> {
   const res = await fetchWithAuth(
     `${channelBase(workspaceId, channelId)}/members`,
   );

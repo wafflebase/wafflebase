@@ -451,7 +451,7 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `GET` | `…/chat/channels/:cid/members` | Who is in a public or private channel (Add people marks them "Already here") |
 | `POST` | `…/chat/channels/:cid/members` | Join (public) / invite (private) |
 | `DELETE` | `…/chat/channels/:cid/members/me` | Leave |
-| `DELETE` | `…/chat/channels/:cid/members/:uid` | Remove someone else (`canManage`; not a DM or the default channel) |
+| `DELETE` | `…/chat/channels/:cid/members/:uid` | Remove someone else (`canRemove`: creator or workspace owner; not a DM or the default channel) |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |
 | `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }` |
 | `GET` | `…/chat/messages/:mid` | One message, for a bell deep link that must learn whether it is a thread reply; 404 unless its channel is readable |
@@ -584,19 +584,24 @@ say:
   Re-opening a DM restores member rows a workspace removal deleted.
 - **Removing someone else** is `DELETE …/members/:userId`, declared after
   `members/me` and parsed as an integer so `me` still means leave. It is
-  authorized by the same `canManage` rule as rename and archive: on a public
-  channel its creator or a workspace owner, on a private channel any of its
-  members — the Slack default, and the only rule that does not strand a
-  private channel whose creator left. It refuses a DM and the default channel
-  (`400`, even for an owner), yourself (`400`, use `members/me`), and a target
-  not in the channel (`404`); like leaving, it never empties a private
-  channel (`409`) and sends the `mem` bus event that evicts the hub member
-  cache. The removed person's open client is not told; it learns on its next
-  channel-list fetch, when the channel answers `404`. Removal from a public
-  channel does not stop them rejoining it.
+  authorized by `canRemove`, deliberately stricter than `canManage`: the
+  channel's creator or a workspace owner, on public and private channels
+  alike, and a workspace owner only by another owner. Archiving is open to
+  every member of a private channel so a last member is never stranded, but
+  removal evicts a person, and the same rule would let any member evict the
+  creator and every owner; refusing it strands nobody, since members can
+  still leave or archive. It refuses a DM and the default channel (`400`,
+  even for an owner), yourself (`400`, use `members/me`), and a target not
+  in the channel (`404`); like leaving, it never empties a private channel
+  (`409`) and sends the `mem` bus event that evicts the hub member cache.
+  The removed person's open client is not told; it learns on its next
+  channel-list fetch, when a private channel answers `404`. Removal from a
+  public channel does not stop them rejoining it.
 - **Members dialog.** The channel header shows a member count that opens the
   member list (public and private channels, not DMs), with Add people and a
-  per-row Remove, confirmed inline on the row, for callers `canManage`.
+  per-row Remove, confirmed inline on the row. `GET …/members` answers each
+  row's `canRemove` for the caller, so Remove appears exactly where the
+  server accepts it.
 - **Archived channels stay reachable.** The channel list ends in a collapsed
   **Archived** section of archived channels the caller belongs to (collapsed
   state remembered per workspace in the browser; the open channel stays

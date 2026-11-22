@@ -792,10 +792,10 @@ one they are not in, any channel once they leave the workspace — answers
 | `GET` | `/workspaces/:wid/chat/channels` | Channels the caller can see, with `unreadCount` / `mentionCount` |
 | `POST` | `/workspaces/:wid/chat/channels` | Create a public/private channel (`{ kind, name, topic? }`), or find-or-create a DM (`{ kind: 'dm', userIds }`) |
 | `PATCH` | `/workspaces/:wid/chat/channels/:cid` | Rename, topic, archive/unarchive — channel creator or workspace owner; never a DM |
-| `GET` | `/workspaces/:wid/chat/channels/:cid/members` | Who is in a public or private channel |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/members` | Who is in a public or private channel, each row with the caller's `canRemove` |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/members` | No `userIds`: join a public channel. With `userIds`: invite |
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM, not the default channel) |
-| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/:userId` | Remove someone else — channel creator or workspace owner on a public channel, any member on a private one; not a DM or the default channel |
+| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/:userId` | Remove someone else — the channel's creator or a workspace owner (an owner only by an owner); not a DM or the default channel |
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |

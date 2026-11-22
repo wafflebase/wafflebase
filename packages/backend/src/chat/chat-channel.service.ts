@@ -8,9 +8,15 @@ import {
 } from '@nestjs/common';
 import { ChatChannel, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { AccessContext, canManage, canPost, canRead } from './chat-access';
+import {
+  AccessContext,
+  canManage,
+  canPost,
+  canRead,
+  canRemove,
+} from './chat-access';
 import { ChatBus } from './chat-bus';
-import { ChannelKind, ChannelSummary, ChatUserSummary } from './chat.types';
+import { ChannelKind, ChannelMember, ChannelSummary } from './chat.types';
 import { dmKey } from './dm-key';
 import { ensureDefaultChannel, joinDefaultChannel } from './default-channel';
 
@@ -338,9 +344,8 @@ export class ChatChannelService {
   }
 
   /**
-   * Remove somebody else from a public or private channel. Whoever may
-   * rename or archive it may remove from it (`canManage`): a public
-   * channel's creator or a workspace owner, any member of a private one.
+   * Remove somebody else from a public or private channel: its creator or a
+   * workspace owner, and an owner only by another owner (`canRemove`).
    * Removing yourself is leaving, which has its own route and rules; a DM's
    * member set is its identity, and everyone is in the default channel.
    *
@@ -374,12 +379,24 @@ export class ChatChannelService {
         'To leave a channel, use DELETE .../members/me',
       );
     }
-    await this.assertCanManage(
-      userId,
-      channel,
-      ctx,
-      "Only the channel's creator or a workspace owner can remove people from it",
+    const [callerRole, targetRole] = await Promise.all(
+      [userId, targetId].map((id) =>
+        this.workspaceRole(channel.workspaceId, id),
+      ),
     );
+    const allowed = canRemove({
+      ...ctx,
+      isCreator: channel.createdBy === userId,
+      isWorkspaceOwner: callerRole === 'owner',
+      targetIsWorkspaceOwner: targetRole === 'owner',
+    });
+    if (!allowed) {
+      throw new ForbiddenException(
+        targetRole === 'owner' && callerRole !== 'owner'
+          ? 'Only a workspace owner can remove a workspace owner'
+          : "Only the channel's creator or a workspace owner can remove people from it",
+      );
+    }
     await this.prisma.$transaction(async (tx) => {
       if (channel.kind === 'private') {
         await tx.$queryRaw`
@@ -465,8 +482,8 @@ export class ChatChannelService {
     userId: number,
     channelId: string,
     workspaceIdOrSlug: string,
-  ): Promise<ChatUserSummary[]> {
-    const { channel } = await this.resolve(
+  ): Promise<ChannelMember[]> {
+    const { channel, ctx } = await this.resolve(
       userId,
       channelId,
       workspaceIdOrSlug,
@@ -485,10 +502,36 @@ export class ChatChannelService {
           workspaceMembers: { some: { workspaceId: channel.workspaceId } },
         },
       },
-      select: { user: { select: { id: true, username: true, photo: true } } },
+      select: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            photo: true,
+            workspaceMembers: {
+              where: { workspaceId: channel.workspaceId },
+              select: { role: true },
+            },
+          },
+        },
+      },
       orderBy: { user: { username: 'asc' } },
     });
-    return rows.map((r) => r.user);
+    // The rule `removeMember` enforces, per row, so the dialog offers Remove
+    // exactly where the server will accept it.
+    const callerRole = await this.workspaceRole(channel.workspaceId, userId);
+    return rows.map(({ user: { workspaceMembers, ...user } }) => ({
+      ...user,
+      canRemove:
+        user.id !== userId &&
+        channel.defaultKey === null &&
+        canRemove({
+          ...ctx,
+          isCreator: channel.createdBy === userId,
+          isWorkspaceOwner: callerRole === 'owner',
+          targetIsWorkspaceOwner: workspaceMembers[0]?.role === 'owner',
+        }),
+    }));
   }
 
   /**
@@ -532,8 +575,7 @@ export class ChatChannelService {
 
   /**
    * Refuses with 403 unless `userId` passes `canManage` on a channel
-   * `resolve` already loaded. Shared by `update` and `removeMember`, so
-   * renaming, archiving and removing people have one owner check.
+   * `resolve` already loaded.
    */
   private async assertCanManage(
     userId: number,
@@ -541,18 +583,24 @@ export class ChatChannelService {
     ctx: AccessContext,
     refusal: string,
   ): Promise<void> {
-    const owner = await this.prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: { workspaceId: channel.workspaceId, userId },
-      },
-      select: { role: true },
-    });
     const allowed = canManage({
       ...ctx,
       isCreator: channel.createdBy === userId,
-      isWorkspaceOwner: owner?.role === 'owner',
+      isWorkspaceOwner:
+        (await this.workspaceRole(channel.workspaceId, userId)) === 'owner',
     });
     if (!allowed) throw new ForbiddenException(refusal);
+  }
+
+  private async workspaceRole(
+    workspaceId: string,
+    userId: number,
+  ): Promise<string | undefined> {
+    const row = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { role: true },
+    });
+    return row?.role;
   }
 
   /** One channel's summary as `userId` sees it. */

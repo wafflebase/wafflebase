@@ -27,7 +27,7 @@ import {
   PostMessageDto,
   UpdateChannelDto,
 } from './chat.dto';
-import { ChannelSummary, ChatMessageDto, ChatUserSummary } from './chat.types';
+import { ChannelMember, ChannelSummary, ChatMessageDto } from './chat.types';
 
 /**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
@@ -86,7 +86,7 @@ export class ChatController {
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
     @Req() req: AuthenticatedRequest,
-  ): Promise<ChatUserSummary[]> {
+  ): Promise<ChannelMember[]> {
     return this.channels.members(Number(req.user.id), channelId, workspaceId);
   }
 

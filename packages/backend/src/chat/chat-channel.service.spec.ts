@@ -27,6 +27,8 @@ function setup(
     workspaceId?: string;
     /** The caller's workspace role; null = not a workspace member. */
     role?: 'owner' | 'member' | null;
+    /** The target's workspace role. */
+    targetRole?: 'owner' | 'member';
     callerInChannel?: boolean;
     /** Rows the delete removes: 0 = the target is not in the channel. */
     removed?: number;
@@ -40,6 +42,7 @@ function setup(
     isDefault = false,
     workspaceId = 'w1',
     role = 'member',
+    targetRole = 'member',
     callerInChannel = true,
     removed = 1,
     remaining = 1,
@@ -74,7 +77,16 @@ function setup(
       }),
     },
     workspaceMember: {
-      findUnique: jest.fn().mockResolvedValue(role ? { role } : null),
+      findUnique: jest.fn(
+        ({ where }: { where: { workspaceId_userId: { userId: number } } }) =>
+          Promise.resolve(
+            where.workspaceId_userId.userId === CALLER
+              ? role
+                ? { role }
+                : null
+              : { role: targetRole },
+          ),
+      ),
     },
     $transaction: jest.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
   };
@@ -116,15 +128,37 @@ describe('ChatChannelService.removeMember', () => {
       expect(bus.notifyMembership).not.toHaveBeenCalled();
     });
 
-    it('lets any member of a private channel remove another, as with archiving', async () => {
+    it("lets a private channel's creator remove a member, under the row lock", async () => {
+      const { remove, tx } = setup({ kind: 'private', createdBy: CALLER });
+      await remove();
+      // The row is locked so a concurrent leave cannot empty the channel.
+      expect(tx.$queryRaw).toHaveBeenCalled();
+      expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
+    });
+
+    it('refuses a plain member of a private channel, though they may archive it', async () => {
       const { remove, tx } = setup({
         kind: 'private',
         createdBy: 99,
         role: 'member',
       });
+      await expect(remove()).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.chatChannelMember.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses a creator removing a workspace owner', async () => {
+      const { remove, tx } = setup({ createdBy: CALLER, targetRole: 'owner' });
+      await expect(remove()).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.chatChannelMember.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('lets a workspace owner remove another owner', async () => {
+      const { remove, tx } = setup({
+        createdBy: 99,
+        role: 'owner',
+        targetRole: 'owner',
+      });
       await remove();
-      // The row is locked so a concurrent leave cannot empty the channel.
-      expect(tx.$queryRaw).toHaveBeenCalled();
       expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
     });
   });

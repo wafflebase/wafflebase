@@ -2,15 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChannelSummary, ChatUserSummary } from "@/api/chat";
+import type { ChannelMember, ChannelSummary } from "@/api/chat";
 import {
   ChannelMembersButton,
   ChannelMembersDialog,
 } from "@/app/chat/channel-members-dialog";
-import { canRemoveMembers } from "@/app/chat/channel-members";
 
 const fetchMembersSpy =
-  vi.fn<(w: string, c: string) => Promise<ChatUserSummary[]>>();
+  vi.fn<(w: string, c: string) => Promise<ChannelMember[]>>();
 const removeSpy = vi.fn<(w: string, c: string, u: number) => Promise<void>>();
 
 vi.mock("@/api/chat", () => ({
@@ -36,10 +35,12 @@ const channel = (over: Partial<ChannelSummary> = {}) =>
     ...over,
   }) satisfies ChannelSummary;
 
-const people: ChatUserSummary[] = [
-  { id: 1, username: "me", photo: null },
-  { id: 2, username: "minji", photo: null },
+const people: ChannelMember[] = [
+  { id: 1, username: "me", photo: null, canRemove: false },
+  { id: 2, username: "minji", photo: null, canRemove: false },
 ];
+/** The same list as the server answers it to someone who may remove minji. */
+const removable = people.map((p) => ({ ...p, canRemove: p.id === 2 }));
 
 function renderDialog(
   c: ChannelSummary,
@@ -73,19 +74,6 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("canRemoveMembers", () => {
-  it("follows canManage, never on the default channel or a DM", () => {
-    expect(canRemoveMembers(channel({ canManage: true }))).toBe(true);
-    expect(canRemoveMembers(channel({ canManage: false }))).toBe(false);
-    expect(
-      canRemoveMembers(channel({ canManage: true, isDefault: true })),
-    ).toBe(false);
-    expect(canRemoveMembers(channel({ canManage: true, kind: "dm" }))).toBe(
-      false,
-    );
-  });
-});
-
 describe("ChannelMembersDialog", () => {
   it("lists members and marks the caller", async () => {
     renderDialog(channel());
@@ -96,8 +84,17 @@ describe("ChannelMembersDialog", () => {
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 
+  it("offers Remove only where the server allows it, not wherever the caller manages", async () => {
+    // Any member of a private channel may archive it, but removing people is
+    // the creator's or an owner's: the rows say no, so no Remove appears.
+    renderDialog(channel({ kind: "private", canManage: true }));
+    await screen.findByRole("list", { name: "Channel members" });
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+  });
+
   it("offers Remove for others only, and confirms before removing", async () => {
     const user = userEvent.setup();
+    fetchMembersSpy.mockResolvedValue(removable);
     renderDialog(channel({ canManage: true }));
 
     const remove = await screen.findByRole("button", {
@@ -115,6 +112,7 @@ describe("ChannelMembersDialog", () => {
 
   it("backs out of a removal on Cancel", async () => {
     const user = userEvent.setup();
+    fetchMembersSpy.mockResolvedValue(removable);
     renderDialog(channel({ canManage: true }));
 
     await user.click(
