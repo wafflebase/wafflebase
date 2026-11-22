@@ -13,6 +13,8 @@ import {
 } from '../chat/default-channel';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { stopQueuedDeliveries } from '../webhook/webhook-disable';
+import { WebhookEventService } from '../webhook/webhook-event.service';
 
 @Injectable()
 export class WorkspaceService {
@@ -21,6 +23,7 @@ export class WorkspaceService {
   constructor(
     private prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly webhookEvents: WebhookEventService,
   ) {}
 
   async create(userId: number, data: { name: string }) {
@@ -33,6 +36,16 @@ export class WorkspaceService {
         data: { workspaceId: workspace.id, userId, role: 'owner' },
       });
       await createDefaultChannel(tx, workspace.id, userId);
+      // A brand-new workspace has no webhook yet, so this reaches nobody
+      // today. Emitted anyway: every path that creates a membership emits,
+      // so none can be the one that silently does not.
+      await this.webhookEvents.emitMemberEvent(tx, {
+        type: 'member.joined',
+        workspaceId: workspace.id,
+        actor: userId,
+        userId,
+        role: 'owner',
+      });
       return workspace;
     });
   }
@@ -121,6 +134,11 @@ export class WorkspaceService {
     // removal permanent, and keeps the two halves in one transaction so a key
     // can never survive a committed removal.
     //
+    // Their webhooks here are disabled in it too (`creator_removed`): a
+    // webhook keeps exporting workspace data with nobody calling anything,
+    // so it must not outlive the authority of whoever registered it. A
+    // remaining owner takes one over by re-enabling it.
+    //
     // Chat memberships go in the same transaction for the same reason: the
     // chat stream fans out on `ChatChannelMember` rows alone, so a row that
     // outlived the workspace membership would keep delivering that
@@ -133,6 +151,31 @@ export class WorkspaceService {
         await tx.apiKey.updateMany({
           where: { workspaceId, createdBy: targetUserId, revokedAt: null },
           data: { revokedAt: new Date() },
+        });
+        // Like every other disable, it fails what they still had queued.
+        const hooks = await tx.webhook.findMany({
+          where: { workspaceId, createdBy: targetUserId, status: 'active' },
+          select: { id: true },
+        });
+        const hookIds = hooks.map((h) => h.id);
+        if (hookIds.length > 0) {
+          const now = new Date();
+          await tx.webhook.updateMany({
+            where: { id: { in: hookIds }, status: 'active' },
+            data: {
+              status: 'disabled',
+              disabledAt: now,
+              disabledReason: 'creator_removed',
+            },
+          });
+          await stopQueuedDeliveries(tx, hookIds, now);
+        }
+        await this.webhookEvents.emitMemberEvent(tx, {
+          type: 'member.removed',
+          workspaceId,
+          actor: requesterId,
+          userId: targetUserId,
+          role: member.role,
         });
         const memberships = await tx.chatChannelMember.findMany({
           where: { userId: targetUserId, channel: { workspaceId } },
@@ -244,6 +287,13 @@ export class WorkspaceService {
             userId,
             role: invite.role,
           },
+        });
+        await this.webhookEvents.emitMemberEvent(tx, {
+          type: 'member.joined',
+          workspaceId: invite.workspaceId,
+          actor: userId,
+          userId,
+          role: invite.role,
         });
         return joinDefaultChannel(tx, invite.workspaceId, userId);
       });

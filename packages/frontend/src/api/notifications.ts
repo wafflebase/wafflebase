@@ -29,7 +29,12 @@ export type NotificationType =
   // Created server-side when a chat message is posted. Both carry the channel
   // id in `threadId` and the message id in `commentId`, and no document.
   | "chat_mention"
-  | "chat_thread_reply";
+  | "chat_thread_reply"
+  // Created server-side for every workspace owner when a webhook keeps
+  // failing (sent once per failure streak) or is turned off. No document;
+  // `threadId` carries the webhook id, `preview` its name and the reason.
+  | "webhook_failing"
+  | "webhook_disabled";
 
 export interface Notification {
   id: string;

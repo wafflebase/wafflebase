@@ -203,6 +203,25 @@ describe('schema registry', () => {
     expect(getCommandSchema('docs.move')!.safety).toBe('write');
     expect(getCommandSchema('folders.list')!.safety).toBe('read-only');
     expect(getCommandSchema('folders.delete')!.safety).toBe('destructive');
+    // docs/design/webhooks.md § CLI: reads are read-only, revealing a secret
+    // is a write (it hands out a credential), deleting is destructive.
+    for (const read of ['list', 'get', 'deliveries']) {
+      expect(getCommandSchema(`webhooks.${read}`)!.safety).toBe('read-only');
+    }
+    for (const write of [
+      'create',
+      'update',
+      'test',
+      'reveal-secret',
+      'rotate-secret',
+      'redeliver',
+      'enable',
+      'disable',
+    ]) {
+      expect(getCommandSchema(`webhooks.${write}`)!.safety).toBe('write');
+    }
+    expect(getCommandSchema('webhooks.delete')!.safety).toBe('destructive');
+    expect(getCommandSchema('webhook.delete')?.name).toBe('webhooks.delete');
   });
 
   describe('alias resolution', () => {

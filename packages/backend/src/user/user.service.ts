@@ -7,6 +7,7 @@ import {
   joinDefaultChannel,
 } from 'src/chat/default-channel';
 import { PrismaService } from 'src/database/prisma.service';
+import { WebhookEventService } from 'src/webhook/webhook-event.service';
 
 /**
  * A sign-in through one provider that would land in an account created by
@@ -78,7 +79,10 @@ function isSlugConflict(error: unknown): boolean {
 export class UserService {
   private readonly logger = new Logger(UserService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly webhookEvents: WebhookEventService,
+  ) {}
 
   async user(
     userWhereUniqueInput: Prisma.UserWhereUniqueInput,
@@ -203,6 +207,15 @@ export class UserService {
             },
           });
           await createDefaultChannel(tx, workspace.id, newUser.id);
+          // Reaches nobody today (the workspace is seconds old); emitted so
+          // that every membership path emits — docs/design/webhooks.md.
+          await this.webhookEvents.emitMemberEvent(tx, {
+            type: 'member.joined',
+            workspaceId: workspace.id,
+            actor: newUser.id,
+            userId: newUser.id,
+            role: 'owner',
+          });
           return newUser;
         });
       } catch (error) {
@@ -261,6 +274,16 @@ export class UserService {
         });
         if (count === 0) return null;
 
+        // Read first so only a membership this claim *created* is a join; a
+        // claimer who was already a member is promoted, not joined.
+        const existing = this.webhookEvents.enabled
+          ? await tx.workspaceMember.findUnique({
+              where: {
+                workspaceId_userId: { workspaceId: claim.workspaceId, userId },
+              },
+              select: { userId: true },
+            })
+          : null;
         await tx.workspaceMember.upsert({
           where: {
             workspaceId_userId: { workspaceId: claim.workspaceId, userId },
@@ -268,6 +291,15 @@ export class UserService {
           create: { workspaceId: claim.workspaceId, userId, role: 'owner' },
           update: { role: 'owner' },
         });
+        if (!existing) {
+          await this.webhookEvents.emitMemberEvent(tx, {
+            type: 'member.joined',
+            workspaceId: claim.workspaceId,
+            actor: userId,
+            userId,
+            role: 'owner',
+          });
+        }
         await tx.document.updateMany({
           where: { workspaceId: claim.workspaceId, authorID: null },
           data: { authorID: userId },

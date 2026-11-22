@@ -64,7 +64,8 @@ The shape follows the prior-art survey below:
 - Per-document auto-created channels (Quip / Nextcloud style). Comments already
   own "conversation inside the document".
 - **Pushing** work to an agent (outbound webhooks on mention). Bots *pull*
-  their inbox; a push channel is a later design.
+  their inbox; a push channel is a later design — [webhooks.md](webhooks.md)
+  builds the delivery engine it would reuse, with the bot as principal.
 - Bots in more than one workspace. A bot belongs to exactly one.
 - Email / push notifications, notification preferences, retention policies,
   Slack import.

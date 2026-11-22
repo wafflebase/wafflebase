@@ -92,18 +92,21 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('paper.pdf'), {}, req());
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'pdf', fileId: `${UUID}.pdf` }),
+      expect.anything(),
     );
 
     uploadReturns(`${UUID}.png`);
     await controller.upload(WS, multer('shot.png'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: 'image' }),
+      expect.anything(),
     );
 
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer('bundle.zip'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: 'file' }),
+      expect.anything(),
     );
   });
 
@@ -112,6 +115,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('budget.xlsx'), {}, req());
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'file', title: 'budget.xlsx' }),
+      expect.anything(),
     );
   });
 
@@ -129,6 +133,7 @@ describe('ApiV1FilesController.upload', () => {
     );
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ fileSize: 4242, mimeType: 'application/zip' }),
+      expect.anything(),
     );
   });
 
@@ -137,6 +142,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('quarterly report.zip'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: 'quarterly report.zip' }),
+      expect.anything(),
     );
 
     // Extension-less and dotfile names keep their whole name.
@@ -144,10 +150,12 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('Makefile'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: 'Makefile' }),
+      expect.anything(),
     );
     await controller.upload(WS, multer('.gitignore'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: '.gitignore' }),
+      expect.anything(),
     );
   });
 
@@ -159,6 +167,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('archive.c++'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: 'archive.c++' }),
+      expect.anything(),
     );
   });
 
@@ -167,6 +176,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('some/dir/bundle.zip'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: 'bundle.zip' }),
+      expect.anything(),
     );
   });
 
@@ -180,6 +190,7 @@ describe('ApiV1FilesController.upload', () => {
     );
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Q3 archive' }),
+      expect.anything(),
     );
   });
 
@@ -204,12 +215,14 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer(`${'x'.repeat(300)}.zip`), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: `${'x'.repeat(196)}.zip` }),
+      expect.anything(),
     );
 
     uploadReturns(UUID);
     await controller.upload(WS, multer(`${'y'.repeat(300)}.c++`), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: `${'y'.repeat(196)}.c++` }),
+      expect.anything(),
     );
   });
 
@@ -220,6 +233,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer(`a.${'z'.repeat(300)}`), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: `a.${'z'.repeat(198)}` }),
+      expect.anything(),
     );
   });
 
@@ -228,6 +242,7 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('shot.png'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: 'image', title: 'shot.png' }),
+      expect.anything(),
     );
   });
 
@@ -238,6 +253,7 @@ describe('ApiV1FilesController.upload', () => {
     const anyValue = expect.anything() as unknown;
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ folder: anyValue }),
+      expect.anything(),
     );
   });
 
@@ -255,6 +271,7 @@ describe('ApiV1FilesController.upload', () => {
     );
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ folder: { connect: { id: 'folder-7' } } }),
+      expect.anything(),
     );
   });
 

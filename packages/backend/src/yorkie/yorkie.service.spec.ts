@@ -1,6 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { YorkieService } from './yorkie.service';
+import type { WebhookEventService } from '../webhook/webhook-event.service';
+import { runAsApiWriter } from '../webhook/api-writer-context';
 
 // Mock the @yorkie-js/sdk module
 const mockActivate = jest.fn().mockResolvedValue(undefined);
@@ -251,6 +253,63 @@ describe('YorkieService', () => {
       // Each call should use its own client (activate called twice)
       expect(mockActivate).toHaveBeenCalledTimes(2);
       expect(mockDeactivate).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  /**
+   * The `content_updated` loop guard (docs/design/webhooks.md): an `/api/v1`
+   * write names its API key in the document's window before it is pushed.
+   */
+  describe('webhook api writers', () => {
+    const WRITER = { apiKeyId: 'key-1', userId: 7 };
+    let noteApiWrite: jest.Mock;
+    let events: { enabled: boolean; noteApiWrite: jest.Mock };
+
+    beforeEach(() => {
+      noteApiWrite = jest.fn().mockResolvedValue(undefined);
+      events = { enabled: true, noteApiWrite };
+      service = new YorkieService(
+        createMockConfigService(),
+        events as unknown as WebhookEventService,
+      );
+    });
+
+    it('records the request API key before the push', async () => {
+      await runAsApiWriter(WRITER, () =>
+        service.withDocument('doc-1', jest.fn()),
+      );
+      expect(noteApiWrite).toHaveBeenCalledWith('doc-1', WRITER);
+      expect(noteApiWrite.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSync.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('prefers an explicit writer over the request context', async () => {
+      const other = { apiKeyId: 'key-2', userId: 8 };
+      await runAsApiWriter(WRITER, () =>
+        service.withDocument('doc-1', jest.fn(), { writer: other }),
+      );
+      expect(noteApiWrite).toHaveBeenCalledWith('doc-1', other);
+    });
+
+    it('records nothing for a session write, a read, or while disabled', async () => {
+      await service.withDocument('doc-1', jest.fn());
+      await runAsApiWriter(WRITER, () =>
+        service.withDocument('doc-1', jest.fn(), { syncMode: 'readonly' }),
+      );
+      events.enabled = false;
+      await runAsApiWriter(WRITER, () =>
+        service.withDocument('doc-1', jest.fn()),
+      );
+      expect(noteApiWrite).not.toHaveBeenCalled();
+    });
+
+    it('still pushes the write when recording it fails', async () => {
+      noteApiWrite.mockRejectedValue(new Error('db down'));
+      await runAsApiWriter(WRITER, () =>
+        service.withDocument('doc-1', jest.fn()),
+      );
+      expect(mockSync).toHaveBeenCalled();
     });
   });
 });

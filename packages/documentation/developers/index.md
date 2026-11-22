@@ -48,6 +48,7 @@ Use it to:
 | Read and write sheets | [Sheets](/developers/api/sheets) |
 | Read and replace document content | [Document content](/developers/api/content) |
 | Add and arrange board elements | [Boards](/developers/api/board) |
+| Get a signed request when something changes in a workspace | [Webhooks](/developers/webhooks) |
 
 ## Host your own server
 
@@ -58,7 +59,7 @@ Use it to:
 | Look up environment variables | [Configuration](/developers/self-hosting/configuration) |
 | Set up GitHub, GitHub Enterprise, or Google sign-in | [Sign-in providers](/developers/self-hosting/sign-in) |
 | Deploy to a real domain | [Deploy to production](/developers/self-hosting/deploy) |
-| Turn on analytics, lakehouse tables, error tracking, or the public template gallery | [Optional features](/developers/self-hosting/optional-features) |
+| Turn on analytics, lakehouse tables, error tracking, webhooks, or the public template gallery | [Optional features](/developers/self-hosting/optional-features) |
 | Fix a deployment that misbehaves | [Troubleshooting](/developers/self-hosting/troubleshooting) |
 
 ## Next steps

@@ -1,10 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import yorkie, { Client, Document, SyncMode } from '@yorkie-js/sdk';
 import type ms from 'ms';
 import { SpreadsheetDocument } from './yorkie.types';
 import { YORKIE_DOC_KEY_PREFIXES } from './yorkie-doc-key';
 import { yorkieServiceTokenInjector } from './yorkie-service-token';
+import {
+  type ApiWriterIdentity,
+  WebhookEventService,
+} from '../webhook/webhook-event.service';
+import { currentApiWriter } from '../webhook/api-writer-context';
 
 export interface WithDocumentOptions {
   syncMode?: 'readwrite' | 'readonly';
@@ -20,6 +25,13 @@ export interface WithDocumentOptions {
    * write paths that assume a canonical root shape.
    */
   initialRoot?: Record<string, unknown>;
+  /**
+   * The API key this write is made with, recorded in the document's
+   * `content_updated` window before the push so the event names it (the
+   * webhook loop guard, docs/design/webhooks.md). Defaults to the key of the
+   * current `/api/v1` request (`currentApiWriter`); a JWT session has none.
+   */
+  writer?: ApiWriterIdentity;
 }
 
 @Injectable()
@@ -44,7 +56,13 @@ export class YorkieService {
   private readonly tokenSecret?: string;
   private readonly tokenExpiresIn: ms.StringValue;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    // Optional so the e2e suites and tools that build this service by hand
+    // keep working; the app always provides it (`YorkieModule` imports
+    // `WebhookEventModule`).
+    @Optional() private readonly webhookEvents?: WebhookEventService,
+  ) {
     this.rpcAddr =
       this.configService.get<string>('YORKIE_RPC_ADDR') ??
       'http://localhost:8080';
@@ -107,6 +125,7 @@ export class YorkieService {
       attached = true;
       const result = await callback(doc, client);
       if (options?.syncMode !== 'readonly') {
+        await this.recordApiWrite(documentId, options?.writer);
         await client.sync(doc);
       }
       return result;
@@ -120,6 +139,26 @@ export class YorkieService {
       } finally {
         await client.deactivate();
       }
+    }
+  }
+
+  /**
+   * Note an `/api/v1` write in the webhook coalescing window. Best-effort: the
+   * write itself is what the caller asked for, and losing one loop-guard
+   * entry costs a receiver at most one event it could have skipped.
+   */
+  private async recordApiWrite(
+    documentId: string,
+    explicit: ApiWriterIdentity | undefined,
+  ): Promise<void> {
+    const writer = explicit ?? currentApiWriter();
+    if (!writer || !this.webhookEvents?.enabled) return;
+    try {
+      await this.webhookEvents.noteApiWrite(documentId, writer);
+    } catch (e) {
+      this.logger.warn(
+        `webhook api-writer note failed for ${documentId}: ${e}`,
+      );
     }
   }
 }

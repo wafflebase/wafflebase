@@ -1023,6 +1023,7 @@ export class TemplateService {
         workspaceId: member.workspaceId,
         folderId: dto.folderId ?? null,
         title: listing.title,
+        templateId: listing.id,
       },
     );
 

@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| chat usability pass (2026-11-22) | [20261122-chat-usability-pass-todo.md](./active/20261122-chat-usability-pass-todo.md) | [20261122-chat-usability-pass-lessons.md](./active/20261122-chat-usability-pass-lessons.md) |
+| chat default general (2026-11-21) | [20261121-chat-default-general-todo.md](./active/20261121-chat-default-general-todo.md) | [20261121-chat-default-general-lessons.md](./active/20261121-chat-default-general-lessons.md) |
 | datasources in settings (2026-11-21) | [20261121-datasources-in-settings-todo.md](./active/20261121-datasources-in-settings-todo.md) | [20261121-datasources-in-settings-lessons.md](./active/20261121-datasources-in-settings-lessons.md) |
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
 | notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./active/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./active/20261121-notification-unread-paging-lessons.md) |
@@ -79,7 +81,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 647
+- Archived task count: 648
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: datasources in settings (2026-11-21)
+Latest active task: chat usability pass (2026-11-22)

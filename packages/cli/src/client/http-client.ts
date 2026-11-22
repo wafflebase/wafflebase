@@ -7,6 +7,7 @@ import { parseContentDispositionFilename } from './content-disposition.js';
 // preview prints — see `./url.js` for why escaping alone is not enough.
 import {
   apiKeysUrl,
+  webhooksUrl,
   apiV1Base,
   documentTemplateUrl,
   seg,
@@ -1197,6 +1198,22 @@ export class HttpClient {
   }
   revokeApiKey(id: string) {
     return this.sendJson('DELETE', apiKeysUrl(this.config, id));
+  }
+
+  // Webhooks. JWT-only workspace routes like the API-key ones; owner-only
+  // except the list. Every URL comes from `webhooksUrl()`, which the
+  // `--dry-run` preview prints too.
+  webhookRequest<T = unknown>(
+    method: string,
+    segments: string[] = [],
+    body?: unknown,
+    query?: URLSearchParams,
+  ) {
+    return this.sendJson<T>(
+      method,
+      webhooksUrl(this.config, segments, query),
+      body,
+    );
   }
 
   // Templates (the gallery). Outside the `/api/v1` base like the API-key

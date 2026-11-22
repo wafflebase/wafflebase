@@ -11,6 +11,7 @@ import { registerBoardCommand } from './commands/board.js';
 import { registerCommentsCommand } from './commands/comments.js';
 import { registerApiKeysCommand } from './commands/api-keys.js';
 import { registerTemplatesCommand } from './commands/templates.js';
+import { registerWebhooksCommand } from './commands/webhooks.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
@@ -37,6 +38,7 @@ export function buildProgram(): Command {
   registerCommentsCommand(program);
   registerApiKeysCommand(program);
   registerTemplatesCommand(program);
+  registerWebhooksCommand(program);
   registerSchemaCommand(program);
 
   return program;

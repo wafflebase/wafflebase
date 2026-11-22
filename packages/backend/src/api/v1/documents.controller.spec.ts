@@ -88,7 +88,10 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     await expect(
       controller.remove(WS, 'doc-1', req(OWNER)),
     ).resolves.toMatchObject({ id: 'doc-1', deletedAt: trashedAt });
-    expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(
+      ['doc-1'],
+      expect.any(Number),
+    );
     expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
   });
 
@@ -97,7 +100,10 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     await expect(
       controller.remove(WS, 'doc-1', req(AUTHOR)),
     ).resolves.toMatchObject({ id: 'doc-1' });
-    expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(
+      ['doc-1'],
+      expect.any(Number),
+    );
   });
 
   it('lets an API key minted by an owner delete any document', async () => {
@@ -153,7 +159,10 @@ describe('ApiV1DocumentsController.remove permissions', () => {
       id: 'doc-1',
       workspaceId: WS,
     });
-    expect(documentService.purgeTrashedDocument).toHaveBeenCalledWith('doc-1');
+    expect(documentService.purgeTrashedDocument).toHaveBeenCalledWith(
+      'doc-1',
+      expect.any(Number),
+    );
     expect(documentService.trashDocuments).not.toHaveBeenCalled();
     expect(fileService.delete).toHaveBeenCalledWith(fileId);
   });
@@ -208,7 +217,10 @@ describe('ApiV1DocumentsController.remove permissions', () => {
       await expect(
         controller.restore(WS, 'doc-1', req(AUTHOR)),
       ).resolves.toMatchObject({ id: 'doc-1', deletedAt: null });
-      expect(documentService.restoreDocument).toHaveBeenCalledWith('doc-1');
+      expect(documentService.restoreDocument).toHaveBeenCalledWith(
+        'doc-1',
+        expect.any(Number),
+      );
     });
 
     it('answers 404 for a live document', async () => {
@@ -296,10 +308,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
   describe('update', () => {
     it('lets any member rename a document they do not own', async () => {
       await controller.update(WS, 'doc-1', req(MEMBER), { title: 'New' });
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { title: 'New' },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { title: 'New' },
+        },
+        expect.any(Number),
+      );
     });
 
     it('forbids a plain member from filing a document they do not own', async () => {
@@ -312,10 +327,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
     it('lets the document author move it into a folder', async () => {
       await controller.update(WS, 'doc-1', req(AUTHOR), { folderId: 'f-1' });
       expect(folderService.assertSameWorkspace).toHaveBeenCalledWith('f-1', WS);
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { folder: { connect: { id: 'f-1' } } },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { folder: { connect: { id: 'f-1' } } },
+        },
+        expect.any(Number),
+      );
     });
 
     it('lets the workspace owner move any document', async () => {
@@ -327,10 +345,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
     it('treats an explicit null folder as a move to the workspace root', async () => {
       await controller.update(WS, 'doc-1', req(AUTHOR), { folderId: null });
       expect(folderService.assertSameWorkspace).not.toHaveBeenCalled();
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { folder: { disconnect: true } },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { folder: { disconnect: true } },
+        },
+        expect.any(Number),
+      );
     });
 
     it('refuses a folder from another workspace', async () => {
@@ -367,10 +388,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
         title: 'New',
         folderId: 'f-1',
       });
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { title: 'New', folder: { connect: { id: 'f-1' } } },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { title: 'New', folder: { connect: { id: 'f-1' } } },
+        },
+        expect.any(Number),
+      );
     });
 
     // The handler used to spread the whole request body into
@@ -393,10 +417,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
         fileId: 'stolen-blob.pdf',
         id: 'doc-2',
       } as never);
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { title: 'New' },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { title: 'New' },
+        },
+        expect.any(Number),
+      );
     });
 
     it('writes nothing when the body carries only unknown fields', async () => {
@@ -404,10 +431,13 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
         type: 'pdf',
         fileId: 'stolen-blob.pdf',
       } as never);
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: {},
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: {},
+        },
+        expect.any(Number),
+      );
     });
   });
 });
@@ -724,6 +754,7 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       expect(res.status).toBe(201);
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ title: 'new', type: 'sheet' }),
+        expect.anything(),
       );
     });
 
@@ -736,6 +767,7 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
         expect(res.status).toBe(201);
         expect(documentService.createDocument).toHaveBeenCalledWith(
           expect.objectContaining({ type }),
+          expect.anything(),
         );
       }
     });
@@ -747,6 +779,7 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       expect(res.status).toBe(201);
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'sheet' }),
+        expect.anything(),
       );
     });
 
@@ -784,6 +817,7 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       expect(res.status).toBe(201);
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'sheet' }),
+        expect.anything(),
       );
     });
 

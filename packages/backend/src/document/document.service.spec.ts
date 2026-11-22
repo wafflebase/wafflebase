@@ -1,5 +1,6 @@
 import { DocumentService } from './document.service';
 import { PrismaService } from 'src/database/prisma.service';
+import type { WebhookEventService } from '../webhook/webhook-event.service';
 
 describe('DocumentService.updateDocument', () => {
   let update: jest.Mock;
@@ -13,7 +14,10 @@ describe('DocumentService.updateDocument', () => {
   });
 
   it('advances updatedAt on a real metadata update (rename)', async () => {
-    await service.updateDocument({ where: { id: 'd1' }, data: { title: 'New' } });
+    await service.updateDocument(
+      { where: { id: 'd1' }, data: { title: 'New' } },
+      1,
+    );
     const arg = update.mock.calls[0][0] as {
       data: { title?: string; updatedAt?: Date };
     };
@@ -23,7 +27,7 @@ describe('DocumentService.updateDocument', () => {
 
   it('does not bump updatedAt for an empty / no-op update', async () => {
     // An empty-body PATCH must not re-sort the doc to the top of the list.
-    await service.updateDocument({ where: { id: 'd1' }, data: {} });
+    await service.updateDocument({ where: { id: 'd1' }, data: {} }, 1);
     const arg = update.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(arg.data).not.toHaveProperty('updatedAt');
     expect(Object.keys(arg.data)).toHaveLength(0);
@@ -89,12 +93,12 @@ describe('DocumentService trash', () => {
   // The trash condition is in the delete itself, so a restore that lands
   // after the caller read the trash list leaves the document alive.
   it('purges only a document still in the trash', async () => {
-    await expect(service.purgeTrashedDocument('d1')).resolves.toBe(true);
+    await expect(service.purgeTrashedDocument('d1', 1)).resolves.toBe(true);
     expect(prisma.document.deleteMany).toHaveBeenCalledWith({
       where: { id: 'd1', deletedAt: { not: null } },
     });
     prisma.document.deleteMany.mockResolvedValueOnce({ count: 0 });
-    await expect(service.purgeTrashedDocument('d1')).resolves.toBe(false);
+    await expect(service.purgeTrashedDocument('d1', 1)).resolves.toBe(false);
   });
 
   it('reports exactly the ids a bulk purge destroyed', async () => {
@@ -103,7 +107,7 @@ describe('DocumentService trash', () => {
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 1 });
     await expect(
-      service.purgeTrashedDocuments(['a', 'b', 'c']),
+      service.purgeTrashedDocuments(['a', 'b', 'c'], 1),
     ).resolves.toEqual(['a', 'c']);
   });
 
@@ -130,7 +134,7 @@ describe('DocumentService trash', () => {
   });
 
   it('trashes only live rows and leaves updatedAt alone', async () => {
-    await service.trashDocuments(['a', 'b']);
+    await service.trashDocuments(['a', 'b'], 1);
     const [[arg]] = prisma.document.updateMany.mock.calls as Array<
       [{ where: unknown; data: Record<string, unknown> }]
     >;
@@ -140,12 +144,14 @@ describe('DocumentService trash', () => {
   });
 
   it('does not query when trashing nothing', async () => {
-    await expect(service.trashDocuments([])).resolves.toBe(0);
+    await expect(service.trashDocuments([], 1)).resolves.toBe(0);
     expect(prisma.document.updateMany).not.toHaveBeenCalled();
   });
 
   it('restores a trashed row and returns it live', async () => {
-    await expect(service.restoreDocument('d1')).resolves.toEqual({ id: 'd1' });
+    await expect(service.restoreDocument('d1', 1)).resolves.toEqual({
+      id: 'd1',
+    });
     expect(prisma.document.updateMany).toHaveBeenCalledWith({
       where: { id: 'd1', deletedAt: { not: null } },
       data: { deletedAt: null },
@@ -154,7 +160,290 @@ describe('DocumentService trash', () => {
 
   it('returns null when restoring a row that is not in the trash', async () => {
     prisma.document.updateMany.mockResolvedValue({ count: 0 });
-    await expect(service.restoreDocument('d1')).resolves.toBeNull();
+    await expect(service.restoreDocument('d1', 1)).resolves.toBeNull();
     expect(prisma.document.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Webhook emission from the service, with the transaction client the write
+ * ran on (docs/design/webhooks.md § Event catalog). Both the web routes and
+ * `/api/v1` reach these methods; the controller specs assert they pass the
+ * caller as the actor.
+ */
+describe('DocumentService webhook events', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'd1',
+    type: 'sheet',
+    title: 'Plan',
+    workspaceId: 'w1',
+    folderId: null as string | null,
+    deletedAt: null as Date | null,
+    ...over,
+  });
+  let prisma: {
+    document: Record<string, jest.Mock>;
+    $transaction: jest.Mock;
+  };
+  let batch: {
+    emitDocumentEvent: jest.Mock;
+    folderRef: jest.Mock;
+    preloadFolders: jest.Mock;
+    flush: jest.Mock;
+  };
+  let events: {
+    enabled: boolean;
+    emitDocumentEvent: jest.Mock;
+    batch: jest.Mock;
+  };
+  let service: DocumentService;
+
+  beforeEach(() => {
+    prisma = {
+      document: {
+        create: jest.fn().mockResolvedValue(row()),
+        findUnique: jest.fn().mockResolvedValue(row()),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue(row()),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        updateManyAndReturn: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+    };
+    batch = {
+      emitDocumentEvent: jest.fn().mockResolvedValue(undefined),
+      folderRef: jest.fn((id: string | null) =>
+        Promise.resolve(id ? { id, name: `name-${id}` } : null),
+      ),
+      preloadFolders: jest.fn().mockResolvedValue(undefined),
+      flush: jest.fn().mockResolvedValue(undefined),
+    };
+    events = {
+      enabled: true,
+      emitDocumentEvent: jest.fn().mockResolvedValue(undefined),
+      batch: jest.fn(() => batch),
+    };
+    service = new DocumentService(
+      prisma as unknown as PrismaService,
+      events as unknown as WebhookEventService,
+    );
+  });
+
+  /** Every document event, emitted singly or through a batch. */
+  const emitted = () => [
+    ...events.emitDocumentEvent.mock.calls.map(
+      ([, input]) => input as Record<string, unknown>,
+    ),
+    ...batch.emitDocumentEvent.mock.calls.map(
+      ([input]) => input as Record<string, unknown>,
+    ),
+  ];
+
+  it('emits document.created with its source inside the create transaction', async () => {
+    await service.createDocument({} as never, {
+      actorId: 7,
+      source: { kind: 'upload' },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(events.emitDocumentEvent).toHaveBeenCalledWith(prisma, {
+      type: 'document.created',
+      actor: 7,
+      document: row(),
+      extra: { source: { kind: 'upload' } },
+    });
+  });
+
+  it('leaves document.created to the caller when told to', async () => {
+    await service.createDocument({} as never, null);
+    expect(events.emitDocumentEvent).not.toHaveBeenCalled();
+  });
+
+  it('emits renamed only when the title changed', async () => {
+    prisma.document.update.mockResolvedValue(row({ title: 'Plan v2' }));
+    await service.updateDocument(
+      { where: { id: 'd1' }, data: { title: 'Plan v2' } },
+      7,
+    );
+    expect(emitted().map((e) => e.type)).toEqual(['document.renamed']);
+    expect(batch.flush).toHaveBeenCalled();
+
+    batch.emitDocumentEvent.mockClear();
+    prisma.document.update.mockResolvedValue(row());
+    await service.updateDocument(
+      { where: { id: 'd1' }, data: { title: 'Plan' } },
+      7,
+    );
+    expect(emitted()).toEqual([]);
+  });
+
+  it('emits moved with both folders, matched against either', async () => {
+    prisma.document.findUnique.mockResolvedValue(row({ folderId: 'f1' }));
+    prisma.document.update.mockResolvedValue(row({ folderId: 'f2' }));
+    await service.updateDocument(
+      { where: { id: 'd1' }, data: { folder: { connect: { id: 'f2' } } } },
+      7,
+    );
+    expect(emitted()).toEqual([
+      expect.objectContaining({
+        type: 'document.moved',
+        actor: 7,
+        filterFolderId: ['f1', 'f2'],
+        folder: { id: 'f2', name: 'name-f2' },
+        extra: {
+          from_folder: { id: 'f1', name: 'name-f1' },
+          to_folder: { id: 'f2', name: 'name-f2' },
+        },
+      }),
+    ]);
+  });
+
+  it('emits a cross-workspace move to both workspaces', async () => {
+    prisma.document.findUnique.mockResolvedValue(row({ folderId: 'f1' }));
+    prisma.document.update.mockResolvedValue(row({ workspaceId: 'w2' }));
+    await service.updateDocument(
+      { where: { id: 'd1' }, data: { workspace: { connect: { id: 'w2' } } } },
+      7,
+    );
+    const moves = emitted();
+    expect(moves.map((e) => [e.workspaceId, e.filterFolderId])).toEqual([
+      ['w1', 'f1'],
+      ['w2', null],
+    ]);
+    for (const e of moves) {
+      expect(e.extra).toMatchObject({
+        from_workspace_id: 'w1',
+        to_workspace_id: 'w2',
+      });
+    }
+  });
+
+  // A webhook's owner need not belong to the other workspace, so neither
+  // half names the other side's folder or links into it.
+  it("tells each workspace of a cross-workspace move only its own side", async () => {
+    prisma.document.findUnique.mockResolvedValue(
+      row({ folderId: 'legal', title: 'Plan' }),
+    );
+    prisma.document.update.mockResolvedValue(
+      row({ workspaceId: 'w2', folderId: 'layoffs', title: 'Plan v2' }),
+    );
+    await service.updateDocument(
+      {
+        where: { id: 'd1' },
+        data: {
+          title: 'Plan v2',
+          workspace: { connect: { id: 'w2' } },
+          folder: { connect: { id: 'layoffs' } },
+        },
+      },
+      7,
+    );
+    const moves = emitted().filter((e) => e.type === 'document.moved');
+    const source = moves.find((e) => e.workspaceId === 'w1')!;
+    const dest = moves.find((e) => e.workspaceId === 'w2')!;
+
+    expect(source).toMatchObject({
+      folder: null,
+      links: false,
+      filterFolderId: 'legal',
+      document: { title: 'Plan', workspaceId: 'w1' },
+      extra: {
+        from_folder: { id: 'legal', name: 'name-legal' },
+        to_folder: null,
+      },
+    });
+    expect(JSON.stringify(source)).not.toContain('layoffs');
+    expect(JSON.stringify(source)).not.toContain('Plan v2');
+
+    expect(dest).toMatchObject({
+      folder: { id: 'layoffs', name: 'name-layoffs' },
+      filterFolderId: 'layoffs',
+      extra: {
+        from_folder: null,
+        to_folder: { id: 'layoffs', name: 'name-layoffs' },
+      },
+    });
+    expect(dest.links).toBeUndefined();
+    expect(JSON.stringify(dest)).not.toContain('legal');
+  });
+
+  it('emits one document.moved per document of a bulk move, in one batch', async () => {
+    prisma.document.findMany.mockResolvedValue([
+      row({ id: 'a' }),
+      row({ id: 'b' }),
+    ]);
+    prisma.document.update
+      .mockResolvedValueOnce(row({ id: 'a', folderId: 'f' }))
+      .mockResolvedValueOnce(row({ id: 'b', folderId: 'f' }));
+    await service.moveDocuments(
+      [
+        { id: 'a', data: {} },
+        { id: 'b', data: {} },
+      ],
+      7,
+    );
+    expect(emitted().map((e) => e.type)).toEqual([
+      'document.moved',
+      'document.moved',
+    ]);
+    // The rows before the move are read once, not per document.
+    expect(prisma.document.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.document.findUnique).not.toHaveBeenCalled();
+    expect(events.batch).toHaveBeenCalledTimes(1);
+    expect(batch.flush).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: 5_020,
+    });
+  });
+
+  it('emits trashed for exactly the rows a bulk trash trashed', async () => {
+    // `b` was trashed by somebody else between the request and the write, so
+    // the compare-and-set does not return it.
+    prisma.document.updateManyAndReturn.mockResolvedValue([row({ id: 'a' })]);
+    await expect(service.trashDocuments(['a', 'b'], 7)).resolves.toBe(1);
+    expect(prisma.document.updateManyAndReturn).toHaveBeenCalledWith({
+      where: { id: { in: ['a', 'b'] }, deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
+    });
+    expect(
+      emitted().map((e) => [e.type, (e.document as { id: string }).id]),
+    ).toEqual([['document.trashed', 'a']]);
+    expect(batch.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits restored with the live row', async () => {
+    await service.restoreDocument('d1', 7);
+    expect(emitted()).toEqual([
+      expect.objectContaining({ type: 'document.restored', actor: 7 }),
+    ]);
+  });
+
+  it('emits deleted with the row read before the purge, only if it won', async () => {
+    const trashed = row({ deletedAt: new Date() });
+    prisma.document.findUnique.mockResolvedValue(trashed);
+    await service.purgeTrashedDocument('d1', 7);
+    expect(events.emitDocumentEvent).toHaveBeenCalledWith(prisma, {
+      type: 'document.deleted',
+      actor: 7,
+      document: trashed,
+    });
+    expect(prisma.document.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.document.deleteMany.mock.invocationCallOrder[0],
+    );
+
+    events.emitDocumentEvent.mockClear();
+    prisma.document.deleteMany.mockResolvedValue({ count: 0 });
+    await service.purgeTrashedDocument('d1', 7);
+    expect(events.emitDocumentEvent).not.toHaveBeenCalled();
+  });
+
+  it('runs straight on the client, emitting nothing, while disabled', async () => {
+    events.enabled = false;
+    await service.createDocument({} as never, {
+      actorId: 7,
+      source: { kind: 'blank' },
+    });
+    await service.trashDocuments(['a'], 7);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

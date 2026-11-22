@@ -36,6 +36,7 @@ import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 import { isDocumentManager } from './document-access';
 import { assertFileIdAllowed } from './document-file-id.util';
 import { FolderService } from '../folder/folder.service';
+import type { DocumentSource } from '../webhook/webhook.types';
 
 // `folderId` is part of the row via the `...d` spread below (the `Document`
 // model now carries it — see `document.dto.ts` / Task 1's Prisma migration).
@@ -55,6 +56,18 @@ type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt' | 'deletedAt'> & {
   // Only the trash list ever carries a non-null value.
   deletedAt: string | null;
 };
+
+/**
+ * What a web-created document reports as its `document.created` source. A
+ * row that arrives carrying a `fileId` is the second half of an upload (the
+ * blob went up first, see the upload queue); every other web create is blank.
+ * Client-side imports (xlsx / docx / pptx, Miro) also create a blank row and
+ * fill it afterwards, so the server cannot tell them apart and calls them
+ * `blank`.
+ */
+function creationSource(fileId: string | undefined): DocumentSource {
+  return { kind: fileId ? 'upload' : 'blank' };
+}
 
 /**
  * `?permanent=true` on `DELETE /documents/:id`. Only the literal `true`
@@ -144,15 +157,20 @@ export class DocumentController {
     if (body.folderId) {
       await this.folderService.assertSameWorkspace(body.folderId, workspaceId);
     }
-    return this.documentService.createDocument({
-      title: body.title,
-      type: body.type ?? 'sheet',
-      fileId: body.fileId,
-      ...blobMeta,
-      author: { connect: { id: userId } },
-      workspace: { connect: { id: workspaceId } },
-      ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),
-    });
+    return this.documentService.createDocument(
+      {
+        title: body.title,
+        type: body.type ?? 'sheet',
+        fileId: body.fileId,
+        ...blobMeta,
+        author: { connect: { id: userId } },
+        workspace: { connect: { id: workspaceId } },
+        ...(body.folderId
+          ? { folder: { connect: { id: body.folderId } } }
+          : {}),
+      },
+      { actorId: userId, source: creationSource(body.fileId) },
+    );
   }
 
   @Get('workspaces/:workspaceId/documents')
@@ -164,7 +182,10 @@ export class DocumentController {
     const userId = Number(req.user.id);
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
-    const member = await this.workspaceService.assertMember(workspaceId, userId);
+    const member = await this.workspaceService.assertMember(
+      workspaceId,
+      userId,
+    );
     const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId, folderId: folderId ?? null },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
@@ -217,7 +238,8 @@ export class DocumentController {
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentListItem[]> {
     const userId = Number(req.user.id);
-    const memberships = await this.workspaceService.findMembershipsByUser(userId);
+    const memberships =
+      await this.workspaceService.findMembershipsByUser(userId);
     const roleByWorkspace = new Map(
       memberships.map((m) => [m.workspaceId, m.role]),
     );
@@ -248,15 +270,20 @@ export class DocumentController {
         body.workspaceId,
       );
     }
-    return this.documentService.createDocument({
-      title: body.title,
-      type: body.type ?? 'sheet',
-      fileId: body.fileId,
-      ...blobMeta,
-      author: { connect: { id: userId } },
-      workspace: { connect: { id: body.workspaceId } },
-      ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),
-    });
+    return this.documentService.createDocument(
+      {
+        title: body.title,
+        type: body.type ?? 'sheet',
+        fileId: body.fileId,
+        ...blobMeta,
+        author: { connect: { id: userId } },
+        workspace: { connect: { id: body.workspaceId } },
+        ...(body.folderId
+          ? { folder: { connect: { id: body.folderId } } }
+          : {}),
+      },
+      { actorId: userId, source: creationSource(body.fileId) },
+    );
   }
 
   // Bulk move must be declared before `documents/:id` so the literal `move`
@@ -315,7 +342,7 @@ export class DocumentController {
       }
       updates.push({ id: doc!.id, data });
     }
-    await this.documentService.moveDocuments(updates);
+    await this.documentService.moveDocuments(updates, userId);
     return { moved: updates.map((u) => u.id) };
   }
 
@@ -398,10 +425,7 @@ export class DocumentController {
       }
     }
 
-    return this.documentService.updateDocument({
-      where: { id },
-      data,
-    });
+    return this.documentService.updateDocument({ where: { id }, data }, userId);
   }
 
   /**
@@ -427,20 +451,21 @@ export class DocumentController {
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
-    if (!(await this.resolveDocManager(doc, Number(req.user.id)))) {
+    const userId = Number(req.user.id);
+    if (!(await this.resolveDocManager(doc, userId))) {
       throw new ForbiddenException(
         'Only the workspace owner or document owner can delete this document',
       );
     }
     if (!hard) {
-      await this.documentService.trashDocuments([id]);
+      await this.documentService.trashDocuments([id], userId);
       const trashed = await this.documentService.documentIncludingTrashed({
         id,
       });
       if (!trashed) throw new NotFoundException('Document not found');
       return trashed;
     }
-    if (!(await this.documentService.purgeTrashedDocument(id))) {
+    if (!(await this.documentService.purgeTrashedDocument(id, userId))) {
       // Restored or purged by somebody else between the read and the write.
       throw new NotFoundException('Document not found in trash');
     }
@@ -463,12 +488,13 @@ export class DocumentController {
     if (!doc || doc.deletedAt === null) {
       throw new NotFoundException('Document not found in trash');
     }
-    if (!(await this.resolveDocManager(doc, Number(req.user.id)))) {
+    const userId = Number(req.user.id);
+    if (!(await this.resolveDocManager(doc, userId))) {
       throw new ForbiddenException(
         'Only the workspace owner or document owner can restore this document',
       );
     }
-    const restored = await this.documentService.restoreDocument(id);
+    const restored = await this.documentService.restoreDocument(id, userId);
     if (!restored) {
       // Restored or purged by somebody else between the read and the write.
       throw new NotFoundException('Document not found in trash');
@@ -515,10 +541,13 @@ export class DocumentController {
       );
     }
     if (!hard) {
-      await this.documentService.trashDocuments(body.ids);
+      await this.documentService.trashDocuments(body.ids, userId);
       return { deleted: body.ids };
     }
-    const purged = await this.documentService.purgeTrashedDocuments(body.ids);
+    const purged = await this.documentService.purgeTrashedDocuments(
+      body.ids,
+      userId,
+    );
     const purgedIds = new Set(purged);
     await this.deleteBlobs(docs.filter((doc) => doc && purgedIds.has(doc.id)));
     return { deleted: purged };

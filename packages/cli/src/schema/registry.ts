@@ -1592,6 +1592,148 @@ const registry: CommandSchema[] = [
     response: { id: 'string', title: 'string', type: 'string', workspaceId: 'string' },
     aliases: ['template.use'],
   },
+
+  // Webhooks namespace (docs/design/webhooks.md). JWT-only workspace routes
+  // like `api-keys`: a session from `wafflebase login`, never an API key.
+  // Owner-only except `list`, which a member reads host-only.
+  {
+    name: 'webhooks.list',
+    description: 'List webhooks in workspace (members see hosts only; enabled is false when the server has webhooks off)',
+    safety: 'read-only',
+    parameters: {},
+    response: { enabled: 'boolean', canManage: 'boolean', webhooks: { type: 'array', items: { id: 'string', name: 'string', host: 'string', url: 'string (owners only)', status: "'active' | 'disabled'", disabledReason: 'string | null', events: 'string[]', lastDeliveryAt: 'string | null', lastDeliveryStatus: 'number | null', createdBy: '{ id, username } | null', createdAt: 'string' } } },
+    aliases: ['webhook.list'],
+  },
+  {
+    name: 'webhooks.get',
+    description: 'Show a webhook (owner only; never includes the secret)',
+    safety: 'read-only',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+    },
+    response: { id: 'string', name: 'string', url: 'string', host: 'string', status: 'string', disabledReason: "'failing' | 'gone' | 'creator_removed' | 'manual' | null", events: 'string[]', documentTypes: 'string[]', folderIds: 'string[]', format: 'string', disabledAt: 'string | null', rotationExpiresAt: 'string | null', failingSince: 'string | null', createdBy: '{ id, username } | null' },
+    aliases: ['webhook.get'],
+  },
+  {
+    name: 'webhooks.create',
+    description: 'Register a webhook; a signed webhook.test is sent at once and a failed test does not block saving',
+    safety: 'write',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Webhook name (1-100 characters)' },
+      url: { type: 'string', required: true, description: 'HTTPS endpoint; private addresses are refused unless the server allows them' },
+      '--event': { type: 'string', required: false, description: 'Subscribe to an event type (repeatable): document.created|renamed|moved|trashed|restored|deleted|content_updated, folder.created|updated|deleted, member.joined|removed', default: 'every event' },
+      '--document-type': { type: 'string', required: false, description: 'Only documents of this type (repeatable)', default: 'every type' },
+      '--folder': { type: 'string', required: false, description: 'Only documents filed directly in this folder (repeatable)', default: 'every folder' },
+    },
+    response: { webhook: { id: 'string', name: 'string', url: 'string', host: 'string', status: 'string', disabledReason: "'failing' | 'gone' | 'creator_removed' | 'manual' | null", events: 'string[]', documentTypes: 'string[]', folderIds: 'string[]', format: 'string', disabledAt: 'string | null', rotationExpiresAt: 'string | null', failingSince: 'string | null', createdBy: '{ id, username } | null' }, test: { ok: 'boolean', status: 'number | null', durationMs: 'number | null', error: 'string | null', errorCode: 'string | null', responseExcerpt: 'string | null' } },
+    aliases: ['webhook.create'],
+  },
+  {
+    name: 'webhooks.update',
+    description: 'Change a webhook; only the options given are sent, and a changed URL is tested',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+      '--name': { type: 'string', required: false, description: 'New name' },
+      '--url': { type: 'string', required: false, description: 'New endpoint URL' },
+      '--event': { type: 'string', required: false, description: 'Subscribe to an event type (repeatable): document.created|renamed|moved|trashed|restored|deleted|content_updated, folder.created|updated|deleted, member.joined|removed', default: 'every event' },
+      '--document-type': { type: 'string', required: false, description: 'Only documents of this type (repeatable)', default: 'every type' },
+      '--folder': { type: 'string', required: false, description: 'Only documents filed directly in this folder (repeatable)', default: 'every folder' },
+      '--all-events': { type: 'boolean', required: false, description: 'Subscribe to every event again' },
+      '--all-document-types': { type: 'boolean', required: false, description: 'Drop the document type filter' },
+      '--all-folders': { type: 'boolean', required: false, description: 'Drop the folder filter' },
+    },
+    response: { webhook: 'webhook (as in webhooks.get)', test: 'test result (as in webhooks.test) | null — null unless the URL changed' },
+    aliases: ['webhook.update'],
+  },
+  {
+    name: 'webhooks.delete',
+    description: 'Delete a webhook and its delivery log',
+    safety: 'destructive',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+    },
+    response: { ok: 'boolean' },
+    aliases: ['webhook.delete'],
+  },
+  {
+    name: 'webhooks.test',
+    description: 'Send a signed webhook.test event to the endpoint and report the response',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+    },
+    response: { ok: 'boolean', status: 'number | null', durationMs: 'number | null', error: 'string | null', errorCode: 'string | null', responseExcerpt: 'string | null' },
+    aliases: ['webhook.test'],
+  },
+  {
+    name: 'webhooks.reveal-secret',
+    description: 'Show the signing secret, and the previous one while a rotation overlap lasts',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+    },
+    response: { secret: 'string (whsec_…)', previousSecret: 'string | null', previousExpiresAt: 'string | null' },
+    aliases: ['webhook.reveal-secret'],
+  },
+  {
+    name: 'webhooks.rotate-secret',
+    description: 'Issue a new signing secret; both are signed with until the overlap ends, and rotating again before then is refused (409 rotation_in_progress)',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+      '--overlap-hours': { type: 'number', required: false, description: 'Hours the previous secret stays live (1-168)', default: '24' },
+    },
+    response: { secret: 'string (whsec_…)', previousExpiresAt: 'string' },
+    aliases: ['webhook.rotate-secret'],
+  },
+  {
+    name: 'webhooks.enable',
+    description: 'Turn a webhook back on and record the caller as its creator; --recover-since re-queues failed deliveries',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+      '--recover-since': { type: 'string', required: false, description: 'Re-queue failed deliveries created at or after this ISO 8601 instant', default: 'none' },
+    },
+    response: { id: 'string', name: 'string', url: 'string', host: 'string', status: 'string', disabledReason: "'failing' | 'gone' | 'creator_removed' | 'manual' | null", events: 'string[]', documentTypes: 'string[]', folderIds: 'string[]', format: 'string', disabledAt: 'string | null', rotationExpiresAt: 'string | null', failingSince: 'string | null', createdBy: '{ id, username } | null' },
+    aliases: ['webhook.enable'],
+  },
+  {
+    name: 'webhooks.disable',
+    description: 'Turn a webhook off (reason manual); events are not queued while it is off',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+    },
+    response: { id: 'string', name: 'string', url: 'string', host: 'string', status: 'string', disabledReason: "'failing' | 'gone' | 'creator_removed' | 'manual' | null", events: 'string[]', documentTypes: 'string[]', folderIds: 'string[]', format: 'string', disabledAt: 'string | null', rotationExpiresAt: 'string | null', failingSince: 'string | null', createdBy: '{ id, username } | null' },
+    aliases: ['webhook.disable'],
+  },
+  {
+    name: 'webhooks.deliveries',
+    description: 'List a webhook\'s deliveries newest first, or show one (payload and response excerpt) when delivery-id is given',
+    safety: 'read-only',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+      'delivery-id': { type: 'string', required: false, description: 'Show this delivery instead of the list' },
+      '--status': { type: 'string', required: false, description: 'failed or all', default: 'all' },
+      '--limit': { type: 'number', required: false, description: 'Page size (1-50)', default: '50' },
+      '--before': { type: 'string', required: false, description: 'Cursor: nextCursor.before of a prior page' },
+      '--before-id': { type: 'string', required: false, description: 'Cursor: nextCursor.beforeId of a prior page' },
+    },
+    response: { deliveries: { type: 'array', items: { id: 'string (the webhook-id header)', eventType: 'string', status: "'pending' | 'in_flight' | 'delivered' | 'failed'", attempts: 'number', lastStatus: 'number | null', lastError: 'string | null', lastDurationMs: 'number | null', nextAttemptAt: 'string', deliveredAt: 'string | null', createdAt: 'string' } }, nextCursor: '{ before, beforeId } | null' },
+    aliases: ['webhook.deliveries'],
+  },
+  {
+    name: 'webhooks.redeliver',
+    description: 'Pull a delivery\'s next attempt to now (same delivery id, so receivers deduplicate it as a retry)',
+    safety: 'write',
+    parameters: {
+      'webhook-id': { type: 'string', required: true, description: 'Webhook ID' },
+      'delivery-id': { type: 'string', required: true, description: 'Delivery ID' },
+    },
+    response: { id: 'string (the webhook-id header)', eventType: 'string', status: "'pending' | 'in_flight' | 'delivered' | 'failed'", attempts: 'number', lastStatus: 'number | null', lastError: 'string | null', lastDurationMs: 'number | null', nextAttemptAt: 'string', deliveredAt: 'string | null', createdAt: 'string' },
+    aliases: ['webhook.redeliver'],
+  },
 ];
 
 /**

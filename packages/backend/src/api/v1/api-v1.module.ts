@@ -35,6 +35,7 @@ import { NotificationModule } from '../../notification/notification.module';
 // the web "Make a copy" does rather than a second implementation of it.
 import { DocumentModule } from '../../document/document.module';
 import { ShareLinkModule } from '../../share-link/share-link.module';
+import { WebhookEventModule } from '../../webhook/webhook-event.module';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/optional-jwt-auth.guard';
 import { ApiKeyAuthGuard } from '../../api-key/api-key-auth.guard';
@@ -52,6 +53,8 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     NotificationModule,
     DocumentModule,
     ShareLinkModule,
+    // This module provides its own `DocumentService`, which emits.
+    WebhookEventModule,
   ],
   controllers: [
     ApiV1DocumentsController,

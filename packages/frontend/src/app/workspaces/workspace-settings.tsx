@@ -49,6 +49,12 @@ import {
   DATASOURCES_SECTION_ID,
   WorkspaceDataSourcesSection,
 } from "./workspace-datasources-section";
+import { WorkspaceWebhooksSection } from "./webhooks/webhooks-section";
+import { WEBHOOKS_SECTION_ID } from "./webhooks/webhook-paths";
+import { RemoveMemberDialog } from "./webhooks/remove-member-dialog";
+
+/** Sections the page scrolls to when the URL's hash names one. */
+const ANCHORED_SECTIONS = [DATASOURCES_SECTION_ID, WEBHOOKS_SECTION_ID];
 
 /**
  * Renders the workspace settings page with name editing, members, and invites.
@@ -67,6 +73,10 @@ export default function WorkspaceSettings() {
   const [revealedKey, setRevealedKey] = useState<ApiKeyCreateResponse | null>(
     null,
   );
+  const [memberToRemove, setMemberToRemove] = useState<{
+    userId: number;
+    username: string;
+  } | null>(null);
 
   const {
     data: workspace,
@@ -88,12 +98,14 @@ export default function WorkspaceSettings() {
     }
   }, [workspace]);
 
-  // `/w/:id/datasources` redirects to `#datasources`. The browser's own
-  // anchor jump fires before the page has data, so scroll once it renders.
+  // `/w/:id/datasources` redirects to `#datasources`, and webhook
+  // notifications link to `#webhooks`. The browser's own anchor jump fires
+  // before the page has data, so scroll once it renders.
   const loaded = !!workspace;
   useEffect(() => {
-    if (!loaded || hash !== `#${DATASOURCES_SECTION_ID}`) return;
-    document.getElementById(DATASOURCES_SECTION_ID)?.scrollIntoView();
+    const id = hash.slice(1);
+    if (!loaded || !ANCHORED_SECTIONS.includes(id)) return;
+    document.getElementById(id)?.scrollIntoView();
   }, [loaded, hash]);
 
   const { data: me } = useQuery({
@@ -152,6 +164,13 @@ export default function WorkspaceSettings() {
       queryClient.invalidateQueries({
         queryKey: ["workspaces", workspaceId],
       });
+      // The removed member's webhooks were turned off with them.
+      if (workspace) {
+        queryClient.invalidateQueries({
+          queryKey: ["workspaces", workspace.id, "webhooks"],
+        });
+      }
+      setMemberToRemove(null);
       toast.success("Member removed");
     },
     onError: () => toast.error("Couldn't remove the member"),
@@ -365,7 +384,10 @@ export default function WorkspaceSettings() {
                           className="text-destructive hover:text-destructive"
                           aria-label="Remove member"
                           onClick={() =>
-                            removeMemberMutation.mutate(member.user.id)
+                            setMemberToRemove({
+                              userId: member.user.id,
+                              username: member.user.username,
+                            })
                           }
                         >
                           <Trash2 className="h-4 w-4" />
@@ -538,6 +560,12 @@ export default function WorkspaceSettings() {
       <Separator />
       <WorkspaceDataSourcesSection workspaceId={workspaceId!} />
 
+      <Separator />
+      <WorkspaceWebhooksSection
+        workspaceId={workspace.id}
+        workspaceRef={workspaceId!}
+      />
+
       {/* Delete workspace */}
       {isOwner && <Separator />}
       {isOwner && (
@@ -562,6 +590,17 @@ export default function WorkspaceSettings() {
             </div>
           </section>
         )}
+
+      <RemoveMemberDialog
+        workspaceId={workspace.id}
+        member={memberToRemove}
+        isSelf={memberToRemove?.userId === me?.id}
+        pending={removeMemberMutation.isPending}
+        onCancel={() => setMemberToRemove(null)}
+        onConfirm={() => {
+          if (memberToRemove) removeMemberMutation.mutate(memberToRemove.userId);
+        }}
+      />
 
       <Dialog
         open={deleteDialogOpen}

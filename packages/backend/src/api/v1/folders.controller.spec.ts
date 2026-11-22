@@ -16,10 +16,8 @@ import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 // controller directly, so no guard ever executes here; assert the metadata.
 describe('ApiV1FoldersController guards', () => {
   const guards: unknown[] =
-    (Reflect.getMetadata(
-      '__guards__',
-      ApiV1FoldersController,
-    ) as unknown[]) ?? [];
+    (Reflect.getMetadata('__guards__', ApiV1FoldersController) as unknown[]) ??
+    [];
 
   it.each([
     ['CombinedAuthGuard', CombinedAuthGuard],
@@ -85,12 +83,15 @@ describe('ApiV1FoldersController', () => {
   describe('create', () => {
     it('authors the folder as the caller and files it at the root by default', async () => {
       await controller.create(WS, req(MEMBER), { name: 'Q1' });
-      expect(folderService.create).toHaveBeenCalledWith({
-        name: 'Q1',
-        workspaceId: WS,
-        parentId: null,
-        authorID: MEMBER,
-      });
+      expect(folderService.create).toHaveBeenCalledWith(
+        {
+          name: 'Q1',
+          workspaceId: WS,
+          parentId: null,
+          authorID: MEMBER,
+        },
+        expect.any(Number),
+      );
     });
 
     it('checks a supplied parent belongs to the route workspace', async () => {
@@ -115,6 +116,7 @@ describe('ApiV1FoldersController', () => {
       await controller.create(WS, req(AUTHOR, true), { name: 'Q1' });
       expect(folderService.create).toHaveBeenCalledWith(
         expect.objectContaining({ authorID: AUTHOR }),
+        expect.any(Number),
       );
     });
   });
@@ -170,9 +172,13 @@ describe('ApiV1FoldersController', () => {
       await expect(
         controller.update(WS, 'f-1', req(MEMBER), { name: 'Renamed' }),
       ).resolves.toMatchObject({ id: 'f-1' });
-      expect(folderService.update).toHaveBeenCalledWith('f-1', {
-        name: 'Renamed',
-      });
+      expect(folderService.update).toHaveBeenCalledWith(
+        'f-1',
+        {
+          name: 'Renamed',
+        },
+        expect.any(Number),
+      );
     });
 
     it('forbids a plain member from moving a folder they do not own', async () => {
@@ -185,25 +191,37 @@ describe('ApiV1FoldersController', () => {
     it('lets the workspace owner move any folder', async () => {
       workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
       await controller.update(WS, 'f-1', req(OWNER), { parentId: 'f-2' });
-      expect(folderService.update).toHaveBeenCalledWith('f-1', {
-        parentId: 'f-2',
-      });
+      expect(folderService.update).toHaveBeenCalledWith(
+        'f-1',
+        {
+          parentId: 'f-2',
+        },
+        expect.any(Number),
+      );
     });
 
     it('lets the folder author move their own folder', async () => {
       await controller.update(WS, 'f-1', req(AUTHOR), { parentId: 'f-2' });
-      expect(folderService.update).toHaveBeenCalledWith('f-1', {
-        parentId: 'f-2',
-      });
+      expect(folderService.update).toHaveBeenCalledWith(
+        'f-1',
+        {
+          parentId: 'f-2',
+        },
+        expect.any(Number),
+      );
     });
 
     it('treats an explicit null parent as a move to the workspace root', async () => {
       await controller.update(WS, 'f-1', req(AUTHOR), { parentId: null });
       expect(folderService.assertSameWorkspace).not.toHaveBeenCalled();
       expect(folderService.assertNoCycle).toHaveBeenCalledWith('f-1', null);
-      expect(folderService.update).toHaveBeenCalledWith('f-1', {
-        parentId: null,
-      });
+      expect(folderService.update).toHaveBeenCalledWith(
+        'f-1',
+        {
+          parentId: null,
+        },
+        expect.any(Number),
+      );
     });
 
     it('checks the new parent for workspace and cycles before writing', async () => {
@@ -234,10 +252,14 @@ describe('ApiV1FoldersController', () => {
         name: 'Renamed',
         parentId: 'f-2',
       });
-      expect(folderService.update).toHaveBeenCalledWith('f-1', {
-        name: 'Renamed',
-        parentId: 'f-2',
-      });
+      expect(folderService.update).toHaveBeenCalledWith(
+        'f-1',
+        {
+          name: 'Renamed',
+          parentId: 'f-2',
+        },
+        expect.any(Number),
+      );
     });
 
     it('refuses a rename bundled with a move a plain member may not make', async () => {

@@ -63,18 +63,21 @@ export class ApiV1DocumentsController {
     @Req() req: AuthenticatedRequest,
     @Body() body: ApiV1CreateDocumentDto,
   ) {
-    return this.documentService.createDocument({
-      title: body.title,
-      type:
-        body.type === 'doc' ||
-        body.type === 'slides' ||
-        body.type === 'note' ||
-        body.type === 'board'
-          ? body.type
-          : 'sheet',
-      workspace: { connect: { id: workspaceId } },
-      author: { connect: { id: Number(req.user.id) } },
-    });
+    return this.documentService.createDocument(
+      {
+        title: body.title,
+        type:
+          body.type === 'doc' ||
+          body.type === 'slides' ||
+          body.type === 'note' ||
+          body.type === 'board'
+            ? body.type
+            : 'sheet',
+        workspace: { connect: { id: workspaceId } },
+        author: { connect: { id: Number(req.user.id) } },
+      },
+      { actorId: Number(req.user.id), source: { kind: 'blank' } },
+    );
   }
 
   @Get(':documentId')
@@ -162,10 +165,10 @@ export class ApiV1DocumentsController {
       }
     }
 
-    return this.documentService.updateDocument({
-      where: { id: documentId },
-      data,
-    });
+    return this.documentService.updateDocument(
+      { where: { id: documentId }, data },
+      Number(req.user.id),
+    );
   }
 
   /**
@@ -194,14 +197,22 @@ export class ApiV1DocumentsController {
     if (!doc) throw new NotFoundException('Document not found');
     await this.assertManager(workspaceId, doc, req, 'delete');
     if (!hard) {
-      await this.documentService.trashDocuments([documentId]);
+      await this.documentService.trashDocuments(
+        [documentId],
+        Number(req.user.id),
+      );
       const trashed = await this.documentService.documentIncludingTrashed({
         id: documentId,
       });
       if (!trashed) throw new NotFoundException('Document not found');
       return trashed;
     }
-    if (!(await this.documentService.purgeTrashedDocument(documentId))) {
+    if (
+      !(await this.documentService.purgeTrashedDocument(
+        documentId,
+        Number(req.user.id),
+      ))
+    ) {
       // Restored or purged by somebody else between the read and the write.
       throw new NotFoundException('Document not found in trash');
     }
@@ -237,7 +248,10 @@ export class ApiV1DocumentsController {
       throw new NotFoundException('Document not found in trash');
     }
     await this.assertManager(workspaceId, doc, req, 'restore');
-    const restored = await this.documentService.restoreDocument(documentId);
+    const restored = await this.documentService.restoreDocument(
+      documentId,
+      Number(req.user.id),
+    );
     if (!restored) throw new NotFoundException('Document not found in trash');
     return restored;
   }

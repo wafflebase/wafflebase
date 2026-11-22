@@ -52,6 +52,12 @@ export function notificationSentence(n: Notification): string {
       return `${actor} mentioned you in chat`;
     case "chat_thread_reply":
       return `${actor} replied to a thread you're in`;
+    // Owner-facing, from the delivery worker: no actor. The preview line
+    // carries "<name>: <reason>", so the sentence only says what state it is.
+    case "webhook_failing":
+      return `A webhook in ${workspace} has been failing and will be turned off soon`;
+    case "webhook_disabled":
+      return `A webhook in ${workspace} was turned off`;
     default:
       return `${actor} sent you a notification`;
   }
@@ -81,6 +87,16 @@ export function notificationHref(n: Notification): string | null {
     // a page nobody remembers to open on their own.
     case "template_review_queued":
       return "/admin/templates";
+    // The webhook id rides in `threadId`; without it, the settings section
+    // still lists every webhook. Recipients are owners, who can open both.
+    case "webhook_failing":
+    case "webhook_disabled": {
+      if (!n.workspace) return null;
+      const settings = `/w/${encodeURIComponent(n.workspace.id)}/settings`;
+      return n.threadId
+        ? `${settings}/webhooks/${encodeURIComponent(n.threadId)}`
+        : `${settings}#webhooks`;
+    }
     // The channel id rides in `threadId`, the message in `commentId`. The
     // chat page opens the thread itself when that message is a reply.
     case "chat_mention":

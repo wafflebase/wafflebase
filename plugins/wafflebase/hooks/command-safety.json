@@ -1072,6 +1072,90 @@
             "neverAutoApprove": true
           }
         }
+      },
+      "webhooks": {
+        "aliases": [
+          "webhook"
+        ],
+        "children": {
+          "create": {
+            "valueOptions": [
+              "--document-type",
+              "--event",
+              "--folder"
+            ],
+            "safety": "write",
+            "description": "Register a webhook; a signed webhook.test is sent at once and a failed test does not block saving",
+            "neverAutoApprove": true
+          },
+          "delete": {
+            "safety": "destructive",
+            "description": "Delete a webhook and its delivery log"
+          },
+          "deliveries": {
+            "valueOptions": [
+              "--before",
+              "--before-id",
+              "--limit",
+              "--status"
+            ],
+            "safety": "read-only",
+            "description": "List a webhook's deliveries newest first, or show one (payload and response excerpt) when delivery-id is given"
+          },
+          "disable": {
+            "safety": "write",
+            "description": "Turn a webhook off (reason manual); events are not queued while it is off"
+          },
+          "enable": {
+            "valueOptions": [
+              "--recover-since"
+            ],
+            "safety": "write",
+            "description": "Turn a webhook back on and record the caller as its creator; --recover-since re-queues failed deliveries",
+            "neverAutoApprove": true
+          },
+          "get": {
+            "safety": "read-only",
+            "description": "Show a webhook (owner only; never includes the secret)"
+          },
+          "list": {
+            "safety": "read-only",
+            "description": "List webhooks in workspace (members see hosts only; enabled is false when the server has webhooks off)"
+          },
+          "redeliver": {
+            "safety": "write",
+            "description": "Pull a delivery's next attempt to now (same delivery id, so receivers deduplicate it as a retry)"
+          },
+          "reveal-secret": {
+            "safety": "write",
+            "description": "Show the signing secret, and the previous one while a rotation overlap lasts",
+            "neverAutoApprove": true
+          },
+          "rotate-secret": {
+            "valueOptions": [
+              "--overlap-hours"
+            ],
+            "safety": "write",
+            "description": "Issue a new signing secret; both are signed with until the overlap ends, and rotating again before then is refused (409 rotation_in_progress)",
+            "neverAutoApprove": true
+          },
+          "test": {
+            "safety": "write",
+            "description": "Send a signed webhook.test event to the endpoint and report the response"
+          },
+          "update": {
+            "valueOptions": [
+              "--document-type",
+              "--event",
+              "--folder",
+              "--name",
+              "--url"
+            ],
+            "safety": "write",
+            "description": "Change a webhook; only the options given are sent, and a changed URL is tested",
+            "neverAutoApprove": true
+          }
+        }
       }
     }
   }

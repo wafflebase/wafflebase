@@ -83,6 +83,24 @@ export function apiKeysUrl(config: CliConfig, keyId?: string): string {
 }
 
 /**
+ * The webhook management URLs (`workspaces/:id/webhooks/…`). JWT-only browser
+ * routes like the API-key ones, for the same reason: a leaked API key must not
+ * be able to register an exfiltration endpoint, so nothing about webhooks
+ * hangs off `/api/v1`. `segments` are escaped one by one; `query` is appended
+ * as given.
+ */
+export function webhooksUrl(
+  config: CliConfig,
+  segments: string[] = [],
+  query?: URLSearchParams,
+): string {
+  const base = `${origin(config)}/workspaces/${workspaceSeg(config)}/webhooks`;
+  const path = segments.map((s) => `/${seg(s)}`).join('');
+  const qs = query?.toString();
+  return `${base}${path}${qs ? `?${qs}` : ''}`;
+}
+
+/**
  * The template gallery URLs. Like the API-key ones above these are the
  * *browser* routes rather than anything under `/api/v1/workspaces/:id`: a
  * listing is workspace-scoped through its document, not through the path, and

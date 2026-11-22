@@ -4,9 +4,10 @@ import { FolderService } from './folder.service';
 import { PrismaService } from '../database/prisma.service';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { AuthModule } from '../auth/auth.module';
+import { WebhookEventModule } from '../webhook/webhook-event.module';
 
 @Module({
-  imports: [AuthModule, WorkspaceModule],
+  imports: [AuthModule, WorkspaceModule, WebhookEventModule],
   controllers: [FolderController],
   providers: [FolderService, PrismaService],
   exports: [FolderService],

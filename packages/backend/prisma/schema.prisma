@@ -26,6 +26,7 @@ model User {
   templateReports       TemplateReport[]
   chatMemberships       ChatChannelMember[]
   chatMessages          ChatMessage[]
+  webhooksCreated       Webhook[]
 }
 
 model UserDocStyles {
@@ -132,6 +133,7 @@ model Document {
 
   notifications Notification[]
   templateListing TemplateListing?
+  webhookContentPending WebhookContentPending?
 
   // Trash. Null = live; set = moved to the trash at that time. A trashed
   // document is invisible everywhere a live one is visible — reads go through
@@ -195,6 +197,7 @@ model Workspace {
   templateListings TemplateListing[]
   claim       WorkspaceClaim?
   chatChannels ChatChannel[]
+  webhooks     Webhook[]
 }
 
 model WorkspaceMember {
@@ -270,7 +273,10 @@ model ApiKey {
 /// `workspace_member_joined` is created server-side in `acceptInvite`.
 model Notification {
   id          String    @id @default(uuid())
-  /// comment_mention | comment_reply | thread_resolved | workspace_member_joined
+  /// comment_mention | comment_reply | thread_resolved |
+  /// workspace_member_joined | template_approved | template_rejected |
+  /// template_removed | template_needs_review | template_review_queued |
+  /// chat_mention | chat_thread_reply | webhook_failing | webhook_disabled
   type        String
 
   recipientId Int
@@ -533,4 +539,94 @@ model ChatMessage {
   @@unique([channelId, seq])
   @@index([threadRootId, seq])
   @@index([channelId, threadRootId, seq])
+}
+
+/// Owner-managed outbound subscription for one workspace. Disabled, never
+/// deleted, on failure. See `docs/design/webhooks.md`.
+model Webhook {
+  id                  String            @id @default(uuid())
+  workspaceId         String
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Null once the creating user is deleted. Re-enabling records the owner
+  /// who did it here, which is how a remaining owner takes a webhook over.
+  createdBy           Int?
+  creator             User?             @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  name                String
+  url                 String
+  /// standard
+  format              String            @default("standard")
+  /// Event types; empty = all.
+  events              String[]
+  /// Document types; empty = all. Only applied to events about a document.
+  documentTypes       String[]
+  /// Folder ids; empty = all. Matches a document whose `folderId` is listed.
+  folderIds           String[]
+  /// AES-256-GCM, see `webhook-secret.ts`. Must be decryptable to sign.
+  secretEnc           String
+  /// The secret being rotated out, still signed with until it expires.
+  prevSecretEnc       String?
+  prevSecretExpiresAt DateTime?
+  /// active | disabled
+  status              String            @default("active")
+  disabledAt          DateTime?
+  /// failing | gone | creator_removed | manual
+  disabledReason      String?
+  /// Set by a disable: the creation time of the oldest row it stopped, or
+  /// `disabledAt` when it stopped none. The default "recover since", so
+  /// re-enabling re-sends exactly what the disable cut off.
+  recoverFrom         DateTime?
+  /// First failure of the current unbroken failure streak; cleared on a
+  /// success. Drives the warning and the auto-disable.
+  failingSince        DateTime?
+  /// When `webhook_failing` was sent for the current streak.
+  warnedAt            DateTime?
+  lastDeliveryAt      DateTime?
+  lastDeliveryStatus  Int?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  deliveries          WebhookDelivery[]
+
+  @@index([workspaceId])
+}
+
+/// Outbox: one row per (webhook, event). `id` is the `webhook-id` header and
+/// is reused by every retry and manual redeliver.
+model WebhookDelivery {
+  id              String    @id @default(uuid())
+  webhookId       String
+  webhook         Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  eventType       String
+  /// The envelope body: `{ type, timestamp, data }`.
+  payload         Json
+  /// pending | in_flight | delivered | failed
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(now())
+  /// While `in_flight`; an expired lease returns the row to `pending`.
+  leaseUntil      DateTime?
+  lastStatus      Int?
+  lastError       String?
+  lastDurationMs  Int?
+  /// First 1 KB of the last response body.
+  responseExcerpt String?
+  deliveredAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([webhookId, createdAt])
+  /// The claim's per-webhook pick and in-flight count.
+  @@index([webhookId, status, nextAttemptAt])
+}
+
+/// Coalescing state for `document.content_updated`: one row per document
+/// however many webhooks subscribe. Upserted by the Yorkie event webhook,
+/// flushed by the delivery worker once quiet or past the max wait.
+model WebhookContentPending {
+  documentId   String   @id
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  workspaceId  String
+  firstSeenAt  DateTime @default(now())
+  lastIssuedAt DateTime @default(now())
+  /// `[{ api_key_id, user_id, at }]` — `/api/v1` writes inside the window.
+  apiWriters   Json     @default("[]")
 }

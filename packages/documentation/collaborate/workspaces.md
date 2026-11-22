@@ -64,14 +64,17 @@ The link stops working right away. People who already joined with it stay member
 
 1. Open **Settings**.
 2. Under **Members**, click the trash icon (**Remove member**) in the person's row.
+3. Read what the removal will delete or turn off, then click **Remove**, or **Leave** for yourself.
 
-The member is removed right away, with no confirmation. An owner sees the icon on every member's row, but never on an owner's row. A member sees it only on their own row, which is how you leave a workspace.
+An owner sees the icon on every member's row, but never on an owner's row. A member sees it only on their own row, which is how you leave a workspace.
 
 When someone is removed:
 
 - They lose access to every document, folder, and data source in the workspace. Their other workspaces are unaffected.
 - The documents they created stay in the workspace and keep them as the author.
 - Their API keys for this workspace are revoked for good. Adding them back doesn't bring the keys back.
+- Private chat channels that only they belonged to are deleted, messages included.
+- Webhooks they created are turned off. Another owner can turn one back on, which makes that owner its creator. See [Webhooks](/developers/webhooks).
 
 ## Rename the workspace or change its URL
 

@@ -51,7 +51,7 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
 | Exports / downloads that write a local file (`-` for stdout does not) | Always ask |
 | Uploads of a local file (`files upload`, `… import <file>`) | Always ask |
-| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` | Always ask |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `webhooks create`/`update`/`enable`/`reveal-secret`/`rotate-secret` | Always ask |
 | Anything run with `--server`, `--api-key`, `--profile`, `--frontend` (slides render), or any `VAR=` prefix (chooses what runs or where your credentials go) | Always ask |
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
 | Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |

@@ -197,3 +197,52 @@ describe("chat notifications", () => {
     );
   });
 });
+
+describe("webhook notifications", () => {
+  const hook = (
+    type: "webhook_failing" | "webhook_disabled",
+    over: Partial<Notification> = {},
+  ) =>
+    build({
+      type,
+      actor: null,
+      document: null,
+      threadId: "wh-1",
+      commentId: null,
+      preview: "Zapier: failing",
+      ...over,
+    });
+
+  it("says a webhook is about to be turned off, naming the workspace", () => {
+    expect(notificationSentence(hook("webhook_failing"))).toBe(
+      "A webhook in Acme has been failing and will be turned off soon",
+    );
+  });
+
+  it("says a webhook was turned off", () => {
+    expect(notificationSentence(hook("webhook_disabled"))).toBe(
+      "A webhook in Acme was turned off",
+    );
+  });
+
+  it("opens the webhook's detail page from the id in threadId", () => {
+    expect(notificationHref(hook("webhook_failing"))).toBe(
+      "/w/ws-1/settings/webhooks/wh-1",
+    );
+    expect(notificationHref(hook("webhook_disabled"))).toBe(
+      "/w/ws-1/settings/webhooks/wh-1",
+    );
+  });
+
+  it("falls back to the settings section without a webhook id", () => {
+    expect(notificationHref(hook("webhook_disabled", { threadId: null }))).toBe(
+      "/w/ws-1/settings#webhooks",
+    );
+  });
+
+  it("has nowhere to go when the workspace is gone", () => {
+    expect(
+      notificationHref(hook("webhook_disabled", { workspace: null })),
+    ).toBeNull();
+  });
+});

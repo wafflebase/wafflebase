@@ -114,6 +114,21 @@ Out-of-range integers are clamped to the nearest bound and non-integers keep the
 | `LAKEHOUSE_ALLOW_LOCAL_PATHS` | No | `false` | `true` lets lakehouse tables read the server's own filesystem |
 | `LAKEHOUSE_LOCAL_ROOT` | With local paths | none | The only directory local paths may point into |
 
+## Backend: webhooks
+
+Webhooks stay off until `WAFFLEBASE_WEBHOOKS_ENABLED` is `true`. See [Webhooks](/developers/webhooks) for the owner side.
+
+| Variable | Required | Default | What it does |
+|----------|----------|---------|--------------|
+| `WAFFLEBASE_WEBHOOKS_ENABLED` | To use webhooks | off | Only the exact value `true` turns webhooks on. Off, nothing is recorded or sent and owners see a muted **Webhooks** section |
+| `WAFFLEBASE_SECRETS_ENCRYPTION_KEY` | With webhooks, unless `DATASOURCE_ENCRYPTION_KEY` is set | `DATASOURCE_ENCRYPTION_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts webhook signing secrets. Changing it makes existing webhooks unable to sign; delete and re-create them |
+| `WAFFLEBASE_WEBHOOK_ALLOWED_CIDRS` | No | empty | Comma-separated exact CIDRs, such as `10.0.4.0/24`, that webhooks may reach although they are private addresses. Entries that do not parse are ignored |
+| `WAFFLEBASE_WEBHOOK_ALLOW_HTTP` | No | off | Only the exact value `true` allows `http://` endpoints |
+| `WAFFLEBASE_WEBHOOK_QUIET_MS` | No | `60000` | `document.content_updated` is sent once a document has had no edits for this long |
+| `WAFFLEBASE_WEBHOOK_MAX_WAIT_MS` | No | `300000` | …or at most this long after the first edit, while editing continues |
+
+`url` and `api_url` in payloads come from `FRONTEND_URL` and `WAFFLEBASE_API_ORIGIN` (falling back to the origin of `GITHUB_CALLBACK_URL`).
+
 ## Backend: templates
 
 | Variable | Required | Default | What it does |

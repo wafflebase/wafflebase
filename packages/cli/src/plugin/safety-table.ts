@@ -102,6 +102,14 @@ export const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set([
   'templates.publish',
   // `--into <workspace>` writes the new document into another workspace.
   'templates.use',
+  // A webhook sends workspace data to a URL with nobody calling anything, and
+  // its secret is a credential: registering, re-pointing, re-enabling or
+  // revealing one is never a "document write".
+  'webhooks.create',
+  'webhooks.update',
+  'webhooks.enable',
+  'webhooks.reveal-secret',
+  'webhooks.rotate-secret',
 ]);
 
 function optionNames(opt: Option): string[] {

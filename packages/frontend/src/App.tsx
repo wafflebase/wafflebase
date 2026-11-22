@@ -103,6 +103,9 @@ const WorkspaceTrash = lazyWithRetry(
   () => import("@/app/documents/trash-page"),
 );
 const WorkspaceChat = lazyWithRetry(() => import("@/app/chat/chat-page"));
+const WebhookDetailPage = lazyWithRetry(
+  () => import("@/app/workspaces/webhooks/webhook-detail-page"),
+);
 const InviteAccept = lazyWithRetry(
   () => import("@/app/workspaces/invite-accept"),
 );
@@ -186,6 +189,10 @@ function App() {
                       <Route
                         path="/w/:workspaceId/settings"
                         element={<WorkspaceSettings />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/settings/webhooks/:webhookId"
+                        element={<WebhookDetailPage />}
                       />
                       <Route path="/documents" element={<Documents />} />
                       {/* Workspace-less: "/" resolves the user's workspace. */}

@@ -1,5 +1,17 @@
 import { PrismaService } from '../database/prisma.service';
 import { EmailProviderConflictError, UserService } from './user.service';
+import type { WebhookEventService } from '../webhook/webhook-event.service';
+
+/** A `WebhookEventService` double; `emitMemberEvent` records each join. */
+function fakeEvents(enabled = false) {
+  const emitMemberEvent = jest.fn().mockResolvedValue(undefined);
+  return {
+    events: { enabled, emitMemberEvent } as unknown as WebhookEventService,
+    emitMemberEvent,
+  };
+}
+
+const noEvents = () => fakeEvents().events;
 
 /**
  * Enough of Prisma to exercise sign-up: unique indexes on `User.email` and
@@ -109,7 +121,7 @@ function makePrisma() {
 describe('UserService.findOrCreateUser', () => {
   function service() {
     const prisma = makePrisma();
-    return { service: new UserService(prisma.client), ...prisma };
+    return { service: new UserService(prisma.client, noEvents()), ...prisma };
   }
 
   const google = (username: string, email: string) => ({
@@ -315,6 +327,18 @@ function makeClaimPrisma(
       },
     },
     workspaceMember: {
+      findUnique: ({
+        where,
+      }: {
+        where: { workspaceId_userId: { workspaceId: string; userId: number } };
+      }) => {
+        const key = where.workspaceId_userId;
+        return Promise.resolve(
+          members.find(
+            (m) => m.workspaceId === key.workspaceId && m.userId === key.userId,
+          ) ?? null,
+        );
+      },
       upsert: ({
         where,
         create,
@@ -382,7 +406,10 @@ describe('UserService.claimGithubWorkspaces', () => {
     ];
     const { client, members } = makeClaimPrisma(claims, documents);
 
-    const claimed = await new UserService(client).claimGithubWorkspaces(5, '7');
+    const claimed = await new UserService(
+      client,
+      noEvents(),
+    ).claimGithubWorkspaces(5, '7');
 
     expect(claimed).toBe(2);
     expect(members).toEqual([
@@ -399,7 +426,7 @@ describe('UserService.claimGithubWorkspaces', () => {
     const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
     const { client, joins } = makeClaimPrisma(claims, []);
 
-    await new UserService(client).claimGithubWorkspaces(5, '7');
+    await new UserService(client, noEvents()).claimGithubWorkspaces(5, '7');
 
     expect(joins).toEqual([{ channelId: 'general-w1', userId: 5 }]);
   });
@@ -407,7 +434,7 @@ describe('UserService.claimGithubWorkspaces', () => {
   it('does not claim a workspace twice', async () => {
     const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
     const { client, members } = makeClaimPrisma(claims, []);
-    const service = new UserService(client);
+    const service = new UserService(client, noEvents());
 
     expect(await service.claimGithubWorkspaces(5, '7')).toBe(1);
     expect(await service.claimGithubWorkspaces(5, '7')).toBe(0);
@@ -437,7 +464,9 @@ describe('UserService.claimGithubWorkspaces', () => {
       return rows;
     };
 
-    expect(await new UserService(client).claimGithubWorkspaces(5, '7')).toBe(0);
+    expect(
+      await new UserService(client, noEvents()).claimGithubWorkspaces(5, '7'),
+    ).toBe(0);
     expect(members).toEqual([]);
     expect(claims[0]).toMatchObject({ claimedBy: 9 });
     expect(documents[0].authorID).toBeNull();
@@ -448,8 +477,54 @@ describe('UserService.claimGithubWorkspaces', () => {
     const { client, members } = makeClaimPrisma(claims, []);
     members.push({ workspaceId: 'w1', userId: 5, role: 'member' });
 
-    await new UserService(client).claimGithubWorkspaces(5, '7');
+    await new UserService(client, noEvents()).claimGithubWorkspaces(5, '7');
 
     expect(members).toEqual([{ workspaceId: 'w1', userId: 5, role: 'owner' }]);
+  });
+});
+
+/**
+ * Every path that creates a `WorkspaceMember` emits `member.joined`
+ * (docs/design/webhooks.md § Event catalog): sign-up and claims here,
+ * `WorkspaceService.create` / `acceptInvite` in its own spec.
+ */
+describe('UserService member.joined webhook events', () => {
+  it('emits for the owner membership sign-up creates', async () => {
+    const prisma = makePrisma();
+    const { events, emitMemberEvent } = fakeEvents(true);
+    const user = await new UserService(prisma.client, events).findOrCreateUser({
+      authProvider: 'google',
+      username: 'ada',
+      email: 'ada@example.com',
+    });
+    expect(emitMemberEvent).toHaveBeenCalledTimes(1);
+    expect(emitMemberEvent).toHaveBeenCalledWith(expect.anything(), {
+      type: 'member.joined',
+      workspaceId: prisma.state.workspaces()[0].id,
+      actor: user!.id,
+      userId: user!.id,
+      role: 'owner',
+    });
+  });
+
+  it('emits for a membership a claim creates, not for one it promotes', async () => {
+    const claims = [
+      { id: 'c1', workspaceId: 'w1', githubId: '7' },
+      { id: 'c2', workspaceId: 'w2', githubId: '7' },
+    ];
+    const { client, members } = makeClaimPrisma(claims, []);
+    members.push({ workspaceId: 'w2', userId: 5, role: 'member' });
+    const { events, emitMemberEvent } = fakeEvents(true);
+
+    await new UserService(client, events).claimGithubWorkspaces(5, '7');
+
+    expect(emitMemberEvent).toHaveBeenCalledTimes(1);
+    expect(emitMemberEvent).toHaveBeenCalledWith(expect.anything(), {
+      type: 'member.joined',
+      workspaceId: 'w1',
+      actor: 5,
+      userId: 5,
+      role: 'owner',
+    });
   });
 });
