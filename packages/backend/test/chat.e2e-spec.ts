@@ -482,8 +482,8 @@ describeDb('Chat integration', () => {
     });
 
     it('joining or being invited starts the read position at the tail', async () => {
-      const { owner, members, workspace } = await team(2);
-      const [joiner, invitee] = members;
+      const { owner, members, workspace } = await team(3);
+      const [joiner, invitee, stranger] = members;
       const channel = await channels.create(owner.id, workspace.id, {
         kind: 'public',
         name: 'general',
@@ -495,7 +495,16 @@ describeDb('Chat integration', () => {
       }
 
       const joined = await channels.join(joiner.id, channel.id);
-      expect(joined).toMatchObject({ unreadCount: 0, mentionCount: 0 });
+      expect(joined).toMatchObject({
+        unreadCount: 0,
+        mentionCount: 0,
+        lastSeq: 2,
+        lastReadSeq: 2,
+      });
+      // Somebody outside a public channel has no read position. (`summaryOf`,
+      // not `list`, which would adopt this "general" as the default channel.)
+      const outside = await channels.summaryOf(stranger.id, channel.id);
+      expect(outside).toMatchObject({ isMember: false, lastReadSeq: null });
 
       await channels.invite(owner.id, channel.id, [invitee.id]);
       const [invited] = await channels.list(invitee.id, workspace.id);
@@ -504,7 +513,11 @@ describeDb('Chat integration', () => {
       // Whatever arrives afterwards counts as usual.
       await messages.post(owner.id, channel.id, { body: 'new' });
       const [later] = await channels.list(joiner.id, workspace.id);
-      expect(later.unreadCount).toBe(1);
+      expect(later).toMatchObject({
+        unreadCount: 1,
+        lastSeq: 3,
+        lastReadSeq: 2,
+      });
     });
 
     it('join, leave and membership notifications', async () => {

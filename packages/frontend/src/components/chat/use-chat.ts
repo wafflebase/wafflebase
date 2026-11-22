@@ -69,23 +69,10 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
     refetchOnWindowFocus: false,
   });
 
-  // Whether a cache this view mounted on is still catching up to the server.
-  const [catchingUp, setCatchingUp] = useState(
-    () => queryClient.getQueryData(chatKeys.messages(channelId)) !== undefined,
-  );
   useEffect(() => {
-    if (!queryClient.getQueryData(chatKeys.messages(channelId))) {
-      setCatchingUp(false);
-      return;
+    if (queryClient.getQueryData(chatKeys.messages(channelId))) {
+      void catchUpChannel(queryClient, workspaceId, channelId);
     }
-    let live = true;
-    setCatchingUp(true);
-    void catchUpChannel(queryClient, workspaceId, channelId).finally(() => {
-      if (live) setCatchingUp(false);
-    });
-    return () => {
-      live = false;
-    };
   }, [queryClient, workspaceId, channelId]);
 
   useEffect(() => {
@@ -138,12 +125,6 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
     hasOlder: hasOlder && (query.data?.length ?? 0) > 0,
     loadingOlder,
     loadOlder,
-    /**
-     * The loaded messages reach what the server held when the view opened:
-     * the first page has landed, or a cache that survived has caught up from
-     * its tail. What the channel summary counted as unread is loaded by now.
-     */
-    settled: query.isSuccess && !catchingUp,
   };
 }
 
@@ -273,7 +254,7 @@ export function useMarkRead(workspaceId: string, channelId: string) {
       sent.current = seq;
       queryClient.setQueryData<ChannelSummary[]>(
         chatKeys.channels(workspaceId),
-        (old) => (old ? markChannelRead(old, channelId) : old),
+        (old) => (old ? markChannelRead(old, channelId, seq) : old),
       );
       markRead(workspaceId, channelId, seq).catch((err) => {
         // Let the next visible message try again.

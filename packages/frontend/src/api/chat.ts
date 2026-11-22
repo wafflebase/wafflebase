@@ -47,6 +47,13 @@ export interface ChannelSummary {
   canManage: boolean;
   /** DM only; empty for public and private channels. */
   members: ChatUserSummary[];
+  /** The channel's newest allocated `seq`, thread replies included. */
+  lastSeq: number;
+  /**
+   * The newest `seq` the caller has read; null when they are not a member.
+   * The "New messages" divider goes after it.
+   */
+  lastReadSeq: number | null;
   unreadCount: number;
   mentionCount: number;
   lastMessageAt: string | null;
@@ -194,8 +201,8 @@ export async function leaveChannel(
 }
 
 /**
- * Remove somebody else from a public or private channel. Allowed whenever
- * `canManage` is, except on the default channel; leaving is `leaveChannel`.
+ * Remove somebody else from a public or private channel — where the member
+ * row's `canRemove` says so; leaving is `leaveChannel`.
  */
 export async function removeChannelMember(
   workspaceId: string,

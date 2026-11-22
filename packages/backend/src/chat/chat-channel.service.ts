@@ -67,6 +67,8 @@ type SummaryRow = {
   isWorkspaceMember: boolean;
   isWorkspaceOwner: boolean;
   lastMessageAt: Date | null;
+  lastSeq: bigint;
+  lastReadSeq: bigint | null;
   unreadCount: number;
   mentionCount: number;
 };
@@ -635,6 +637,8 @@ export class ChatChannelService {
              wm."userId" IS NOT NULL AS "isWorkspaceMember",
              wm.role IS NOT DISTINCT FROM 'owner' AS "isWorkspaceOwner",
              c."lastMessageAt",
+             c."lastSeq",
+             m."lastReadSeq",
              COALESCE(u.unread, 0)::int AS "unreadCount",
              COALESCE(u.mentions, 0)::int AS "mentionCount"
       FROM "ChatChannel" c
@@ -687,6 +691,8 @@ export class ChatChannelService {
         isWorkspaceOwner: r.isWorkspaceOwner,
       }),
       members: dmMembers.filter((m) => m.channelId === r.id).map((m) => m.user),
+      lastSeq: Number(r.lastSeq),
+      lastReadSeq: r.lastReadSeq === null ? null : Number(r.lastReadSeq),
       unreadCount: r.unreadCount,
       mentionCount: r.mentionCount,
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,

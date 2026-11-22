@@ -3,24 +3,24 @@ import type {
   ChatMessageDto,
   StreamMessageEvent,
   StreamUpdateEvent,
-} from "@/api/chat";
+} from '@/api/chat';
 
 /**
  * React Query keys for chat. Every list a stream event can touch hangs off
  * one of these, so the stream hook and the views agree on where state lives.
  */
 export const chatKeys = {
-  all: ["chat"] as const,
+  all: ['chat'] as const,
   /** Prefix of every workspace's channel list, for a blanket invalidate. */
-  allChannels: ["chat", "channels"] as const,
-  channels: (workspaceId: string) => ["chat", "channels", workspaceId] as const,
+  allChannels: ['chat', 'channels'] as const,
+  channels: (workspaceId: string) => ['chat', 'channels', workspaceId] as const,
   /** Prefix of every channel's message cache. */
-  allMessages: ["chat", "messages"] as const,
-  messages: (channelId: string) => ["chat", "messages", channelId] as const,
+  allMessages: ['chat', 'messages'] as const,
+  messages: (channelId: string) => ['chat', 'messages', channelId] as const,
   /** Prefix of every thread's cache. */
-  allThreads: ["chat", "thread"] as const,
-  thread: (rootId: string) => ["chat", "thread", rootId] as const,
-  members: (channelId: string) => ["chat", "members", channelId] as const,
+  allThreads: ['chat', 'thread'] as const,
+  thread: (rootId: string) => ['chat', 'thread', rootId] as const,
+  members: (channelId: string) => ['chat', 'members', channelId] as const,
 };
 
 export interface ChatEventState {
@@ -47,7 +47,8 @@ export interface ChatEventOutcome {
  *   unread, and so is a reply also sent to the channel — the server's
  *   unread count includes those too. The mention count is not guessed — the event carries no body —
  *   and is refreshed by the next channel-list fetch;
- * - a reply invalidates its thread.
+ * - a reply invalidates its thread;
+ * - every message moves its channel's `lastSeq`.
  */
 export function applyChatEvent(
   state: ChatEventState,
@@ -57,11 +58,17 @@ export function applyChatEvent(
   const inChannel = e.threadRootId === null || e.alsoInChannel;
   const countsAsUnread = !isOpen && inChannel && e.authorId !== state.me;
 
-  const channels = countsAsUnread
-    ? state.channels.map((c) =>
-        c.id === e.channelId ? { ...c, unreadCount: c.unreadCount + 1 } : c,
-      )
-    : state.channels;
+  // `lastSeq` moves for every message, the open channel's included: a channel
+  // reopened later places its "New messages" divider up to it.
+  const channels = state.channels.map((c) =>
+    c.id === e.channelId
+      ? {
+          ...c,
+          lastSeq: Math.max(c.lastSeq, e.seq),
+          unreadCount: c.unreadCount + (countsAsUnread ? 1 : 0),
+        }
+      : c,
+  );
 
   return {
     channels,
@@ -97,9 +104,18 @@ export function lastSeqOf(
 export function markChannelRead(
   channels: ChannelSummary[],
   channelId: string,
+  seq: number,
 ): ChannelSummary[] {
   return channels.map((c) =>
-    c.id === channelId ? { ...c, unreadCount: 0, mentionCount: 0 } : c,
+    c.id === channelId
+      ? {
+          ...c,
+          unreadCount: 0,
+          mentionCount: 0,
+          // Never backwards, as on the server.
+          lastReadSeq: Math.max(c.lastReadSeq ?? 0, seq),
+        }
+      : c,
   );
 }
 
@@ -123,7 +139,7 @@ export function markMessageDeleted(
 ): ChatMessageDto[] | undefined {
   if (!messages) return messages;
   return messages.map((m) =>
-    m.id === messageId ? { ...m, body: "", deleted: true } : m,
+    m.id === messageId ? { ...m, body: '', deleted: true } : m,
   );
 }
 
@@ -135,19 +151,19 @@ export function parseStreamUpdate(raw: string): StreamUpdateEvent | null {
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
+  if (typeof parsed !== 'object' || parsed === null) return null;
   const { workspaceId, channelId, messageId, threadRootId } = parsed as Record<
     string,
     unknown
   >;
   if (
-    typeof workspaceId !== "string" ||
-    typeof channelId !== "string" ||
-    typeof messageId !== "string"
+    typeof workspaceId !== 'string' ||
+    typeof channelId !== 'string' ||
+    typeof messageId !== 'string'
   ) {
     return null;
   }
-  if (threadRootId !== null && typeof threadRootId !== "string") return null;
+  if (threadRootId !== null && typeof threadRootId !== 'string') return null;
   return { workspaceId, channelId, messageId, threadRootId };
 }
 
@@ -159,16 +175,16 @@ export function parseStreamMessage(raw: string): StreamMessageEvent | null {
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
+  if (typeof parsed !== 'object' || parsed === null) return null;
   const { workspaceId, channelId, seq, threadRootId, authorId, alsoInChannel } =
     parsed as Record<string, unknown>;
-  if (typeof workspaceId !== "string" || typeof channelId !== "string") {
+  if (typeof workspaceId !== 'string' || typeof channelId !== 'string') {
     return null;
   }
   if (!Number.isSafeInteger(seq)) return null;
-  if (threadRootId !== null && typeof threadRootId !== "string") return null;
+  if (threadRootId !== null && typeof threadRootId !== 'string') return null;
   if (authorId !== null && !Number.isSafeInteger(authorId)) return null;
-  if (typeof alsoInChannel !== "boolean") return null;
+  if (typeof alsoInChannel !== 'boolean') return null;
   return {
     workspaceId,
     channelId,
@@ -200,5 +216,5 @@ export function chatBadgeCount(channels: ChannelSummary[]): number {
  */
 export function channelCount(channel: ChannelSummary): number {
   if (channel.mentionCount > 0) return channel.mentionCount;
-  return channel.kind === "dm" ? channel.unreadCount : 0;
+  return channel.kind === 'dm' ? channel.unreadCount : 0;
 }

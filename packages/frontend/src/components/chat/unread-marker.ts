@@ -1,4 +1,4 @@
-import type { ChatMessageDto } from "@/api/chat";
+import type { ChatMessageDto } from '@/api/chat';
 
 /**
  * Whether a message in the channel log is one the server's unread count
@@ -12,42 +12,30 @@ export function countsAsUnread(m: ChatMessageDto, me: number): boolean {
   return m.author?.id !== me;
 }
 
-/**
- * What the reader had unread when the channel opened: the summary's count,
- * and the newest `seq` loaded at that moment. The count covers exactly the
- * newest `count` eligible messages up to `boundarySeq`, so later arrivals —
- * which the count never included — cannot shift the divider.
- */
-export interface UnreadSnapshot {
-  count: number;
-  boundarySeq: number;
+/** What was unread when the channel opened: the `seq` range after `readSeq` up to `lastSeq`. */
+export interface UnreadRange {
+  readSeq: number;
+  lastSeq: number;
 }
 
 /**
- * The id of the message the "New messages" divider sits above: the oldest of
- * the `count` newest eligible messages at or below the boundary. While fewer
- * than that are loaded it sits at the oldest loaded one, and moves up as
- * "Load older" brings the rest in. Null when nothing was unread.
- *
- * The client has the count, not the read position: the channel summary
- * carries `unreadCount` only, which is why the divider is counted back from
- * the tail rather than placed after a `lastReadSeq`.
+ * The id of the message the "New messages" divider sits above: the first
+ * eligible message in the range that was unread at open. Messages that
+ * arrive later are past `lastSeq` and never move it, and it is right on any
+ * partial load — a loaded message in the range is unread whether or not the
+ * rest of the log has arrived. Null when nothing loaded is.
  */
 export function findUnreadDivider(
   messages: ChatMessageDto[],
-  snapshot: UnreadSnapshot,
+  range: UnreadRange,
   me: number,
 ): string | null {
-  if (snapshot.count <= 0) return null;
-  let seen = 0;
-  let oldest: string | null = null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.seq > snapshot.boundarySeq || !countsAsUnread(m, me)) continue;
-    oldest = m.id;
-    if (++seen >= snapshot.count) break;
+  for (const m of messages) {
+    if (m.seq <= range.readSeq) continue;
+    if (m.seq > range.lastSeq) break;
+    if (countsAsUnread(m, me)) return m.id;
   }
-  return oldest;
+  return null;
 }
 
 /** Eligible messages newer than `seenSeq` — the "N new messages" count. */

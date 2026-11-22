@@ -50,46 +50,41 @@ describe("findUnreadDivider", () => {
   const log = [1, 2, 3, 4, 5].map((s) => msg(s));
 
   it("is absent when nothing was unread", () => {
-    expect(findUnreadDivider(log, { count: 0, boundarySeq: 5 }, ME)).toBeNull();
+    expect(findUnreadDivider(log, { readSeq: 5, lastSeq: 5 }, ME)).toBeNull();
   });
 
-  it("sits above the oldest of the unread messages", () => {
-    expect(findUnreadDivider(log, { count: 2, boundarySeq: 5 }, ME)).toBe("m4");
+  it("sits above the first message after the read position", () => {
+    expect(findUnreadDivider(log, { readSeq: 3, lastSeq: 5 }, ME)).toBe("m4");
   });
 
-  it("skips what the unread count never included", () => {
+  it("skips what does not count as unread", () => {
     const mixed = [
       msg(1),
-      msg(2),
-      msg(3, { authorId: ME }),
-      msg(4, { deleted: true }),
+      msg(2, { authorId: ME }),
+      msg(3, { deleted: true }),
+      msg(4, { threadRootId: "r" }),
       msg(5),
     ];
-    // Two unread: m5 and m2; m3 (mine) and m4 (deleted) are not counted.
-    expect(findUnreadDivider(mixed, { count: 2, boundarySeq: 5 }, ME)).toBe(
-      "m2",
+    // Mine, deleted and thread-only are read past, as the server counts.
+    expect(findUnreadDivider(mixed, { readSeq: 1, lastSeq: 5 }, ME)).toBe(
+      "m5",
     );
   });
 
-  it("does not move when messages arrive after the boundary", () => {
+  it("ignores what arrived after the channel opened", () => {
+    // Read through 5 at open; 6 and 7 arrived live and are not "new" here.
     const grown = [...log, msg(6), msg(7)];
-    expect(findUnreadDivider(grown, { count: 2, boundarySeq: 5 }, ME)).toBe(
-      "m4",
+    expect(findUnreadDivider(grown, { readSeq: 5, lastSeq: 5 }, ME)).toBeNull();
+    expect(findUnreadDivider(grown, { readSeq: 4, lastSeq: 5 }, ME)).toBe(
+      "m5",
     );
   });
 
-  it("sits at the oldest loaded message while the rest is not loaded", () => {
-    expect(findUnreadDivider(log, { count: 9, boundarySeq: 5 }, ME)).toBe("m1");
-    // Loading older pages lets it settle where it belongs.
-    const older = [msg(-2), msg(-1), msg(0), ...log];
-    expect(findUnreadDivider(older, { count: 7, boundarySeq: 5 }, ME)).toBe(
-      "m-1",
+  it("sits at the oldest loaded unread while older pages are not loaded", () => {
+    const tail = [8, 9, 10].map((s) => msg(s));
+    expect(findUnreadDivider(tail, { readSeq: 2, lastSeq: 10 }, ME)).toBe(
+      "m8",
     );
-  });
-
-  it("is absent when no loaded message counts", () => {
-    const mine = [msg(1, { authorId: ME })];
-    expect(findUnreadDivider(mine, { count: 1, boundarySeq: 1 }, ME)).toBeNull();
   });
 });
 

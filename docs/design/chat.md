@@ -609,18 +609,22 @@ say:
   the Chat badge. Browse channels has a "Show archived channels" toggle; an
   archived public channel opens read-only and offers no Join, since the
   server refuses to join one. Unarchiving is the header's Unarchive action.
-- **Unread orientation.** Opening a channel with unread messages draws a
-  **New messages** divider above the first of them and, when it is out of
-  view, opens there instead of at the bottom — without marking read until the
-  reader scrolls to the end. The summary carries `unreadCount` but no
-  `lastReadSeq`, so the divider is placed by counting back that many
-  messages that count as unread (top-level or also-sent-to-channel, not
-  deleted, not the reader's own — the server's rule), pinned to the newest
-  `seq` once the log has caught up, so it does not move as reading advances.
-  Scrolled away from the bottom, a **Jump to latest** pill (it reads
-  "N new messages" once others post) returns to the end. Exposing
-  `lastReadSeq` in the summary would place the divider exactly and is the
-  natural follow-up.
+- **Unread orientation.** Each channel summary carries the caller's
+  `lastReadSeq` (null outside the channel) and the channel's `lastSeq`.
+  Opening a channel captures that pair before reading moves it, and what
+  was unread at open is exactly the eligible messages in `(lastReadSeq,
+  lastSeq]` (top-level or also-sent-to-channel, not deleted, not the
+  reader's own — the server's unread rule). A **New messages** divider sits
+  above the first of them; when it is out of view the channel opens there
+  instead of at the bottom, without marking read until the reader scrolls to
+  the end. Because it is a range rather than a count, the divider is right
+  on a partial or stale log (it appears once a catch-up brings the messages
+  in), a message that arrives while the channel is open is never "new", and
+  a deleted message does not shift it. The stream moves a cached `lastSeq`
+  on every message, the open channel's included, so a channel left open and
+  scrolled up places its divider correctly when reopened. Scrolled away from
+  the bottom, a **Jump to latest** pill (it reads "N new messages" once
+  others post) returns to the end.
 - **`GET …/chat/messages/:mid`.** Added for the bell deep link, which knows
   only a message id and must learn whether it is a thread reply; it is `404`
   unless the message's channel is readable. The stream's `update` handling

@@ -38,11 +38,16 @@ const channel = (over: Partial<ChannelSummary> = {}): ChannelSummary => ({
   isMember: true,
   canManage: false,
   members: [],
+  // The log below runs 1..5, all read.
+  lastSeq: 5,
+  lastReadSeq: 5,
   unreadCount: 0,
   mentionCount: 0,
   lastMessageAt: null,
   ...over,
 });
+/** A channel whose newest `n` messages were unread at open. */
+const unread = (n: number) => channel({ lastReadSeq: 5 - n, unreadCount: n });
 
 /**
  * What `useChannelMessages` returns, held in a tiny store so a test can
@@ -52,7 +57,6 @@ interface MessagesState {
   messages: ChatMessageDto[];
   hasOlder: boolean;
   loadingOlder: boolean;
-  settled: boolean;
 }
 let state: MessagesState;
 const listeners = new Set<() => void>();
@@ -175,7 +179,6 @@ describe("Conversation", () => {
       messages: [1, 2, 3, 4, 5].map((s) => msg(s)),
       hasOlder: true,
       loadingOlder: false,
-      settled: true,
     };
     channels = [channel()];
     intoView.length = 0;
@@ -315,7 +318,7 @@ describe("Conversation", () => {
     });
 
     it("draws the divider above the first unread message", async () => {
-      channels = [channel({ unreadCount: 2 })];
+      channels = [unread(2)];
       renderConversation();
       const sep = await findDivider();
       // Directly before m4's group.
@@ -323,7 +326,7 @@ describe("Conversation", () => {
     });
 
     it("opens at the divider when it is out of view, without reading", async () => {
-      channels = [channel({ unreadCount: 3 })];
+      channels = [unread(3)];
       dividerTop = -700;
       renderConversation();
       await findDivider();
@@ -337,7 +340,7 @@ describe("Conversation", () => {
     });
 
     it("stays at the bottom and reads when the divider is in view", async () => {
-      channels = [channel({ unreadCount: 1 })];
+      channels = [unread(1)];
       renderConversation();
       await findDivider();
       expect(log().scrollTop).toBe(2000);
@@ -345,28 +348,32 @@ describe("Conversation", () => {
     });
 
     it("keeps the divider in place as the read position advances", async () => {
-      channels = [channel({ unreadCount: 2 })];
+      channels = [unread(2)];
       renderConversation();
       await findDivider();
-      // Reading clears the summary's count; new messages arrive.
-      channels = [channel({ unreadCount: 0 })];
+      // Reading moves the cached read position; new messages arrive.
+      channels = [channel({ lastSeq: 7, lastReadSeq: 7 })];
       act(() => setState({ messages: [...state.messages, msg(6), msg(7)] }));
       const sep = divider();
       expect(sep?.nextElementSibling?.querySelector("#chat-message-m4")).not.toBeNull();
     });
 
-    it("waits for the log to settle before taking the snapshot", async () => {
-      channels = [channel({ unreadCount: 2 })];
-      setState({ settled: false, messages: [1, 2, 3].map((s) => msg(s)) });
+    it("draws no divider for a message that arrives while reading", async () => {
+      renderConversation();
+      act(() => setState({ messages: [...state.messages, msg(6)] }));
+      await act(async () => {});
+      expect(divider()).toBeNull();
+    });
+
+    it("places the divider once a stale cache catches up", async () => {
+      channels = [unread(2)];
+      setState({ messages: [1, 2, 3].map((s) => msg(s)) });
       renderConversation();
       await act(async () => {});
       expect(divider()).toBeNull();
-      expect(markRead).not.toHaveBeenCalled();
 
       // The catch-up brings in the two unread messages.
-      act(() =>
-        setState({ settled: true, messages: [1, 2, 3, 4, 5].map((s) => msg(s)) }),
-      );
+      act(() => setState({ messages: [1, 2, 3, 4, 5].map((s) => msg(s)) }));
       const sep = await findDivider();
       expect(sep.nextElementSibling?.querySelector("#chat-message-m4")).not.toBeNull();
     });

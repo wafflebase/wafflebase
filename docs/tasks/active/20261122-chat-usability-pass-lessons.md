@@ -23,3 +23,6 @@
   members dialog refetches on a failed remove, dialog closes on channel
   change, duplicate "Archived" accessible name.
 - Round 1 (panel): 2 blocking — security: private-channel removal reused canManage, letting any member evict the creator and owners → new stricter `canRemove` (creator/owner; owners only by owners) with per-row `canRemove` on GET members; test-adequacy: no e2e for the route → added, run on a scratch DB (58/58).
+- Round 2 (panel, all six lenses): no blocking findings — loop stops. Design-fit second opinion via requesting-code-review run alongside.
+- Design-fit second opinion (round 2): no blockers, but the count-back divider trusted a guessed `unreadCount` (wrong after arrivals in an open-but-scrolled channel, or a delete). Replaced with `(lastReadSeq, lastSeq]` from the summary — deletes `settled`/catch-up gating. Lesson: placing a marker from a *count* is fragile when the count is client-maintained; carry the server's position instead. `lastReadSeq` alone was not enough: live arrivals would grow a divider, hence `lastSeq` too.
+- e2e gotcha: `channels.list` heals a workspace with no default channel by adopting one named "general", which joins everyone — use `summaryOf` for membership assertions in tests that name a channel general.

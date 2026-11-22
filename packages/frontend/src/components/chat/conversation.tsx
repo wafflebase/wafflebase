@@ -7,46 +7,45 @@ import {
   useRef,
   useState,
   type MouseEvent,
-} from "react";
-import { useQuery } from "@tanstack/react-query";
-import { IconArchive, IconArrowDown } from "@tabler/icons-react";
-import { toast } from "sonner";
+} from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { IconArchive, IconArrowDown } from '@tabler/icons-react';
+import { toast } from 'sonner';
 
-import { fetchMe } from "@/api/auth";
-import { userFacingError } from "@/api/http-error";
-import { Button } from "@/components/ui/button";
-import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
-import { useChatConnection } from "./chat-connection";
-import { Composer } from "./composer";
-import { groupMessages, type MessageGroup } from "./group-messages";
-import { MessageGroupView } from "./message-item";
+import { fetchMe } from '@/api/auth';
+import { userFacingError } from '@/api/http-error';
+import { Button } from '@/components/ui/button';
+import { useWorkspaceMembers } from '@/components/comments/use-workspace-members';
+import { useChatConnection } from './chat-connection';
+import { Composer } from './composer';
+import { groupMessages, type MessageGroup } from './group-messages';
+import { MessageGroupView } from './message-item';
 import {
   countNewSince,
   findUnreadDivider,
-  type UnreadSnapshot,
-} from "./unread-marker";
-import { useFlashMessage } from "./use-flash-message";
+  type UnreadRange,
+} from './unread-marker';
+import { useFlashMessage } from './use-flash-message';
 import {
   useChannelMessages,
   useChannels,
   useJoinChannel,
   useMarkRead,
   usePostMessage,
-} from "./use-chat";
-import { setOpenChatChannel } from "./use-chat-stream";
+} from './use-chat';
+import { setOpenChatChannel } from './use-chat-stream';
 
 /** Within this many pixels of the end counts as "at the bottom". */
 const BOTTOM_SLACK_PX = 48;
 /** How far back a deep link may page to find its message. */
 const MAX_DEEP_LINK_PAGES = 10;
-/** The "New messages" divider's element id, for the opening scroll. */
 /** Room left above the divider when the view opens at it. */
 const DIVIDER_MARGIN_PX = 8;
 
 function prefersReducedMotion(): boolean {
   return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
 }
 
@@ -65,13 +64,13 @@ function dayLabel(iso: string): string {
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return d.toLocaleDateString([], {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: d.getFullYear() === today.getFullYear() ? undefined : "numeric",
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric',
   });
 }
 
@@ -95,20 +94,16 @@ export function Conversation({
   highlightMessageId,
   placeholder,
 }: ConversationProps) {
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const { data: me, isPending: mePending } = useQuery({
+    queryKey: ['me'],
+    queryFn: fetchMe,
+  });
   const meId = me?.id ?? -1;
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
   const members = useWorkspaceMembers(workspaceId);
-  const {
-    messages,
-    isLoading,
-    error,
-    hasOlder,
-    loadingOlder,
-    loadOlder,
-    settled,
-  } = useChannelMessages(workspaceId, channelId);
+  const { messages, isLoading, error, hasOlder, loadingOlder, loadOlder } =
+    useChannelMessages(workspaceId, channelId);
   const post = usePostMessage(workspaceId, channelId);
   const join = useJoinChannel(workspaceId);
   const markRead = useMarkRead(workspaceId, channelId);
@@ -130,30 +125,32 @@ export function Conversation({
     setAtBottom(next);
   }, []);
 
-  // What was unread when the channel opened. The count is read off the
-  // summary the first time it is there — reading clears it in the cache, so
-  // it is taken before the read position can move — and pinned to the newest
-  // message once the loaded log has caught up to what it counted. The
-  // divider derives from that pin, so it stays put while the channel is open
-  // and resets with the remount a channel switch brings.
-  const [unreadAtOpen, setUnreadAtOpen] = useState<number | null>(null);
-  if (unreadAtOpen === null && channel) {
-    setUnreadAtOpen(channel.isMember ? channel.unreadCount : 0);
+  // What was unread when the channel opened, taken the first time the
+  // summary is there — reading moves the read position in the cache, so it
+  // is captured before it can. The divider derives from it, so it stays put
+  // while the channel is open and resets with the remount a channel switch
+  // brings. Null for a non-member, who has nothing unread.
+  const [unreadAtOpen, setUnreadAtOpen] = useState<
+    UnreadRange | null | undefined
+  >(undefined);
+  if (unreadAtOpen === undefined && channel) {
+    setUnreadAtOpen(
+      channel.isMember && channel.lastReadSeq !== null
+        ? { readSeq: channel.lastReadSeq, lastSeq: channel.lastSeq }
+        : null,
+    );
   }
+  const anyUnreadAtOpen =
+    !!unreadAtOpen && unreadAtOpen.lastSeq > unreadAtOpen.readSeq;
   const newestSeq = messages.at(-1)?.seq;
-  const [snapshot, setSnapshot] = useState<UnreadSnapshot | null>(null);
-  // Placing the divider needs to know which messages are the reader's own.
-  if (
-    !snapshot &&
-    unreadAtOpen !== null &&
-    settled &&
-    (unreadAtOpen === 0 || me)
-  ) {
-    setSnapshot({ count: unreadAtOpen, boundarySeq: newestSeq ?? 0 });
-  }
+  // Which messages are the reader's own decides where the divider goes, so
+  // none is drawn until that is known.
   const dividerId = useMemo(
-    () => (snapshot ? findUnreadDivider(messages, snapshot, meId) : null),
-    [messages, snapshot, meId],
+    () =>
+      anyUnreadAtOpen && unreadAtOpen && me
+        ? findUnreadDivider(messages, unreadAtOpen, me.id)
+        : null,
+    [messages, unreadAtOpen, anyUnreadAtOpen, me],
   );
 
   // The newest message the reader has been at the bottom for; what arrived
@@ -189,9 +186,9 @@ export function Conversation({
   const openedAtDivider = useRef(false);
   const dividerRef = useRef<HTMLLIElement>(null);
   useLayoutEffect(() => {
-    if (!snapshot || openedAtDivider.current) return;
+    if (!dividerId || openedAtDivider.current) return;
     openedAtDivider.current = true;
-    if (!dividerId || highlightMessageId) return;
+    if (highlightMessageId) return;
     const el = scrollRef.current;
     const divider = dividerRef.current;
     if (!el || !divider) return;
@@ -203,14 +200,14 @@ export function Conversation({
     setAtBottom(false);
     const first = messages.find((m) => m.id === dividerId);
     if (first) setSeenSeq(first.seq - 1);
-  }, [snapshot, dividerId, highlightMessageId, messages]);
+  }, [dividerId, highlightMessageId, messages]);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const jumpToLatest = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     const el = scrollRef.current;
     if (!el) return;
-    const behavior = prefersReducedMotion() ? "auto" : "smooth";
-    if (typeof el.scrollTo === "function") {
+    const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
+    if (typeof el.scrollTo === 'function') {
       el.scrollTo({ top: el.scrollHeight, behavior });
     } else {
       el.scrollTop = el.scrollHeight;
@@ -220,7 +217,7 @@ export function Conversation({
     // (Chrome focuses a button on mousedown), but a keyboard-made click has
     // detail 0 — and focusing the textarea on a tap would raise the keyboard.
     if (e.detail === 0) {
-      rootRef.current?.querySelector<HTMLElement>("textarea")?.focus({
+      rootRef.current?.querySelector<HTMLElement>('textarea')?.focus({
         preventScroll: true,
       });
     }
@@ -228,7 +225,8 @@ export function Conversation({
 
   const handleLoadOlder = useCallback(async () => {
     const el = scrollRef.current;
-    if (el) prependAnchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    if (el)
+      prependAnchor.current = { height: el.scrollHeight, top: el.scrollTop };
     try {
       // Nothing prepended means no layout run will consume the anchor, and a
       // stale one would hold the next arriving message off the bottom.
@@ -251,23 +249,38 @@ export function Conversation({
     if (!hasOlder || pagedFor.current >= MAX_DEEP_LINK_PAGES) return;
     pagedFor.current += 1;
     void loadOlder().catch(() => {});
-  }, [highlightMessageId, present, isLoading, loadingOlder, hasOlder, loadOlder]);
+  }, [
+    highlightMessageId,
+    present,
+    isLoading,
+    loadingOlder,
+    hasOlder,
+    loadOlder,
+  ]);
   const flashing = useFlashMessage(highlightMessageId, present);
 
   // Read up to the newest message whenever it is in view and the tab is —
-  // not before the unread snapshot is taken, nor while the view opened at the
-  // divider (the ref, because that happens in this same commit).
+  // not while the view opened at the divider (the ref, because that happens
+  // in this same commit), nor while who the reader is is still loading with
+  // something unread, since the divider cannot be placed before then.
   useEffect(() => {
     if (!atBottom || newestSeq === undefined || !channel?.isMember) return;
-    if (!snapshot) return;
+    if (anyUnreadAtOpen && mePending) return;
     const tryMark = () => {
       if (!atBottomRef.current) return;
-      if (document.visibilityState === "visible") markRead(newestSeq);
+      if (document.visibilityState === 'visible') markRead(newestSeq);
     };
     tryMark();
-    document.addEventListener("visibilitychange", tryMark);
-    return () => document.removeEventListener("visibilitychange", tryMark);
-  }, [atBottom, newestSeq, channel?.isMember, markRead, snapshot]);
+    document.addEventListener('visibilitychange', tryMark);
+    return () => document.removeEventListener('visibilitychange', tryMark);
+  }, [
+    atBottom,
+    newestSeq,
+    channel?.isMember,
+    markRead,
+    anyUnreadAtOpen,
+    mePending,
+  ]);
 
   const groups = useMemo(
     () => groupMessages(messages, dividerId),
@@ -290,10 +303,10 @@ export function Conversation({
   // An archived channel cannot be joined, so a non-member gets the archived
   // read-only composer rather than a Join the server would refuse.
   const readOnlyPreview =
-    channel?.kind === "public" && !channel.isMember && !channel.archived;
+    channel?.kind === 'public' && !channel.isMember && !channel.archived;
 
   const showJump = !atBottom && messages.length > 0 && !isLoading && !error;
-  const newLabel = `${newCount} new ${newCount === 1 ? "message" : "messages"}`;
+  const newLabel = `${newCount} new ${newCount === 1 ? 'message' : 'messages'}`;
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
@@ -303,8 +316,8 @@ export function Conversation({
           className="flex shrink-0 items-center gap-2 border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
         >
           <IconArchive className="size-4 shrink-0" aria-hidden />
-          This channel is archived. Its history stays readable; nobody can
-          post in it.
+          This channel is archived. Its history stays readable; nobody can post
+          in it.
         </p>
       )}
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -345,7 +358,7 @@ export function Conversation({
                     onClick={() => void handleLoadOlder()}
                     disabled={loadingOlder}
                   >
-                    {loadingOlder ? "Loading…" : "Load older messages"}
+                    {loadingOlder ? 'Loading…' : 'Load older messages'}
                   </Button>
                 </div>
               )}
@@ -395,12 +408,12 @@ export function Conversation({
               className="pointer-events-auto shadow-md pointer-coarse:min-h-11 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
             >
               <IconArrowDown aria-hidden />
-              {newCount > 0 ? newLabel : "Jump to latest"}
+              {newCount > 0 ? newLabel : 'Jump to latest'}
             </Button>
           </div>
         )}
         <span aria-live="polite" className="sr-only">
-          {showJump && newCount > 0 ? newLabel : ""}
+          {showJump && newCount > 0 ? newLabel : ''}
         </span>
       </div>
       <div className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -433,7 +446,7 @@ export function Conversation({
             autoFocus
             disabledReason={
               channel?.archived
-                ? "This channel is archived. You can read it, but not post."
+                ? 'This channel is archived. You can read it, but not post.'
                 : undefined
             }
           />
@@ -455,14 +468,14 @@ function startsNewDay(groups: MessageGroup[], i: number): boolean {
  */
 function ConnectionNotice() {
   const connection = useChatConnection();
-  if (connection !== "reconnecting" && connection !== "stopped") return null;
+  if (connection !== 'reconnecting' && connection !== 'stopped') return null;
   return (
     <p
       role="status"
       className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"
     >
-      {connection === "reconnecting" ? (
-        "Reconnecting… New messages will appear once the connection is back."
+      {connection === 'reconnecting' ? (
+        'Reconnecting… New messages will appear once the connection is back.'
       ) : (
         <>
           Live updates stopped. New messages won't appear until you reload.
