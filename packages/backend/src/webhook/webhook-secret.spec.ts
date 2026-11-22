@@ -1,4 +1,8 @@
-import { decryptSecret, encryptSecret } from './webhook-secret';
+import {
+  decryptSecret,
+  encryptSecret,
+  secretsKeyProblem,
+} from './webhook-secret';
 
 const KEY_A = 'a'.repeat(64);
 const KEY_B = 'b'.repeat(64);
@@ -37,5 +41,11 @@ describe('webhook-secret', () => {
     expect(() => encryptSecret('s')).toThrow(
       /WAFFLEBASE_SECRETS_ENCRYPTION_KEY/,
     );
+    expect(secretsKeyProblem()).toMatch(/WAFFLEBASE_SECRETS_ENCRYPTION_KEY/);
+  });
+
+  it('reports no problem with a usable key', () => {
+    process.env.WAFFLEBASE_SECRETS_ENCRYPTION_KEY = KEY_A;
+    expect(secretsKeyProblem()).toBeNull();
   });
 });

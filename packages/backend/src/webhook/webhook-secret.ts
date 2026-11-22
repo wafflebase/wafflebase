@@ -32,3 +32,17 @@ export function encryptSecret(plain: string): string {
 export function decryptSecret(enc: string): string {
   return decryptWithKey(enc, secretsKey());
 }
+
+/**
+ * Why no secret can be encrypted right now, or `null` when the key is usable.
+ * Checked at boot and before a create, so a deployment that turned webhooks on
+ * without a key hears so in words instead of a 500.
+ */
+export function secretsKeyProblem(): string | null {
+  try {
+    secretsKey();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}

@@ -3,26 +3,19 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Client } from 'pg';
 import { Observable, Subject } from 'rxjs';
+import { PgBus, sharedPgBus } from '../common/pg-bus';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBusEvent } from './chat.types';
 
 /** The Postgres NOTIFY channel every replica listens on. */
 export const CHAT_NOTIFY_CHANNEL = 'chat';
 const CHANNEL = CHAT_NOTIFY_CHANNEL;
-const BACKOFF_MIN_MS = 1_000;
-const BACKOFF_MAX_MS = 30_000;
 /** How long a self-sent probe may take before we suspect a pooler. */
 const PROBE_TIMEOUT_MS = 5_000;
-/**
- * Deadline for the listener's handshake and its `LISTEN`. `pg` waits forever
- * on either by default, so a server that accepts TCP and then stalls would
- * hold boot open and never reach the retry path.
- */
-const CONNECT_TIMEOUT_MS = 10_000;
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 type UpdEvent = Extract<ChatBusEvent, { t: 'upd' }>;
@@ -104,7 +97,8 @@ export async function announceMembershipRaw(
 /**
  * Cross-replica fan-out of chat events over Postgres `LISTEN/NOTIFY`.
  *
- * Every replica holds one dedicated `pg.Client` listening on `chat`; a
+ * Every replica listens on `chat` through the process's shared `PgBus` (one
+ * dedicated `pg.Client` for every channel, reconnecting with backoff); a
  * NOTIFY is sent through Prisma, so it rides the same path as the write it
  * announces. The payload carries ids only (see `ChatBusEvent`) — a missed
  * event costs a client a refetch on reconnect, never content.
@@ -128,34 +122,48 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
    */
   readonly resets$: Observable<void> = this.resets.asObservable();
 
-  private client: Client | null = null;
+  private readonly bus: PgBus;
+  private unlisten: (() => Promise<void>) | null = null;
   private stopped = false;
-  private connectedOnce = false;
-  private backoffMs = BACKOFF_MIN_MS;
-  private retryTimer: NodeJS.Timeout | null = null;
   private readonly probes = new Map<string, NodeJS.Timeout>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /** Tests inject one; otherwise the process-wide bus is shared. */
+    @Optional() bus?: PgBus,
+  ) {
+    this.bus = bus ?? sharedPgBus();
+  }
 
   /**
-   * Opens the listener here, not in the constructor, so a unit test that
+   * Starts listening here, not in the constructor, so a unit test that
    * builds the provider without a database never touches the network. The
    * first attempt is awaited but never throws: a database that is down at
    * boot only delays chat delivery, it must not stop the server.
    */
   async onModuleInit(): Promise<void> {
-    await this.connect();
+    const unlisten = await this.bus.listen(CHANNEL, {
+      onNotify: (payload) => this.receive(payload),
+      onConnect: () => {
+        if (this.stopped) return;
+        this.resets.next();
+        void this.probe();
+      },
+    });
+    if (this.stopped) {
+      await unlisten();
+      return;
+    }
+    this.unlisten = unlisten;
   }
 
   async onModuleDestroy(): Promise<void> {
     this.stopped = true;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = null;
     for (const timer of this.probes.values()) clearTimeout(timer);
     this.probes.clear();
-    const client = this.client;
-    this.client = null;
-    if (client) await client.end().catch(() => undefined);
+    const unlisten = this.unlisten;
+    this.unlisten = null;
+    if (unlisten) await unlisten();
     this.events.complete();
     this.resets.complete();
   }
@@ -196,70 +204,6 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(`chat NOTIFY failed: ${(err as Error).message}`);
     }
-  }
-
-  private async connect(): Promise<void> {
-    if (this.stopped) return;
-    const client = new Client({
-      connectionString:
-        process.env.CHAT_LISTEN_DATABASE_URL || process.env.DATABASE_URL,
-      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-      // The listener runs no query but `LISTEN`, so this bounds only that.
-      query_timeout: CONNECT_TIMEOUT_MS,
-    });
-    // Without a listener an `error` event would crash the process.
-    client.on('error', (err) => this.drop(client, err));
-    client.on('end', () => this.drop(client));
-    client.on('notification', (n) => {
-      if (n.channel === CHANNEL) this.receive(n.payload);
-    });
-
-    try {
-      await client.connect();
-      await client.query(`LISTEN ${CHANNEL}`);
-    } catch (err) {
-      client.removeAllListeners('end');
-      await client.end().catch(() => undefined);
-      this.scheduleReconnect(err as Error);
-      return;
-    }
-    if (this.stopped) {
-      await client.end().catch(() => undefined);
-      return;
-    }
-
-    this.client = client;
-    this.backoffMs = BACKOFF_MIN_MS;
-    if (this.connectedOnce) this.logger.log('chat LISTEN reconnected');
-    this.connectedOnce = true;
-    this.resets.next();
-    void this.probe();
-  }
-
-  /** Tear down a broken listener once, then try again with backoff. */
-  private drop(client: Client, err?: Error): void {
-    if (this.client !== client) return;
-    this.client = null;
-    client.removeAllListeners();
-    // A late `error` after teardown must still have a handler.
-    client.on('error', () => undefined);
-    void client.end().catch(() => undefined);
-    this.scheduleReconnect(err);
-  }
-
-  private scheduleReconnect(err?: Error): void {
-    if (this.stopped || this.retryTimer) return;
-    const delay = this.backoffMs;
-    this.backoffMs = Math.min(this.backoffMs * 2, BACKOFF_MAX_MS);
-    this.logger.warn(
-      `chat LISTEN unavailable${err ? ` (${err.message})` : ''}; retrying in ${delay}ms`,
-    );
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      void this.connect();
-    }, delay);
-    // Waiting to reconnect is no reason to keep a process alive.
-    this.retryTimer.unref?.();
   }
 
   /**
