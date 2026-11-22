@@ -21,6 +21,8 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     isMember: false,
     canManage: false,
     members: [],
+    lastSeq: 0,
+    lastReadSeq: 0,
     unreadCount: 0,
     mentionCount: 0,
     lastMessageAt: null,

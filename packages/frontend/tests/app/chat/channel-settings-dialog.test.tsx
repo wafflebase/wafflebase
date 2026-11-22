@@ -19,6 +19,8 @@ const channel: ChannelSummary = {
   isMember: true,
   canManage: true,
   members: [],
+  lastSeq: 0,
+  lastReadSeq: 0,
   unreadCount: 0,
   mentionCount: 0,
   lastMessageAt: null,
