@@ -7,6 +7,7 @@ import {
   ChannelMembersButton,
   ChannelMembersDialog,
 } from "@/app/chat/channel-members-dialog";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const fetchMembersSpy =
   vi.fn<(w: string, c: string) => Promise<ChannelMember[]>>();
@@ -159,16 +160,18 @@ describe("ChannelMembersButton", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <ChannelMembersButton
-          workspaceId="w1"
-          channelId="c1"
-          onClick={() => {}}
-        />
+        <TooltipProvider>
+          <ChannelMembersButton
+            workspaceId="w1"
+            channelId="c1"
+            onClick={() => {}}
+          />
+        </TooltipProvider>
       </QueryClientProvider>,
     );
 
     expect(
-      await screen.findByRole("button", { name: "Members: 2" }),
+      await screen.findByRole("button", { name: "2 members" }),
     ).toHaveTextContent("2");
   });
 });

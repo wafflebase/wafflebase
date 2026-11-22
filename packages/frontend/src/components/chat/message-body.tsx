@@ -1,12 +1,102 @@
-import { Fragment, type ReactNode } from "react";
+import {
+  Fragment,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { useHref, useInRouterContext, useNavigate } from "react-router-dom";
 import { parseMentionBody } from "@/components/comments/mentions";
+import { cn } from "@/lib/utils";
 
 // A bare http(s) URL. Trailing sentence punctuation is trimmed off below, so
 // "see https://x.test/a." links `https://x.test/a`, not the period.
 const URL_RE = /https?:\/\/[^\s<>"]+/g;
 const TRAILING_PUNCTUATION = /[.,!?;:'")\]]+$/;
 
-function linkify(text: string, keyPrefix: string): ReactNode[] {
+/** Bodies collapse past this many lines behind "Show more". */
+const COLLAPSED_LINES = 12;
+/**
+ * Below both of these a body cannot reach the clamp at any width the log is
+ * drawn at, so it is not measured: most messages are one line, and a
+ * ResizeObserver per line of a long log is work for nothing.
+ */
+const MEASURE_MIN_CHARS = 240;
+
+const LINK_CLASS = "text-link underline-offset-2 break-all hover:underline";
+
+/** Whether `url` is this app's own origin, and so opens in this tab. */
+function isSameOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A link to a page of this app: the router navigates to it in place, as a
+ * link in the sidebar would, instead of opening a second copy of the app.
+ * Modified clicks (a new tab on purpose) are left to the browser.
+ */
+function InAppLink({
+  url,
+  tabIndex,
+}: {
+  url: string;
+  tabIndex?: number;
+}) {
+  const navigate = useNavigate();
+  // The router's basename, so `/app/w/1/chat` navigates to `/w/1/chat`.
+  const base = useHref("/").replace(/\/$/, "");
+  const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    const target = new URL(url);
+    if (base && !target.pathname.startsWith(base)) return;
+    e.preventDefault();
+    navigate(
+      `${target.pathname.slice(base.length) || "/"}${target.search}${target.hash}`,
+    );
+  };
+  return (
+    <a href={url} onClick={onClick} tabIndex={tabIndex} className={LINK_CLASS}>
+      {url}
+    </a>
+  );
+}
+
+function BodyLink({ url, tabIndex }: { url: string; tabIndex?: number }) {
+  const routed = useInRouterContext();
+  if (isSameOrigin(url)) {
+    return routed ? (
+      <InAppLink url={url} tabIndex={tabIndex} />
+    ) : (
+      <a href={url} tabIndex={tabIndex} className={LINK_CLASS}>
+        {url}
+      </a>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      tabIndex={tabIndex}
+      className={LINK_CLASS}
+    >
+      {url}
+    </a>
+  );
+}
+
+function linkify(
+  text: string,
+  keyPrefix: string,
+  tabIndex: number | undefined,
+): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const match of text.matchAll(URL_RE)) {
@@ -16,15 +106,7 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
     if (trailing) url = url.slice(0, -trailing.length);
     if (start > last) out.push(text.slice(last, start));
     out.push(
-      <a
-        key={`${keyPrefix}-${start}`}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-link underline-offset-2 break-all hover:underline"
-      >
-        {url}
-      </a>,
+      <BodyLink key={`${keyPrefix}-${start}`} url={url} tabIndex={tabIndex} />,
     );
     last = start + url.length;
   }
@@ -32,28 +114,94 @@ function linkify(text: string, keyPrefix: string): ReactNode[] {
   return out;
 }
 
+interface MessageBodyProps {
+  body: string;
+  /** The reader: a mention of them is marked as theirs. */
+  me?: number;
+  /**
+   * False keeps the body's links out of the tab order — the log is one tab
+   * stop, and only the message it rests on is tabbable inside.
+   */
+  tabbable?: boolean;
+}
+
 /**
  * A chat message body: plain text with line breaks kept, `@[username](id)`
- * tokens as mention chips (the comment body's treatment), and bare URLs as
- * links. Everything renders as text nodes; nothing in a body becomes markup.
+ * tokens as mention chips, and bare URLs as links — this app's own open in
+ * place, others in a new tab. Everything renders as text nodes; nothing in a
+ * body becomes markup.
+ *
+ * A mention is a neutral chip, and the reader's own is the butter selected
+ * wash: syrup already marks the "New messages" divider, the unread badges
+ * and Send. A body past twelve lines collapses behind "Show more".
  */
-export function MessageBody({ body }: { body: string }) {
+export function MessageBody({ body, me, tabbable = true }: MessageBodyProps) {
+  const tabIndex = tabbable ? undefined : -1;
+  // Tokens carry the id as text.
+  const self = me === undefined ? null : String(me);
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const measured =
+    body.length >= MEASURE_MIN_CHARS ||
+    body.split("\n").length > COLLAPSED_LINES;
+
+  // Measured while clamped: a clamped box whose content is taller than it
+  // is cut off. Re-measured as the column's width changes.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !measured || expanded) return;
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [body, measured, expanded]);
+
   return (
-    <p className="whitespace-pre-wrap break-words text-sm text-foreground">
-      {parseMentionBody(body).map((segment, i) =>
-        segment.type === "text" ? (
-          <Fragment key={i}>{linkify(segment.value, String(i))}</Fragment>
-        ) : (
-          <span
-            key={i}
-            data-mention-user-id={segment.userId}
-            title={segment.username}
-            className="rounded-sm bg-primary/10 px-0.5 font-medium text-primary"
-          >
-            @{segment.username}
-          </span>
-        ),
+    <>
+      <p
+        ref={ref}
+        className={cn(
+          "whitespace-pre-wrap break-words text-sm text-foreground",
+          measured && !expanded && "line-clamp-12",
+        )}
+      >
+        {parseMentionBody(body).map((segment, i) =>
+          segment.type === "text" ? (
+            <Fragment key={i}>
+              {linkify(segment.value, String(i), tabIndex)}
+            </Fragment>
+          ) : (
+            <span
+              key={i}
+              data-mention-user-id={segment.userId}
+              data-mention-self={segment.userId === self || undefined}
+              title={segment.username}
+              className={cn(
+                "rounded-sm px-0.5 font-medium",
+                segment.userId === self
+                  ? "bg-selected text-selected-foreground"
+                  : "bg-muted text-foreground",
+              )}
+            >
+              @{segment.username}
+            </span>
+          ),
+        )}
+      </p>
+      {measured && (overflows || expanded) && (
+        <button
+          type="button"
+          tabIndex={tabIndex}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-0.5 basis-full rounded-sm text-left text-xs font-medium text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
       )}
-    </p>
+    </>
   );
 }

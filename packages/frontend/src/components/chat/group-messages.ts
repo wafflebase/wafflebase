@@ -1,12 +1,13 @@
 import type { ChatMessageDto } from "@/api/chat";
+import type { ChatLine } from "./chat-cache";
 
 /** Consecutive messages by one author this close together share a header. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 export interface MessageGroup {
   author: ChatMessageDto["author"];
-  first: ChatMessageDto;
-  rest: ChatMessageDto[];
+  first: ChatLine;
+  rest: ChatLine[];
 }
 
 /**
@@ -20,12 +21,12 @@ export interface MessageGroup {
  * "New messages" divider sits above, which would otherwise land mid-group.
  */
 export function groupMessages(
-  msgs: ChatMessageDto[],
+  msgs: ChatLine[],
   breakBefore?: string | null,
 ): MessageGroup[] {
   const groups: MessageGroup[] = [];
   let current: MessageGroup | null = null;
-  let previous: ChatMessageDto | null = null;
+  let previous: ChatLine | null = null;
 
   for (const m of msgs) {
     const joins =
@@ -48,4 +49,16 @@ export function groupMessages(
     previous = m;
   }
   return groups;
+}
+
+/** The reader's newest message that can still be edited. */
+export function lastOwnMessage<T extends ChatMessageDto>(
+  messages: T[],
+  me: number,
+): T | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.author?.id === me && !m.deleted) return m;
+  }
+  return undefined;
 }

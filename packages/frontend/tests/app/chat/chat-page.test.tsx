@@ -6,23 +6,35 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
 import ChatPage from "@/app/chat/chat-page";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const fetchMessageSpy =
   vi.fn<
     (workspaceId: string, messageId: string) => Promise<ChatMessageDto | null>
   >();
 const fetchChannelsSpy = vi.fn<(w: string) => Promise<ChannelSummary[]>>();
+const leaveSpy = vi.fn<(w: string, c: string) => Promise<void>>();
+const joinSpy = vi.fn<(w: string, c: string) => Promise<void>>();
+const toastSuccess = vi.fn();
 const mobile = { value: false };
 
 vi.mock("@/api/chat", () => ({
   CHAT_PAGE_SIZE: 50,
   fetchMessage: (w: string, id: string) => fetchMessageSpy(w, id),
   fetchChannels: (w: string) => fetchChannelsSpy(w),
+  leaveChannel: (w: string, c: string) => leaveSpy(w, c),
+  joinChannel: (w: string, c: string) => joinSpy(w, c),
   fetchChannelMembers: () =>
     Promise.resolve([
       { id: 1, username: "me", photo: null },
       { id: 2, username: "minji", photo: null },
     ]),
+}));
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: vi.fn(),
+  }),
 }));
 vi.mock("@/api/auth", () => ({
   fetchMe: () => Promise.resolve({ id: 1, username: "me" }),
@@ -37,10 +49,21 @@ vi.mock("@/hooks/use-mobile", () => ({
 }));
 // The page's own logic is the subject; its columns are stand-ins.
 vi.mock("@/components/chat/conversation", () => ({
-  Conversation: () => <div data-testid="conversation" />,
+  Conversation: () => (
+    <div data-testid="conversation">
+      <div data-message-id="root1">
+        <button type="button" data-thread-link>2 replies</button>
+      </div>
+      <textarea aria-label="Message" />
+    </div>
+  ),
 }));
 vi.mock("@/components/chat/thread-view", () => ({
-  ThreadView: () => <div data-testid="thread" />,
+  ThreadView: () => (
+    <div data-testid="thread">
+      <textarea aria-label="Reply" />
+    </div>
+  ),
 }));
 vi.mock("@/app/chat/channel-list", () => ({
   ChannelList: () => <div data-testid="channel-list" />,
@@ -101,22 +124,44 @@ function renderAt(url: string) {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[url]}>
-        <Routes>
-          <Route
-            path="/w/:workspaceId/chat/:channelId?"
-            element={
-              <>
-                <ChatPage />
-                <Probe />
-              </>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
+      <TooltipProvider>
+        <MemoryRouter initialEntries={[url]}>
+          <Routes>
+            <Route
+              path="/w/:workspaceId/chat/:channelId?"
+              element={
+                <>
+                  <ChatPage />
+                  <Probe />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return location;
+}
+
+function renderAtWithUnmount(url: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <MemoryRouter initialEntries={[url]}>
+          <Routes>
+            <Route
+              path="/w/:workspaceId/chat/:channelId?"
+              element={<ChatPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
 }
 
 /**
@@ -129,6 +174,8 @@ const settle = () =>
 
 beforeEach(() => {
   mobile.value = false;
+  leaveSpy.mockResolvedValue(undefined);
+  joinSpy.mockResolvedValue(undefined);
   window.localStorage.clear();
   fetchChannelsSpy.mockResolvedValue([channel("c1"), channel("c2")]);
 });
@@ -143,9 +190,7 @@ describe("ChatPage deep links", () => {
     const location = renderAt("/w/team/chat/c1?message=r1");
 
     await waitFor(() =>
-      expect(location.current).toBe(
-        "/w/team/chat/c1?message=r1&thread=root1",
-      ),
+      expect(location.current).toBe("/w/team/chat/c1?message=r1&thread=root1"),
     );
     expect(fetchMessageSpy).toHaveBeenCalledWith("w1", "r1");
   });
@@ -187,9 +232,7 @@ describe("ChatPage last channel", () => {
     window.localStorage.setItem("wafflebase:chat-last:w1", "c2");
     const location = renderAt("/w/team/chat");
 
-    await waitFor(() =>
-      expect(location.current).toBe("/w/team/chat/general"),
-    );
+    await waitFor(() => expect(location.current).toBe("/w/team/chat/general"));
   });
 
   it("opens the default channel when there is no last channel", async () => {
@@ -199,9 +242,7 @@ describe("ChatPage last channel", () => {
     ]);
     const location = renderAt("/w/team/chat");
 
-    await waitFor(() =>
-      expect(location.current).toBe("/w/team/chat/general"),
-    );
+    await waitFor(() => expect(location.current).toBe("/w/team/chat/general"));
   });
 
   it("stays on the list on a phone", async () => {
@@ -291,9 +332,7 @@ describe("ChatPage members", () => {
     const user = userEvent.setup();
     renderAt("/w/team/chat/c1");
 
-    await user.click(
-      await screen.findByRole("button", { name: "Members: 2" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "2 members" }));
     expect(
       await screen.findByRole("dialog", { name: "Members of #c1" }),
     ).toBeInTheDocument();
@@ -316,5 +355,179 @@ describe("ChatPage members", () => {
     expect(
       screen.queryByRole("button", { name: /^Members/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatPage leaving", () => {
+  const leaveFromMenu = async (name: string | RegExp) => {
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Channel actions" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name }));
+    return user;
+  };
+
+  it("leaves a public channel at once and offers Undo, which rejoins", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("general", { isDefault: true }),
+      channel("c1"),
+    ]);
+    const location = renderAt("/w/team/chat/c1");
+
+    await leaveFromMenu("Leave channel");
+    await waitFor(() => expect(leaveSpy).toHaveBeenCalledWith("w1", "c1"));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [message, options] = toastSuccess.mock.calls[0] as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ];
+    expect(message).toBe("Left #c1");
+    expect(options.action.label).toBe("Undo");
+
+    await act(async () => options.action.onClick());
+    await waitFor(() => expect(joinSpy).toHaveBeenCalledWith("w1", "c1"));
+    await waitFor(() => expect(location.current).toBe("/w/team/chat/c1"));
+  });
+
+  it("asks before leaving a private channel, naming how to get back", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { kind: "private", canManage: true }),
+    ]);
+    renderAt("/w/team/chat/c1");
+
+    const user = await leaveFromMenu("Leave channel…");
+    const dialog = await screen.findByRole("dialog", { name: "Leave #c1?" });
+    expect(dialog).toHaveTextContent(
+      "You'll need an invite from a member to rejoin #c1.",
+    );
+    expect(leaveSpy).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Leave channel" }));
+    await waitFor(() => expect(leaveSpy).toHaveBeenCalledWith("w1", "c1"));
+    const [, options] = (toastSuccess.mock.calls[0] ?? []) as [
+      string,
+      { action?: unknown }?,
+    ];
+    expect(options?.action).toBeUndefined();
+  });
+
+  it("does not leave a private channel when the question is cancelled", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { kind: "private", canManage: true }),
+    ]);
+    renderAt("/w/team/chat/c1");
+
+    const user = await leaveFromMenu("Leave channel…");
+    await screen.findByRole("dialog", { name: "Leave #c1?" });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(leaveSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChatPage keyboard", () => {
+  beforeEach(() => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("alpha"),
+      channel("beta", { unreadCount: 0 }),
+      channel("gamma", { unreadCount: 3 }),
+      channel("old", { archived: true }),
+      channel("d1", {
+        kind: "dm",
+        name: null,
+        members: [
+          { id: 1, username: "me", photo: null },
+          { id: 2, username: "minji", photo: null },
+        ],
+      }),
+    ]);
+  });
+
+  const press = (key: string, init: KeyboardEventInit = {}) =>
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
+      );
+    });
+
+  it("walks the channels with Alt+arrows, wrapping past DMs", async () => {
+    const location = renderAt("/w/team/chat/alpha");
+    await screen.findByTestId("conversation");
+
+    await press("ArrowDown", { altKey: true });
+    expect(location.current).toBe("/w/team/chat/beta");
+    await press("ArrowUp", { altKey: true });
+    await press("ArrowUp", { altKey: true });
+    expect(location.current).toBe("/w/team/chat/d1");
+  });
+
+  it("jumps to the next unread channel with Alt+Shift+arrows", async () => {
+    const location = renderAt("/w/team/chat/alpha");
+    await screen.findByTestId("conversation");
+
+    await press("ArrowDown", { altKey: true, shiftKey: true });
+    expect(location.current).toBe("/w/team/chat/gamma");
+  });
+
+  it("opens the switcher with Mod+K and goes where it is told", async () => {
+    const location = renderAt("/w/team/chat/alpha");
+    await screen.findByTestId("conversation");
+
+    await press("k", { ctrlKey: true, code: "KeyK" } as KeyboardEventInit);
+    const input = await screen.findByRole("combobox", {
+      name: "Jump to a channel or person",
+    });
+    const user = userEvent.setup();
+    await user.type(input, "min");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "minji",
+    ]);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(location.current).toBe("/w/team/chat/d1"));
+  });
+
+  it("closes the thread on Esc and hands focus back to its replies link", async () => {
+    const location = renderAt("/w/team/chat/alpha?thread=root1");
+    const thread = await screen.findByTestId("thread");
+    const user = userEvent.setup();
+    await user.click(thread.querySelector("textarea")!);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(location.current).toBe("/w/team/chat/alpha"));
+    expect(screen.getByRole("button", { name: "2 replies" })).toHaveFocus();
+  });
+
+  it("leaves the thread open when something inside took the Esc", async () => {
+    const location = renderAt("/w/team/chat/alpha?thread=root1");
+    const thread = await screen.findByTestId("thread");
+    const box = thread.querySelector("textarea")!;
+    box.addEventListener("keydown", (e) => e.preventDefault());
+    const user = userEvent.setup();
+    await user.click(box);
+    await user.keyboard("{Escape}");
+    await settle();
+    expect(location.current).toBe("/w/team/chat/alpha?thread=root1");
+  });
+});
+
+describe("ChatPage title", () => {
+  it("names the channel and counts what needs you, then restores the title", async () => {
+    document.title = "Before";
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1", { mentionCount: 2, unreadCount: 5 }),
+      channel("c2", { unreadCount: 9 }),
+    ]);
+    const { unmount } = renderAtWithUnmount("/w/team/chat/c1");
+
+    await waitFor(() =>
+      expect(document.title).toBe("(2) #c1 · Chat — Wafflebase"),
+    );
+    unmount();
+    expect(document.title).toBe("Before");
   });
 });

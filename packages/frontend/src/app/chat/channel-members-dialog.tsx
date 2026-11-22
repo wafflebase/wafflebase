@@ -12,6 +12,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import {
   useChannelMembers,
@@ -27,7 +32,9 @@ interface ChannelMembersButtonProps {
 
 /**
  * The channel header's member count. It shares the dialog's query, so
- * opening the dialog shows the list without a second fetch.
+ * opening the dialog shows the list without a second fetch. The bare number
+ * is named for what it counts, aloud and in a tooltip. Needs a
+ * `TooltipProvider` above it, which `App` mounts.
  */
 export function ChannelMembersButton({
   workspaceId,
@@ -36,17 +43,26 @@ export function ChannelMembersButton({
 }: ChannelMembersButtonProps) {
   const members = useChannelMembers(workspaceId, channelId, true);
   const count = members.data?.length;
+  const label =
+    count === undefined
+      ? "Members"
+      : `${count} ${count === 1 ? "member" : "members"}`;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="shrink-0 gap-1 px-2 text-muted-foreground tabular-nums pointer-coarse:min-h-11"
-      aria-label={count === undefined ? "Members" : `Members: ${count}`}
-      onClick={onClick}
-    >
-      <IconUsers />
-      {count}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 gap-1 px-2 text-muted-foreground tabular-nums pointer-coarse:min-h-11"
+          aria-label={label}
+          onClick={onClick}
+        >
+          <IconUsers />
+          {count}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

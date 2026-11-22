@@ -3,11 +3,13 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
-import { chatKeys } from "@/components/chat/chat-cache";
+import { chatKeys, type PendingSend } from "@/components/chat/chat-cache";
 import {
   useChannelMessages,
   useMarkRead,
+  usePendingMessages,
   usePostMessage,
+  useSendMessage,
 } from "@/components/chat/use-chat";
 
 const api = vi.hoisted(() => ({
@@ -293,5 +295,107 @@ describe("useChannelMessages loadOlder", () => {
 
     expect(prepended).toBe(true);
     expect(result.current.messages[0].id).toBe("m49");
+  });
+});
+
+describe("useSendMessage", () => {
+  const ids = (queryClient: QueryClient) =>
+    queryClient
+      .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+      ?.map((m) => m.id);
+  const pendingOf = (queryClient: QueryClient) =>
+    queryClient.getQueryData<PendingSend[]>(chatKeys.pending("c1")) ?? [];
+
+  function renderSend() {
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(["me"], { id: 1, username: "me", photo: "" });
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    const { result } = renderHook(
+      () => ({
+        sender: useSendMessage("w1", "c1"),
+        channel: usePendingMessages("c1", null),
+        thread: usePendingMessages("c1", "m1"),
+      }),
+      { wrapper },
+    );
+    return { queryClient, result };
+  }
+
+  it("draws the message at once, then swaps in the server's row", async () => {
+    let resolve: (m: ChatMessageDto) => void = () => {};
+    api.postMessage.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { queryClient, result } = renderSend();
+
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.sender.send({ body: "hi" });
+    });
+    // Cache notifications are batched onto a timer.
+    await waitFor(() => expect(result.current.channel).toHaveLength(1));
+    expect(result.current.channel[0]).toMatchObject({
+      body: "hi",
+      localState: "pending",
+      author: { id: 1 },
+      // A floor for the server's seq, from the newest one known.
+      seq: 1,
+    });
+
+    await act(async () => {
+      resolve(msg(2, { body: "hi" }));
+      await sent;
+    });
+    expect(ids(queryClient)).toEqual(["m1", "m2"]);
+    expect(pendingOf(queryClient)).toEqual([]);
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("marks a failed send and retries it in place", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const { queryClient, result } = renderSend();
+
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() =>
+      expect(result.current.channel[0]?.localState).toBe("failed"),
+    );
+    expect(ids(queryClient)).toEqual(["m1"]);
+
+    api.postMessage.mockResolvedValueOnce(msg(2, { body: "hi" }));
+    const clientId = result.current.channel[0].clientId!;
+    await act(async () => {
+      await result.current.sender.retry(clientId);
+    });
+    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "hi" });
+    expect(ids(queryClient)).toEqual(["m1", "m2"]);
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("discards a failed send", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const { result } = renderSend();
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() => expect(result.current.channel).toHaveLength(1));
+    act(() => result.current.sender.discard(result.current.channel[0].clientId!));
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("shows a thread reply in its thread, and in the channel only when also sent there", async () => {
+    api.postMessage.mockReturnValue(new Promise(() => {}));
+    const { result } = renderSend();
+    act(() => {
+      void result.current.sender.send({ body: "a", threadRootId: "m1" });
+      void result.current.sender.send({
+        body: "b",
+        threadRootId: "m1",
+        alsoInChannel: true,
+      });
+    });
+    await waitFor(() =>
+      expect(result.current.thread.map((m) => m.body)).toEqual(["a", "b"]),
+    );
+    expect(result.current.channel.map((m) => m.body)).toEqual(["b"]);
   });
 });

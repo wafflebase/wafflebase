@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   Link,
   useNavigate,
@@ -33,10 +39,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { chatBadgeCount } from "@/components/chat/chat-cache";
 import { Conversation } from "@/components/chat/conversation";
 import { ThreadView } from "@/components/chat/thread-view";
 import {
   useChannels,
+  useJoinChannel,
   useLeaveChannel,
   useUpdateChannel,
 } from "@/components/chat/use-chat";
@@ -47,8 +60,16 @@ import {
   ChannelSettingsDialog,
   type ChannelSettingsMode,
 } from "./channel-settings-dialog";
-import { channelMenu, chatLayout, landingChannelId } from "./chat-layout";
-import { channelLabel } from "./group-channels";
+import { ChannelSwitcher } from "./channel-switcher";
+import {
+  channelMenu,
+  chatLayout,
+  chatTitle,
+  landingChannelId,
+} from "./chat-layout";
+import { chatShortcut, modalSurfaceOpen } from "./chat-shortcuts";
+import { adjacentChannelId, channelLabel } from "./group-channels";
+import { LeaveChannelDialog } from "./leave-channel-dialog";
 import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
 import {
   ChannelMembersButton,
@@ -184,11 +205,62 @@ export default function ChatPage() {
     setSearchParams(next);
   };
 
+  // Closing a thread from the keyboard hands focus back to where it came
+  // from — the root message's "N replies" link, else the channel composer —
+  // instead of dropping it on <body> as the thread column unmounts.
+  const conversationRef = useRef<HTMLElement>(null);
+  const restoreFocusTo = useRef<string | null>(null);
+  useEffect(() => {
+    const rootId = restoreFocusTo.current;
+    if (threadId || !rootId) return;
+    restoreFocusTo.current = null;
+    const pane = conversationRef.current;
+    if (!pane) return;
+    const root = pane.querySelector<HTMLElement>(
+      `[data-message-id="${rootId}"]`,
+    );
+    const repliesLink = root?.querySelector<HTMLElement>("[data-thread-link]");
+    (repliesLink ?? pane.querySelector<HTMLElement>("textarea"))?.focus();
+  }, [threadId]);
+
+  // Esc closes the thread from anywhere inside its column — but not when a
+  // menu, sheet or the mention list took the key first (they mark it
+  // handled), nor from a portalled layer that only bubbles here through
+  // React.
+  const onThreadKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (e.nativeEvent.isComposing) return;
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    e.preventDefault();
+    restoreFocusTo.current = threadId;
+    closeThread();
+  };
+
   const leave = useLeaveChannel(workspaceId ?? "");
+  const join = useJoinChannel(workspaceId ?? "");
+  // The private channel whose leaving waits on a confirmation.
+  const [confirmLeave, setConfirmLeave] = useState<ChannelSummary | null>(
+    null,
+  );
+  const rejoin = (c: ChannelSummary) =>
+    join.mutate(c.id, {
+      onSuccess: () => navigate(hrefFor(c.id)),
+      onError: (err) =>
+        toast.error(userFacingError(err, `Couldn't rejoin #${c.name}.`)),
+    });
   const leaveChannel = (c: ChannelSummary) =>
     leave.mutate(c.id, {
       onSuccess: () => {
-        toast.success(`Left #${c.name}`);
+        setConfirmLeave(null);
+        // A public channel is a Join away, so leaving it is undoable; a
+        // private one was confirmed first.
+        if (c.kind === "public") {
+          toast.success(`Left #${c.name}`, {
+            action: { label: "Undo", onClick: () => rejoin(c) },
+          });
+        } else {
+          toast.success(`Left #${c.name}`);
+        }
         // Otherwise the bare page would send you straight back.
         if (workspaceId) forgetLastChannel(workspaceId, c.id);
         navigate(base);
@@ -196,6 +268,35 @@ export default function ChatPage() {
       onError: (err) =>
         toast.error(userFacingError(err, "Couldn't leave the channel.")),
     });
+  const requestLeave = (c: ChannelSummary) =>
+    c.kind === "private" ? setConfirmLeave(c) : leaveChannel(c);
+
+  // Alt+↑/↓ walk the list, Alt+Shift+↑/↓ the unread part of it, Mod+K opens
+  // the switcher. Read through a ref so the listener is bound once.
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const keysRef = useRef({ channels, channelId, hrefFor, navigate });
+  keysRef.current = { channels, channelId, hrefFor, navigate };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = chatShortcut(e);
+      if (!action) return;
+      const { channels, channelId, hrefFor, navigate } = keysRef.current;
+      if (action === "switcher") {
+        // A second Mod+K closes it, as in Slack; any other dialog keeps it shut.
+        e.preventDefault();
+        setSwitcherOpen((open) => (open ? false : !modalSurfaceOpen()));
+        return;
+      }
+      if (modalSurfaceOpen()) return;
+      const unreadOnly = action === "prev-unread" || action === "next-unread";
+      const step = action === "prev" || action === "prev-unread" ? -1 : 1;
+      e.preventDefault();
+      const target = adjacentChannelId(channels, channelId, step, unreadOnly);
+      if (target) navigate(hrefFor(target));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const update = useUpdateChannel(workspaceId ?? "");
   const unarchive = (c: ChannelSummary) =>
@@ -211,6 +312,21 @@ export default function ChatPage() {
   const { show } = chatLayout({ isMobile, channelId, threadId });
   const unknownChannel =
     !!channelId && !!channelsQuery.data && !channel;
+  const label = channel ? channelLabel(channel, meId) : "";
+
+  // The tab says where you are and how much needs you; the title the page
+  // found is put back on the way out.
+  // (The restore runs first, so it captures the title from before ours.)
+  const badge = chatBadgeCount(channels);
+  useEffect(() => {
+    const previous = document.title;
+    return () => {
+      document.title = previous;
+    };
+  }, []);
+  useEffect(() => {
+    document.title = chatTitle(channel, label, badge);
+  }, [channel, label, badge]);
 
   if (!workspaceId) {
     return (
@@ -220,7 +336,6 @@ export default function ChatPage() {
     );
   }
 
-  const label = channel ? channelLabel(channel, meId) : "";
   const menu = channelMenu(channel);
   // With a thread open the linked message is a reply in it, which the
   // channel's log does not hold.
@@ -246,6 +361,7 @@ export default function ChatPage() {
             me={meId}
             hrefFor={hrefFor}
             onNewChannel={() => openChannelDialog("create")}
+            onBrowse={() => openChannelDialog("browse")}
             onNewMessage={() => setNewDmOpen(true)}
           />
         </aside>
@@ -253,6 +369,7 @@ export default function ChatPage() {
 
       {show.includes("conversation") && (
         <section
+          ref={conversationRef}
           aria-label={label ? `Conversation: ${label}` : "Conversation"}
           className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
@@ -300,11 +417,34 @@ export default function ChatPage() {
                 ) : channel?.kind === "public" ? (
                   <IconHash className="size-4 shrink-0 text-muted-foreground" />
                 ) : null}
-                <h1 className="truncate text-sm font-semibold">{label}</h1>
-                {channel?.topic && (
-                  <p className="hidden min-w-0 truncate border-l pl-2 text-sm text-muted-foreground md:block">
-                    {channel.topic}
-                  </p>
+                {channel?.topic ? (
+                  // Name over topic on a phone, side by side on desktop. The
+                  // topic truncates either way, so it opens in full on a tap.
+                  <div className="flex min-w-0 flex-col md:flex-row md:items-center md:gap-2">
+                    <h1 className="truncate text-sm font-semibold">{label}</h1>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`Topic: ${channel.topic}`}
+                          className="min-w-0 truncate rounded-sm text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 md:border-l md:pl-2 md:text-sm"
+                        >
+                          {channel.topic}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-80 max-w-[calc(100vw-2rem)] text-sm break-words"
+                      >
+                        <p className="pb-1 text-xs font-medium text-muted-foreground">
+                          Topic
+                        </p>
+                        <p>{channel.topic}</p>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                ) : (
+                  <h1 className="truncate text-sm font-semibold">{label}</h1>
                 )}
                 {channel?.archived && (
                   <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -377,10 +517,12 @@ export default function ChatPage() {
                               <DropdownMenuSeparator />
                             )}
                             <DropdownMenuItem
-                              onSelect={() => leaveChannel(channel)}
+                              onSelect={() => requestLeave(channel)}
                             >
                               <IconLogout />
-                              Leave channel
+                              {channel.kind === "private"
+                                ? "Leave channel…"
+                                : "Leave channel"}
                             </DropdownMenuItem>
                           </>
                         )}
@@ -409,6 +551,7 @@ export default function ChatPage() {
       {show.includes("thread") && channelId && threadId && (
         <section
           aria-label="Thread"
+          onKeyDown={onThreadKeyDown}
           className={cn(
             "flex min-h-0 flex-col",
             isMobile ? "min-w-0 flex-1" : "w-[360px] shrink-0 border-l",
@@ -437,7 +580,10 @@ export default function ChatPage() {
                 size="icon"
                 className="ml-auto size-8 pointer-coarse:size-11"
                 aria-label="Close thread"
-                onClick={closeThread}
+                onClick={() => {
+                  restoreFocusTo.current = threadId;
+                  closeThread();
+                }}
               >
                 <IconX />
               </Button>
@@ -461,6 +607,19 @@ export default function ChatPage() {
         onTabChange={setNewChannelTab}
         onOpenChange={setNewChannelOpen}
         onOpened={(id) => navigate(hrefFor(id))}
+      />
+      <ChannelSwitcher
+        open={switcherOpen}
+        onOpenChange={setSwitcherOpen}
+        channels={channels}
+        me={meId}
+        onPick={(id) => navigate(hrefFor(id))}
+      />
+      <LeaveChannelDialog
+        channel={confirmLeave}
+        pending={leave.isPending}
+        onConfirm={() => confirmLeave && leaveChannel(confirmLeave)}
+        onCancel={() => setConfirmLeave(null)}
       />
       <NewDmDialog
         workspaceId={workspaceId}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   IconCopy,
   IconDots,
+  IconLink,
   IconMessageReply,
   IconPencil,
   IconTrash,
@@ -18,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -28,20 +30,33 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import type { MentionMember } from "@/components/comments/components/CommentComposer";
 import {
   mentionBodyToPlainText,
   parseMentionBody,
-  applySelectedMentions,
 } from "@/components/comments/mentions";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { cn } from "@/lib/utils";
+import type { ChatLine } from "./chat-cache";
 import { formatShortTime, formatTime } from "./format-time";
 import type { MessageGroup } from "./group-messages";
 import { MessageBody } from "./message-body";
+import { mentionsUser, messageLink } from "./message-links";
 import { useDeleteMessage, useEditMessage } from "./use-chat";
 import { useLongPress } from "./use-long-press";
+import { useMentionAutocomplete } from "./use-mention-autocomplete";
+import { ROW_ATTR } from "./use-roving-messages";
 
 const UNKNOWN_AUTHOR = "Deleted user";
+
+async function copyToClipboard(text: string, done: string, failed: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(done);
+  } catch {
+    toast.error(failed);
+  }
+}
 
 function ChatAvatar({ author }: { author: ChatMessageDto["author"] }) {
   const name = author?.username ?? "?";
@@ -53,23 +68,31 @@ function ChatAvatar({ author }: { author: ChatMessageDto["author"] }) {
   );
 }
 
-interface GroupProps {
-  group: MessageGroup;
+/** What a log hands every line it draws; the parts a thread lacks are optional. */
+export interface LineHost {
   workspaceId: string;
   me: number;
+  /** Who the edit box can mention. */
+  members?: MentionMember[];
   highlightId?: string | null;
+  /** The roving tab stop: the one row (and its controls) Tab reaches. */
+  activeId?: string | null;
+  /** The message open for editing; the log owns it so ↑ can open one. */
+  editingId?: string | null;
+  onEdit?: (id: string) => void;
+  onEditDone?: (id: string) => void;
   /** Omitted inside a thread, where a reply cannot start another thread. */
   onOpenThread?: (rootId: string) => void;
+  onRetry?: (clientId: string) => void;
+  onDiscard?: (clientId: string) => void;
+}
+
+interface GroupProps extends LineHost {
+  group: MessageGroup;
 }
 
 /** One author's run of messages: avatar and name once, then each line. */
-export function MessageGroupView({
-  group,
-  workspaceId,
-  me,
-  highlightId,
-  onOpenThread,
-}: GroupProps) {
+export function MessageGroupView({ group, ...host }: GroupProps) {
   const lines = [group.first, ...group.rest];
   return (
     <li className="flex flex-col">
@@ -79,10 +102,7 @@ export function MessageGroupView({
           message={m}
           showHeader={i === 0}
           author={group.author}
-          workspaceId={workspaceId}
-          mine={!!m.author && m.author.id === me}
-          highlighted={highlightId === m.id}
-          onOpenThread={onOpenThread}
+          host={host}
         />
       ))}
     </li>
@@ -90,49 +110,70 @@ export function MessageGroupView({
 }
 
 interface LineProps {
-  message: ChatMessageDto;
+  message: ChatLine;
   showHeader: boolean;
   author: ChatMessageDto["author"];
-  workspaceId: string;
-  mine: boolean;
-  highlighted: boolean;
-  onOpenThread?: (rootId: string) => void;
+  host: LineHost;
 }
 
-function MessageLine({
-  message,
-  showHeader,
-  author,
-  workspaceId,
-  mine,
-  highlighted,
-  onOpenThread,
-}: LineProps) {
-  const [mode, setMode] = useState<"view" | "edit" | "confirm-delete">("view");
+function MessageLine({ message, showHeader, author, host }: LineProps) {
+  const { workspaceId, me, onOpenThread } = host;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // A log that owns the edit (so ↑ in its composer can open one) passes
+  // `onEdit`; a line on its own keeps the state itself.
+  const managed = host.onEdit !== undefined;
+  const [editingHere, setEditingHere] = useState(false);
+  const editing = managed ? host.editingId === message.id : editingHere;
+  const mode = editing
+    ? "edit"
+    : confirmingDelete
+      ? "confirm-delete"
+      : "view";
+  const setMode = (next: "view" | "edit" | "confirm-delete") => {
+    setConfirmingDelete(next === "confirm-delete");
+    if (!managed) setEditingHere(next === "edit");
+    else if (next === "edit") host.onEdit?.(message.id);
+    else if (editing) host.onEditDone?.(message.id);
+  };
   const remove = useDeleteMessage(workspaceId);
-  const canAct = mine && !message.deleted;
-  const canReply = !!onOpenThread && !message.threadRootId && !message.deleted;
+  const local = message.localState;
+  const mine = !!message.author && message.author.id === me;
+  const canAct = mine && !message.deleted && !local;
+  const canReply =
+    !!onOpenThread && !message.threadRootId && !message.deleted && !local;
+  const hasActions = !message.deleted && !local;
+  const mentionsMe = !message.deleted && mentionsUser(message.body, me);
+  // The roving tab stop: only the active row, and the controls inside it,
+  // are in the tab order. A host without one (a lone line) keeps them all.
+  const active = host.activeId === undefined || host.activeId === message.id;
+  const tabIndex = active ? undefined : -1;
   // A finger has no hover, so a touch screen gets no hover toolbar: the
   // actions open from a press-and-hold on the message (or its screen-reader
   // and keyboard trigger) as a sheet, the way Slack and Google Chat do it.
   const coarse = useCoarsePointer();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [byGesture, setByGesture] = useState(false);
-  const touchActions = coarse && mode === "view" && !message.deleted;
+  const touchActions = coarse && mode === "view" && hasActions;
   const longPress = useLongPress(() => {
     setByGesture(true);
     setSheetOpen(true);
   }, touchActions);
+  const authorName = author?.username ?? UNKNOWN_AUTHOR;
 
   return (
     <div
       id={`chat-message-${message.id}`}
       data-message-id={message.id}
+      {...{ [ROW_ATTR]: message.id }}
+      tabIndex={host.activeId === undefined ? undefined : active ? 0 : -1}
+      aria-busy={local === "pending" || undefined}
       {...longPress}
       className={cn(
-        "group/message relative flex gap-3 px-4 py-1 hover:bg-muted/60",
+        "group/message relative flex gap-3 px-4 py-1 outline-none hover:bg-muted/60",
+        "focus-visible:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
         "motion-safe:transition-colors motion-safe:duration-700",
-        highlighted && "bg-selected hover:bg-selected",
+        mentionsMe && "bg-selected/40 hover:bg-selected/50",
+        highlighted(host, message) && "bg-selected hover:bg-selected",
         showHeader && "mt-2 pt-2",
         // The hold is ours, not the browser's text-selection callout.
         touchActions && "select-none [-webkit-touch-callout:none]",
@@ -143,20 +184,23 @@ function MessageLine({
         {showHeader ? (
           <ChatAvatar author={author} />
         ) : (
+          // Read to a screen reader from the prefix below, not from here:
+          // this one is only there on hover.
           <time
+            aria-hidden
             dateTime={message.createdAt}
             title={formatTime(message.createdAt)}
-            className="hidden whitespace-nowrap pt-0.5 text-2xs text-muted-foreground tabular-nums group-hover/message:inline"
+            className="hidden whitespace-nowrap pt-0.5 text-xs text-muted-foreground tabular-nums group-hover/message:inline group-focus-within/message:inline"
           >
             {formatShortTime(message.createdAt)}
           </time>
         )}
       </div>
       <div className="min-w-0 flex-1">
-        {showHeader && (
+        {showHeader ? (
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold text-foreground">
-              {author?.username ?? UNKNOWN_AUTHOR}
+              {authorName}
             </span>
             <time
               dateTime={message.createdAt}
@@ -165,10 +209,17 @@ function MessageLine({
               {formatTime(message.createdAt)}
             </time>
           </div>
+        ) : (
+          // A continuation line shows neither name nor (until hover) time;
+          // a screen reader landing on it still hears whose and when.
+          <span className="sr-only">
+            {`${authorName}, ${formatTime(message.createdAt)}: `}
+          </span>
         )}
         {message.threadRootId && message.alsoInChannel && onOpenThread && (
           <button
             type="button"
+            tabIndex={tabIndex}
             onClick={() => onOpenThread(message.threadRootId!)}
             className="rounded-sm text-xs text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
@@ -179,6 +230,7 @@ function MessageLine({
           <EditBox
             message={message}
             workspaceId={workspaceId}
+            members={host.members}
             onDone={() => setMode("view")}
           />
         ) : message.deleted ? (
@@ -186,11 +238,48 @@ function MessageLine({
             This message was deleted
           </p>
         ) : (
-          <div className="flex flex-wrap items-baseline gap-x-1">
-            <MessageBody body={message.body} />
+          <div
+            className={cn(
+              "flex flex-wrap items-baseline gap-x-1",
+              local === "pending" && "opacity-60",
+            )}
+          >
+            <MessageBody body={message.body} me={me} tabbable={active} />
             {message.editedAt && (
               <span className="text-xs text-muted-foreground">(edited)</span>
             )}
+            {local === "pending" && <span className="sr-only">Sending…</span>}
+          </div>
+        )}
+        {local === "failed" && message.clientId && (
+          <div
+            role="group"
+            aria-label="Message not sent"
+            className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs"
+          >
+            <span className="font-medium text-destructive">Not sent</span>
+            <span aria-hidden className="text-muted-foreground">
+              ·
+            </span>
+            <button
+              type="button"
+              tabIndex={tabIndex}
+              onClick={() => host.onRetry?.(message.clientId!)}
+              className="rounded-sm font-medium text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+            >
+              Retry
+            </button>
+            <span aria-hidden className="text-muted-foreground">
+              ·
+            </span>
+            <button
+              type="button"
+              tabIndex={tabIndex}
+              onClick={() => host.onDiscard?.(message.clientId!)}
+              className="rounded-sm text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+            >
+              Discard
+            </button>
           </div>
         )}
         {mode === "confirm-delete" && (
@@ -227,6 +316,9 @@ function MessageLine({
         {message.replyCount > 0 && onOpenThread && !message.threadRootId && (
           <button
             type="button"
+            tabIndex={tabIndex}
+            // Where closing the thread hands focus back to.
+            data-thread-link
             onClick={() => onOpenThread(message.id)}
             className="mt-1 inline-flex items-center gap-1 rounded-sm text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
           >
@@ -246,6 +338,8 @@ function MessageLine({
       {touchActions && (
         <TouchActions
           message={message}
+          workspaceId={workspaceId}
+          tabIndex={tabIndex}
           open={sheetOpen}
           byGesture={byGesture}
           onOpenChange={(open) => {
@@ -257,11 +351,11 @@ function MessageLine({
           onDelete={canAct ? () => setMode("confirm-delete") : undefined}
         />
       )}
-      {!coarse && mode === "view" && (canReply || canAct) && (
+      {!coarse && mode === "view" && hasActions && (
         <div
           className={cn(
             "absolute top-0 right-3 -translate-y-1/3 flex items-center rounded-md border bg-background",
-            "opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100",
+            "opacity-0 group-hover/message:opacity-100 group-focus-visible/message:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100",
           )}
         >
           {canReply && (
@@ -269,6 +363,7 @@ function MessageLine({
               variant="ghost"
               size="icon"
               className="size-7"
+              tabIndex={tabIndex}
               aria-label="Reply in thread"
               title="Reply in thread"
               onClick={() => onOpenThread!(message.id)}
@@ -276,41 +371,77 @@ function MessageLine({
               <IconMessageReply />
             </Button>
           )}
-          {canAct && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label="More actions"
-                >
-                  <IconDots />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setMode("edit")}>
-                  <IconPencil />
-                  Edit message
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => setMode("confirm-delete")}
-                >
-                  <IconTrash />
-                  Delete message
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                tabIndex={tabIndex}
+                aria-label="More actions"
+                title="More actions"
+              >
+                <IconDots />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() =>
+                  void copyToClipboard(
+                    mentionBodyToPlainText(message.body),
+                    "Message copied",
+                    "Couldn't copy the message. Select it and copy instead.",
+                  )
+                }
+              >
+                <IconCopy />
+                Copy text
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void copyToClipboard(
+                    messageLink(workspaceId, message),
+                    "Link copied",
+                    "Couldn't copy the link.",
+                  )
+                }
+              >
+                <IconLink />
+                Copy link to message
+              </DropdownMenuItem>
+              {canAct && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setMode("edit")}>
+                    <IconPencil />
+                    Edit message
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => setMode("confirm-delete")}
+                  >
+                    <IconTrash />
+                    Delete message
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
     </div>
   );
 }
 
+function highlighted(host: LineHost, message: ChatLine): boolean {
+  return !!host.highlightId && host.highlightId === message.id;
+}
+
 interface TouchActionsProps {
   message: ChatMessageDto;
+  workspaceId: string;
+  /** -1 off the roving tab stop. */
+  tabIndex?: number;
   open: boolean;
   /** Opened by a hold, not by the trigger: no item should look selected. */
   byGesture: boolean;
@@ -330,6 +461,8 @@ const SHEET_ITEM =
  */
 function TouchActions({
   message,
+  workspaceId,
+  tabIndex,
   open,
   byGesture,
   onOpenChange,
@@ -345,14 +478,18 @@ function TouchActions({
     onOpenChange(false);
     action();
   };
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(mentionBodyToPlainText(message.body));
-      toast.success("Message copied");
-    } catch {
-      toast.error("Couldn't copy the message. Select it and copy instead.");
-    }
-  };
+  const copy = () =>
+    copyToClipboard(
+      mentionBodyToPlainText(message.body),
+      "Message copied",
+      "Couldn't copy the message. Select it and copy instead.",
+    );
+  const copyLink = () =>
+    copyToClipboard(
+      messageLink(workspaceId, message),
+      "Link copied",
+      "Couldn't copy the link.",
+    );
   const preview = mentionBodyToPlainText(message.body);
 
   return (
@@ -360,6 +497,7 @@ function TouchActions({
       <SheetTrigger asChild>
         <button
           type="button"
+          tabIndex={tabIndex}
           aria-label="Message actions"
           className={cn(
             "sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-0 focus-visible:right-2",
@@ -400,6 +538,10 @@ function TouchActions({
             <IconCopy />
             Copy text
           </button>
+          <button type="button" className={SHEET_ITEM} onClick={pick(copyLink)}>
+            <IconLink />
+            Copy link to message
+          </button>
           {onEdit && (
             <button type="button" className={SHEET_ITEM} onClick={pick(onEdit)}>
               <IconPencil />
@@ -432,10 +574,12 @@ function mentionsOf(body: string) {
 function EditBox({
   message,
   workspaceId,
+  members,
   onDone,
 }: {
   message: ChatMessageDto;
   workspaceId: string;
+  members?: MentionMember[];
   onDone: () => void;
 }) {
   const [text, setText] = useState(() => mentionBodyToPlainText(message.body));
@@ -453,7 +597,7 @@ function EditBox({
 
   const save = () => {
     if (!trimmed || tooLong || edit.isPending) return;
-    const body = applySelectedMentions(text, mentionsOf(message.body)).trim();
+    const body = mention.applyMentions(text).trim();
     if (body === message.body) {
       onDone();
       return;
@@ -470,8 +614,8 @@ function EditBox({
     );
   };
 
+  // IME keystrokes and keys the mention list takes never reach this.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       save();
@@ -481,17 +625,27 @@ function EditBox({
     }
   };
 
+  const mention = useMentionAutocomplete({
+    textareaRef: ref,
+    onChange: setText,
+    members,
+    onKeyDown,
+    initialMentions: mentionsOf(message.body),
+  });
+
   return (
     <div className="mt-1 flex flex-col gap-2">
-      <Textarea
-        ref={ref}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        aria-label="Edit message"
-        aria-invalid={tooLong || undefined}
-        className="min-h-16 resize-none"
-      />
+      <div className="relative">
+        <Textarea
+          ref={ref}
+          value={text}
+          aria-label="Edit message"
+          aria-invalid={tooLong || undefined}
+          className="min-h-16 resize-none"
+          {...mention.inputProps}
+        />
+        {mention.listbox}
+      </div>
       <div className="flex items-center gap-2">
         <Button
           size="sm"

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +29,12 @@ function renderList(
   {
     workspaceId = "w1",
     activeChannelId = null,
-  }: { workspaceId?: string; activeChannelId?: string | null } = {},
+    onBrowse = () => {},
+  }: {
+    workspaceId?: string;
+    activeChannelId?: string | null;
+    onBrowse?: () => void;
+  } = {},
 ) {
   return render(
     <MemoryRouter>
@@ -41,6 +46,7 @@ function renderList(
         me={1}
         hrefFor={(id) => `/w/${workspaceId}/chat/${id}`}
         onNewChannel={() => {}}
+        onBrowse={onBrowse}
         onNewMessage={() => {}}
       />
     </MemoryRouter>,
@@ -143,5 +149,82 @@ describe("ChannelList section actions", () => {
       expect(button.className).toContain("size-7");
       expect(button.className).toContain("pointer-coarse:size-11");
     }
+  });
+});
+
+describe("ChannelList browse row", () => {
+  it("counts the public channels not joined and opens Browse", async () => {
+    const onBrowse = vi.fn();
+    renderList(
+      [
+        channel("general"),
+        channel("design", { isMember: false }),
+        channel("ops", { isMember: false }),
+        // Neither archived nor private channels are browsable.
+        channel("old", { isMember: false, archived: true }),
+        channel("secret", { kind: "private", isMember: false }),
+      ],
+      { onBrowse },
+    );
+    const rooms = screen.getByRole("region", { name: "Channels" });
+    const row = within(rooms).getByRole("button", {
+      name: "Browse channels, 2 not joined",
+    });
+    await userEvent.click(row);
+    expect(onBrowse).toHaveBeenCalledOnce();
+  });
+
+  it("is not shown when every public channel is joined", () => {
+    renderList([channel("general"), channel("old", { isMember: false, archived: true })]);
+    expect(
+      screen.queryByRole("button", { name: /browse channels/i }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ChannelList preview row", () => {
+  it("shows the open, unjoined channel in Channels while it is open", () => {
+    renderList([channel("general"), channel("design", { isMember: false })], {
+      activeChannelId: "design",
+    });
+    const rooms = screen.getByRole("region", { name: "Channels" });
+    const link = within(rooms).getByRole("link", { name: /design/ });
+    expect(link).toHaveAttribute("aria-current", "page");
+    expect(link).toHaveTextContent("not joined");
+    expect(within(link).getByText("design")).toHaveClass("italic");
+  });
+
+  it("drops it again once another channel is open", () => {
+    renderList([channel("general"), channel("design", { isMember: false })], {
+      activeChannelId: "general",
+    });
+    expect(
+      screen.queryByRole("link", { name: /design/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ChannelList group DMs", () => {
+  const user = (id: number, username: string) => ({ id, username, photo: null });
+
+  it("stacks two avatars for a group DM and one for a 1:1", () => {
+    renderList([
+      channel("pair", {
+        kind: "dm",
+        name: null,
+        members: [user(1, "me"), user(2, "minji")],
+      }),
+      channel("group", {
+        kind: "dm",
+        name: null,
+        members: [user(1, "me"), user(2, "minji"), user(3, "jun"), user(4, "ara")],
+      }),
+    ]);
+    const pair = screen.getByRole("link", { name: /^minji$/ });
+    const group = screen.getByRole("link", { name: /minji, jun, ara/ });
+    const avatars = (el: HTMLElement) =>
+      el.querySelectorAll('[data-slot="avatar"]').length;
+    expect(avatars(pair)).toBe(1);
+    expect(avatars(group)).toBe(2);
   });
 });

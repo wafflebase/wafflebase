@@ -69,6 +69,56 @@ describe("MessageLine on a fine pointer", () => {
   });
 });
 
+describe("MessageLine desktop menu", () => {
+  beforeEach(() => setPointer(false));
+
+  const openMenu = () => {
+    // Radix opens on the full pointer sequence, not a synthetic click.
+    const trigger = screen.getByRole("button", { name: "More actions" });
+    for (const type of ["pointerdown", "pointerup", "click"]) {
+      fireEvent(
+        trigger,
+        new PointerEvent(type, { bubbles: true, cancelable: true, button: 0 }),
+      );
+    }
+  };
+
+  it("gives others' messages Copy text and Copy link, without Edit/Delete", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderLine(msg(), 2);
+    openMenu();
+    expect(await screen.findByRole("menuitem", { name: "Copy text" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Edit message" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy link to message" }));
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/w/w1/chat/c1?message=m1`,
+    );
+  });
+
+  it("keeps Edit and Delete on my own", async () => {
+    renderLine(msg());
+    openMenu();
+    expect(await screen.findByRole("menuitem", { name: "Edit message" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete message" })).toBeInTheDocument();
+  });
+
+  it("washes a message that mentions me", () => {
+    const { line } = renderLine(msg({ body: "ping @[me](2)" }), 2);
+    expect(line.className).toMatch(/bg-selected\/40/);
+  });
+
+  it("does not wash one that mentions someone else", () => {
+    const { line } = renderLine(msg({ body: "ping @[you](3)" }), 2);
+    expect(line.className).not.toMatch(/bg-selected/);
+  });
+
+  it("keeps a thread link focusable for focus restore", () => {
+    renderLine(msg({ replyCount: 2 }));
+    expect(document.querySelector("[data-thread-link]")).toHaveTextContent("2 replies");
+  });
+});
+
 describe("MessageLine on a coarse pointer", () => {
   beforeEach(() => setPointer(true));
 

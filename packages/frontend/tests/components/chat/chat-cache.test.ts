@@ -13,6 +13,8 @@ import {
   parseStreamMessage,
   parseStreamUpdate,
   chatBadgeCount,
+  withPending,
+  type ChatLine,
 } from "@/components/chat/chat-cache";
 
 const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
@@ -257,5 +259,48 @@ describe("markMessageDeleted", () => {
 
   it("leaves a missing cache missing", () => {
     expect(markMessageDeleted(undefined, "m1")).toBeUndefined();
+  });
+});
+
+describe("withPending", () => {
+  const local = (seq: number, body: string, state: "pending" | "failed" = "pending"): ChatLine => ({
+    ...msg(seq, { body }),
+    id: `local-${body}`,
+    localState: state,
+    clientId: body,
+  });
+
+  it("returns the server list untouched with nothing pending", () => {
+    const server = [msg(1)];
+    expect(withPending(server, [])).toBe(server);
+  });
+
+  it("puts unanswered sends at the end", () => {
+    const out = withPending([msg(1), msg(2)], [local(2, "hi")]);
+    expect(out.map((m) => m.id)).toEqual(["m1", "m2", "local-hi"]);
+  });
+
+  it("hides a send the stream already brought in", () => {
+    // The server's copy (seq 3) beat the post's response.
+    const out = withPending([msg(2), msg(3, { body: "hi" })], [local(2, "hi")]);
+    expect(out.map((m) => m.id)).toEqual(["m2", "m3"]);
+  });
+
+  it("does not mistake an earlier message with the same text for it", () => {
+    const out = withPending([msg(2, { body: "hi" })], [local(2, "hi")]);
+    expect(out.map((m) => m.id)).toEqual(["m2", "local-hi"]);
+  });
+
+  it("matches one server row per send", () => {
+    const out = withPending(
+      [msg(3, { body: "ok" })],
+      [local(2, "ok"), { ...local(2, "ok"), id: "local-ok2", clientId: "ok2" }],
+    );
+    expect(out.map((m) => m.id)).toEqual(["m3", "local-ok2"]);
+  });
+
+  it("keeps a failed send drawn", () => {
+    const out = withPending([msg(3, { body: "x" })], [local(2, "x", "failed")]);
+    expect(out.map((m) => m.id)).toEqual(["m3", "local-x"]);
   });
 });

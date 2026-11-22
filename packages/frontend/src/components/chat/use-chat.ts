@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -24,12 +24,16 @@ import {
   type ChannelSummary,
   type ChatMessageDto,
 } from "@/api/chat";
+import type { User } from "@/types/users";
 import {
   chatKeys,
   lastSeqOf,
   markChannelRead,
   mergeMessages,
   replaceMessage,
+  type ChatLine,
+  type PendingSend,
+  type PostInput,
 } from "./chat-cache";
 import { catchUpChannel, takePendingCatchUp } from "./use-chat-stream";
 
@@ -125,6 +129,8 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
     hasOlder: hasOlder && (query.data?.length ?? 0) > 0,
     loadingOlder,
     loadOlder,
+    /** Try the first page again after it failed to load. */
+    retry: query.refetch,
   };
 }
 
@@ -173,45 +179,224 @@ function patchEverywhere(
   }
 }
 
+/**
+ * Put a message the server accepted where it belongs: the channel log when
+ * it is top-level or also sent to the channel, its thread when it is a reply.
+ */
+function applyPosted(
+  queryClient: QueryClient,
+  workspaceId: string,
+  channelId: string,
+  message: ChatMessageDto,
+): void {
+  if (!message.threadRootId || message.alsoInChannel) {
+    queryClient.setQueryData<ChatMessageDto[]>(
+      chatKeys.messages(channelId),
+      (old) => (old ? mergeMessages(old, [message]) : old),
+    );
+  }
+  if (message.threadRootId) {
+    queryClient.setQueryData<ChatMessageDto[]>(
+      chatKeys.thread(message.threadRootId),
+      (old) => mergeMessages(old, [message]),
+    );
+    // The root's reply count moved; re-read it from the server rather
+    // than incrementing a number the stream may also be correcting.
+    const root = queryClient
+      .getQueryData<ChatMessageDto[]>(chatKeys.messages(channelId))
+      ?.find((m) => m.id === message.threadRootId);
+    if (root) {
+      void fetchMessages(workspaceId, channelId, { after: root.seq - 1 })
+        .then((batch) =>
+          queryClient.setQueryData<ChatMessageDto[]>(
+            chatKeys.messages(channelId),
+            (old) => mergeMessages(old, batch),
+          ),
+        )
+        .catch(() => {});
+    }
+  }
+}
+
 /** Post to a channel or, with `threadRootId`, to a thread. */
 export function usePostMessage(workspaceId: string, channelId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: {
-      body: string;
-      threadRootId?: string;
-      alsoInChannel?: boolean;
-    }) => postMessage(workspaceId, channelId, input),
-    onSuccess: (message) => {
-      if (!message.threadRootId || message.alsoInChannel) {
-        queryClient.setQueryData<ChatMessageDto[]>(
-          chatKeys.messages(channelId),
-          (old) => (old ? mergeMessages(old, [message]) : old),
+    mutationFn: (input: PostInput) =>
+      postMessage(workspaceId, channelId, input),
+    onSuccess: (message) =>
+      applyPosted(queryClient, workspaceId, channelId, message),
+  });
+}
+
+const NO_PENDING: PendingSend[] = [];
+let lastClientId = 0;
+
+/**
+ * The reader's unanswered sends to a channel: those drawn in its log
+ * (`threadRootId` null — top-level, or replies also sent to the channel) or
+ * in one thread. Held in the query client under `chatKeys.pending`, a key
+ * the stream never invalidates, so a reconnect or a thread refetch cannot
+ * drop a send still in flight or one that failed.
+ */
+export function usePendingMessages(
+  channelId: string,
+  threadRootId: string | null,
+): ChatLine[] {
+  const queryClient = useQueryClient();
+  const key = chatKeys.pending(channelId);
+  const { data = NO_PENDING } = useQuery({
+    queryKey: key,
+    queryFn: () => queryClient.getQueryData<PendingSend[]>(key) ?? [],
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  return useMemo(
+    () =>
+      data
+        .filter((p) =>
+          threadRootId === null
+            ? !p.input.threadRootId || !!p.input.alsoInChannel
+            : p.input.threadRootId === threadRootId,
+        )
+        .map((p) => p.message),
+    [data, threadRootId],
+  );
+}
+
+/**
+ * Optimistic send. `send` draws the message at the tail at once (pending),
+ * swaps in the server's row when the post succeeds, and leaves it marked
+ * failed — with its text, for `retry` — when it does not. The promise it
+ * returns settles with the post, for a caller that reports the failure;
+ * the row on screen does not depend on anybody awaiting it.
+ */
+export function useSendMessage(workspaceId: string, channelId: string) {
+  const queryClient = useQueryClient();
+
+  const run = useCallback(
+    async (clientId: string, input: PostInput): Promise<ChatMessageDto> => {
+      const key = chatKeys.pending(channelId);
+      try {
+        const message = await postMessage(workspaceId, channelId, input);
+        // Both writes in one tick, so the server's row and the retired local
+        // one land in the same render and the line never flickers or doubles.
+        applyPosted(queryClient, workspaceId, channelId, message);
+        queryClient.setQueryData<PendingSend[]>(key, (old) =>
+          (old ?? []).filter((p) => p.clientId !== clientId),
         );
-      }
-      if (message.threadRootId) {
-        queryClient.setQueryData<ChatMessageDto[]>(
-          chatKeys.thread(message.threadRootId),
-          (old) => mergeMessages(old, [message]),
+        return message;
+      } catch (err) {
+        queryClient.setQueryData<PendingSend[]>(key, (old) =>
+          (old ?? []).map((p) =>
+            p.clientId === clientId
+              ? {
+                  ...p,
+                  state: "failed",
+                  message: { ...p.message, localState: "failed" },
+                }
+              : p,
+          ),
         );
-        // The root's reply count moved; re-read it from the server rather
-        // than incrementing a number the stream may also be correcting.
-        const root = queryClient
-          .getQueryData<ChatMessageDto[]>(chatKeys.messages(channelId))
-          ?.find((m) => m.id === message.threadRootId);
-        if (root) {
-          void fetchMessages(workspaceId, channelId, { after: root.seq - 1 })
-            .then((batch) =>
-              queryClient.setQueryData<ChatMessageDto[]>(
-                chatKeys.messages(channelId),
-                (old) => mergeMessages(old, batch),
-              ),
-            )
-            .catch(() => {});
-        }
+        throw err;
       }
     },
-  });
+    [queryClient, workspaceId, channelId],
+  );
+
+  const send = useCallback(
+    (input: PostInput): Promise<ChatMessageDto> => {
+      lastClientId += 1;
+      const clientId = `${Date.now().toString(36)}-${lastClientId}`;
+      const me = queryClient.getQueryData<User>(["me"]);
+      // The newest seq known anywhere: the server's row for this send can
+      // only come after it, which is how `withPending` tells the two apart
+      // from an earlier message with the same text.
+      const known = Math.max(
+        0,
+        queryClient
+          .getQueryData<ChannelSummary[]>(chatKeys.channels(workspaceId))
+          ?.find((c) => c.id === channelId)?.lastSeq ?? 0,
+        lastSeqOf(
+          queryClient.getQueryData<ChatMessageDto[]>(
+            chatKeys.messages(channelId),
+          ),
+        ) ?? 0,
+        input.threadRootId
+          ? (lastSeqOf(
+              queryClient.getQueryData<ChatMessageDto[]>(
+                chatKeys.thread(input.threadRootId),
+              ),
+            ) ?? 0)
+          : 0,
+      );
+      const message: ChatLine = {
+        id: `local-${clientId}`,
+        channelId,
+        seq: known,
+        author: me
+          ? { id: me.id, username: me.username, photo: me.photo || null }
+          : null,
+        body: input.body,
+        threadRootId: input.threadRootId ?? null,
+        alsoInChannel: !!input.alsoInChannel,
+        replyCount: 0,
+        lastReplyAt: null,
+        editedAt: null,
+        deleted: false,
+        createdAt: new Date().toISOString(),
+        localState: "pending",
+        clientId,
+      };
+      queryClient.setQueryData<PendingSend[]>(
+        chatKeys.pending(channelId),
+        (old) => [
+          ...(old ?? []),
+          { clientId, input, state: "pending", message },
+        ],
+      );
+      return run(clientId, input);
+    },
+    [queryClient, workspaceId, channelId, run],
+  );
+
+  /** Send a failed message again, in place. */
+  const retry = useCallback(
+    (clientId: string): Promise<ChatMessageDto> | null => {
+      const key = chatKeys.pending(channelId);
+      const entry = queryClient
+        .getQueryData<PendingSend[]>(key)
+        ?.find((p) => p.clientId === clientId);
+      if (!entry || entry.state !== "failed") return null;
+      queryClient.setQueryData<PendingSend[]>(key, (old) =>
+        (old ?? []).map((p) =>
+          p.clientId === clientId
+            ? {
+                ...p,
+                state: "pending",
+                message: { ...p.message, localState: "pending" },
+              }
+            : p,
+        ),
+      );
+      return run(clientId, entry.input);
+    },
+    [queryClient, channelId, run],
+  );
+
+  /** Drop a failed message without sending it. */
+  const discard = useCallback(
+    (clientId: string) => {
+      queryClient.setQueryData<PendingSend[]>(
+        chatKeys.pending(channelId),
+        (old) => (old ?? []).filter((p) => p.clientId !== clientId),
+      );
+    },
+    [queryClient, channelId],
+  );
+
+  return { send, retry, discard };
 }
 
 export function useEditMessage(workspaceId: string) {
