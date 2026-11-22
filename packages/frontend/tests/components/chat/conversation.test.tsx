@@ -34,6 +34,7 @@ const channel = (over: Partial<ChannelSummary> = {}): ChannelSummary => ({
   name: "general",
   topic: null,
   archived: false,
+  isDefault: false,
   isMember: true,
   canManage: false,
   members: [],

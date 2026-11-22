@@ -483,6 +483,10 @@ model ChatChannel {
   /// DM only: `<workspaceId>:<sorted member ids>`. The unique index is what
   /// makes two people opening the same DM at once land in one channel.
   dmKey         String?   @unique
+  /// The workspace's default channel (#general) carries its `workspaceId`
+  /// here; null on every other channel. Unique, so a workspace has at most
+  /// one. Every member belongs to it, and it cannot be left or archived.
+  defaultKey    String?   @unique
   lastMessageAt DateTime?
   members       ChatChannelMember[]
   messages      ChatMessage[]

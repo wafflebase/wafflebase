@@ -6,7 +6,11 @@ import {
   GoneException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
+import { announceMembershipRaw } from '../chat/chat-bus';
+import {
+  createDefaultChannel,
+  joinDefaultChannel,
+} from '../chat/default-channel';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 
@@ -21,13 +25,16 @@ export class WorkspaceService {
 
   async create(userId: number, data: { name: string }) {
     const slug = await this.generateUniqueSlug(data.name);
-    const workspace = await this.prisma.workspace.create({
-      data: { name: data.name, slug },
+    return this.prisma.$transaction(async (tx) => {
+      const workspace = await tx.workspace.create({
+        data: { name: data.name, slug },
+      });
+      await tx.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId, role: 'owner' },
+      });
+      await createDefaultChannel(tx, workspace.id, userId);
+      return workspace;
     });
-    await this.prisma.workspaceMember.create({
-      data: { workspaceId: workspace.id, userId, role: 'owner' },
-    });
-    return workspace;
   }
 
   async findAllByUser(userId: number) {
@@ -161,26 +168,12 @@ export class WorkspaceService {
 
   /**
    * Tells every replica's chat hub that these channels' member sets changed,
-   * so a removed member's open stream stops receiving them at once. A raw
-   * `pg_notify` keeps `WorkspaceModule` from depending on the chat module's
-   * providers, but the channel name and payload come from `chat-bus`, so
-   * the wire shape still has one author. Runs after commit: a replica that
-   * reloaded before the delete was visible would cache the old set again.
-   * The removal has committed either way, so a failed notify is logged, not
-   * thrown.
+   * so a removed member's open stream stops receiving them at once — and a
+   * new one's starts. A raw `pg_notify` keeps `WorkspaceModule` from
+   * depending on the chat module's providers.
    */
-  private async announceChatMembership(channelIds: string[]): Promise<void> {
-    for (const channelId of channelIds) {
-      const payload = memPayload(channelId);
-      try {
-        await this.prisma
-          .$executeRaw`SELECT pg_notify(${CHAT_NOTIFY_CHANNEL}, ${payload})`;
-      } catch (err) {
-        this.logger.warn(
-          `chat membership notify failed for ${channelId}: ${String(err)}`,
-        );
-      }
-    }
+  private announceChatMembership(channelIds: string[]): Promise<void> {
+    return announceMembershipRaw(this.prisma, channelIds, this.logger);
   }
 
   async createInvite(
@@ -240,13 +233,19 @@ export class WorkspaceService {
     if (existing) {
       return { workspaceId: invite.workspaceId };
     }
+    // Joining the workspace joins its default channel in the same
+    // transaction, so nobody is a member without being in #general.
+    let defaultChannelId: string | null;
     try {
-      await this.prisma.workspaceMember.create({
-        data: {
-          workspaceId: invite.workspaceId,
-          userId,
-          role: invite.role,
-        },
+      defaultChannelId = await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: invite.workspaceId,
+            userId,
+            role: invite.role,
+          },
+        });
+        return joinDefaultChannel(tx, invite.workspaceId, userId);
       });
     } catch (err) {
       // A concurrent accept (double-click, two tabs) can create the row
@@ -259,6 +258,9 @@ export class WorkspaceService {
         return { workspaceId: invite.workspaceId };
       }
       throw err;
+    }
+    if (defaultChannelId) {
+      await this.announceChatMembership([defaultChannelId]);
     }
 
     // Only a genuinely new membership notifies — both idempotent paths above

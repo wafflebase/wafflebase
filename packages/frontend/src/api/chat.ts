@@ -23,6 +23,11 @@ export interface ChannelSummary {
   name: string | null;
   topic: string | null;
   archived: boolean;
+  /**
+   * The workspace's default channel (#general): every member is in it, and
+   * it cannot be left or archived. It can be renamed.
+   */
+  isDefault: boolean;
   isMember: boolean;
   /**
    * May this user rename, set the topic of, or archive it. The server's
@@ -141,6 +146,18 @@ export async function joinChannel(
     json("POST", {}),
   );
   await assertOk(res, "Couldn't join the channel");
+}
+
+/** Who is in a public or private channel. A DM's members are on its summary. */
+export async function fetchChannelMembers(
+  workspaceId: string,
+  channelId: string,
+): Promise<ChatUserSummary[]> {
+  const res = await fetchWithAuth(
+    `${channelBase(workspaceId, channelId)}/members`,
+  );
+  await assertOk(res, "Couldn't load the channel's members");
+  return res.json();
 }
 
 export async function inviteToChannel(

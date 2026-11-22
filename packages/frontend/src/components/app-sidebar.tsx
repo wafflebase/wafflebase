@@ -37,7 +37,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
 import type { Workspace } from "@/api/workspaces";
 import { createWorkspace } from "@/api/workspaces";
-import { totalUnread } from "@/components/chat/chat-cache";
+import { chatBadgeCount } from "@/components/chat/chat-cache";
 import { useChannels } from "@/components/chat/use-chat";
 
 /**
@@ -69,7 +69,7 @@ export function AppSidebar({
   const { data: chatChannels } = useChannels(
     me ? currentWorkspace?.id : undefined,
   );
-  const chatUnread = chatChannels ? totalUnread(chatChannels) : 0;
+  const chatUnread = chatChannels ? chatBadgeCount(chatChannels) : 0;
   const mainItems = React.useMemo(
     () =>
       items.main.map((item) =>

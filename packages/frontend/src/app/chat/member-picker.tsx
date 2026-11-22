@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { IconCheck, IconX } from "@tabler/icons-react";
 
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,16 @@ interface MemberPickerProps {
   max?: number;
   /** Members shown but not pickable (already in the channel). */
   excluded?: string[];
+  /** The member list is still loading: not the same as an empty one. */
+  loading?: boolean;
+  /** It failed to load: say so, rather than "nobody else is here". */
+  failed?: boolean;
+  onRetry?: () => void;
+  /**
+   * Where to invite people, offered when nobody else is in the workspace.
+   * Only owners can invite, so anyone else is told to ask one instead.
+   */
+  inviteHref?: string;
 }
 
 /**
@@ -26,6 +37,10 @@ export function MemberPicker({
   onChange,
   max,
   excluded = [],
+  loading = false,
+  failed = false,
+  onRetry,
+  inviteHref,
 }: MemberPickerProps) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
@@ -41,6 +56,46 @@ export function MemberPicker({
         ? selected.filter((s) => s !== id)
         : [...selected, id],
     );
+
+  // Nobody to pick is not a search miss: say so, and say where people come
+  // from, instead of a "No one matches" under an empty search box.
+  if (failed) {
+    return (
+      <p className="py-3 text-sm text-muted-foreground">
+        Couldn't load the people in this workspace.{" "}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          Try again
+        </button>
+      </p>
+    );
+  }
+  if (loading) {
+    return <p className="py-3 text-sm text-muted-foreground">Loading people…</p>;
+  }
+  if (members.length === 0) {
+    return (
+      <p className="py-3 text-sm text-muted-foreground">
+        You're the only one in this workspace so far.{" "}
+        {inviteHref ? (
+          <>
+            <Link
+              to={inviteHref}
+              className="font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              Invite people
+            </Link>{" "}
+            from workspace settings.
+          </>
+        ) : (
+          "Ask a workspace owner to invite people."
+        )}
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

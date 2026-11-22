@@ -10,8 +10,9 @@ import { ChatChannel, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AccessContext, canManage, canPost, canRead } from './chat-access';
 import { ChatBus } from './chat-bus';
-import { ChannelKind, ChannelSummary } from './chat.types';
+import { ChannelKind, ChannelSummary, ChatUserSummary } from './chat.types';
 import { dmKey } from './dm-key';
+import { ensureDefaultChannel, joinDefaultChannel } from './default-channel';
 
 /** A DM holds the caller plus 1–7 others. */
 const DM_MIN_MEMBERS = 2;
@@ -54,6 +55,7 @@ type SummaryRow = {
   name: string | null;
   topic: string | null;
   archived: boolean;
+  isDefault: boolean;
   isMember: boolean;
   isCreator: boolean;
   isWorkspaceMember: boolean;
@@ -108,7 +110,22 @@ export class ChatChannelService {
       userId,
       workspaceId,
     );
-    return this.summaries(userId, Prisma.sql`c."workspaceId" = ${id}`);
+    const where = Prisma.sql`c."workspaceId" = ${id}`;
+    const rows = await this.summaries(userId, where);
+    const fallback = rows.find((r) => r.isDefault);
+    if (fallback?.isMember) return rows;
+    // Every member belongs to #general, but a pod from before defaults
+    // existed can create a workspace or accept an invite without it during
+    // a rolling deploy. Reading the list repairs that, so nothing has to
+    // run the backfill again by hand.
+    const healed = fallback
+      ? await this.prisma.$transaction((tx) =>
+          joinDefaultChannel(tx, id, userId),
+        )
+      : await this.prisma.$transaction((tx) => ensureDefaultChannel(tx, id));
+    if (!healed) return rows;
+    await this.announceMembership(healed);
+    return this.summaries(userId, where);
   }
 
   async create(
@@ -293,6 +310,11 @@ export class ChatChannelService {
     if (channel.kind === 'dm') {
       throw new BadRequestException('A direct message cannot be left');
     }
+    if (channel.defaultKey !== null) {
+      throw new BadRequestException(
+        "Everyone in the workspace is in this channel, so it can't be left",
+      );
+    }
     const count = await this.prisma.$transaction(async (tx) => {
       if (channel.kind === 'private') {
         await tx.$queryRaw`
@@ -347,6 +369,12 @@ export class ChatChannelService {
       );
     }
 
+    if (data.archived && channel.defaultKey !== null) {
+      throw new BadRequestException(
+        "The workspace's default channel can't be archived",
+      );
+    }
+
     const name =
       data.name !== undefined ? normalizeChannelName(data.name) : undefined;
     const patch: Prisma.ChatChannelUpdateInput = { name };
@@ -369,6 +397,42 @@ export class ChatChannelService {
       throw err;
     }
     return this.summaryOf(userId, channelId);
+  }
+
+  /**
+   * Who is in a public or private channel, by username. A DM's members
+   * already travel on its summary. Readable by anyone who can read the
+   * channel: a public channel's membership is no secret from the workspace,
+   * and a private one is only readable by its members.
+   */
+  async members(
+    userId: number,
+    channelId: string,
+    workspaceIdOrSlug: string,
+  ): Promise<ChatUserSummary[]> {
+    const { channel } = await this.resolve(
+      userId,
+      channelId,
+      workspaceIdOrSlug,
+    );
+    if (channel.kind === 'dm') {
+      throw new BadRequestException(
+        "A direct message's members are on its summary",
+      );
+    }
+    const rows = await this.prisma.chatChannelMember.findMany({
+      // A row that outlived its workspace membership grants nothing (see
+      // `ChatHub.membersOf`), so it does not list anybody either.
+      where: {
+        channelId,
+        user: {
+          workspaceMembers: { some: { workspaceId: channel.workspaceId } },
+        },
+      },
+      select: { user: { select: { id: true, username: true, photo: true } } },
+      orderBy: { user: { username: 'asc' } },
+    });
+    return rows.map((r) => r.user);
   }
 
   /**
@@ -436,6 +500,7 @@ export class ChatChannelService {
     const rows = await this.prisma.$queryRaw<SummaryRow[]>`
       SELECT c.id, c.kind, c.name, c.topic,
              c."archivedAt" IS NOT NULL AS archived,
+             c."defaultKey" IS NOT NULL AS "isDefault",
              m."userId" IS NOT NULL AS "isMember",
              c."createdBy" IS NOT DISTINCT FROM ${userId} AS "isCreator",
              wm."userId" IS NOT NULL AS "isWorkspaceMember",
@@ -480,6 +545,7 @@ export class ChatChannelService {
       name: r.name,
       topic: r.topic,
       archived: r.archived,
+      isDefault: r.isDefault,
       isMember: r.isMember,
       // The same policy `update` enforces, so the client offers exactly the
       // controls the server will accept.

@@ -9,6 +9,7 @@ import {
   CHAT_PAGE_SIZE,
   createChannel,
   deleteMessage,
+  fetchChannelMembers,
   editMessage,
   fetchChannels,
   fetchMessages,
@@ -298,12 +299,31 @@ export function useJoinChannel(workspaceId: string) {
   });
 }
 
+/** Who is in a public or private channel; fetched only while `enabled`. */
+export function useChannelMembers(
+  workspaceId: string,
+  channelId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: chatKeys.members(channelId),
+    queryFn: () => fetchChannelMembers(workspaceId, channelId),
+    enabled,
+  });
+}
+
 export function useInviteToChannel(workspaceId: string) {
   const invalidate = useInvalidateChannels(workspaceId);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { channelId: string; userIds: number[] }) =>
       inviteToChannel(workspaceId, input.channelId, input.userIds),
-    onSuccess: () => invalidate(),
+    onSuccess: (_, input) => {
+      invalidate();
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.members(input.channelId),
+      });
+    },
   });
 }
 

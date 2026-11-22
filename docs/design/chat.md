@@ -123,8 +123,12 @@ fit.
 
 #### Chat page — `/w/:workspaceId/chat/:channelId?`
 
-A new sidebar item **Chat**, after Documents, with a total unread badge. The
-page has its own second column:
+A new sidebar item **Chat**, after Documents, with a badge counting what
+needs you: unread in DMs plus mentions in channels — the sum of the numbers
+the channel list shows (`channelCount`), so a merely busy channel is a dot
+there and adds nothing here. (It first counted every unread message, which
+let the badge read 12 over a list of quiet dots.) The page has its own
+second column:
 
 ```
 ┌ sidebar ┬ channel list ──────┬ conversation ───────────────────────────┐
@@ -217,6 +221,7 @@ model ChatChannel {
   createdAt   DateTime  @default(now())
   lastSeq     BigInt    @default(0) // last allocated ChatMessage.seq
   dmKey       String?   @unique     // dm only: workspaceId + sorted member ids
+  defaultKey  String?   @unique     // the default channel (#general): its workspaceId
   lastMessageAt DateTime?
   members     ChatChannelMember[]
   messages    ChatMessage[]
@@ -279,6 +284,31 @@ model ChatDocumentRef {
   winner's row).
 - **Public** channels are visible to and joinable by every workspace member;
   **private** channels only by invitation from a member.
+- **The default channel (#general).** Every workspace has one public channel
+  whose `defaultKey` holds the workspace id — the same unique-nullable idiom
+  as `dmKey`, so "one per workspace" is an index, not a convention. It is
+  created in the transaction that creates the workspace
+  (`WorkspaceService.create` and the sign-up workspace in `UserService`), and
+  `acceptInvite` joins a new member to it in the transaction that creates the
+  membership, at the channel tail, then announces the membership so their
+  open stream starts receiving it. It cannot be left or archived (both 400);
+  it can be renamed, so identity is the key, not the name. A bare `/chat` on
+  desktop opens the last channel the caller is still in, else this one. The
+  reason is the first run: before it, a fresh workspace opened on an empty
+  list, and an admin's first move was to invent the channel everybody needed.
+  The `20261121150000_chat_default_channel` migration backfills existing
+  workspaces: a public channel already named `general` is adopted (and
+  unarchived), otherwise one is created and owned by the first owner; every
+  member joins at the tail. A workspace whose `general` is **private** gets
+  none — names are unique per workspace, and making that channel public would
+  expose its history — and `joinDefaultChannel` treats a missing default as a
+  no-op. Reading the channel list repairs the rest (`ensureDefaultChannel`,
+  the backfill scoped to one workspace): during a rolling deploy a pod from
+  before defaults existed can still create a workspace without #general or
+  accept an invite without joining it, so `list` creates or adopts the
+  default when it is missing and joins the reader when they are not in it.
+  Both are idempotent and yield on conflict, so the common path costs one
+  extra row in the result, nothing more.
 - `seq` is allocated inside the insert transaction (`lastSeq + 1` on the
   channel row, locked), so ordering is total per channel and survives clock
   skew between replicas.
@@ -418,6 +448,7 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `GET` | `…/chat/channels` | Channels the caller can see, with unread counts |
 | `POST` | `…/chat/channels` | Create public/private channel, or open a DM (`{ kind: 'dm', userIds }`) |
 | `PATCH` | `…/chat/channels/:cid` | Rename, topic, archive |
+| `GET` | `…/chat/channels/:cid/members` | Who is in a public or private channel (Add people marks them "Already here") |
 | `POST` | `…/chat/channels/:cid/members` | Join (public) / invite (private) |
 | `DELETE` | `…/chat/channels/:cid/members/:uid` | Leave / remove |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |

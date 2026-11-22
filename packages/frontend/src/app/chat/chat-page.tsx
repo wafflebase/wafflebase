@@ -47,9 +47,9 @@ import {
   ChannelSettingsDialog,
   type ChannelSettingsMode,
 } from "./channel-settings-dialog";
-import { chatLayout } from "./chat-layout";
+import { channelMenu, chatLayout, landingChannelId } from "./chat-layout";
 import { channelLabel } from "./group-channels";
-import { NewChannelDialog } from "./new-channel-dialog";
+import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
 import { AddPeopleDialog, NewDmDialog } from "./new-dm-dialog";
 
 const LAST_CHANNEL_KEY = (workspaceId: string) =>
@@ -66,6 +66,16 @@ function readLastChannel(workspaceId: string): string | null {
 function writeLastChannel(workspaceId: string, channelId: string): void {
   try {
     window.localStorage.setItem(LAST_CHANNEL_KEY(workspaceId), channelId);
+  } catch {
+    // A convenience only.
+  }
+}
+
+function forgetLastChannel(workspaceId: string, channelId: string): void {
+  try {
+    if (readLastChannel(workspaceId) === channelId) {
+      window.localStorage.removeItem(LAST_CHANNEL_KEY(workspaceId));
+    }
   } catch {
     // A convenience only.
   }
@@ -106,6 +116,12 @@ export default function ChatPage() {
   const hrefFor = useCallback((id: string) => `${base}/${id}`, [base]);
 
   const [newChannelOpen, setNewChannelOpen] = useState(false);
+  const [newChannelTab, setNewChannelTab] =
+    useState<ChannelDialogTab>("create");
+  const openChannelDialog = (tab: ChannelDialogTab) => {
+    setNewChannelTab(tab);
+    setNewChannelOpen(true);
+  };
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<ChannelSettingsMode | null>(
@@ -122,10 +138,11 @@ export default function ChatPage() {
     // list is often cached already, so ask the viewport directly.
     const phone = isMobile || window.innerWidth < MOBILE_BREAKPOINT;
     if (phone || channelId || !workspaceId || !channelsQuery.data) return;
-    const last = readLastChannel(workspaceId);
-    if (last && channelsQuery.data.some((c) => c.id === last && !c.archived)) {
-      navigate(hrefFor(last), { replace: true });
-    }
+    const target = landingChannelId(
+      channelsQuery.data,
+      readLastChannel(workspaceId),
+    );
+    if (target) navigate(hrefFor(target), { replace: true });
   }, [isMobile, channelId, workspaceId, channelsQuery.data, navigate, hrefFor]);
 
   // A deep link to a thread reply opens that thread. Only the message itself
@@ -163,6 +180,8 @@ export default function ChatPage() {
     leave.mutate(c.id, {
       onSuccess: () => {
         toast.success(`Left #${c.name}`);
+        // Otherwise the bare page would send you straight back.
+        if (workspaceId) forgetLastChannel(workspaceId, c.id);
         navigate(base);
       },
       onError: (err) =>
@@ -193,6 +212,7 @@ export default function ChatPage() {
   }
 
   const label = channel ? channelLabel(channel, meId) : "";
+  const menu = channelMenu(channel);
   // With a thread open the linked message is a reply in it, which the
   // channel's log does not hold.
   const threadHighlight = threadId ? messageId : null;
@@ -210,10 +230,12 @@ export default function ChatPage() {
           <ChannelList
             channels={channels}
             isLoading={channelsQuery.isLoading}
+            isError={channelsQuery.isError && !channelsQuery.data}
+            onRetry={() => void channelsQuery.refetch()}
             activeChannelId={channelId}
             me={meId}
             hrefFor={hrefFor}
-            onNewChannel={() => setNewChannelOpen(true)}
+            onNewChannel={() => openChannelDialog("create")}
             onNewMessage={() => setNewDmOpen(true)}
           />
         </aside>
@@ -230,7 +252,10 @@ export default function ChatPage() {
                 Pick a channel, or start a conversation
               </p>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setNewChannelOpen(true)}>
+                <Button
+                  variant="outline"
+                  onClick={() => openChannelDialog("browse")}
+                >
                   Browse channels
                 </Button>
                 <Button variant="outline" onClick={() => setNewDmOpen(true)}>
@@ -276,22 +301,20 @@ export default function ChatPage() {
                     Archived
                   </span>
                 )}
-                {channel &&
-                  channel.kind !== "dm" &&
-                  (channel.isMember || channel.canManage) && (
+                {menu.any && channel && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="ml-auto size-8"
+                        className="ml-auto size-8 pointer-coarse:size-11"
                         aria-label="Channel actions"
                       >
                         <IconDots />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {channel.canManage && !channel.archived && (
+                      {menu.edit && (
                         <>
                           <DropdownMenuItem
                             onSelect={() => setSettingsMode("rename")}
@@ -307,13 +330,13 @@ export default function ChatPage() {
                           </DropdownMenuItem>
                         </>
                       )}
-                      {channel.isMember && !channel.archived && (
+                      {menu.addPeople && (
                         <DropdownMenuItem onSelect={() => setAddPeopleOpen(true)}>
                           <IconUserPlus />
                           Add people
                         </DropdownMenuItem>
                       )}
-                      {channel.canManage &&
+                      {menu.archive &&
                         (channel.archived ? (
                           <DropdownMenuItem
                             onSelect={() => unarchive(channel)}
@@ -330,9 +353,11 @@ export default function ChatPage() {
                             Archive channel…
                           </DropdownMenuItem>
                         ))}
-                      {channel.isMember && (
+                      {menu.leave && (
                         <>
-                          <DropdownMenuSeparator />
+                          {(menu.edit || menu.addPeople || menu.archive) && (
+                            <DropdownMenuSeparator />
+                          )}
                           <DropdownMenuItem
                             onSelect={() => leaveChannel(channel)}
                           >
@@ -413,6 +438,8 @@ export default function ChatPage() {
         workspaceId={workspaceId}
         channels={channels}
         open={newChannelOpen}
+        tab={newChannelTab}
+        onTabChange={setNewChannelTab}
         onOpenChange={setNewChannelOpen}
         onOpened={(id) => navigate(hrefFor(id))}
       />

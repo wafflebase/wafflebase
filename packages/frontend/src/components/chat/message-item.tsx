@@ -35,7 +35,7 @@ import {
 } from "@/components/comments/mentions";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { cn } from "@/lib/utils";
-import { formatTime } from "./format-time";
+import { formatShortTime, formatTime } from "./format-time";
 import type { MessageGroup } from "./group-messages";
 import { MessageBody } from "./message-body";
 import { useDeleteMessage, useEditMessage } from "./use-chat";
@@ -145,9 +145,10 @@ function MessageLine({
         ) : (
           <time
             dateTime={message.createdAt}
-            className="hidden pt-0.5 text-2xs text-muted-foreground tabular-nums group-hover/message:inline"
+            title={formatTime(message.createdAt)}
+            className="hidden whitespace-nowrap pt-0.5 text-2xs text-muted-foreground tabular-nums group-hover/message:inline"
           >
-            {formatTime(message.createdAt)}
+            {formatShortTime(message.createdAt)}
           </time>
         )}
       </div>

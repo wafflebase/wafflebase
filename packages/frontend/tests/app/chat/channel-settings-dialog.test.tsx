@@ -15,6 +15,7 @@ const channel: ChannelSummary = {
   name: "general",
   topic: "Everything",
   archived: false,
+  isDefault: false,
   isMember: true,
   canManage: true,
   members: [],

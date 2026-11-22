@@ -39,8 +39,11 @@ function createMockPrisma() {
     chatChannelMember: {
       findMany: jest.fn().mockResolvedValue([]),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     chatChannel: {
+      create: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn().mockResolvedValue(null),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $executeRaw: jest.fn().mockResolvedValue(1),
@@ -91,6 +94,16 @@ describe('WorkspaceService', () => {
       expect(result).toEqual(workspace);
       expect(prisma.workspace.create).toHaveBeenCalledWith({
         data: { name: 'My Workspace', slug: 'my-workspace' },
+      });
+      expect(prisma.chatChannel.create).toHaveBeenCalledWith({
+        data: {
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          kind: 'public',
+          name: 'general',
+          createdBy: 1,
+          defaultKey: '11111111-1111-1111-1111-111111111111',
+          members: { create: { userId: 1 } },
+        },
       });
       expect(prisma.workspaceMember.create).toHaveBeenCalledWith({
         data: {
@@ -597,6 +610,29 @@ describe('WorkspaceService', () => {
           role: 'member',
         },
       });
+    });
+
+    it('joins the default channel at its tail and announces it', async () => {
+      prisma.workspaceInvite.findUnique.mockResolvedValue({
+        token: 'tok-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+        role: 'member',
+        expiresAt: null,
+      });
+      prisma.workspaceMember.findUnique.mockResolvedValue(null);
+      prisma.workspaceMember.create.mockResolvedValue({});
+      prisma.chatChannel.findUnique.mockResolvedValue({
+        id: 'general-1',
+        lastSeq: 7n,
+      });
+
+      await service.acceptInvite('tok-1', 5);
+
+      expect(prisma.chatChannelMember.createMany).toHaveBeenCalledWith({
+        data: [{ channelId: 'general-1', userId: 5, lastReadSeq: 7n }],
+        skipDuplicates: true,
+      });
+      expect(prisma.$executeRaw).toHaveBeenCalled();
     });
 
     it('throws NotFoundException if invite not found', async () => {

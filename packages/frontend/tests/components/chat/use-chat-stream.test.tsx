@@ -4,6 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
 import { chatKeys } from "@/components/chat/chat-cache";
+import { getChatConnection } from "@/components/chat/chat-connection";
 import {
   setOpenChatChannel,
   useChatStream,
@@ -88,6 +89,7 @@ const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
     name: id,
     topic: null,
     archived: false,
+    isDefault: false,
     isMember: true,
     canManage: false,
     members: [],
@@ -118,6 +120,32 @@ afterEach(() => {
   setOpenChatChannel(null);
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+describe("chat connection state", () => {
+  it("is live after ready, reconnecting on a transient error, stopped when closed", () => {
+    const { source, view } = harness();
+    expect(getChatConnection()).toBe("connecting");
+
+    act(() => source.emit("ready", {}));
+    expect(getChatConnection()).toBe("live");
+
+    // EventSource retries on its own while CONNECTING.
+    source.readyState = 0;
+    act(() => source.emit("error", {}));
+    expect(getChatConnection()).toBe("reconnecting");
+
+    act(() => source.emit("ready", {}));
+    expect(getChatConnection()).toBe("live");
+
+    // CLOSED means the browser gave up (e.g. a non-200 answer).
+    source.readyState = FakeEventSource.CLOSED;
+    act(() => source.emit("error", {}));
+    expect(getChatConnection()).toBe("stopped");
+
+    view.unmount();
+    expect(getChatConnection()).toBe("connecting");
+  });
 });
 
 describe("useChatStream", () => {

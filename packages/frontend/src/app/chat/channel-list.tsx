@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { IconHash, IconLock, IconPlus } from "@tabler/icons-react";
 
 import type { ChannelSummary } from "@/api/chat";
+import { channelCount } from "@/components/chat/chat-cache";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
@@ -11,6 +12,9 @@ import { channelLabel, groupChannels } from "./group-channels";
 interface ChannelListProps {
   channels: ChannelSummary[];
   isLoading: boolean;
+  /** The list failed to load; shown instead of a misleading empty state. */
+  isError?: boolean;
+  onRetry?: () => void;
   activeChannelId: string | null;
   me: number;
   /** Builds the link for one channel. */
@@ -27,6 +31,8 @@ interface ChannelListProps {
 export function ChannelList({
   channels,
   isLoading,
+  isError = false,
+  onRetry,
   activeChannelId,
   me,
   hrefFor,
@@ -41,6 +47,17 @@ export function ChannelList({
         <Section title="Channels" actionLabel="New channel" onAction={onNewChannel}>
           {isLoading ? (
             <Placeholder>Loading…</Placeholder>
+          ) : isError ? (
+            <Placeholder>
+              Couldn't load channels.{" "}
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                Try again
+              </button>
+            </Placeholder>
           ) : rooms.length === 0 ? (
             <Placeholder>
               <button
@@ -76,7 +93,7 @@ export function ChannelList({
           onAction={onNewMessage}
           className="mt-4"
         >
-          {!isLoading && directMessages.length === 0 ? (
+          {!isLoading && !isError && directMessages.length === 0 ? (
             <Placeholder>
               <button
                 type="button"
@@ -169,13 +186,7 @@ function ChannelRow({
   icon: React.ReactNode;
 }) {
   const unread = channel.unreadCount > 0;
-  // A mention always counts; in a DM every message is addressed to you.
-  const count =
-    channel.mentionCount > 0
-      ? channel.mentionCount
-      : channel.kind === "dm"
-        ? channel.unreadCount
-        : 0;
+  const count = channelCount(channel);
   const description = count
     ? `${count} unread${channel.mentionCount > 0 ? ` mention${count === 1 ? "" : "s"}` : ""}`
     : unread

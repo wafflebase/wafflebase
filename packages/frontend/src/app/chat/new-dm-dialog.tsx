@@ -13,9 +13,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
-import { useInviteToChannel, useOpenDm } from "@/components/chat/use-chat";
+import {
+  useChannelMembers,
+  useInviteToChannel,
+  useOpenDm,
+} from "@/components/chat/use-chat";
+import { useWorkspaceMembersQuery } from "@/components/comments/use-workspace-members";
 import { MemberPicker } from "./member-picker";
+
+/**
+ * The workspace's other members, for picking. `loading` keeps a cold cache
+ * from reading as "you're alone"; `inviteHref` is set only for owners, the
+ * only role that can create an invite.
+ */
+function usePickableMembers(workspaceId: string) {
+  const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const { members, roles, query } = useWorkspaceMembersQuery(workspaceId);
+  const myId = me.data?.id;
+  const isOwner = !!roles?.some(
+    (m) => m.user.id === myId && m.role === "owner",
+  );
+  return {
+    members: members.filter((m) => m.userId !== String(myId)),
+    loading: query.isPending || me.isPending,
+    failed: query.isError || me.isError,
+    retry: () => {
+      void query.refetch();
+      void me.refetch();
+    },
+    inviteHref: isOwner ? `/w/${workspaceId}/settings` : undefined,
+  };
+}
 
 /** Others a DM may include; with the caller that is the server's 8. */
 const MAX_DM_OTHERS = 7;
@@ -38,10 +66,8 @@ export function NewDmDialog({
   onOpenChange,
   onOpened,
 }: NewDmDialogProps) {
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
-  const members = useWorkspaceMembers(workspaceId).filter(
-    (m) => m.userId !== String(me?.id),
-  );
+  const { members, loading, failed, retry, inviteHref } =
+    usePickableMembers(workspaceId);
   const [selected, setSelected] = useState<string[]>([]);
   const openDm = useOpenDm(workspaceId);
 
@@ -77,6 +103,10 @@ export function NewDmDialog({
           selected={selected}
           onChange={setSelected}
           max={MAX_DM_OTHERS}
+          loading={loading}
+          failed={failed}
+          onRetry={retry}
+          inviteHref={inviteHref}
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)}>
@@ -110,12 +140,14 @@ export function AddPeopleDialog({
   open,
   onOpenChange,
 }: AddPeopleDialogProps) {
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
-  const members = useWorkspaceMembers(workspaceId).filter(
-    (m) => m.userId !== String(me?.id),
-  );
+  const { members, loading, failed, retry, inviteHref } =
+    usePickableMembers(workspaceId);
   const [selected, setSelected] = useState<string[]>([]);
   const invite = useInviteToChannel(workspaceId);
+  // Those already here stay listed but unpickable ("Already here").
+  // Until it loads, nobody would read as "Already here", so the picker waits.
+  const channelMembers = useChannelMembers(workspaceId, channelId, open);
+  const inChannel = (channelMembers.data ?? []).map((m) => String(m.id));
 
   const close = (next: boolean) => {
     if (!next) setSelected([]);
@@ -158,6 +190,14 @@ export function AddPeopleDialog({
           members={members}
           selected={selected}
           onChange={setSelected}
+          excluded={inChannel}
+          loading={loading || channelMembers.isPending}
+          failed={failed || channelMembers.isError}
+          onRetry={() => {
+            retry();
+            void channelMembers.refetch();
+          }}
+          inviteHref={inviteHref}
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)}>

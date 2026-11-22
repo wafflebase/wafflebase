@@ -792,8 +792,9 @@ one they are not in, any channel once they leave the workspace — answers
 | `GET` | `/workspaces/:wid/chat/channels` | Channels the caller can see, with `unreadCount` / `mentionCount` |
 | `POST` | `/workspaces/:wid/chat/channels` | Create a public/private channel (`{ kind, name, topic? }`), or find-or-create a DM (`{ kind: 'dm', userIds }`) |
 | `PATCH` | `/workspaces/:wid/chat/channels/:cid` | Rename, topic, archive/unarchive — channel creator or workspace owner; never a DM |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/members` | Who is in a public or private channel |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/members` | No `userIds`: join a public channel. With `userIds`: invite |
-| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM) |
+| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM, not the default channel) |
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |
@@ -1150,6 +1151,7 @@ blob with none (see
 | `archivedAt` | DateTime? | Set = read-only |
 | `lastSeq` | BigInt | Last allocated message `seq`, bumped under the row lock |
 | `dmKey` | String? | Unique; DM only, `<workspaceId>:<sorted member ids>`, so concurrent opens land in one channel |
+| `defaultKey` | String? | Unique; the workspace id on its default channel (#general), null elsewhere. Created with the workspace, joined on invite accept, cannot be left or archived |
 | `lastMessageAt` | DateTime? | Recency ordering (the DM list sorts by it) |
 | `createdAt` | DateTime | Auto-set |
 

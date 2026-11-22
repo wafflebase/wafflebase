@@ -20,6 +20,7 @@ import {
   parseStreamUpdate,
   replaceMessage,
 } from "./chat-cache";
+import { setChatConnection } from "./chat-connection";
 
 /** The channel whose conversation is on screen, if any. */
 export interface OpenChatChannel {
@@ -265,6 +266,7 @@ export function useChatStream(enabled: boolean): void {
     };
 
     const onReady = () => {
+      setChatConnection("live");
       void queryClient.invalidateQueries({ queryKey: chatKeys.allChannels });
       void queryClient.invalidateQueries({ queryKey: chatKeys.allThreads });
       const open = getOpenChatChannel();
@@ -335,9 +337,14 @@ export function useChatStream(enabled: boolean): void {
       if (e) void refreshMessage(queryClient, e);
     };
 
+    // While CONNECTING the browser is retrying on its own; CLOSED means it
+    // gave up, and only a reload starts a new stream.
     const onError = () => {
       if (source.readyState === EventSource.CLOSED) {
         console.warn("[chat] stream closed; live updates stopped");
+        setChatConnection("stopped");
+      } else {
+        setChatConnection("reconnecting");
       }
     };
 
@@ -352,6 +359,7 @@ export function useChatStream(enabled: boolean): void {
       source.removeEventListener("update", onUpdate as EventListener);
       source.removeEventListener("error", onError);
       source.close();
+      setChatConnection("connecting");
     };
   }, [enabled, queryClient]);
 }

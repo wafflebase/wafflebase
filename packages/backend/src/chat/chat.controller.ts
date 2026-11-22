@@ -26,7 +26,7 @@ import {
   PostMessageDto,
   UpdateChannelDto,
 } from './chat.dto';
-import { ChannelSummary, ChatMessageDto } from './chat.types';
+import { ChannelSummary, ChatMessageDto, ChatUserSummary } from './chat.types';
 
 /**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
@@ -78,6 +78,15 @@ export class ChatController {
     const userId = Number(req.user.id);
     await this.channels.resolve(userId, channelId, workspaceId);
     return this.channels.update(userId, channelId, body);
+  }
+
+  @Get('channels/:channelId/members')
+  async listMembers(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ChatUserSummary[]> {
+    return this.channels.members(Number(req.user.id), channelId, workspaceId);
   }
 
   /** No `userIds` (or an empty list) joins the caller; otherwise invites. */

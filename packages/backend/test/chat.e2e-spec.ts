@@ -10,6 +10,7 @@ import { ChatBus } from 'src/chat/chat-bus';
 import { ChatChannelService } from 'src/chat/chat-channel.service';
 import { ChatMessageService } from 'src/chat/chat-message.service';
 import { PrismaService } from 'src/database/prisma.service';
+import { WorkspaceService } from 'src/workspace/workspace.service';
 import { YorkieAdminService } from 'src/yorkie/yorkie-admin.service';
 import { YorkieService } from 'src/yorkie/yorkie.service';
 import {
@@ -44,6 +45,7 @@ describeDb('Chat integration', () => {
   let channels: ChatChannelService;
   let messages: ChatMessageService;
   let bus: ChatBus;
+  let workspaces: WorkspaceService;
   let createUser: ReturnType<typeof createUserFactory>;
 
   function authCookie(user: TestUser) {
@@ -101,6 +103,7 @@ describeDb('Chat integration', () => {
     channels = moduleRef.get(ChatChannelService);
     messages = moduleRef.get(ChatMessageService);
     bus = moduleRef.get(ChatBus);
+    workspaces = moduleRef.get(WorkspaceService);
     createUser = createUserFactory(prisma, 'chat');
     await prisma.$connect();
   });
@@ -215,7 +218,7 @@ describeDb('Chat integration', () => {
 
       await as(owner)
         .post(`${base(workspace.id)}/channels`)
-        .send({ kind: 'public', name: 'General' })
+        .send({ kind: 'public', name: 'Water Cooler' })
         .expect(201);
       const secret = await as(owner)
         .post(`${base(workspace.id)}/channels`)
@@ -231,20 +234,24 @@ describeDb('Chat integration', () => {
       const mine = await as(owner)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
+      // `general` is the default channel, repaired into this workspace
+      // (made by a helper, not `WorkspaceService.create`) on first read.
       expect(mine.body.map((c: { name: string }) => c.name).sort()).toEqual([
         'general',
         'leadership-team',
+        'water-cooler',
       ]);
 
       const theirs = await as(peer)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
-      expect(theirs.body).toHaveLength(1);
-      expect(theirs.body[0]).toMatchObject({
-        name: 'general',
-        isMember: false,
-        unreadCount: 0,
-      });
+      expect(theirs.body.map((c: { name: string }) => c.name).sort()).toEqual([
+        'general',
+        'water-cooler',
+      ]);
+      expect(
+        theirs.body.find((c: { name: string }) => c.name === 'water-cooler'),
+      ).toMatchObject({ isMember: false, unreadCount: 0 });
 
       // Invited, the private channel appears for them too.
       await as(owner)
@@ -254,7 +261,7 @@ describeDb('Chat integration', () => {
       const after = await as(peer)
         .get(`${base(workspace.id)}/channels`)
         .expect(200);
-      expect(after.body).toHaveLength(2);
+      expect(after.body).toHaveLength(3);
     });
 
     it('summaries say who may manage each channel', async () => {
@@ -287,14 +294,14 @@ describeDb('Chat integration', () => {
         );
       };
       // Public: its creator or a workspace owner. Private: any member.
-      // DM: nobody.
-      expect(await manage(owner.id)).toEqual({
+      // DM: nobody. (The repaired #general is also listed; not asserted.)
+      expect(await manage(owner.id)).toMatchObject({
         [ownersPublic.id]: true,
         [peersPublic.id]: true,
         [priv.id]: true,
         [dm.id]: false,
       });
-      expect(await manage(peer.id)).toEqual({
+      expect(await manage(peer.id)).toMatchObject({
         [ownersPublic.id]: false,
         [peersPublic.id]: true,
         [priv.id]: true,
@@ -1407,6 +1414,209 @@ describeDb('Chat integration', () => {
         body: `hi ${mention(members[0])}`,
       });
       expect(posted.seq).toBe(1);
+    });
+  });
+
+  describe('default channel', () => {
+    /** A workspace made the way the app makes one, with #general. */
+    async function realWorkspace() {
+      const owner = await createUser();
+      const workspace = await workspaces.create(owner.id, { name: 'team' });
+      const general = await prisma.chatChannel.findUniqueOrThrow({
+        where: { defaultKey: workspace.id },
+      });
+      return { owner, workspace, general };
+    }
+
+    /** Joins `user` to `workspaceId` through an invite, as the UI does. */
+    async function acceptInvite(
+      workspaceId: string,
+      ownerId: number,
+      user: TestUser,
+    ) {
+      const invite = await workspaces.createInvite(workspaceId, ownerId, {
+        role: 'member',
+      });
+      await workspaces.acceptInvite(invite.token, user.id);
+    }
+
+    it('creating a workspace creates #general with the owner in it', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      expect(general).toMatchObject({ kind: 'public', name: 'general' });
+
+      const [summary] = await channels.list(owner.id, workspace.id);
+      expect(summary).toMatchObject({
+        id: general.id,
+        isDefault: true,
+        isMember: true,
+      });
+    });
+
+    it('accepting an invite joins #general at the tail', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      await messages.post(owner.id, general.id, { body: 'before you came' });
+      const joiner = await createUser();
+
+      const listener = new Client({
+        connectionString: process.env.DATABASE_URL,
+      });
+      await listener.connect();
+      const notified: string[] = [];
+      listener.on('notification', (n) => {
+        if (n.channel === 'chat' && n.payload) notified.push(n.payload);
+      });
+      await listener.query('LISTEN chat');
+      try {
+        await acceptInvite(workspace.id, owner.id, joiner);
+
+        const [summary] = await channels.list(joiner.id, workspace.id);
+        expect(summary).toMatchObject({
+          id: general.id,
+          isMember: true,
+          unreadCount: 0,
+        });
+        // The new member's open stream must start receiving #general.
+        const expected = JSON.stringify({ t: 'mem', c: general.id });
+        const deadline = Date.now() + 2_000;
+        while (!notified.includes(expected) && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        expect(notified.map((p) => JSON.parse(p))).toContainEqual({
+          t: 'mem',
+          c: general.id,
+        });
+      } finally {
+        await listener.end();
+      }
+    });
+
+    it('#general cannot be left or archived, but can be renamed', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      const url = `${base(workspace.id)}/channels/${general.id}`;
+
+      await as(owner).delete(`${url}/members/me`).expect(400);
+      await as(owner).patch(url).send({ archived: true }).expect(400);
+      const renamed = await as(owner)
+        .patch(url)
+        .send({ name: 'lobby' })
+        .expect(200);
+      expect(renamed.body).toMatchObject({ name: 'lobby', isDefault: true });
+    });
+
+    it('reading the list repairs a workspace created without #general', async () => {
+      // `team()` writes rows directly, the way a pod from before defaults
+      // existed would during a rolling deploy.
+      const { owner, members, workspace } = await team(1);
+      expect(
+        await prisma.chatChannel.count({ where: { defaultKey: workspace.id } }),
+      ).toBe(0);
+
+      const [general] = await channels.list(owner.id, workspace.id);
+      expect(general).toMatchObject({
+        name: 'general',
+        isDefault: true,
+        isMember: true,
+      });
+      // Everyone joined, not just the reader.
+      const [theirs] = await channels.list(members[0].id, workspace.id);
+      expect(theirs).toMatchObject({ id: general.id, isMember: true });
+    });
+
+    it('reading the list joins a member an old pod left out', async () => {
+      const { owner, workspace, general } = await realWorkspace();
+      const late = await createUser();
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: late.id, role: 'member' },
+      });
+      await messages.post(owner.id, general.id, { body: 'before you came' });
+
+      const [summary] = await channels.list(late.id, workspace.id);
+      expect(summary).toMatchObject({
+        id: general.id,
+        isMember: true,
+        unreadCount: 0,
+      });
+    });
+
+    it('a private general is left alone', async () => {
+      const { owner, workspace } = await team(0);
+      const secret = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'general',
+      });
+
+      const rows = await channels.list(owner.id, workspace.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: secret.id, isDefault: false });
+    });
+
+    it('other channels are not default', async () => {
+      const { owner, workspace } = await realWorkspace();
+      const other = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      expect(other.isDefault).toBe(false);
+    });
+  });
+
+  describe('channel members', () => {
+    it('lists who is in a channel, by username', async () => {
+      const { owner, members, workspace } = await team(2);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      await channels.invite(owner.id, channel.id, [members[0].id]);
+
+      const res = await as(members[1])
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(200);
+      expect(res.body.map((u: { id: number }) => u.id).sort()).toEqual(
+        [owner.id, members[0].id].sort(),
+      );
+    });
+
+    it('omits a channel row that outlived its workspace membership', async () => {
+      const { owner, members, workspace } = await team(1);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'random',
+      });
+      await channels.invite(owner.id, channel.id, [members[0].id]);
+      // Removed without `removeMember`'s cleanup.
+      await prisma.workspaceMember.delete({
+        where: {
+          workspaceId_userId: {
+            workspaceId: workspace.id,
+            userId: members[0].id,
+          },
+        },
+      });
+
+      const res = await as(owner)
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(200);
+      expect(res.body.map((u: { id: number }) => u.id)).toEqual([owner.id]);
+    });
+
+    it('a DM is refused: its members are on its summary', async () => {
+      const { owner, members, workspace } = await team(1);
+      const dm = await channels.openDm(owner.id, workspace.id, [members[0].id]);
+      await as(owner)
+        .get(`${base(workspace.id)}/channels/${dm.id}/members`)
+        .expect(400);
+    });
+
+    it("a private channel's members are 404 to a non-member", async () => {
+      const { owner, members, workspace } = await team(1);
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await as(members[0])
+        .get(`${base(workspace.id)}/channels/${channel.id}/members`)
+        .expect(404);
     });
   });
 });
