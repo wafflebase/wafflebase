@@ -116,3 +116,13 @@ Lessons:
 - **Fan-out to two audiences means two payloads.** Building one `extra` and
   sending it to both workspaces of a move is the same mistake as one
   visibility rule per emitter.
+- **Look at the shipped screen with the real server config, not the
+  tests.** Every unit test passed while the URL field told owners on an
+  http-allowing deployment that their working webhook was misconfigured: the
+  client guessed at a server setting it cannot see. Validation that depends
+  on operator config belongs on the server, with the copy coming back in the
+  error.
+- **A fixed review lens is a sample.** The reviewer filed "API write does not
+  extend the window" as non-blocking; walking use case 3 showed it defeats
+  the loop guard outright. Re-rank non-blocking findings against the use
+  cases before accepting the label.

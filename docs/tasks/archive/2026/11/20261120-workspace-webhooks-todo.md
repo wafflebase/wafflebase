@@ -26,9 +26,9 @@ events and the event feed get their own task files when they start.
       presets in the event picker
 - [x] Decide before Phase 1: `WAFFLEBASE_SECRETS_ENCRYPTION_KEY` vs reusing
       `DATASOURCE_ENCRYPTION_KEY` — the new key, falling back to the old one
-- [ ] Decide: first-consumer target (no-code vs. own servers) — drives
-      whether a Slack `format` lands in Phase 2 or 3
-- [ ] Review the design doc (PR)
+- Follow-up (not this PR): decide the first-consumer target (no-code vs.
+  own servers), which drives when a Slack `format` lands
+- [x] Review the design doc (PR #1191)
 
 ## Phase 1 — foundations + lifecycle events
 
@@ -70,7 +70,7 @@ Frontend
 - [x] Feature-off muted section for owners
 - [x] Member-removal confirm dialog naming deleted private channels and
       affected webhooks (can ship ahead of webhooks as its own PR)
-- [ ] Before → After captures for Settings at 393×659
+- [x] Before → After captures for Settings at 393×659 (`assets/pr-1191`)
 
 Docs
 - [x] Backend README env vars; docs site page with a verification snippet
@@ -90,8 +90,8 @@ Docs
 - [x] 30-day delivery purge
 - [x] Docs-site recipes: team feed (1), backup (2), agent loop guard (3),
       sheet-range diff (6)
-- [ ] Measure Yorkie's `DocumentRootChanged` throttle before tuning the
-      windows (still unmeasured; env vars cover it)
+- Follow-up (not this PR): measure Yorkie's `DocumentRootChanged` throttle
+  before tuning the windows (unmeasured; env vars cover it)
 
 ## Integration (after the parallel lanes)
 
@@ -103,7 +103,12 @@ Docs
 - [x] `ROUTE_TITLES` entry for the detail page
 - [x] Boot the built server against a scratch DB and send real events to a
       local receiver (signatures verified)
-- [ ] Self review (`/self-review`) — not run by the integrator
+- [x] Review: one two-lens round (correctness/tests, security/design) in the
+      workflow, 7 blocking fixed in `e09398275`; the `/self-review` skill
+      itself was not run, and one non-blocking finding (API write not
+      extending the window) was fixed afterwards in `62ea82f81`
+- [x] UI pass against the built backend found a false http:// error under
+      saved webhooks; fixed in `33654698d`
 
 ## Review
 
