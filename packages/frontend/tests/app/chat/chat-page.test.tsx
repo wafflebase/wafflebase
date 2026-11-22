@@ -523,10 +523,19 @@ describe("ChatPage title", () => {
     );
   });
 
-  it("is the only writer: Layout leaves the chat routes alone", () => {
-    expect(routeTitle("/w/team/chat")).toBeNull();
-    expect(routeTitle("/w/team/chat/c1")).toBeNull();
-    expect(routeTitle("/w/team/trash")).toBe("Trash");
-    expect(routeTitle("/nowhere/at/all")).toBeUndefined();
+  it("is the only tab writer; Layout keeps only the header title", () => {
+    expect(routeTitle("/w/team/chat")).toEqual({
+      title: "Chat",
+      pageOwnsTab: true,
+    });
+    expect(routeTitle("/w/team/chat/c1").pageOwnsTab).toBe(true);
+    expect(routeTitle("/w/team/trash")).toEqual({
+      title: "Trash",
+      pageOwnsTab: false,
+    });
+    expect(routeTitle("/nowhere/at/all")).toEqual({
+      title: "",
+      pageOwnsTab: false,
+    });
   });
 });

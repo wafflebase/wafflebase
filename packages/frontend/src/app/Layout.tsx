@@ -30,12 +30,12 @@ export default function Layout() {
 
   const items = useWorkspaceNavItems(workspaceSlug);
 
-  const title = routeTitle(location.pathname);
+  const { title, pageOwnsTab } = routeTitle(location.pathname);
 
   useEffect(() => {
-    if (title === null) return;
+    if (pageOwnsTab) return;
     document.title = title ? `${title} — Wafflebase` : "Wafflebase";
-  }, [title]);
+  }, [title, pageOwnsTab]);
 
   // Clean up stale pointer-events style on body when Layout unmounts.
   // Radix UI Sheet (mobile sidebar) sets pointer-events: none on <body>

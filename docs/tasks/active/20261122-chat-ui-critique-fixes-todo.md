@@ -44,8 +44,19 @@ and search stay P2/P3 of `docs/design/chat.md` and are out of scope.
 
 - [x] `pnpm verify:fast`
 - [x] Before → After at 393×659
-- [ ] Self review
+- [x] Self review (3 rounds, stopped at the bound)
 
 ## Review
 
-(filled at the end)
+- Three parallel agents (message surface / composer / page shell) on
+  disjoint files, integrated by hand; then three self-review rounds plus a
+  `requesting-code-review` pass. Every round blocked on something real; the
+  third still did, its findings were fixed without a fourth panel round.
+- The after-screenshots caught one regression no test did: making the Chat
+  page own the tab title had also blanked the header title, because Layout
+  passes the same value to both. `routeTitle` now returns the header title
+  and a separate `pageOwnsTab` flag.
+- Known limitations (PR body): a post whose response alone is lost shows as
+  failed beside its delivered copy; `modalSurfaceOpen` duplicates board's
+  selector; a focused pending row loses focus when the server row replaces
+  it; the docked editor chat panel and search remain P2/P3.

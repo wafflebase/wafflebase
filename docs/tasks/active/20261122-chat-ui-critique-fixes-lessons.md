@@ -55,3 +55,6 @@
   Hiding failed twins (round 2) traded a rare duplicate for a silent loss.
   When a "fix" changes what the user can lose, weigh the failure modes
   instead of applying it because it was asked for.
+- **Look at the screen after a "single owner" refactor.** Splitting the tab
+  title from Layout passed every test and blanked the header title, because
+  one value fed both. The final before/after capture caught it.
