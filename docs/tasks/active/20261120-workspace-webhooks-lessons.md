@@ -29,3 +29,30 @@
   feedback loop, and "add the joiner to a directory" exposed that member
   events have nothing to fetch from. Both were invisible from the event
   catalog alone.
+
+## Build phase (parallel lanes → integration)
+
+- **A lane that adds a constructor dependency owns the module import, or
+  says so loudly.** The events lane injected `WebhookEventService` into
+  services whose modules it did not own. Three would have failed Nest's DI at
+  boot; two used `@Optional()` and would have shipped emitting nothing with
+  every unit test green. Unit specs build services by hand and never see
+  module wiring: boot the real `AppModule` once before calling it done.
+- **`@Optional()` on a production dependency hides a wiring bug.** It is
+  tempting for hand-built test instances; prefer passing a stub in the test
+  over making the app path silently degrade.
+- **Contract the boundaries, not just the shapes.** Lanes agreed on the
+  `deliverNow` signature but not its semantics (reset the attempt count, or
+  give one more try?), and on `disable` but not what happens to queued rows.
+  Write the state transition into the contract, not only the types.
+- **Fail-closed config needs a fail-loud path.** The feature was "on" with no
+  encryption key, and the first symptom was a 500 on create. Check the
+  dependency at boot and answer with the setting's name.
+- **Run the docs snippet against the real code.** The verification snippet
+  was executed against `signWebhook`, including two-secret rotation and a
+  tampered body; VitePress also fails the whole build on a `{{ … }}` in
+  inline code (Vue interpolation), which only a build catches.
+- **Shared dev services belong to someone else.** Another checkout's Compose
+  stack held 5432/8080 and its Yorkie was unreachable; a scratch database on
+  the shared Postgres plus a throwaway Yorkie on another port ran every e2e
+  suite without touching either.

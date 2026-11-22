@@ -57,8 +57,14 @@ mention source.
   unread: with more recent read rows than one page holds, every unread row
   sits on a page not yet fetched, and gating on the loaded rows left a badge
   nothing could clear.
-- Four notification types: `comment_mention`, `comment_reply`,
-  `thread_resolved`, `workspace_member_joined`.
+- Four notification types in v1: `comment_mention`, `comment_reply`,
+  `thread_resolved`, `workspace_member_joined`. Later features added their
+  own on the same table and stream — `template_approved`,
+  `template_rejected`, `template_removed`, `template_needs_review`,
+  `template_review_queued` ([template-gallery.md](template-gallery.md)),
+  `chat_mention`, `chat_thread_reply` ([chat.md](chat.md)), and
+  `webhook_failing`, `webhook_disabled` ([webhooks.md](webhooks.md)) —
+  thirteen in all.
 - Clicking a notification opens the referenced document, routed by document
   type through the existing URL prefixes.
 - Near-real-time delivery over SSE that stays correct under multiple backend
@@ -110,6 +116,7 @@ model Notification {
   id          String    @id @default(uuid())
   type        String    // comment_mention | comment_reply
                         // thread_resolved | workspace_member_joined
+                        // (later: template_*, chat_*, webhook_*; see Goals)
   recipientId Int
   recipient   User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   actorId     Int?
@@ -341,8 +348,8 @@ slides, `/f/` file, `/n/` note, `/b/` board) — which is why the list response
 embeds `document: { id, title, type }`. An unrecognized type takes that path
 too, so a type this client has not learned yet still opens what it is about.
 
-Two are exceptions, and a rule that just opened any attached document got both
-wrong:
+Three are exceptions, and a rule that just opened any attached document got
+them all wrong:
 
 - **`workspace_member_joined` → `/w/:workspaceId/settings`.** It has no
   document at all, so under the old rule it rendered a row that marked itself
@@ -354,6 +361,11 @@ wrong:
   `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` allowlist and belongs to neither the
   publishing workspace nor the document. The queue is the whole reason the
   notification exists.
+- **`webhook_failing` / `webhook_disabled` → `/w/:workspaceId/settings/webhooks/:id`.**
+  Sent to every workspace owner by the webhook delivery worker, with no
+  document and the webhook id in `threadId`; the link opens that webhook's
+  detail page, or the `#webhooks` section when `threadId` is missing
+  ([webhooks.md](webhooks.md)).
 
 The list response therefore also embeds `workspace: { id, name }`. It is what
 identifies a workspace-level notification — a reader belongs to several, and

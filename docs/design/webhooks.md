@@ -514,6 +514,87 @@ destructive — so the Claude plugin guard covers them automatically.
    scope; destination formats (Slack); revisit member-created webhooks;
    CloudEvents attribute alignment.
 
+### As built (Phases 1–2)
+
+Phases 1 and 2 shipped together. What differs from the proposal above, and
+why:
+
+- **Transport.** `safeFetch` uses `node:http`/`node:https` with a custom
+  `lookup` rather than an undici `Agent`: undici is not a backend
+  dependency. The connect-time lookup resolves again, re-checks every address
+  and hands the socket only checked ones, so rebinding is still defeated. Each
+  request opens a fresh socket (`agent: false`), so a pooled connection never
+  skips the check.
+- **Address rules.** IPv4-mapped, -compatible, NAT64 and 6to4 IPv6 are judged
+  by the IPv4 address they carry instead of being refused outright, so
+  `::ffff:8.8.8.8` passes and `::ffff:10.0.0.1` does not. Beyond the listed
+  ranges, documentation ranges, `240/4`, Teredo, `fec0::/10`, multicast and
+  the names `localhost`, `*.localhost` and `*.internal` are refused.
+- **Redirects and size.** A 3xx comes back as a status the worker counts as a
+  failure, and an oversized body is cut to the 1 KB excerpt rather than
+  raised; `redirect` and `too_large` exist as codes but are never thrown.
+- **Model.** `createdBy` is nullable with `SetNull`, so deleting a user never
+  deletes a workspace's webhooks. `folderIds` (Phase 2's filter), `failingSince`,
+  `warnedAt` and `lastDelivery*` were added, plus `WebhookContentPending`.
+- **The bus.** `common/pg-bus.ts` is one process-wide client from
+  `sharedPgBus()` rather than a Nest provider; `ChatBus` and the worker both
+  run on it, so a process still holds one listening connection.
+- **Claims.** On top of `SKIP LOCKED`, the claim transaction takes
+  `pg_advisory_xact_lock`. Without it two replicas each read the same
+  in-flight count and together exceed two requests per endpoint. Sends still
+  run concurrently, outside the transaction. Attempts are counted at claim
+  time, so a crash loop cannot keep a row alive forever.
+- **The hourly cap.** Rows over 1,000 an hour stay `pending` and go out once
+  the hour rolls; the overflow is logged once per hour per webhook. "Reported"
+  means the log for now, not a UI.
+- **Disable.** Any disable — automatic or manual — marks the webhook's
+  `pending` rows `failed`, so turning a webhook off and on never flushes what
+  piled up unless the owner asks with "recover since". A `webhook.test`
+  never moves the failure streak, and a `410` on a test does not disable.
+- **Redeliver** pulls a row's next attempt to now under the same id. A failed
+  row gets exactly one more attempt (its count is not reset); "recover since"
+  on re-enable is what restarts the full schedule. Redeliver on a disabled
+  webhook is a `409`.
+- **Emission.**
+  - `emit()` also accepts an actor id, resolved to `{ id, username }` only when
+    some webhook matches, because an API-key request carries no username.
+  - `folderId` accepts a list, so a move matches a filter on either the folder
+    it left or the one it entered.
+  - Copy and template use emit `document.created` after the content copy
+    succeeds, in a small transaction of their own: emitting with the row
+    insert would announce copies that are then rolled back. This one event is
+    best-effort rather than transactional.
+  - `source.kind: 'import'` is reserved but never sent — every client import
+    creates through the web route (`blank`/`upload`). The operator template
+    seed writes Prisma directly and emits nothing.
+  - With the feature off, domain writes run exactly the statements they ran
+    before: no transaction is opened for an outbox that will not be written.
+  - `folder.updated` fires only when the name or parent actually changed; a
+    GitHub workspace claim that promotes an existing member emits nothing.
+    There is no "loses the owner role" path in the codebase yet, so only
+    removal disables a creator's webhooks.
+- **The loop guard.** `api_writers` is filled from an `AsyncLocalStorage`
+  set by a global interceptor from the API key `ApiKeyStrategy` now puts on
+  the request (`apiKeyId`), and read in `YorkieService.withDocument` — one call
+  site instead of forty controllers. One entry per key, the latest write.
+- **Content intake** writes no pending row for a trashed document or a
+  workspace with no active webhook subscribed to `content_updated`. Yorkie's
+  own throttle has still not been measured; both windows stay env-tunable.
+- **Secrets key** — decided: `WAFFLEBASE_SECRETS_ENCRYPTION_KEY`, falling
+  back to `DATASOURCE_ENCRYPTION_KEY`. With neither, the boot log says so and
+  a create answers `503 secrets_key_missing` instead of a bare 500.
+- **Management.** With the feature off the list still returns existing rows
+  beside `enabled: false`. Disabling an already-disabled webhook keeps its
+  earlier reason. `GET workspaces/:wid/members/:userId/removal-impact` lives
+  in `WebhookModule`, open to an owner or to the member themself (the leave
+  path), and returns counts, so the confirm dialog names how many private
+  channels and webhooks, not which.
+- **UI and CLI.** `documentTypes` is API/CLI-only; the form keeps whatever is
+  stored. The UI's re-enable defaults "recover since" to the moment it was
+  turned off; the CLI's `enable` recovers nothing unless given
+  `--recover-since`. The Slack `format` is not built (the first-consumer
+  question stays open).
+
 ### Risks and Mitigation
 
 - **Yorkie stream quality.** Its throttle window is not recorded, and a

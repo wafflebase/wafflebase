@@ -402,6 +402,18 @@ wafflebase
   │     ├── list                             List API keys in workspace
   │     └── revoke <key-id>                  Revoke an API key
   │
+  ├── webhooks (alias: webhook)              Owner-only, login only (webhooks.md)
+  │     ├── list | get <id>                  Members see host only
+  │     ├── create <name> <url>              [--event <t>] [--document-type <t>] [--folder <id>] (repeatable)
+  │     ├── update <id>                      [--name] [--url] [--all-events] [--all-document-types] [--all-folders]
+  │     ├── delete <id> | test <id>
+  │     ├── reveal-secret <id>
+  │     ├── rotate-secret <id>               [--overlap-hours <1-168>]
+  │     ├── enable <id>                      [--recover-since <iso>]
+  │     ├── disable <id>
+  │     ├── deliveries <id> [delivery-id]    [--status failed|all] [--limit] [--before] [--before-id]
+  │     └── redeliver <id> <delivery-id>
+  │
   ├── templates (alias: template)            The gallery; publish/use need login
   │     ├── list                             [--scope workspace|public] (default: workspace)
   │     │     [--type <type>] [--category <c>] [--tag <t>] [--query <text>]
@@ -613,8 +625,14 @@ document is listed, never who can read it. `folders delete` is annotated
 `destructive` because it removes folders, but it never deletes a document: the
 descendants cascade and their documents return to the workspace root.
 
-`templates` is the second namespace that does **not** hang off the v1 API base;
-`api-keys` is the other. The gallery
+`templates` is one of three namespaces that do **not** hang off the v1 API
+base; `api-keys` and `webhooks` are the others. `webhooks` calls
+`workspaces/:wid/webhooks`, which is `JwtAuthGuard`-only by design — a leaked
+`write`-scoped API key must not register an exfiltration endpoint
+([webhooks.md](webhooks.md)) — so it needs `wafflebase login`. Its `create`,
+`update`, `enable`, `reveal-secret` and `rotate-secret` are in the plugin's
+never-auto-approve set, since each either points workspace data somewhere new
+or prints a credential. The gallery
 ([template-gallery.md](template-gallery.md)) lives at the browser routes —
 `GET /templates`, `POST /documents/:id/template`, `POST /templates/:id/use` —
 because a listing is workspace-scoped through its document rather than through

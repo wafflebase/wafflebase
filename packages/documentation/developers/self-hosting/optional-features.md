@@ -1,12 +1,12 @@
 ---
 title: Optional features
-description: Turn on share-link analytics, database and lakehouse connections, error tracking, and the public template gallery on a self-hosted Wafflebase.
+description: Turn on share-link analytics, database and lakehouse connections, error tracking, webhooks, and the public template gallery on a self-hosted Wafflebase.
 type: how-to
 ---
 
 # Optional features
 
-Turn on the parts of Wafflebase that stay off until you configure them: share-link analytics, database and lakehouse connections, error tracking, and the public template gallery.
+Turn on the parts of Wafflebase that stay off until you configure them: share-link analytics, database and lakehouse connections, error tracking, webhooks, and the public template gallery.
 
 Each feature is independent. Leaving one off does not affect the rest of the app.
 
@@ -87,6 +87,31 @@ Error tracking sends backend and browser errors to a Sentry project you own. It 
 4. Optional: to upload source maps, also set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in the build environment. The build uploads the maps and removes them from `dist`.
 
 Traces are sampled at 10% by default. Change it with `SENTRY_TRACES_SAMPLE_RATE` and `VITE_SENTRY_TRACES_SAMPLE_RATE`. No session replays are recorded.
+
+## Turn on webhooks
+
+Webhooks let workspace owners send signed events to n8n, Zapier, or their own servers. See [Webhooks](/developers/webhooks) for the owner side.
+
+1. Set an encryption key for signing secrets. If `DATASOURCE_ENCRYPTION_KEY` is already set, it is used and you can skip this step.
+
+   ```env
+   WAFFLEBASE_SECRETS_ENCRYPTION_KEY=<64 hex characters from openssl rand -hex 32>
+   ```
+
+2. Turn webhooks on and restart the backend:
+
+   ```env
+   WAFFLEBASE_WEBHOOKS_ENABLED=true
+   ```
+
+3. Optional: let webhooks reach a service on your own network, such as an n8n at `10.0.4.12`. Webhooks refuse private addresses and `http://` unless you allow them:
+
+   ```env
+   WAFFLEBASE_WEBHOOK_ALLOWED_CIDRS=10.0.4.0/24
+   WAFFLEBASE_WEBHOOK_ALLOW_HTTP=true
+   ```
+
+Every backend replica sends deliveries; they share the work through the database, so you do not need a separate worker. Without a key, the boot log says `webhooks are enabled but unusable` and creating a webhook fails with the same reason.
 
 ## Open the public template gallery
 

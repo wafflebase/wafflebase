@@ -115,6 +115,36 @@ IMAGE_STORAGE_PREFIX=                   # Optional, the same for the image
                                         # per-workspace key prefix.
 DATASOURCE_ENCRYPTION_KEY=              # Required for datasource/lakehouse
                                         # credentials: 64 hex characters
+WAFFLEBASE_SECRETS_ENCRYPTION_KEY=      # Optional, 64 hex characters. Encrypts
+                                        # webhook signing secrets at rest.
+                                        # Unset falls back to
+                                        # DATASOURCE_ENCRYPTION_KEY; with
+                                        # neither, creating a webhook answers
+                                        # 503 and the boot log says why.
+                                        # Changing the key in effect after
+                                        # webhooks exist makes their secrets
+                                        # unreadable: delete and re-create them.
+WAFFLEBASE_WEBHOOKS_ENABLED=            # Optional. The literal `true` turns on
+                                        # workspace webhooks (emission, the
+                                        # delivery worker, the management
+                                        # routes). Anything else is off: no
+                                        # event rows, no outbound requests,
+                                        # and every webhook route but the list
+                                        # answers 404.
+WAFFLEBASE_WEBHOOK_ALLOWED_CIDRS=       # Optional, comma-separated exact CIDRs
+                                        # (`10.0.4.0/24,fd00::/8`) the SSRF
+                                        # guard lets through although they are
+                                        # private — an n8n on the same network.
+                                        # An entry that does not parse is
+                                        # dropped, never widened.
+WAFFLEBASE_WEBHOOK_ALLOW_HTTP=          # Optional. The literal `true` permits
+                                        # `http://` endpoints; anything else
+                                        # keeps https only.
+WAFFLEBASE_WEBHOOK_QUIET_MS=60000       # Optional. `document.content_updated`
+                                        # is sent once a document has been
+                                        # quiet this long…
+WAFFLEBASE_WEBHOOK_MAX_WAIT_MS=300000   # …or at most this long after the
+                                        # first edit of the window.
 LAKEHOUSE_ALLOWED_ENDPOINTS=            # Optional comma-separated exact HTTP(S)
                                         # origins for custom S3/Azure/GCS-interop
                                         # endpoints and Iceberg REST catalogs
@@ -832,6 +862,62 @@ messages. The listener's connect and `LISTEN` are bounded at 10 s, so a
 database that accepts TCP and then stalls reaches the retry path instead of
 holding boot open.
 
+### Webhooks (`/workspaces/:workspaceId/webhooks`)
+
+Outbound, owner-managed webhooks: Wafflebase POSTs a thin, signed
+[Standard Webhooks](https://www.standardwebhooks.com/) event when something
+happens in the workspace (design:
+[`docs/design/webhooks.md`](../../docs/design/webhooks.md)). All routes are
+**JWT only** — a leaked `write`-scoped API key must not be able to register an
+exfiltration endpoint — and every route except the list is **owner only**.
+Another workspace's webhook or delivery id answers `404`.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/workspaces/:wid/webhooks` | `{ enabled, canManage, webhooks }`; members get host-only rows (no `url`) |
+| `POST` | `/workspaces/:wid/webhooks` | Create (`{ name, url, events, documentTypes, folderIds }`, empty list = all) → `{ webhook, test }` |
+| `GET` | `/workspaces/:wid/webhooks/:id` | Detail |
+| `PATCH` | `/workspaces/:wid/webhooks/:id` | Partial update → `{ webhook, test }`; `test` only when the URL changed |
+| `DELETE` | `/workspaces/:wid/webhooks/:id` | Delete, deliveries included (`204`) |
+| `POST` | `/workspaces/:wid/webhooks/:id/test` | Send a signed `webhook.test` now |
+| `POST` | `/workspaces/:wid/webhooks/:id/reveal-secret` | `{ secret, previousSecret, previousExpiresAt }` |
+| `POST` | `/workspaces/:wid/webhooks/:id/rotate-secret` | `{ overlapHours? }` (1–168, default 24); `409 rotation_in_progress` during an overlap |
+| `POST` | `/workspaces/:wid/webhooks/:id/enable` | `{ recoverSince? }` re-queues failed deliveries created since then; the caller becomes `createdBy` |
+| `POST` | `/workspaces/:wid/webhooks/:id/disable` | Turn off (`manual`); queued deliveries are marked failed |
+| `GET` | `/workspaces/:wid/webhooks/:id/deliveries` | Delivery log, newest first (`?status=failed&before=&beforeId=&limit=`) |
+| `GET` | `/workspaces/:wid/webhooks/:id/deliveries/:deliveryId` | One delivery with payload and response excerpt |
+| `POST` | `/workspaces/:wid/webhooks/:id/deliveries/:deliveryId/redeliver` | Pull the next attempt to now, same `webhook-id` |
+| `GET` | `/workspaces/:wid/members/:userId/removal-impact` | `{ privateChannelsDeleted, webhooksDisabled }` for the removal confirm (owner, or the member themself) |
+
+Refusals carry a `code`: a URL the SSRF guard refuses is a `400` with
+`{ code, message, address? }` (`private_address`, `scheme_not_allowed`,
+`dns_failed`, …); the eleventh webhook is `409 limit_reached`; a redeliver on a
+disabled webhook is `409 webhook_disabled`; a create without an encryption key
+is `503 secrets_key_missing`.
+
+**Delivery.** Events are written to `WebhookDelivery` inside the domain
+write's transaction (a transactional outbox), and `pg_notify('webhook', …)`
+wakes `WebhookDeliveryWorker` on every replica on commit, with a 5 s poll as
+the fallback. Claims use `FOR UPDATE SKIP LOCKED` under one advisory lock, so
+two replicas never send the same row and an endpoint never has more than two
+requests open. Sends go through `common/safe-outbound.ts`, which re-resolves
+the host, connects only to the address it checked, refuses redirects, and
+caps the response. Retries: immediately, 5 s, 5 m, 30 m, 2 h, 5 h, 10 h,
+10 h (±10 %), then `failed`; a `410` turns the webhook off at once; a `429`
+honours `Retry-After` up to an hour. A webhook failing for three days (with
+failures spanning at least 12 h) is turned off, with a `webhook_failing`
+notification to every owner after two days and `webhook_disabled` when it
+happens. Delivery rows are kept 30 days. The per-webhook cap is 1,000
+deliveries an hour; rows over it wait and the overflow is logged.
+
+**`document.content_updated`** comes from the Yorkie `DocumentRootChanged`
+webhook, which only upserts a `WebhookContentPending` row and returns. The
+worker flushes a row once the document has been quiet for
+`WAFFLEBASE_WEBHOOK_QUIET_MS`, or `WAFFLEBASE_WEBHOOK_MAX_WAIT_MS` after the
+window opened. `/api/v1` content writes record their API key on that row
+(`data.api_writers`), so an agent can recognize its own writes. The event has
+no actor and is lost if Yorkie's event is.
+
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 
 All API key endpoints require JWT authentication.
@@ -1109,7 +1195,7 @@ blob with none (see
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
-| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` / `template_review_queued` / `chat_mention` / `chat_thread_reply` (channel id in `threadId`, message id in `commentId`) |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` / `template_review_queued` / `chat_mention` / `chat_thread_reply` (channel id in `threadId`, message id in `commentId`) / `webhook_failing` / `webhook_disabled` (webhook id in `threadId`, no `documentId`) |
 | `recipientId` | Int | FK to User (`Cascade`) |
 | `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
 | `workspaceId` | String | FK to Workspace (`Cascade`) |
@@ -1232,6 +1318,7 @@ src/
 ├── image/                     # Image document type upload/serve (image-viewer.md)
 ├── analytics/                 # View-event Kafka producer + StarRocks reader (share-link-analytics.md)
 ├── notification/              # In-app notifications: REST + SSE, in-process hub (notifications.md)
+├── webhook/                   # Workspace webhooks: outbox, delivery worker, management (webhooks.md)
 ├── chat/                      # Workspace chat: channels, DMs, messages, LISTEN/NOTIFY bus + SSE hub (chat.md)
 ├── user-doc-styles/           # Per-user default docs named styles
 ├── health/                    # Health-check endpoint

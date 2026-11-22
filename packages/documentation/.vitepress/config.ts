@@ -116,6 +116,10 @@ export default defineConfig({
             {
               text: "Claude Code plugin",
               link: "/developers/claude-code-plugin"
+            },
+            {
+              text: "Webhooks",
+              link: "/developers/webhooks"
             }
           ]
         },
