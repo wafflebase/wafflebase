@@ -73,7 +73,13 @@ let channels: ChannelSummary[] = [];
 const loadOlder = vi.fn<() => Promise<boolean>>();
 const markRead = vi.fn();
 const joinMutate = vi.fn();
-const postMutateAsync = vi.fn(async () => undefined);
+const send = vi.fn(() => Promise.resolve());
+const retrySend = vi.fn(() => Promise.resolve());
+const discardSend = vi.fn();
+const retryLoad = vi.fn();
+const openThread = vi.fn();
+let pending: ChatMessageDto[] = [];
+let loadError: Error | null = null;
 
 vi.mock("@/api/auth", () => ({ fetchMe: async () => ({ id: 1 }) }));
 vi.mock("@/api/chat", () => ({
@@ -91,9 +97,10 @@ vi.mock("@/components/chat/use-chat", () => ({
   useChannels: () => ({ data: channels }),
   useChannelMessages: () => {
     const s = useSyncExternalStore(subscribe, () => state);
-    return { ...s, isLoading: false, error: null, loadOlder };
+    return { ...s, isLoading: false, error: loadError, loadOlder, retry: retryLoad };
   },
-  usePostMessage: () => ({ mutateAsync: postMutateAsync }),
+  usePendingMessages: () => pending,
+  useSendMessage: () => ({ send, retry: retrySend, discard: discardSend }),
   useJoinChannel: () => ({ mutate: joinMutate, isPending: false }),
   useMarkRead: () => markRead,
   useDeleteMessage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -136,7 +143,7 @@ beforeAll(() => {
   // jsdom puts every rect at 0, so the log itself sits at 0.
   Element.prototype.getBoundingClientRect = function (this: Element) {
     const r = savedRect.call(this);
-    if (this.getAttribute("aria-label") !== "New messages") return r;
+    if (!this.hasAttribute("data-unread-divider")) return r;
     return { ...r, top: dividerTop } as DOMRect;
   };
 });
@@ -156,14 +163,14 @@ function renderConversation(highlightMessageId?: string) {
       <Conversation
         workspaceId="w1"
         channelId="c1"
-        onOpenThread={() => {}}
+        onOpenThread={openThread}
         highlightMessageId={highlightMessageId}
       />
     </QueryClientProvider>,
   );
 }
 
-const log = () => screen.getByRole("log", { name: "Messages" });
+const log = () => screen.getByRole("region", { name: "Messages in #general" });
 
 /** Put the reader at `top` and let the view see the scroll. */
 function scrollTo(top: number) {
@@ -185,6 +192,13 @@ describe("Conversation", () => {
     loadOlder.mockReset();
     markRead.mockReset();
     joinMutate.mockReset();
+    send.mockClear();
+    retryLoad.mockReset();
+    retrySend.mockClear();
+    discardSend.mockClear();
+    pending = [];
+    loadError = null;
+    openThread.mockReset();
   });
 
   it("opens at the newest message", () => {
@@ -308,8 +322,9 @@ describe("Conversation", () => {
   });
   describe("unread orientation", () => {
     const divider = () =>
-      screen.queryByRole("separator", { name: "New messages" });
-    const findDivider = () => screen.findByRole("separator", { name: "New messages" });
+      screen.queryByRole("heading", { name: "New messages" })?.closest("li") ?? null;
+    const findDivider = async () =>
+      (await screen.findByRole("heading", { name: "New messages" })).closest("li")!;
 
     it("draws no divider when nothing was unread", async () => {
       renderConversation();
@@ -402,9 +417,11 @@ describe("Conversation", () => {
       expect(
         screen.getByRole("button", { name: "2 new messages" }),
       ).toBeInTheDocument();
-      expect(document.querySelector("[aria-live=polite]")).toHaveTextContent(
-        "2 new messages",
-      );
+      const regions = document.querySelectorAll("[aria-live=polite]");
+      // Arrivals and the waiting count are separate regions, so a change in
+      // the count does not re-read the last arrival.
+      expect(regions[1]).toHaveTextContent("2 new messages below.");
+      expect(regions[0]).not.toHaveTextContent("new messages below");
     });
 
     it("scrolls to the bottom when clicked, smoothly unless motion is reduced", async () => {
@@ -454,5 +471,180 @@ describe("Conversation", () => {
       scrollTo(1500);
       expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
     });
+  });
+
+  describe("screen reader", () => {
+    const live = () => document.querySelector("[aria-live=polite]");
+
+    it("is a labelled region, not a live log", () => {
+      renderConversation();
+      expect(screen.queryByRole("log")).toBeNull();
+      expect(log()).toBeInTheDocument();
+    });
+
+    it("announces only others' messages arriving at the end", async () => {
+      renderConversation();
+      await act(async () => {});
+      expect(live()).toHaveTextContent("");
+
+      act(() => setState({ messages: [...state.messages, msg(6, 1)] }));
+      // Mine: nothing to announce.
+      expect(live()?.textContent).toBe("");
+
+      act(() => setState({ messages: [...state.messages, msg(7, 3)] }));
+      expect(live()).toHaveTextContent("user3: message 7");
+    });
+
+    it("re-announces the same words arriving twice", async () => {
+      renderConversation();
+      await act(async () => {});
+      const same = { body: "ok" };
+      act(() =>
+        setState({ messages: [...state.messages, { ...msg(6, 3), ...same }] }),
+      );
+      const first = live()?.textContent;
+      act(() =>
+        setState({ messages: [...state.messages, { ...msg(7, 3), ...same }] }),
+      );
+      expect(live()).toHaveTextContent("user3: ok");
+      expect(live()?.textContent).not.toBe(first);
+    });
+
+    it("says nothing when older messages are prepended", async () => {
+      renderConversation();
+      await act(async () => {});
+      act(() => setState({ messages: [msg(-1), msg(0), ...state.messages] }));
+      expect(live()?.textContent).toBe("");
+    });
+
+    it("reads a continuation line's author and time", () => {
+      renderConversation();
+      const line = document.getElementById("chat-message-m2")!;
+      expect(line.querySelector(".sr-only")).toHaveTextContent(/^user2, .+:/);
+    });
+
+    it("marks days with headings", () => {
+      renderConversation();
+      expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("keyboard", () => {
+    const row = (id: string) => document.getElementById(`chat-message-${id}`)!;
+
+    it("is one tab stop, resting on the newest message", () => {
+      renderConversation();
+      expect(row("m5")).toHaveAttribute("tabindex", "0");
+      expect(row("m4")).toHaveAttribute("tabindex", "-1");
+      // The hidden toolbars of other messages are out of the tab order.
+      const replies = screen.getAllByRole("button", { name: "Reply in thread" });
+      const tabbable = replies.filter((b) => b.tabIndex >= 0);
+      expect(tabbable).toHaveLength(1);
+      expect(row("m5")).toContainElement(tabbable[0]);
+    });
+
+    it("moves with the arrows and Home/End, and Enter opens the thread", () => {
+      renderConversation();
+      row("m5").focus();
+      fireEvent.keyDown(row("m5"), { key: "ArrowUp" });
+      expect(row("m4")).toHaveFocus();
+      expect(row("m4")).toHaveAttribute("tabindex", "0");
+      expect(row("m5")).toHaveAttribute("tabindex", "-1");
+
+      fireEvent.keyDown(row("m4"), { key: "Home" });
+      expect(row("m1")).toHaveFocus();
+      fireEvent.keyDown(row("m1"), { key: "End" });
+      expect(row("m5")).toHaveFocus();
+
+      fireEvent.keyDown(row("m5"), { key: "Enter" });
+      expect(openThread).toHaveBeenCalledWith("m5");
+    });
+
+    it("Escape on a message returns to the composer", () => {
+      renderConversation();
+      row("m5").focus();
+      fireEvent.keyDown(row("m5"), { key: "Escape" });
+      expect(screen.getByRole("textbox")).toHaveFocus();
+    });
+
+    it("↑ in the empty composer edits my last message, and Esc comes back", async () => {
+      state = { ...state, messages: [msg(1), msg(2, 1), msg(3)] };
+      renderConversation();
+      // Who "me" is arrives with the auth query.
+      await act(() => new Promise((r) => setTimeout(r, 0)));
+      const composer = screen.getByRole("textbox");
+      composer.focus();
+      fireEvent.keyDown(composer, { key: "ArrowUp" });
+      const edit = screen.getByRole("textbox", { name: "Edit message" });
+      expect(row("m2")).toContainElement(edit);
+      expect(edit).toHaveFocus();
+
+      fireEvent.keyDown(edit, { key: "Escape" });
+      expect(screen.queryByRole("textbox", { name: "Edit message" })).toBeNull();
+      expect(screen.getByRole("textbox")).toHaveFocus();
+    });
+  });
+
+  describe("sending", () => {
+    it("clears the box at once and sends optimistically", () => {
+      renderConversation();
+      const box = screen.getByRole("textbox");
+      fireEvent.change(box, { target: { value: "hello" } });
+      fireEvent.keyDown(box, { key: "Enter" });
+      expect(send).toHaveBeenCalledWith({ body: "hello" });
+      expect(box).toHaveValue("");
+    });
+
+    it("draws a first send in an empty channel, not the empty state", () => {
+      state = { ...state, messages: [] };
+      pending = [
+        {
+          ...msg(0, 1),
+          id: "local-a",
+          body: "first!",
+          localState: "failed",
+          clientId: "a",
+        } as ChatMessageDto,
+      ];
+      renderConversation();
+      expect(screen.queryByText("No messages yet")).toBeNull();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    });
+
+    it("draws a pending send dimmed and a failed one with Retry", () => {
+      pending = [
+        {
+          ...msg(5, 1),
+          id: "local-a",
+          body: "on its way",
+          localState: "pending",
+          clientId: "a",
+        } as ChatMessageDto,
+        {
+          ...msg(5, 1),
+          id: "local-b",
+          body: "lost",
+          localState: "failed",
+          clientId: "b",
+        } as ChatMessageDto,
+      ];
+      renderConversation();
+      expect(document.getElementById("chat-message-local-a")).toHaveTextContent(
+        "Sending…",
+      );
+      const failed = screen.getByRole("group", { name: "Message not sent" });
+      expect(failed).toHaveTextContent("Not sent");
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(retrySend).toHaveBeenCalledWith("b");
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(discardSend).toHaveBeenCalledWith("b");
+    });
+  });
+
+  it("offers Retry when the messages fail to load", () => {
+    loadError = new Error("offline");
+    renderConversation();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retryLoad).toHaveBeenCalled();
   });
 });

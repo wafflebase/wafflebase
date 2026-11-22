@@ -111,9 +111,13 @@ export function NewChannelDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Channels</DialogTitle>
+          <DialogTitle>
+            {tab === "create" ? "Create a channel" : "Browse channels"}
+          </DialogTitle>
           <DialogDescription>
-            Create a channel for a topic, or join one that already exists.
+            {tab === "create"
+              ? "A channel holds the conversation about one topic."
+              : "Public channels you haven't joined. Preview one before joining."}
           </DialogDescription>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(v) => onTabChange(v as ChannelDialogTab)}>

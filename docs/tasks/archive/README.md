@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 648
+Total archived tasks: 649
 
-## 2026/11 (18 tasks)
+## 2026/11 (19 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| chat ui critique fixes (2026-11-22) | [20261122-chat-ui-critique-fixes-todo.md](./2026/11/20261122-chat-ui-critique-fixes-todo.md) | [20261122-chat-ui-critique-fixes-lessons.md](./2026/11/20261122-chat-ui-critique-fixes-lessons.md) |
 | release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./2026/11/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./2026/11/20261121-release-v0.6.17-lessons.md) |
 | workspace webhooks (2026-11-20) | [20261120-workspace-webhooks-todo.md](./2026/11/20261120-workspace-webhooks-todo.md) | [20261120-workspace-webhooks-lessons.md](./2026/11/20261120-workspace-webhooks-lessons.md) |
 | docs site content (2026-11-19) | [20261119-docs-site-content-todo.md](./2026/11/20261119-docs-site-content-todo.md) | [20261119-docs-site-content-lessons.md](./2026/11/20261119-docs-site-content-lessons.md) |

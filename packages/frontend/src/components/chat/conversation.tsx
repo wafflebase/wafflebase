@@ -16,23 +16,32 @@ import { fetchMe } from '@/api/auth';
 import { userFacingError } from '@/api/http-error';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceMembers } from '@/components/comments/use-workspace-members';
+import { withPending } from './chat-cache';
 import { useChatConnection } from './chat-connection';
 import { Composer } from './composer';
-import { groupMessages, type MessageGroup } from './group-messages';
+import {
+  groupMessages,
+  lastOwnMessage,
+  type MessageGroup,
+} from './group-messages';
 import { MessageGroupView } from './message-item';
 import {
   countNewSince,
+  countsAsUnread,
   findUnreadDivider,
   type UnreadRange,
 } from './unread-marker';
+import { useArrivalAnnouncement } from './use-arrival-announcement';
 import { useFlashMessage } from './use-flash-message';
 import {
   useChannelMessages,
   useChannels,
   useJoinChannel,
   useMarkRead,
-  usePostMessage,
+  usePendingMessages,
+  useSendMessage,
 } from './use-chat';
+import { useRovingMessages } from './use-roving-messages';
 import { setOpenChatChannel } from './use-chat-stream';
 
 /** Within this many pixels of the end counts as "at the bottom". */
@@ -86,6 +95,11 @@ function dayLabel(iso: string): string {
  * Opening a channel with unread messages draws a "New messages" divider
  * above the first of them and opens there when it is out of view. Scrolled
  * away from the end, a "Jump to latest" pill counts what arrived since.
+ *
+ * The log is a labelled region, not a live one — a live log reads the whole
+ * history out on load — and a separate polite region speaks only messages
+ * from others landing at the end. It is one tab stop: ↑/↓ move between
+ * messages (`useRovingMessages`). Sends are optimistic (`useSendMessage`).
  */
 export function Conversation({
   workspaceId,
@@ -102,9 +116,21 @@ export function Conversation({
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
   const members = useWorkspaceMembers(workspaceId);
-  const { messages, isLoading, error, hasOlder, loadingOlder, loadOlder } =
-    useChannelMessages(workspaceId, channelId);
-  const post = usePostMessage(workspaceId, channelId);
+  const {
+    messages,
+    isLoading,
+    error,
+    hasOlder,
+    loadingOlder,
+    loadOlder,
+    retry: retryLoad,
+  } = useChannelMessages(workspaceId, channelId);
+  const pending = usePendingMessages(channelId, null);
+  const display = useMemo(
+    () => withPending(messages, pending),
+    [messages, pending],
+  );
+  const sender = useSendMessage(workspaceId, channelId);
   const join = useJoinChannel(workspaceId);
   const markRead = useMarkRead(workspaceId, channelId);
 
@@ -165,7 +191,8 @@ export function Conversation({
   // above grows, so shift by exactly the height it grew.
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
   const firstId = messages[0]?.id;
-  const lastId = messages.at(-1)?.id;
+  // The drawn tail, so the reader's own pending send is followed too.
+  const lastId = display.at(-1)?.id;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -283,22 +310,89 @@ export function Conversation({
   ]);
 
   const groups = useMemo(
-    () => groupMessages(messages, dividerId),
-    [messages, dividerId],
+    () => groupMessages(display, dividerId),
+    [display, dividerId],
   );
 
-  const send = async (body: string) => {
-    try {
-      await post.mutateAsync({ body });
+  // Optimistic: the message is drawn at the end at once and the box clears.
+  // A failure stays on its row with Retry, so this never throws back at the
+  // composer, which would restore the text and offer a second way to resend.
+  const reportSendError = useCallback(
+    (err: unknown) =>
+      toast.error(userFacingError(err, "Couldn't send your message.")),
+    [],
+  );
+  const send = (body: string) => {
+    atBottomRef.current = true;
+    setAtBottom(true);
+    sender.send({ body }).catch(reportSendError);
+  };
+  const retrySend = useCallback(
+    (clientId: string) => {
       atBottomRef.current = true;
       setAtBottom(true);
-    } catch (err) {
-      toast.error(
-        userFacingError(err, "Couldn't send your message. Try again."),
-      );
-      throw err;
-    }
-  };
+      sender.retry(clientId)?.catch(reportSendError);
+    },
+    [sender, reportSendError],
+  );
+
+  const composerRef = useRef<HTMLDivElement>(null);
+  const focusComposer = useCallback(() => {
+    composerRef.current
+      ?.querySelector<HTMLElement>('textarea')
+      ?.focus({ preventScroll: true });
+  }, []);
+
+  const ids = useMemo(() => display.map((m) => m.id), [display]);
+  const openFromRow = useCallback(
+    (id: string) => {
+      const m = display.find((x) => x.id === id);
+      if (m && !m.threadRootId && !m.deleted && !m.localState) {
+        onOpenThread(m.id);
+      } else if (m?.threadRootId && m.alsoInChannel) {
+        onOpenThread(m.threadRootId);
+      }
+    },
+    [display, onOpenThread],
+  );
+  const roving = useRovingMessages(scrollRef, ids, {
+    onActivate: openFromRow,
+    onEscape: focusComposer,
+  });
+
+  // The message open for editing. Owned here so ↑ in the empty composer
+  // can open the reader's last message, and so closing an edit opened that
+  // way hands focus back to the composer rather than to the message.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editFromComposer = useRef(false);
+  const startEdit = useCallback((id: string) => {
+    editFromComposer.current = false;
+    setEditingId(id);
+  }, []);
+  const endEdit = useCallback(
+    (id: string) => {
+      setEditingId(null);
+      if (editFromComposer.current) focusComposer();
+      else roving.focusRow(id);
+      editFromComposer.current = false;
+    },
+    [focusComposer, roving],
+  );
+  // The server's rows only: a pending or failed send has no id to edit, so
+  // ↑ right after one opens the message before it.
+  const editLast = useCallback(() => {
+    const last = lastOwnMessage(messages, meId);
+    if (!last) return;
+    editFromComposer.current = true;
+    setEditingId(last.id);
+  }, [messages, meId]);
+
+  const arrival = useArrivalAnnouncement(
+    messages,
+    meId,
+    !isLoading && !!me,
+    (m) => countsAsUnread(m, meId),
+  );
 
   // An archived channel cannot be joined, so a non-member gets the archived
   // read-only composer rather than a Join the server would refuse.
@@ -307,6 +401,10 @@ export function Conversation({
 
   const showJump = !atBottom && messages.length > 0 && !isLoading && !error;
   const newLabel = `${newCount} new ${newCount === 1 ? 'message' : 'messages'}`;
+  // Away from the end, how many are waiting below. Its own region, apart
+  // from arrivals: sharing one would re-read the last arrival every time
+  // the count moved.
+  const waiting = showJump && newCount > 0 ? `${newLabel} below.` : '';
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
@@ -324,22 +422,28 @@ export function Conversation({
         <div
           ref={scrollRef}
           onScroll={onScroll}
+          onKeyDown={roving.onKeyDown}
+          onFocus={roving.onFocus}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-          aria-label="Messages"
-          role="log"
+          role="region"
+          aria-label={
+            channel?.name ? `Messages in #${channel.name}` : 'Messages'
+          }
         >
           {isLoading ? (
             <p className="p-6 text-sm text-muted-foreground">
               Loading messages…
             </p>
           ) : error ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {userFacingError(
-                error,
-                "Couldn't load messages. Reload to try again.",
-              )}
-            </p>
-          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-start gap-3 p-6">
+              <p role="alert" className="text-sm text-muted-foreground">
+                {userFacingError(error, "Couldn't load messages.")}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => void retryLoad()}>
+                Retry
+              </Button>
+            </div>
+          ) : display.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
               <p className="text-sm font-medium text-foreground">
                 No messages yet
@@ -365,33 +469,43 @@ export function Conversation({
               <ol className="flex flex-col">
                 {groups.map((g, i) => (
                   <Fragment key={g.first.id}>
+                    {/* Headings, not separators: a separator's text is not
+                        reliably read, and a heading is one a screen-reader
+                        user can jump between. */}
                     {startsNewDay(groups, i) && (
-                      <li
-                        role="separator"
-                        className="mx-4 mt-4 flex items-center gap-3 text-xs font-medium text-muted-foreground"
-                      >
-                        <span className="h-px flex-1 bg-border" />
-                        {dayLabel(g.first.createdAt)}
-                        <span className="h-px flex-1 bg-border" />
+                      <li className="mx-4 mt-4 flex items-center gap-3">
+                        <span aria-hidden className="h-px flex-1 bg-border" />
+                        <h2 className="text-xs font-medium text-muted-foreground">
+                          {dayLabel(g.first.createdAt)}
+                        </h2>
+                        <span aria-hidden className="h-px flex-1 bg-border" />
                       </li>
                     )}
                     {g.first.id === dividerId && (
                       <li
                         ref={dividerRef}
-                        role="separator"
-                        aria-label="New messages"
-                        className="mx-4 mt-3 flex items-center gap-3 text-xs font-medium text-primary"
+                        data-unread-divider
+                        className="mx-4 mt-3 flex items-center gap-3"
                       >
-                        <span className="h-px flex-1 bg-primary" />
-                        New messages
+                        <span aria-hidden className="h-px flex-1 bg-primary" />
+                        <h2 className="text-xs font-medium text-primary">
+                          New messages
+                        </h2>
                       </li>
                     )}
                     <MessageGroupView
                       group={g}
                       workspaceId={workspaceId}
                       me={meId}
+                      members={members}
                       highlightId={flashing}
+                      activeId={roving.activeId}
+                      editingId={editingId}
+                      onEdit={startEdit}
+                      onEditDone={endEdit}
                       onOpenThread={onOpenThread}
+                      onRetry={retrySend}
+                      onDiscard={sender.discard}
                     />
                   </Fragment>
                 ))}
@@ -413,10 +527,16 @@ export function Conversation({
           </div>
         )}
         <span aria-live="polite" className="sr-only">
-          {showJump && newCount > 0 ? newLabel : ''}
+          {arrival}
+        </span>
+        <span aria-live="polite" className="sr-only">
+          {waiting}
         </span>
       </div>
-      <div className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div
+        ref={composerRef}
+        className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      >
         <ConnectionNotice />
         {readOnlyPreview ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -441,6 +561,7 @@ export function Conversation({
           <Composer
             channelId={channelId}
             onSend={send}
+            onArrowUpWhenEmpty={editLast}
             members={members}
             placeholder={placeholder}
             autoFocus

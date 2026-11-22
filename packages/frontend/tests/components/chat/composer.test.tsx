@@ -7,6 +7,8 @@ afterEach(() => {
 });
 
 const box = () => screen.getByRole("textbox", { name: /message/i });
+// With members to mention, the box is a combobox over the suggestion list.
+const combo = () => screen.getByRole("combobox", { name: /message/i });
 
 function type(text: string) {
   fireEvent.change(box(), { target: { value: text } });
@@ -22,7 +24,7 @@ describe("Composer", () => {
     await vi.waitFor(() => expect(box()).toHaveValue(""));
   });
 
-  it("keeps text typed while a send is in flight", async () => {
+  it("clears at once and keeps text typed while a send is in flight", async () => {
     let resolve!: () => void;
     const onSend = vi.fn(
       () => new Promise<void>((r) => (resolve = r)),
@@ -31,11 +33,12 @@ describe("Composer", () => {
     type("first");
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("first");
-    type("first second thought");
+    expect(box()).toHaveValue("");
+    expect(window.sessionStorage.length).toBe(0);
+    type("second thought");
     resolve();
-    await vi.waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 0));
-    expect(box()).toHaveValue("first second thought");
+    expect(box()).toHaveValue("second thought");
   });
 
   it("shows Send as primary only when there is something to send", () => {
@@ -114,19 +117,84 @@ describe("Composer", () => {
         members={[{ userId: "2", username: "minji" }]}
       />,
     );
-    const el = box() as HTMLTextAreaElement;
-    fireEvent.change(el, { target: { value: "hi @min", selectionStart: 7 } });
+    fireEvent.change(combo(), {
+      target: { value: "hi @min", selectionStart: 7 },
+    });
     fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
-    fireEvent.keyDown(box(), { key: "Enter" });
+    fireEvent.keyDown(combo(), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("hi @[minji](2)");
   });
 
-  it("keeps the text when sending fails", async () => {
-    const onSend = vi.fn().mockRejectedValue(new Error("nope"));
+  it("never hands a sent message back; the caller owns failure", async () => {
+    let done!: () => void;
+    const onSend = vi.fn(() => new Promise<void>((r) => (done = r)));
     render(<Composer channelId="c1" onSend={onSend} />);
-    type("keep me");
+    type("gone");
     fireEvent.keyDown(box(), { key: "Enter" });
-    await vi.waitFor(() => expect(onSend).toHaveBeenCalled());
-    expect(box()).toHaveValue("keep me");
+    expect(box()).toHaveValue("");
+    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    done();
+    await vi.waitFor(() => expect(box()).toHaveValue(""));
+  });
+
+  describe("ArrowUp in an empty box", () => {
+    it("asks to edit the last message", () => {
+      const onArrowUp = vi.fn();
+      render(
+        <Composer channelId="c1" onSend={vi.fn()} onArrowUpWhenEmpty={onArrowUp} />,
+      );
+      const notPrevented = fireEvent.keyDown(box(), { key: "ArrowUp" });
+      expect(onArrowUp).toHaveBeenCalledTimes(1);
+      expect(notPrevented).toBe(false);
+    });
+
+    it("leaves ArrowUp alone with text, a modifier, or an IME composition", () => {
+      const onArrowUp = vi.fn();
+      render(
+        <Composer channelId="c1" onSend={vi.fn()} onArrowUpWhenEmpty={onArrowUp} />,
+      );
+      fireEvent.keyDown(box(), { key: "ArrowUp", shiftKey: true });
+      fireEvent.keyDown(box(), { key: "ArrowUp", metaKey: true });
+      fireEvent.keyDown(box(), { key: "ArrowUp", isComposing: true });
+      type("x");
+      fireEvent.keyDown(box(), { key: "ArrowUp" });
+      expect(onArrowUp).not.toHaveBeenCalled();
+    });
+
+    it("moves through mention suggestions instead while the list is open", async () => {
+      const onArrowUp = vi.fn();
+      render(
+        <Composer
+          channelId="c1"
+          onSend={vi.fn()}
+          members={[{ userId: "2", username: "minji" }]}
+          onArrowUpWhenEmpty={onArrowUp}
+        />,
+      );
+      fireEvent.change(combo(), { target: { value: "@", selectionStart: 1 } });
+      await screen.findByRole("listbox");
+      fireEvent.keyDown(combo(), { key: "ArrowUp" });
+      expect(onArrowUp).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("keyboard hint", () => {
+    const hint = () => screen.getByText(/Enter to send · Shift\+Enter for new line/);
+
+    it("shows only while focused with something typed", () => {
+      render(<Composer channelId="c1" onSend={vi.fn()} />);
+      expect(hint()).toHaveClass("invisible");
+      fireEvent.focus(box());
+      expect(hint()).toHaveClass("invisible");
+      type("hello");
+      expect(hint()).not.toHaveClass("invisible");
+      fireEvent.blur(box());
+      expect(hint()).toHaveClass("invisible");
+    });
+
+    it("is hidden on a coarse pointer", () => {
+      render(<Composer channelId="c1" onSend={vi.fn()} />);
+      expect(hint()).toHaveClass("pointer-coarse:hidden");
+    });
   });
 });

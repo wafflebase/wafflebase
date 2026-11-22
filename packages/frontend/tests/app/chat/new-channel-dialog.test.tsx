@@ -97,3 +97,37 @@ describe("NewChannelDialog browse", () => {
     expect(screen.getByText("old")).toBeInTheDocument();
   });
 });
+
+describe("NewChannelDialog title", () => {
+  it("names the tab it is open on", () => {
+    const { rerender } = render(
+      <NewChannelDialog
+        workspaceId="w1"
+        channels={[]}
+        open
+        tab="create"
+        onTabChange={() => {}}
+        onOpenChange={() => {}}
+        onOpened={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Create a channel" }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <NewChannelDialog
+        workspaceId="w1"
+        channels={[]}
+        open
+        tab="browse"
+        onTabChange={() => {}}
+        onOpenChange={() => {}}
+        onOpened={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Browse channels" }),
+    ).toBeInTheDocument();
+  });
+});

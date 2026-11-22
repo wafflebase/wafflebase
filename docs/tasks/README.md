@@ -81,7 +81,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 648
+- Archived task count: 649
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: chat usability pass (2026-11-22)

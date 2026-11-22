@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelSummary } from "@/api/chat";
 import {
+  adjacentChannelId,
   browsableChannels,
   channelLabel,
   groupChannels,
+  switcherItems,
 } from "@/app/chat/group-channels";
 
 const channel = (id: string, over: Partial<ChannelSummary> = {}) =>
@@ -148,5 +150,112 @@ describe("channelLabel", () => {
       members: [user(1, "me")],
     });
     expect(channelLabel(dm, 1)).toBe("me");
+  });
+});
+
+describe("groupChannels preview", () => {
+  it("includes the open unjoined channel, sorted by name, and only it", () => {
+    const out = groupChannels(
+      [
+        channel("zeta"),
+        channel("beta", { isMember: false }),
+        channel("gamma", { isMember: false }),
+        channel("alpha"),
+      ],
+      "beta",
+    );
+    expect(out.channels.map((c) => c.id)).toEqual(["alpha", "beta", "zeta"]);
+  });
+});
+
+describe("adjacentChannelId", () => {
+  const dm = (id: string, lastMessageAt: string) =>
+    channel(id, {
+      kind: "dm",
+      name: null,
+      members: [user(1, "me"), user(2, id)],
+      lastMessageAt,
+    });
+  const list = [
+    channel("b"),
+    channel("a"),
+    channel("arch", { archived: true }),
+    dm("d-old", "2026-11-01T00:00:00Z"),
+    dm("d-new", "2026-11-20T00:00:00Z"),
+  ];
+
+  it("walks Channels then DMs, skipping archived, wrapping at the ends", () => {
+    expect(adjacentChannelId(list, "a", 1)).toBe("b");
+    expect(adjacentChannelId(list, "b", 1)).toBe("d-new");
+    expect(adjacentChannelId(list, "d-old", 1)).toBe("a");
+    expect(adjacentChannelId(list, "a", -1)).toBe("d-old");
+  });
+
+  it("starts from an end when the open channel is not in the order", () => {
+    expect(adjacentChannelId(list, "arch", 1)).toBe("a");
+    expect(adjacentChannelId(list, "arch", -1)).toBe("d-old");
+    expect(adjacentChannelId(list, null, 1)).toBe("a");
+  });
+
+  it("steps from a previewed channel in its sorted place", () => {
+    const withPreview = [...list, channel("aa", { isMember: false })];
+    expect(adjacentChannelId(withPreview, "aa", 1)).toBe("b");
+    expect(adjacentChannelId(withPreview, "aa", -1)).toBe("a");
+  });
+
+  it("finds the nearest unread one, ignoring unread in archived channels", () => {
+    const unread = [
+      channel("a"),
+      channel("b", { unreadCount: 2 }),
+      channel("c"),
+      channel("arch", { archived: true, unreadCount: 9 }),
+    ];
+    expect(adjacentChannelId(unread, "c", 1, true)).toBe("b");
+    expect(adjacentChannelId(unread, "a", -1, true)).toBe("b");
+    expect(adjacentChannelId(unread, "b", 1, true)).toBeNull();
+  });
+
+  it("has nowhere to go in an empty list", () => {
+    expect(adjacentChannelId([], null, 1)).toBeNull();
+  });
+});
+
+describe("switcherItems", () => {
+  const list = [
+    channel("planning"),
+    channel("general"),
+    channel("plan-b", { isMember: false }),
+    channel("old", { archived: true }),
+    channel("d1", {
+      kind: "dm",
+      name: null,
+      members: [user(1, "me"), user(2, "minji")],
+    }),
+  ];
+
+  it("lists joined channels and DMs, then the joinable ones, never archived", () => {
+    expect(switcherItems(list, 1, "").map((i) => [i.label, i.joinable])).toEqual([
+      ["general", false],
+      ["planning", false],
+      ["minji", false],
+      ["plan-b", true],
+    ]);
+  });
+
+  it("filters by substring, prefix matches first, ignoring a leading #", () => {
+    expect(switcherItems(list, 1, "#n").map((i) => i.label)).toEqual([
+      "general",
+      "planning",
+      "minji",
+      "plan-b",
+    ]);
+    expect(switcherItems(list, 1, "PLAN").map((i) => i.label)).toEqual([
+      "planning",
+      "plan-b",
+    ]);
+    expect(switcherItems(list, 1, "an").map((i) => i.label)).toEqual([
+      "planning",
+      "plan-b",
+    ]);
   });
 });

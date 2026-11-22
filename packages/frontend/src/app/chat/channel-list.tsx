@@ -4,6 +4,7 @@ import {
   IconArchive,
   IconChevronRight,
   IconHash,
+  IconListSearch,
   IconLock,
   IconPlus,
 } from "@tabler/icons-react";
@@ -14,7 +15,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import { cn } from "@/lib/utils";
-import { channelLabel, groupChannels } from "./group-channels";
+import {
+  browsableChannels,
+  channelLabel,
+  groupChannels,
+} from "./group-channels";
 
 const ARCHIVED_OPEN_KEY = (workspaceId: string) =>
   `wafflebase:chat-archived-open:${workspaceId}`;
@@ -49,6 +54,8 @@ interface ChannelListProps {
   /** Builds the link for one channel. */
   hrefFor: (channelId: string) => string;
   onNewChannel: () => void;
+  /** Opens the channel dialog on its Browse tab. */
+  onBrowse: () => void;
   onNewMessage: () => void;
 }
 
@@ -58,6 +65,10 @@ interface ChannelListProps {
  * channel's name is bold; a mention, or anything unread in a DM, shows as a
  * count, other unread as a dot. Archived channels show neither: nothing can
  * be posted there, and the Chat badge does not count them either.
+ *
+ * A public channel open as a preview — not joined — shows in Channels in
+ * italics while it is open. "Browse channels" closes the section whenever
+ * there are public channels the caller has not joined.
  */
 export function ChannelList({
   workspaceId,
@@ -69,9 +80,16 @@ export function ChannelList({
   me,
   hrefFor,
   onNewChannel,
+  onBrowse,
   onNewMessage,
 }: ChannelListProps) {
-  const { channels: rooms, directMessages, archived } = groupChannels(channels);
+  const {
+    channels: rooms,
+    directMessages,
+    archived,
+  } = groupChannels(channels, activeChannelId);
+  const browsable = browsableChannels(channels).live.length;
+  const ready = !isLoading && !isError;
 
   return (
     <nav aria-label="Chat channels" className="flex min-h-0 flex-1 flex-col">
@@ -108,6 +126,7 @@ export function ChannelList({
                 label={c.name ?? ""}
                 active={c.id === activeChannelId}
                 href={hrefFor(c.id)}
+                transient={!c.isMember}
                 icon={
                   c.kind === "private" ? (
                     <IconLock className="size-4 shrink-0 text-muted-foreground" />
@@ -117,6 +136,24 @@ export function ChannelList({
                 }
               />
             ))
+          )}
+          {ready && browsable > 0 && (
+            <li>
+              <button
+                type="button"
+                onClick={onBrowse}
+                aria-label={`Browse channels, ${browsable} not joined`}
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+              >
+                <IconListSearch aria-hidden className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-left">
+                  Browse channels
+                </span>
+                <span className="shrink-0 text-xs tabular-nums">
+                  {browsable}
+                </span>
+              </button>
+            </li>
           )}
         </Section>
         <Section
@@ -136,33 +173,19 @@ export function ChannelList({
               </button>
             </Placeholder>
           ) : (
-            directMessages.map((c) => {
-              const other = c.members.find((m) => m.id !== me) ?? c.members[0];
-              return (
-                <ChannelRow
-                  key={c.id}
-                  channel={c}
-                  label={channelLabel(c, me)}
-                  active={c.id === activeChannelId}
-                  href={hrefFor(c.id)}
-                  icon={
-                    other ? (
-                      <AuthorAvatar
-                        author={{
-                          userId: String(other.id),
-                          username: other.username,
-                          photo: other.photo ?? undefined,
-                        }}
-                        size="md"
-                      />
-                    ) : null
-                  }
-                />
-              );
-            })
+            directMessages.map((c) => (
+              <ChannelRow
+                key={c.id}
+                channel={c}
+                label={channelLabel(c, me)}
+                active={c.id === activeChannelId}
+                href={hrefFor(c.id)}
+                icon={<DmAvatar channel={c} me={me} />}
+              />
+            ))
           )}
         </Section>
-        {!isLoading && !isError && archived.length > 0 && (
+        {ready && archived.length > 0 && (
           <ArchivedSection
             // Remount per workspace so the remembered state is read afresh.
             key={workspaceId}
@@ -257,12 +280,47 @@ function ArchivedSection({
               active={c.id === activeChannelId}
               href={hrefFor(c.id)}
               archived
+              transient={!c.isMember}
               icon={<IconArchive className="size-4 shrink-0 text-muted-foreground" />}
             />
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+const avatarOf = (m: ChannelSummary["members"][number]) => ({
+  userId: String(m.id),
+  username: m.username,
+  photo: m.photo ?? undefined,
+});
+
+/**
+ * A DM's icon: the other person's avatar, or for a group DM two of the
+ * others' stacked corner to corner, so a conversation with six people does
+ * not read as a one-to-one. The label already names everyone.
+ */
+function DmAvatar({ channel, me }: { channel: ChannelSummary; me: number }) {
+  const others = channel.members.filter((m) => m.id !== me);
+  if (others.length >= 2) {
+    return (
+      <span aria-hidden className="relative size-5 shrink-0">
+        <span className="absolute top-0 left-0 flex">
+          <AuthorAvatar author={avatarOf(others[0])} />
+        </span>
+        <span className="absolute right-0 bottom-0 flex rounded-full ring-2 ring-background">
+          <AuthorAvatar author={avatarOf(others[1])} />
+        </span>
+      </span>
+    );
+  }
+  const other = others[0] ?? channel.members[0];
+  if (!other) return null;
+  return (
+    <span aria-hidden className="flex shrink-0">
+      <AuthorAvatar author={avatarOf(other)} size="md" />
+    </span>
   );
 }
 
@@ -277,6 +335,7 @@ function ChannelRow({
   href,
   icon,
   archived = false,
+  transient = false,
 }: {
   channel: ChannelSummary;
   label: string;
@@ -285,6 +344,8 @@ function ChannelRow({
   icon: React.ReactNode;
   /** Muted, with no unread marks. */
   archived?: boolean;
+  /** Open as a preview, not joined: shown only while it is open. */
+  transient?: boolean;
 }) {
   const unread = !archived && channel.unreadCount > 0;
   const count = archived ? 0 : channelCount(channel);
@@ -309,9 +370,16 @@ function ChannelRow({
         )}
       >
         {icon}
-        <span className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            unread && "font-semibold",
+            transient && "italic",
+          )}
+        >
           {label}
         </span>
+        {transient && <span className="sr-only">, not joined</span>}
         {description && <span className="sr-only">, {description}</span>}
         {count > 0 ? (
           <Badge className="h-5 min-w-5 px-1.5 text-2xs tabular-nums" aria-hidden>

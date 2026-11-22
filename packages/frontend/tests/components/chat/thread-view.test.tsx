@@ -20,7 +20,15 @@ const msg = (seq: number, authorId = 2): ChatMessageDto => ({
 });
 
 let threadData: ChatMessageDto[] = [];
-const mutateAsync = vi.fn(async () => undefined);
+const send = vi.fn(() => Promise.resolve());
+const joinMutate = vi.fn();
+let channel = {
+  id: "c1",
+  kind: "public",
+  name: "q4-planning",
+  isMember: true,
+  archived: false,
+};
 
 vi.mock("@/api/auth", () => ({ fetchMe: async () => ({ id: 1 }) }));
 vi.mock("@/api/chat", () => ({
@@ -32,11 +40,11 @@ vi.mock("@/components/comments/use-workspace-members", () => ({
   useWorkspaceMembers: () => [],
 }));
 vi.mock("@/components/chat/use-chat", () => ({
-  useChannels: () => ({
-    data: [{ id: "c1", kind: "public", name: "q4-planning", isMember: true, archived: false }],
-  }),
+  useChannels: () => ({ data: [channel] }),
   useThreadMessages: () => ({ data: threadData, isLoading: false, error: null }),
-  usePostMessage: () => ({ mutateAsync }),
+  usePendingMessages: () => [],
+  useSendMessage: () => ({ send, retry: vi.fn(), discard: vi.fn() }),
+  useJoinChannel: () => ({ mutate: joinMutate, isPending: false }),
   useDeleteMessage: () => ({ mutate: vi.fn(), isPending: false }),
   useEditMessage: () => ({ mutate: vi.fn(), isPending: false }),
 }));
@@ -93,13 +101,15 @@ function renderThread(highlightMessageId?: string) {
   return { ...r, rerenderThread: () => r.rerender(ui()) };
 }
 
-const log = () => screen.getByRole("log", { name: "Thread" });
+const log = () => screen.getByRole("region", { name: "Thread" });
 
 describe("ThreadView scroll", () => {
   beforeEach(() => {
     threadData = [1, 2, 3, 4, 5, 6].map((s) => msg(s));
     intoView.length = 0;
-    mutateAsync.mockClear();
+    send.mockClear();
+    joinMutate.mockReset();
+    channel = { ...channel, isMember: true, archived: false };
   });
 
   it("opens with the root at the top", () => {
@@ -126,9 +136,44 @@ describe("ThreadView scroll", () => {
     const box = screen.getByRole("textbox", { name: "Reply…" });
     fireEvent.change(box, { target: { value: "on it" } });
     fireEvent.keyDown(box, { key: "Enter" });
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith({
+        body: "on it",
+        threadRootId: "m1",
+        alsoInChannel: false,
+      }),
+    );
     threadData = [...threadData, msg(7, 1)];
     rerenderThread();
     expect(log().scrollTop).toBe(2000);
+  });
+
+  it("is a labelled region, not a live log", () => {
+    renderThread();
+    expect(screen.queryByRole("log")).toBeNull();
+  });
+
+  it("tells a non-member of a public channel to join to reply", () => {
+    channel = { ...channel, isMember: false };
+    renderThread();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByText("Join #q4-planning to reply.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Join channel" }));
+    expect(joinMutate).toHaveBeenCalledWith("c1", expect.anything());
+  });
+
+  it("offers no join on an archived channel", () => {
+    channel = { ...channel, isMember: false, archived: true };
+    renderThread();
+    expect(screen.queryByRole("button", { name: "Join channel" })).toBeNull();
+  });
+
+  it("is one tab stop that starts at the newest reply", () => {
+    renderThread();
+    const rows = document.querySelectorAll("[data-message-row]");
+    const stops = [...rows].filter((r) => r.getAttribute("tabindex") === "0");
+    expect(stops.map((r) => r.id)).toEqual(["chat-message-m6"]);
+    fireEvent.keyDown(stops[0], { key: "Home" });
+    expect(document.getElementById("chat-message-m1")).toHaveFocus();
   });
 });

@@ -59,3 +59,21 @@ export function channelMenu(channel: ChannelSummary | undefined) {
   const leave = room && channel.isMember && !channel.isDefault;
   return { edit, addPeople, archive, leave, any: edit || addPeople || archive || leave };
 }
+
+/**
+ * The browser tab's title on the Chat page: "(3) #q4-planning · Chat —
+ * Wafflebase". The count is the sidebar Chat badge's (`chatBadgeCount`:
+ * mentions plus unread DMs — what Slack badges, and what Gmail-style "(n)"
+ * titles count), so the tab and the badge never disagree, and a merely busy
+ * channel no more lights up the tab than it lights up the badge.
+ */
+export function chatTitle(
+  channel: ChannelSummary | undefined,
+  label: string,
+  count: number,
+): string {
+  const where = channel
+    ? `${channel.kind === "dm" ? label : `#${label}`} · Chat`
+    : "Chat";
+  return `${count > 0 ? `(${count > 99 ? "99+" : count}) ` : ""}${where} — Wafflebase`;
+}

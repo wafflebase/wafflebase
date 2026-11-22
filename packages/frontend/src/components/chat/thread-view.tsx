@@ -5,15 +5,24 @@ import { toast } from "sonner";
 import { fetchMe } from "@/api/auth";
 import { fetchMessage, fetchMessages } from "@/api/chat";
 import { userFacingError } from "@/api/http-error";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
-import { chatKeys } from "./chat-cache";
+import { chatKeys, withPending } from "./chat-cache";
 import { Composer } from "./composer";
-import { groupMessages } from "./group-messages";
+import { groupMessages, lastOwnMessage } from "./group-messages";
 import { MessageGroupView } from "./message-item";
+import { useArrivalAnnouncement } from "./use-arrival-announcement";
 import { useFlashMessage } from "./use-flash-message";
-import { useChannels, usePostMessage, useThreadMessages } from "./use-chat";
+import {
+  useChannels,
+  useJoinChannel,
+  usePendingMessages,
+  useSendMessage,
+  useThreadMessages,
+} from "./use-chat";
+import { useRovingMessages } from "./use-roving-messages";
 
 /** Within this of the end still counts as reading the newest reply. */
 const BOTTOM_SLACK_PX = 48;
@@ -29,7 +38,8 @@ interface ThreadViewProps {
 /**
  * A thread: its root, the replies under it, and a reply box that can also
  * send the reply to the channel. A deleted root still anchors its replies
- * and reads as deleted.
+ * and reads as deleted. Like the channel log it is one tab stop with a
+ * separate polite region for arriving replies, and its sends are optimistic.
  */
 export function ThreadView({
   workspaceId,
@@ -43,7 +53,9 @@ export function ThreadView({
   const channel = channels?.find((c) => c.id === channelId);
   const members = useWorkspaceMembers(workspaceId);
   const thread = useThreadMessages(workspaceId, channelId, rootId);
-  const post = usePostMessage(workspaceId, channelId);
+  const pending = usePendingMessages(channelId, rootId);
+  const sender = useSendMessage(workspaceId, channelId);
+  const join = useJoinChannel(workspaceId);
   const [alsoInChannel, setAlsoInChannel] = useState(false);
 
   // The root normally sits in the channel's cache (observed here, never
@@ -69,7 +81,11 @@ export function ThreadView({
     () => (thread.data ?? []).filter((m) => m.id !== rootId),
     [thread.data, rootId],
   );
-  const groups = useMemo(() => groupMessages(replies), [replies]);
+  const display = useMemo(
+    () => withPending(replies, pending),
+    [replies, pending],
+  );
+  const groups = useMemo(() => groupMessages(display), [display]);
 
   const present =
     !!highlightMessageId && replies.some((m) => m.id === highlightMessageId);
@@ -88,7 +104,7 @@ export function ThreadView({
     atBottomRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX;
   }, []);
-  const lastReply = replies.at(-1)?.id;
+  const lastReply = display.at(-1)?.id;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || thread.isLoading) return;
@@ -101,40 +117,105 @@ export function ThreadView({
     onScroll();
   }, [lastReply, thread.isLoading, highlightMessageId, onScroll]);
 
-  const send = async (body: string) => {
-    // Set before the post: its success writes the reply into the cache
-    // before `mutateAsync` resolves, and the scroll effect runs on that.
+  // Optimistic, as in the channel: the reply is drawn at once (and followed
+  // to the end), and a failure stays on its row with Retry rather than
+  // being thrown back at the composer.
+  const reportSendError = useCallback(
+    (err: unknown) =>
+      toast.error(userFacingError(err, "Couldn't send your reply.")),
+    [],
+  );
+  const send = (body: string) => {
     atBottomRef.current = true;
-    try {
-      await post.mutateAsync({ body, threadRootId: rootId, alsoInChannel });
-      setAlsoInChannel(false);
-    } catch (err) {
-      onScroll();
-      toast.error(userFacingError(err, "Couldn't send your reply. Try again."));
-      throw err;
-    }
+    sender
+      .send({ body, threadRootId: rootId, alsoInChannel })
+      .catch(reportSendError);
+    setAlsoInChannel(false);
+  };
+  const retrySend = useCallback(
+    (clientId: string) => {
+      atBottomRef.current = true;
+      sender.retry(clientId)?.catch(reportSendError);
+    },
+    [sender, reportSendError],
+  );
+
+  const composerRef = useRef<HTMLDivElement>(null);
+  const focusComposer = useCallback(() => {
+    composerRef.current
+      ?.querySelector<HTMLElement>("textarea")
+      ?.focus({ preventScroll: true });
+  }, []);
+
+  // The root is a row too, first in the order. No Escape handler: Esc in
+  // a thread belongs to the page, which closes the thread.
+  const ids = useMemo(
+    () => [...(root ? [root.id] : []), ...display.map((m) => m.id)],
+    [root, display],
+  );
+  const roving = useRovingMessages(scrollRef, ids);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editFromComposer = useRef(false);
+  const startEdit = useCallback((id: string) => {
+    editFromComposer.current = false;
+    setEditingId(id);
+  }, []);
+  const endEdit = useCallback(
+    (id: string) => {
+      setEditingId(null);
+      if (editFromComposer.current) focusComposer();
+      else roving.focusRow(id);
+      editFromComposer.current = false;
+    },
+    [focusComposer, roving],
+  );
+  const editLast = useCallback(() => {
+    const last = lastOwnMessage(replies, meId);
+    if (!last) return;
+    editFromComposer.current = true;
+    setEditingId(last.id);
+  }, [replies, meId]);
+
+  const arrival = useArrivalAnnouncement(replies, meId, !thread.isLoading && !!me);
+  const host = {
+    workspaceId,
+    me: meId,
+    members,
+    activeId: roving.activeId,
+    editingId,
+    onEdit: startEdit,
+    onEditDone: endEdit,
+    onRetry: retrySend,
+    onDiscard: sender.discard,
   };
 
   const checkboxId = `also-in-channel-${rootId}`;
   const canPost = channel
     ? !(channel.kind === "public" && !channel.isMember)
     : true;
+  // A public channel's thread is readable before joining; say why there is
+  // no reply box, and offer the join — not on an archived channel, which the
+  // server refuses to join.
+  const joinToReply =
+    channel?.kind === "public" && !channel.isMember && !channel.archived;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         onScroll={onScroll}
+        onKeyDown={roving.onKeyDown}
+        onFocus={roving.onFocus}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3"
-        role="log"
+        role="region"
         aria-label="Thread"
       >
         {root ? (
           <ol className="border-b pb-2">
             <MessageGroupView
               group={{ author: root.author, first: root, rest: [] }}
-              workspaceId={workspaceId}
-              me={meId}
+              {...host}
             />
           </ol>
         ) : null}
@@ -144,7 +225,7 @@ export function ThreadView({
           <p className="p-4 text-sm text-muted-foreground">
             {userFacingError(thread.error, "Couldn't load this thread.")}
           </p>
-        ) : replies.length === 0 ? (
+        ) : display.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No replies yet.</p>
         ) : (
           <>
@@ -156,8 +237,7 @@ export function ThreadView({
                 <MessageGroupView
                   key={g.first.id}
                   group={g}
-                  workspaceId={workspaceId}
-                  me={meId}
+                  {...host}
                   highlightId={flashing}
                 />
               ))}
@@ -165,11 +245,41 @@ export function ThreadView({
           </>
         )}
       </div>
+      <span aria-live="polite" className="sr-only">
+        {arrival}
+      </span>
+      {joinToReply && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <p className="text-sm text-muted-foreground">
+            Join #{channel.name} to reply.
+          </p>
+          {/* Outline: the conversation beside it offers the same join as
+              its primary action. */}
+          <Button
+            variant="outline"
+            onClick={() =>
+              join.mutate(channelId, {
+                onError: (err) =>
+                  toast.error(
+                    userFacingError(err, "Couldn't join the channel."),
+                  ),
+              })
+            }
+            disabled={join.isPending}
+          >
+            Join channel
+          </Button>
+        </div>
+      )}
       {canPost && (
-        <div className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div
+          ref={composerRef}
+          className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        >
           <Composer
             channelId={`${channelId}:thread:${rootId}`}
             onSend={send}
+            onArrowUpWhenEmpty={editLast}
             members={members}
             placeholder="Reply…"
             autoFocus

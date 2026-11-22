@@ -3,11 +3,12 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
-import { chatKeys } from "@/components/chat/chat-cache";
+import { chatKeys, type PendingSend } from "@/components/chat/chat-cache";
 import {
   useChannelMessages,
   useMarkRead,
-  usePostMessage,
+  usePendingMessages,
+  useSendMessage,
 } from "@/components/chat/use-chat";
 
 const api = vi.hoisted(() => ({
@@ -88,6 +89,7 @@ function setup() {
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   api.markRead.mockReset().mockResolvedValue(undefined);
   api.postMessage.mockReset();
   api.fetchMessages.mockReset().mockResolvedValue([]);
@@ -155,18 +157,18 @@ describe("useMarkRead", () => {
   });
 });
 
-describe("usePostMessage", () => {
+describe("useSendMessage writes the server row", () => {
   const root = msg(1, { replyCount: 1 });
 
   it("appends a top-level message to the channel cache only", async () => {
     const { queryClient, wrapper } = setup();
     queryClient.setQueryData(chatKeys.messages("c1"), [root]);
     api.postMessage.mockResolvedValue(msg(2));
-    const { result } = renderHook(() => usePostMessage("w1", "c1"), {
+    const { result } = renderHook(() => useSendMessage("w1", "c1"), {
       wrapper,
     });
 
-    await act(() => result.current.mutateAsync({ body: "hi" }));
+    await act(() => result.current.send({ body: "hi" }));
 
     expect(
       queryClient
@@ -183,12 +185,12 @@ describe("usePostMessage", () => {
     const reply = msg(2, { threadRootId: "m1" });
     api.postMessage.mockResolvedValue(reply);
     api.fetchMessages.mockResolvedValue([msg(1, { replyCount: 2 })]);
-    const { result } = renderHook(() => usePostMessage("w1", "c1"), {
+    const { result } = renderHook(() => useSendMessage("w1", "c1"), {
       wrapper,
     });
 
     await act(() =>
-      result.current.mutateAsync({ body: "re", threadRootId: "m1" }),
+      result.current.send({ body: "re", threadRootId: "m1" }),
     );
 
     expect(
@@ -218,12 +220,12 @@ describe("usePostMessage", () => {
     queryClient.setQueryData(chatKeys.thread("m1"), [root]);
     const reply = msg(2, { threadRootId: "m1", alsoInChannel: true });
     api.postMessage.mockResolvedValue(reply);
-    const { result } = renderHook(() => usePostMessage("w1", "c1"), {
+    const { result } = renderHook(() => useSendMessage("w1", "c1"), {
       wrapper,
     });
 
     await act(() =>
-      result.current.mutateAsync({
+      result.current.send({
         body: "re",
         threadRootId: "m1",
         alsoInChannel: true,
@@ -245,11 +247,11 @@ describe("usePostMessage", () => {
   it("does not seed a channel cache that was never loaded", async () => {
     const { queryClient, wrapper } = setup();
     api.postMessage.mockResolvedValue(msg(2));
-    const { result } = renderHook(() => usePostMessage("w1", "c1"), {
+    const { result } = renderHook(() => useSendMessage("w1", "c1"), {
       wrapper,
     });
 
-    await act(() => result.current.mutateAsync({ body: "hi" }));
+    await act(() => result.current.send({ body: "hi" }));
 
     expect(queryClient.getQueryData(chatKeys.messages("c1"))).toBeUndefined();
   });
@@ -293,5 +295,206 @@ describe("useChannelMessages loadOlder", () => {
 
     expect(prepended).toBe(true);
     expect(result.current.messages[0].id).toBe("m49");
+  });
+});
+
+describe("useSendMessage", () => {
+  const ids = (queryClient: QueryClient) =>
+    queryClient
+      .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+      ?.map((m) => m.id);
+  const pendingOf = (queryClient: QueryClient) =>
+    queryClient.getQueryData<PendingSend[]>(chatKeys.pending("c1")) ?? [];
+
+  function renderSend() {
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(["me"], { id: 1, username: "me", photo: "" });
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    const { result } = renderHook(
+      () => ({
+        sender: useSendMessage("w1", "c1"),
+        channel: usePendingMessages("c1", null),
+        thread: usePendingMessages("c1", "m1"),
+      }),
+      { wrapper },
+    );
+    return { queryClient, result };
+  }
+
+  it("draws the message at once, then swaps in the server's row", async () => {
+    let resolve: (m: ChatMessageDto) => void = () => {};
+    api.postMessage.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { queryClient, result } = renderSend();
+
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.sender.send({ body: "hi" });
+    });
+    // Cache notifications are batched onto a timer.
+    await waitFor(() => expect(result.current.channel).toHaveLength(1));
+    expect(result.current.channel[0]).toMatchObject({
+      body: "hi",
+      localState: "pending",
+      author: { id: 1 },
+      // A floor for the server's seq, from the newest one known.
+      seq: 1,
+    });
+
+    await act(async () => {
+      resolve(msg(2, { body: "hi" }));
+      await sent;
+    });
+    expect(ids(queryClient)).toEqual(["m1", "m2"]);
+    expect(pendingOf(queryClient)).toEqual([]);
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("marks a failed send and retries it in place", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const { queryClient, result } = renderSend();
+
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() =>
+      expect(result.current.channel[0]?.localState).toBe("failed"),
+    );
+    expect(ids(queryClient)).toEqual(["m1"]);
+
+    api.postMessage.mockResolvedValueOnce(msg(2, { body: "hi" }));
+    const clientId = result.current.channel[0].clientId!;
+    await act(async () => {
+      await result.current.sender.retry(clientId);
+    });
+    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "hi" });
+    expect(ids(queryClient)).toEqual(["m1", "m2"]);
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("discards a failed send", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const { result } = renderSend();
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() => expect(result.current.channel).toHaveLength(1));
+    act(() => result.current.sender.discard(result.current.channel[0].clientId!));
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("posts quick sends one at a time, in the order they were sent", async () => {
+    const resolvers: Array<(m: ChatMessageDto) => void> = [];
+    api.postMessage.mockImplementation(
+      () => new Promise((r) => resolvers.push(r)),
+    );
+    const { result } = renderSend();
+    let first: Promise<unknown> = Promise.resolve();
+    let second: Promise<unknown> = Promise.resolve();
+    act(() => {
+      first = result.current.sender.send({ body: "one" });
+      second = result.current.sender.send({ body: "two" });
+    });
+    await waitFor(() => expect(result.current.channel).toHaveLength(2));
+    // The second post waits for the first to be answered.
+    await waitFor(() => expect(api.postMessage).toHaveBeenCalledTimes(1));
+    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "one" });
+    await act(async () => {
+      resolvers[0](msg(2, { body: "one" }));
+      await first;
+    });
+    await waitFor(() => expect(api.postMessage).toHaveBeenCalledTimes(2));
+    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "two" });
+    await act(async () => {
+      resolvers[1](msg(3, { body: "two" }));
+      await second;
+    });
+  });
+
+  it("keeps a failed send across a reload, and an interrupted one as failed", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const first = renderSend();
+    await act(async () => {
+      await first.result.current.sender.send({ body: "kept" }).catch(() => {});
+    });
+    api.postMessage.mockReturnValueOnce(new Promise(() => {}));
+    act(() => {
+      void first.result.current.sender.send({ body: "cut off" });
+    });
+    await waitFor(() =>
+      expect(first.result.current.channel.map((m) => m.body)).toEqual([
+        "kept",
+        "cut off",
+      ]),
+    );
+
+    // A reload: a fresh client reads what storage kept.
+    const second = renderSend();
+    expect(
+      second.result.current.channel.map((m) => [m.body, m.localState]),
+    ).toEqual([
+      ["kept", "failed"],
+      ["cut off", "failed"],
+    ]);
+  });
+
+  it("does not wait forever on a post that hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      api.postMessage
+        .mockReturnValueOnce(new Promise(() => {}))
+        .mockResolvedValueOnce(msg(2, { body: "next" }));
+      const { result } = renderSend();
+      act(() => {
+        void result.current.sender.send({ body: "stuck" });
+        void result.current.sender.send({ body: "next" });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(api.postMessage).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(api.postMessage).toHaveBeenCalledTimes(2);
+      expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", {
+        body: "next",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never shows one user's unsent messages to the next in the tab", async () => {
+    api.postMessage.mockRejectedValueOnce(new Error("offline"));
+    const first = renderSend();
+    await act(async () => {
+      await first.result.current.sender.send({ body: "mine" }).catch(() => {});
+    });
+    await waitFor(() => expect(first.result.current.channel).toHaveLength(1));
+
+    // Signed out, and somebody else signed in, in the same tab.
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(["me"], { id: 2, username: "other", photo: "" });
+    const { result } = renderHook(() => usePendingMessages("c1", null), {
+      wrapper,
+    });
+    expect(result.current).toEqual([]);
+  });
+
+  it("shows a thread reply in its thread, and in the channel only when also sent there", async () => {
+    api.postMessage.mockReturnValue(new Promise(() => {}));
+    const { result } = renderSend();
+    act(() => {
+      void result.current.sender.send({ body: "a", threadRootId: "m1" });
+      void result.current.sender.send({
+        body: "b",
+        threadRootId: "m1",
+        alsoInChannel: true,
+      });
+    });
+    await waitFor(() =>
+      expect(result.current.thread.map((m) => m.body)).toEqual(["a", "b"]),
+    );
+    expect(result.current.channel.map((m) => m.body)).toEqual(["b"]);
   });
 });

@@ -1,28 +1,13 @@
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
-import { matchPath, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useEffect } from "react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
+import { routeTitle } from "@/app/route-titles";
 import { UploadPanel } from "@/app/documents/upload-panel";
-
-/** Declarative route → title mapping. First match wins. */
-const ROUTE_TITLES: Array<{ path: string; title: string }> = [
-  { path: "/w/:workspaceId/chat", title: "Chat" },
-  { path: "/w/:workspaceId/chat/:channelId", title: "Chat" },
-  { path: "/w/:workspaceId/analytics", title: "Analytics" },
-  { path: "/w/:workspaceId/analytics/:id", title: "Document analytics" },
-  { path: "/w/:workspaceId/templates", title: "Templates" },
-  { path: "/w/:workspaceId/settings", title: "Settings" },
-  { path: "/w/:workspaceId/settings/webhooks/:webhookId", title: "Webhook" },
-  { path: "/w/:workspaceId/trash", title: "Trash" },
-  { path: "/w/:workspaceId", title: "Documents" },
-  { path: "/settings", title: "Settings" },
-  { path: "/documents", title: "Documents" },
-  { path: "/", title: "Documents" },
-];
 
 /**
  * Renders the root app layout and providers.
@@ -45,12 +30,12 @@ export default function Layout() {
 
   const items = useWorkspaceNavItems(workspaceSlug);
 
-  const title =
-    ROUTE_TITLES.find((r) => matchPath(r.path, location.pathname))?.title ?? "";
+  const { title, pageOwnsTab } = routeTitle(location.pathname);
 
   useEffect(() => {
+    if (pageOwnsTab) return;
     document.title = title ? `${title} — Wafflebase` : "Wafflebase";
-  }, [title]);
+  }, [title, pageOwnsTab]);
 
   // Clean up stale pointer-events style on body when Layout unmounts.
   // Radix UI Sheet (mobile sidebar) sets pointer-events: none on <body>

@@ -21,6 +21,8 @@ export const chatKeys = {
   allThreads: ['chat', 'thread'] as const,
   thread: (rootId: string) => ['chat', 'thread', rootId] as const,
   members: (channelId: string) => ['chat', 'members', channelId] as const,
+  /** The reader's own sends to a channel or its threads not yet answered. */
+  pending: (channelId: string) => ['chat', 'pending', channelId] as const,
 };
 
 export interface ChatEventState {
@@ -217,4 +219,67 @@ export function chatBadgeCount(channels: ChannelSummary[]): number {
 export function channelCount(channel: ChannelSummary): number {
   if (channel.mentionCount > 0) return channel.mentionCount;
   return channel.kind === 'dm' ? channel.unreadCount : 0;
+}
+
+/**
+ * A message as the log draws it: a server row, or one of the reader's own
+ * sends that has not been answered yet. A local row carries a `clientId`, and
+ * its `seq` is the newest the client knew of when it was sent — a floor for
+ * the seq the server will give it, never a real one. Local rows live outside
+ * the message caches, so nothing that pages or catches up by `seq` sees them.
+ */
+export type ChatLine = ChatMessageDto & {
+  localState?: 'pending' | 'failed';
+  clientId?: string;
+};
+
+/** What a send was asked to post, kept so a failed one can be retried. */
+export interface PostInput {
+  body: string;
+  threadRootId?: string;
+  alsoInChannel?: boolean;
+}
+
+/** One optimistic send, held under `chatKeys.pending(channelId)`. */
+export interface PendingSend {
+  clientId: string;
+  input: PostInput;
+  state: 'pending' | 'failed';
+  /** The row drawn for it until the server's own replaces it. */
+  message: ChatLine;
+}
+
+/**
+ * The log with the reader's unanswered sends at its tail. A send still in
+ * flight is hidden once the stream has brought in the server's copy — the
+ * post's response, which retires it, can land after the event that announced
+ * the same message — so it is never drawn twice. The server's copy is matched
+ * by author and body among rows newer than the send, one server row per send.
+ *
+ * A failed send is never hidden this way: matching is by text, so a later
+ * message with the same words would claim its row and make a message that
+ * never arrived disappear. The cost is the rare post whose response alone
+ * was lost, which shows as failed beside its delivered copy.
+ */
+export function withPending(
+  server: ChatMessageDto[],
+  pending: ChatLine[],
+): ChatLine[] {
+  if (pending.length === 0) return server;
+  const claimed = new Set<string>();
+  const visible = pending.filter((p) => {
+    if (p.localState !== 'pending') return true;
+    const twin = server.find(
+      (m) =>
+        !claimed.has(m.id) &&
+        m.author !== null &&
+        m.author.id === p.author?.id &&
+        m.body === p.body &&
+        m.seq > p.seq,
+    );
+    if (!twin) return true;
+    claimed.add(twin.id);
+    return false;
+  });
+  return visible.length === 0 ? server : [...server, ...visible];
 }
