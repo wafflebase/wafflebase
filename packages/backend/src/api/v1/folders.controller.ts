@@ -95,14 +95,17 @@ export class ApiV1FoldersController {
     if (body.parentId) {
       await this.folderService.assertSameWorkspace(body.parentId, workspaceId);
     }
-    return this.folderService.create({
-      name: body.name,
-      workspaceId,
-      parentId: body.parentId ?? null,
-      // An API key has no user behind it, so the folder is authored by the
-      // user who minted the key — `ApiKeyStrategy` puts that id on `req.user`.
-      authorID: Number(req.user.id),
-    });
+    return this.folderService.create(
+      {
+        name: body.name,
+        workspaceId,
+        parentId: body.parentId ?? null,
+        // An API key has no user behind it, so the folder is authored by the
+        // user who minted the key — `ApiKeyStrategy` puts that id on `req.user`.
+        authorID: Number(req.user.id),
+      },
+      Number(req.user.id),
+    );
   }
 
   @Get()
@@ -136,7 +139,7 @@ export class ApiV1FoldersController {
       await this.folderService.assertNoCycle(folderId, nextParent);
       data.parentId = nextParent;
     }
-    return this.folderService.update(folderId, data);
+    return this.folderService.update(folderId, data, Number(req.user.id));
   }
 
   @Delete(':folderId')
@@ -153,6 +156,6 @@ export class ApiV1FoldersController {
     }
     // Non-destructive by schema: descendant folders cascade, but their
     // documents are `SetNull` and return to the workspace root.
-    return this.folderService.delete(folderId);
+    return this.folderService.delete(folderId, Number(req.user.id));
   }
 }

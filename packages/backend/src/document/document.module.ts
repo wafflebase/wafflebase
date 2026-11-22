@@ -15,6 +15,7 @@ import { ShareLinkModule } from '../share-link/share-link.module';
 import { FolderModule } from '../folder/folder.module';
 import { ImageModule } from '../image/image.module';
 import { TemplateSyncModule } from '../template/template-sync.module';
+import { WebhookEventModule } from '../webhook/webhook-event.module';
 
 @Module({
   imports: [
@@ -29,6 +30,8 @@ import { TemplateSyncModule } from '../template/template-sync.module';
     // The Yorkie edit webhook returns an approved public listing to review.
     // A dedicated module rather than `TemplateModule`, which imports this one.
     TemplateSyncModule,
+    // Lifecycle and content events (docs/design/webhooks.md).
+    WebhookEventModule,
   ],
   controllers: [
     DocumentController,

@@ -6,6 +6,8 @@ export interface AuthenticatedRequest extends Request {
     isApiKey?: boolean;
     workspaceId?: string;
     scopes?: string[];
+    /** The API key's id, for the webhook `api_writers` loop guard. */
+    apiKeyId?: string;
   };
 }
 

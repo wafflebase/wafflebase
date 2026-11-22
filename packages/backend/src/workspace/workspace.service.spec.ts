@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { WorkspaceService } from './workspace.service';
+import type { WebhookEventService } from '../webhook/webhook-event.service';
 
 function createMockPrisma() {
   const prisma = {
@@ -36,6 +37,9 @@ function createMockPrisma() {
     apiKey: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    webhook: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     chatChannelMember: {
       findMany: jest.fn().mockResolvedValue([]),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -62,15 +66,18 @@ describe('WorkspaceService', () => {
   let service: WorkspaceService;
   let prisma: ReturnType<typeof createMockPrisma>;
   let notifications: { createMemberJoined: jest.Mock };
+  let emitMemberEvent: jest.Mock;
 
   beforeEach(() => {
     prisma = createMockPrisma();
     notifications = {
       createMemberJoined: jest.fn().mockResolvedValue({ created: 0 }),
     };
+    emitMemberEvent = jest.fn().mockResolvedValue(undefined);
     service = new WorkspaceService(
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationService,
+      { enabled: true, emitMemberEvent } as unknown as WebhookEventService,
     );
   });
 
@@ -808,5 +815,107 @@ describe('WorkspaceService', () => {
         service.assertMember('11111111-1111-1111-1111-111111111111', 1),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
+  });
+});
+
+/**
+ * Membership webhook events (docs/design/webhooks.md § Event catalog). Each
+ * is emitted with the transaction client, inside the write's transaction.
+ */
+describe('WorkspaceService webhook events', () => {
+  const WS = '11111111-1111-1111-1111-111111111111';
+  let prisma: ReturnType<typeof createMockPrisma>;
+  let emitMemberEvent: jest.Mock;
+  let service: WorkspaceService;
+
+  beforeEach(() => {
+    prisma = createMockPrisma();
+    emitMemberEvent = jest.fn().mockResolvedValue(undefined);
+    service = new WorkspaceService(
+      prisma as unknown as PrismaService,
+      {
+        createMemberJoined: jest.fn().mockResolvedValue({ created: 0 }),
+      } as unknown as NotificationService,
+      { enabled: true, emitMemberEvent } as unknown as WebhookEventService,
+    );
+  });
+
+  it('emits member.joined for the creator of a new workspace', async () => {
+    prisma.workspace.findUnique.mockResolvedValue(null);
+    prisma.workspace.create.mockResolvedValue({ id: WS, name: 'W', slug: 'w' });
+    prisma.workspaceMember.create.mockResolvedValue({});
+
+    await service.create(1, { name: 'W' });
+
+    expect(emitMemberEvent).toHaveBeenCalledWith(prisma, {
+      type: 'member.joined',
+      workspaceId: WS,
+      actor: 1,
+      userId: 1,
+      role: 'owner',
+    });
+  });
+
+  it('emits member.joined when an invite creates a membership', async () => {
+    prisma.workspaceInvite.findUnique.mockResolvedValue({
+      token: 't',
+      workspaceId: WS,
+      role: 'member',
+      expiresAt: null,
+      createdBy: 1,
+    });
+    prisma.workspaceMember.findUnique.mockResolvedValue(null);
+    prisma.workspaceMember.create.mockResolvedValue({});
+
+    await service.acceptInvite('t', 5);
+
+    expect(emitMemberEvent).toHaveBeenCalledWith(prisma, {
+      type: 'member.joined',
+      workspaceId: WS,
+      actor: 5,
+      userId: 5,
+      role: 'member',
+    });
+  });
+
+  it('emits nothing when the invitee is already a member', async () => {
+    prisma.workspaceInvite.findUnique.mockResolvedValue({
+      token: 't',
+      workspaceId: WS,
+      role: 'member',
+      expiresAt: null,
+    });
+    prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'member' });
+
+    await service.acceptInvite('t', 5);
+
+    expect(emitMemberEvent).not.toHaveBeenCalled();
+  });
+
+  it("emits member.removed and disables the removed member's webhooks", async () => {
+    prisma.workspaceMember.findUnique
+      .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+      .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+    prisma.workspaceMember.delete.mockResolvedValue({});
+
+    await service.removeMember(WS, 1, 2);
+
+    expect(prisma.webhook.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: WS, createdBy: 2, status: 'active' },
+      data: {
+        status: 'disabled',
+        disabledAt: expect.any(Date),
+        disabledReason: 'creator_removed',
+      },
+    });
+    expect(emitMemberEvent).toHaveBeenCalledWith(prisma, {
+      type: 'member.removed',
+      workspaceId: WS,
+      actor: 1,
+      userId: 2,
+      role: 'member',
+    });
+    // Same transaction as the membership delete and the key revocation.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

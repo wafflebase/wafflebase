@@ -1,7 +1,28 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Document, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { LIVE_DOCUMENT, TRASHED_DOCUMENT } from './live-document';
+import {
+  WebhookEventService,
+  writeWithEvents,
+} from '../webhook/webhook-event.service';
+import type { DocumentSource } from '../webhook/webhook.types';
+
+/**
+ * Who a document write is attributed to in its webhook event: the acting
+ * user's id, or `null` for a write with no person behind it.
+ */
+export type DocumentActor = number | null;
+
+/**
+ * What `createDocument` reports as `document.created`. `null` means the
+ * caller emits the event itself, once the document is complete — the copy
+ * path, whose row is rolled back if the content copy fails.
+ */
+export type DocumentCreatedEvent = {
+  actorId: DocumentActor;
+  source: DocumentSource;
+} | null;
 
 /**
  * Author fields surfaced on the documents-list rows. `select`ed (not the
@@ -24,7 +45,12 @@ export type DocumentWithAuthor = Prisma.DocumentGetPayload<{
  */
 @Injectable()
 export class DocumentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Optional only so hand-built instances in tests keep compiling; the app
+    // always provides it (`DocumentModule` imports `WebhookEventModule`).
+    @Optional() private readonly webhookEvents?: WebhookEventService,
+  ) {}
 
   /** A live document, or `null` when it is missing or in the trash. */
   async document(
@@ -110,17 +136,60 @@ export class DocumentService {
     });
   }
 
-  async createDocument(data: Prisma.DocumentCreateInput): Promise<Document> {
-    const doc = await this.prisma.document.create({
-      data,
+  /**
+   * Create a document row, emitting `document.created` in the same
+   * transaction unless `event` is `null` (see {@link DocumentCreatedEvent}).
+   * The parameter is required so a new creation path has to decide.
+   */
+  async createDocument(
+    data: Prisma.DocumentCreateInput,
+    event: DocumentCreatedEvent,
+  ): Promise<Document> {
+    return writeWithEvents(this.prisma, this.webhookEvents, async (tx) => {
+      const doc = await tx.document.create({ data });
+      if (event) await this.emitCreated(tx, doc, event);
+      return doc;
     });
-    return doc;
   }
 
-  async updateDocument(params: {
-    where: Prisma.DocumentWhereUniqueInput;
-    data: Prisma.DocumentUpdateInput;
-  }): Promise<Document> {
+  /**
+   * `document.created` for a document a caller finished building outside
+   * {@link createDocument} — a copy, once its content has landed.
+   */
+  async emitDocumentCreated(
+    doc: Document,
+    event: NonNullable<DocumentCreatedEvent>,
+  ): Promise<void> {
+    if (!this.webhookEvents?.enabled) return;
+    await this.prisma.$transaction((tx) => this.emitCreated(tx, doc, event));
+  }
+
+  private async emitCreated(
+    tx: Prisma.TransactionClient,
+    doc: Document,
+    event: NonNullable<DocumentCreatedEvent>,
+  ): Promise<void> {
+    await this.webhookEvents?.emitDocumentEvent(tx, {
+      type: 'document.created',
+      actor: event.actorId,
+      document: doc,
+      extra: { source: event.source },
+    });
+  }
+
+  /**
+   * Rename and/or move one document. Emits `document.renamed` when the title
+   * changed and `document.moved` when its folder or workspace did — read
+   * against the row as it was, so a PATCH that repeats the current value
+   * reports nothing.
+   */
+  async updateDocument(
+    params: {
+      where: Prisma.DocumentWhereUniqueInput;
+      data: Prisma.DocumentUpdateInput;
+    },
+    actorId: DocumentActor,
+  ): Promise<Document> {
     const { data, where } = params;
     // A real metadata update (rename, move) is a modification, so advance
     // `updatedAt` — content edits arrive via the Yorkie webhook, but title/
@@ -130,7 +199,71 @@ export class DocumentService {
     // spuriously re-sort the document to the top of the list.
     const nextData =
       Object.keys(data).length > 0 ? { ...data, updatedAt: new Date() } : data;
-    return this.prisma.document.update({ data: nextData, where });
+    return writeWithEvents(this.prisma, this.webhookEvents, async (tx) => {
+      const before = this.webhookEvents?.enabled
+        ? await tx.document.findUnique({ where })
+        : null;
+      const after = await tx.document.update({ data: nextData, where });
+      if (before) await this.emitChange(tx, before, after, actorId);
+      return after;
+    });
+  }
+
+  /**
+   * The rename / move events one update produced. A cross-workspace move is
+   * reported to both workspaces, each half filtered on its own folder.
+   */
+  private async emitChange(
+    tx: Prisma.TransactionClient,
+    before: Document,
+    after: Document,
+    actorId: DocumentActor,
+  ): Promise<void> {
+    const events = this.webhookEvents;
+    if (!events) return;
+    if (before.title !== after.title) {
+      await events.emitDocumentEvent(tx, {
+        type: 'document.renamed',
+        actor: actorId,
+        document: after,
+      });
+    }
+    const crossWorkspace = before.workspaceId !== after.workspaceId;
+    if (!crossWorkspace && before.folderId === after.folderId) return;
+
+    const fromFolder = await events.folderRef(tx, before.folderId);
+    const toFolder = await events.folderRef(tx, after.folderId);
+    const extra: Record<string, unknown> = {
+      from_folder: fromFolder,
+      to_folder: toFolder,
+    };
+    if (!crossWorkspace) {
+      await events.emitDocumentEvent(tx, {
+        type: 'document.moved',
+        actor: actorId,
+        document: after,
+        folder: toFolder,
+        filterFolderId: [before.folderId, after.folderId],
+        extra,
+      });
+      return;
+    }
+    extra.from_workspace_id = before.workspaceId;
+    extra.to_workspace_id = after.workspaceId;
+    for (const [workspaceId, folderId] of [
+      [before.workspaceId, before.folderId],
+      [after.workspaceId, after.folderId],
+    ] as const) {
+      await events.emitDocumentEvent(tx, {
+        type: 'document.moved',
+        actor: actorId,
+        document: after,
+        folder: toFolder,
+        workspaceId,
+        filterFolderId: folderId,
+        extra,
+      });
+    }
   }
 
   /**
@@ -141,17 +274,32 @@ export class DocumentService {
    */
   async moveDocuments(
     updates: Array<{ id: string; data: Prisma.DocumentUpdateInput }>,
+    actorId: DocumentActor,
   ): Promise<number> {
     if (updates.length === 0) return 0;
     const at = new Date();
-    await this.prisma.$transaction(
-      updates.map((u) =>
-        this.prisma.document.update({
+    if (!this.webhookEvents?.enabled) {
+      await this.prisma.$transaction(
+        updates.map((u) =>
+          this.prisma.document.update({
+            where: { id: u.id },
+            data: { ...u.data, updatedAt: at },
+          }),
+        ),
+      );
+      return updates.length;
+    }
+    // One `document.moved` per document, inside the move's transaction.
+    await this.prisma.$transaction(async (tx) => {
+      for (const u of updates) {
+        const before = await tx.document.findUnique({ where: { id: u.id } });
+        const after = await tx.document.update({
           where: { id: u.id },
           data: { ...u.data, updatedAt: at },
-        }),
-      ),
-    );
+        });
+        if (before) await this.emitChange(tx, before, after, actorId);
+      }
+    });
     return updates.length;
   }
 
@@ -162,13 +310,39 @@ export class DocumentService {
    * `updatedAt` is not touched — trashing is not an edit, and a restored
    * document should sort where it did before.
    */
-  async trashDocuments(ids: string[]): Promise<number> {
+  async trashDocuments(ids: string[], actorId: DocumentActor): Promise<number> {
     if (ids.length === 0) return 0;
-    const { count } = await this.prisma.document.updateMany({
-      where: { id: { in: ids }, ...LIVE_DOCUMENT },
-      data: { deletedAt: new Date() },
+    const deletedAt = new Date();
+    if (!this.webhookEvents?.enabled) {
+      const { count } = await this.prisma.document.updateMany({
+        where: { id: { in: ids }, ...LIVE_DOCUMENT },
+        data: { deletedAt },
+      });
+      return count;
+    }
+    // Each id is its own compare-and-set so `document.trashed` is emitted
+    // exactly for the rows this call trashed — never for one a concurrent
+    // request got to first. One event per document, bulk or not.
+    return this.prisma.$transaction(async (tx) => {
+      const live = await tx.document.findMany({
+        where: { id: { in: ids }, ...LIVE_DOCUMENT },
+      });
+      let trashed = 0;
+      for (const doc of live) {
+        const { count } = await tx.document.updateMany({
+          where: { id: doc.id, ...LIVE_DOCUMENT },
+          data: { deletedAt },
+        });
+        if (count === 0) continue;
+        trashed++;
+        await this.webhookEvents?.emitDocumentEvent(tx, {
+          type: 'document.trashed',
+          actor: actorId,
+          document: doc,
+        });
+      }
+      return trashed;
     });
-    return count;
   }
 
   /**
@@ -177,13 +351,28 @@ export class DocumentService {
    * already `SetNull`s `folderId` on every document in it (trashed ones
    * included), so a document whose folder is gone returns to the root.
    */
-  async restoreDocument(id: string): Promise<Document | null> {
-    const { count } = await this.prisma.document.updateMany({
-      where: { id, ...TRASHED_DOCUMENT },
-      data: { deletedAt: null },
+  async restoreDocument(
+    id: string,
+    actorId: DocumentActor,
+  ): Promise<Document | null> {
+    return writeWithEvents(this.prisma, this.webhookEvents, async (tx) => {
+      const { count } = await tx.document.updateMany({
+        where: { id, ...TRASHED_DOCUMENT },
+        data: { deletedAt: null },
+      });
+      if (count === 0) return null;
+      const doc = await tx.document.findUnique({
+        where: { id, ...LIVE_DOCUMENT },
+      });
+      if (doc) {
+        await this.webhookEvents?.emitDocumentEvent(tx, {
+          type: 'document.restored',
+          actor: actorId,
+          document: doc,
+        });
+      }
+      return doc;
     });
-    if (count === 0) return null;
-    return this.document({ id });
   }
 
   /**
@@ -221,11 +410,28 @@ export class DocumentService {
    * Returns whether a row was deleted — the caller must only clean up the
    * blob when it was.
    */
-  async purgeTrashedDocument(id: string): Promise<boolean> {
-    const { count } = await this.prisma.document.deleteMany({
-      where: { id, ...TRASHED_DOCUMENT },
+  async purgeTrashedDocument(
+    id: string,
+    actorId: DocumentActor,
+  ): Promise<boolean> {
+    return writeWithEvents(this.prisma, this.webhookEvents, async (tx) => {
+      // `document.deleted` describes a row that is about to stop existing, so
+      // it is read first; the event is emitted only if the delete won.
+      const doc = this.webhookEvents?.enabled
+        ? await tx.document.findUnique({ where: { id, ...TRASHED_DOCUMENT } })
+        : null;
+      const { count } = await tx.document.deleteMany({
+        where: { id, ...TRASHED_DOCUMENT },
+      });
+      if (count > 0 && doc) {
+        await this.webhookEvents?.emitDocumentEvent(tx, {
+          type: 'document.deleted',
+          actor: actorId,
+          document: doc,
+        });
+      }
+      return count > 0;
     });
-    return count > 0;
   }
 
   /**
@@ -234,11 +440,15 @@ export class DocumentService {
    * — an id restored mid-request is left live and left out of the result, and
    * its blob is never touched. Blob cleanup for file-backed types (pdf /
    * image / file) is done best-effort by the controller after this returns.
+   * Each destroyed id emits its own `document.deleted`.
    */
-  async purgeTrashedDocuments(ids: string[]): Promise<string[]> {
+  async purgeTrashedDocuments(
+    ids: string[],
+    actorId: DocumentActor,
+  ): Promise<string[]> {
     const purged: string[] = [];
     for (const id of ids) {
-      if (await this.purgeTrashedDocument(id)) purged.push(id);
+      if (await this.purgeTrashedDocument(id, actorId)) purged.push(id);
     }
     return purged;
   }

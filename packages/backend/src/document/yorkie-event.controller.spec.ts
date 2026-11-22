@@ -1,19 +1,63 @@
 import { YorkieEventController } from './yorkie-event.controller';
 import { DocumentService } from './document.service';
 import { TemplateReviewSyncService } from '../template/template-review-sync.service';
+import { WebhookEventService } from '../webhook/webhook-event.service';
 
 describe('YorkieEventController', () => {
   let touchUpdatedAt: jest.Mock;
   let onDocumentChanged: jest.Mock;
+  let noteContentChange: jest.Mock;
+  let webhooks: { enabled: boolean; noteContentChange: jest.Mock };
   let controller: YorkieEventController;
 
   beforeEach(() => {
     touchUpdatedAt = jest.fn().mockResolvedValue(1);
     onDocumentChanged = jest.fn().mockResolvedValue(undefined);
+    noteContentChange = jest.fn().mockResolvedValue(undefined);
+    webhooks = { enabled: true, noteContentChange };
     controller = new YorkieEventController(
       { touchUpdatedAt } as unknown as DocumentService,
       { onDocumentChanged } as unknown as TemplateReviewSyncService,
+      webhooks as unknown as WebhookEventService,
     );
+  });
+
+  describe('webhook content_updated intake', () => {
+    it('opens the coalescing window with the same instant', async () => {
+      await controller.handleEvent({
+        type: 'DocumentRootChanged',
+        attributes: { key: 'doc-abc', issuedAt: '2020-01-01T00:00:00.000Z' },
+      });
+      expect(noteContentChange).toHaveBeenCalledWith(
+        'abc',
+        new Date('2020-01-01T00:00:00.000Z'),
+      );
+    });
+
+    it('is skipped entirely while webhooks are disabled', async () => {
+      webhooks.enabled = false;
+      await controller.handleEvent({
+        type: 'DocumentRootChanged',
+        attributes: { key: 'doc-abc' },
+      });
+      expect(noteContentChange).not.toHaveBeenCalled();
+      expect(touchUpdatedAt).toHaveBeenCalled();
+    });
+
+    it('still answers ok when the intake throws', async () => {
+      noteContentChange.mockRejectedValue(new Error('db down'));
+      await expect(
+        controller.handleEvent({
+          type: 'DocumentRootChanged',
+          attributes: { key: 'doc-abc' },
+        }),
+      ).resolves.toEqual({ ok: true });
+    });
+
+    it('ignores events that are not root changes', async () => {
+      await controller.handleEvent({ type: 'DocumentWatched' });
+      expect(noteContentChange).not.toHaveBeenCalled();
+    });
   });
 
   it('tells the template sync about the edit, with the same instant', async () => {

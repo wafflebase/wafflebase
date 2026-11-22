@@ -104,16 +104,19 @@ export class ApiV1FilesController {
 
     try {
       assertFileIdAllowed(type, uploaded.id);
-      return await this.documentService.createDocument({
-        title,
-        type,
-        fileId: uploaded.id,
-        fileSize: uploaded.size,
-        mimeType: uploaded.mimeType,
-        workspace: { connect: { id: workspaceId } },
-        author: { connect: { id: Number(req.user.id) } },
-        ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
-      });
+      return await this.documentService.createDocument(
+        {
+          title,
+          type,
+          fileId: uploaded.id,
+          fileSize: uploaded.size,
+          mimeType: uploaded.mimeType,
+          workspace: { connect: { id: workspaceId } },
+          author: { connect: { id: Number(req.user.id) } },
+          ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
+        },
+        { actorId: Number(req.user.id), source: { kind: 'upload' } },
+      );
     } catch (err) {
       // A blob is only reachable through its document row; without one it is
       // unreferenced garbage nothing will ever collect. Best-effort delete —

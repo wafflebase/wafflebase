@@ -51,12 +51,15 @@ export class FolderController {
     if (body.parentId) {
       await this.folderService.assertSameWorkspace(body.parentId, workspaceId);
     }
-    return this.folderService.create({
-      name: body.name,
-      workspaceId,
-      parentId: body.parentId ?? null,
-      authorID: userId,
-    });
+    return this.folderService.create(
+      {
+        name: body.name,
+        workspaceId,
+        parentId: body.parentId ?? null,
+        authorID: userId,
+      },
+      userId,
+    );
   }
 
   @Get('workspaces/:workspaceId/folders')
@@ -100,7 +103,7 @@ export class FolderController {
       await this.folderService.assertNoCycle(id, nextParent);
       data.parentId = nextParent;
     }
-    return this.folderService.update(id, data);
+    return this.folderService.update(id, data, userId);
   }
 
   @Delete('folders/:id')
@@ -110,11 +113,12 @@ export class FolderController {
   ): Promise<Folder> {
     const folder = await this.folderService.getById(id);
     if (!folder) throw new NotFoundException('Folder not found');
-    if (!(await this.resolveFolderManager(folder, Number(req.user.id)))) {
+    const userId = Number(req.user.id);
+    if (!(await this.resolveFolderManager(folder, userId))) {
       throw new ForbiddenException(
         'Only the workspace owner or folder owner can delete this folder',
       );
     }
-    return this.folderService.delete(id);
+    return this.folderService.delete(id, userId);
   }
 }

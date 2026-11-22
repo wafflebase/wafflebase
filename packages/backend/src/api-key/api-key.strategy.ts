@@ -24,6 +24,9 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
       workspaceId: apiKey.workspaceId,
       scopes: apiKey.scopes,
       isApiKey: true,
+      // Recorded on `/api/v1` content writes so a webhook receiver can tell
+      // its own writes apart (docs/design/webhooks.md, use case 3).
+      apiKeyId: apiKey.id,
     };
   }
 }

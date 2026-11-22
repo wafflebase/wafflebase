@@ -79,6 +79,12 @@ export interface CopyDestination {
    * this one is a singleton serving concurrent requests.
    */
   onImages?: (report: CopyImageReport) => void;
+  /**
+   * The template listing this copy is a use of. Only names the webhook
+   * `document.created` source (`template` rather than `copy`); it authorizes
+   * nothing.
+   */
+  templateId?: string;
 }
 
 /** What a copy did with the source's workspace-scoped images. */
@@ -207,22 +213,27 @@ export class DocumentCopyService {
 
     let created: DocumentModel;
     try {
-      created = await this.documentService.createDocument({
-        title,
-        type: source.type,
-        ...(fileId
-          ? {
-              fileId,
-              // The copied bytes are the source's bytes, so its blob metadata
-              // describes them exactly.
-              fileSize: source.fileSize,
-              mimeType: source.mimeType,
-            }
-          : {}),
-        author: { connect: { id: userId } },
-        workspace: { connect: { id: workspaceId } },
-        ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
-      });
+      created = await this.documentService.createDocument(
+        {
+          title,
+          type: source.type,
+          ...(fileId
+            ? {
+                fileId,
+                // The copied bytes are the source's bytes, so its blob metadata
+                // describes them exactly.
+                fileSize: source.fileSize,
+                mimeType: source.mimeType,
+              }
+            : {}),
+          author: { connect: { id: userId } },
+          workspace: { connect: { id: workspaceId } },
+          ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
+          // `document.created` waits for the content below: a copy whose content
+          // write fails is rolled back, and must not have been announced.
+        },
+        null,
+      );
     } catch (err) {
       await this.discardBlob(fileId);
       throw err;
@@ -280,6 +291,20 @@ export class DocumentCopyService {
       throw err;
     }
 
+    // Best-effort, like the template's use counter: the document the caller
+    // asked for exists, so a failed outbox insert must not fail the request.
+    await this.documentService
+      .emitDocumentCreated(created, {
+        actorId: userId,
+        source: dest?.templateId
+          ? { kind: 'template', id: dest.templateId }
+          : { kind: 'copy', id: source.id },
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `document.created webhook event failed for ${created.id}: ${err}`,
+        );
+      });
     return created;
   }
 

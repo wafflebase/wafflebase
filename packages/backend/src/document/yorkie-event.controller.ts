@@ -4,6 +4,7 @@ import { DocumentService } from './document.service';
 import { parseYorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
 import { TemplateReviewSyncService } from '../template/template-review-sync.service';
+import { WebhookEventService } from '../webhook/webhook-event.service';
 
 /**
  * Shape of Yorkie's event-webhook body (yorkie 0.7.12,
@@ -36,6 +37,7 @@ export class YorkieEventController {
   constructor(
     private readonly documentService: DocumentService,
     private readonly templateReviewSync: TemplateReviewSyncService,
+    private readonly webhookEvents: WebhookEventService,
   ) {}
 
   @Post('events')
@@ -71,6 +73,17 @@ export class YorkieEventController {
     await this.templateReviewSync
       .onDocumentChanged(parsed.id, at)
       .catch(() => undefined);
+
+    // `document.content_updated` only opens or extends the document's
+    // coalescing window here; the delivery worker turns it into an event once
+    // the document is quiet (docs/design/webhooks.md). Nothing outbound is
+    // awaited, so a slow receiver can never delay this 200 into a Yorkie
+    // retry, and a failure is swallowed for the same reason as above.
+    if (this.webhookEvents.enabled) {
+      await this.webhookEvents
+        .noteContentChange(parsed.id, at)
+        .catch(() => undefined);
+    }
     return { ok: true };
   }
 }

@@ -847,6 +847,8 @@ describe('TemplateService.use', () => {
       workspaceId: 'ws-2',
       folderId: null,
       title: 'Weekly Report',
+      // Names the webhook `document.created` source; authorizes nothing.
+      templateId: 'tpl-1',
     });
   });
 

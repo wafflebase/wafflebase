@@ -78,6 +78,7 @@ function makeService(
     createDocument:
       opts.createDocument ?? jest.fn(async () => ({ id: 'copy-1' })),
     deleteDocument: jest.fn(async () => ({ id: 'copy-1' })),
+    emitDocumentCreated: jest.fn(async () => undefined),
   };
   const fileService = {
     copy:
@@ -113,6 +114,51 @@ function makeService(
 }
 
 describe('DocumentCopyService', () => {
+  describe('document.created webhook event', () => {
+    it('is left out of the row insert and emitted once the copy is complete', async () => {
+      const { service, documentService } = makeService();
+      await service.copy(SOURCE as never, 42);
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        null,
+      );
+      expect(documentService.emitDocumentCreated).toHaveBeenCalledWith(
+        { id: 'copy-1' },
+        { actorId: 42, source: { kind: 'copy', id: SOURCE.id } },
+      );
+    });
+
+    it('names the template listing as the source of a template use', async () => {
+      const { service, documentService } = makeService();
+      await service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        templateId: 'tpl-1',
+      });
+      expect(documentService.emitDocumentCreated).toHaveBeenCalledWith(
+        { id: 'copy-1' },
+        { actorId: 42, source: { kind: 'template', id: 'tpl-1' } },
+      );
+    });
+
+    it('is not emitted for a copy that was rolled back', async () => {
+      const { service, documentService } = makeService({
+        withDocument: jest.fn(async () => {
+          throw new Error('yorkie down');
+        }),
+      });
+      await expect(service.copy(SOURCE as never, 42)).rejects.toThrow();
+      expect(documentService.emitDocumentCreated).not.toHaveBeenCalled();
+    });
+
+    it('does not fail a finished copy when the event cannot be recorded', async () => {
+      const { service, documentService } = makeService();
+      documentService.emitDocumentCreated.mockRejectedValue(new Error('db'));
+      await expect(service.copy(SOURCE as never, 42)).resolves.toEqual({
+        id: 'copy-1',
+      });
+    });
+  });
+
   it('refuses a trashed source before touching storage or Yorkie', async () => {
     const { service, documentService, fileService, withDocument } =
       makeService();
@@ -135,6 +181,7 @@ describe('DocumentCopyService', () => {
         workspace: { connect: { id: 'ws-1' } },
         folder: { connect: { id: 'fld-1' } },
       }),
+      null,
     );
   });
 
@@ -148,6 +195,7 @@ describe('DocumentCopyService', () => {
     });
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Report (copy 2)' }),
+      null,
     );
   });
 
@@ -168,6 +216,7 @@ describe('DocumentCopyService', () => {
           folder: { connect: { id: 'fld-9' } },
           author: { connect: { id: 42 } },
         }),
+        null,
       );
     });
 
@@ -179,6 +228,7 @@ describe('DocumentCopyService', () => {
       });
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ title: 'Weekly Report' }),
+        null,
       );
     });
 
@@ -192,6 +242,7 @@ describe('DocumentCopyService', () => {
       });
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.not.objectContaining({ folder: expect.anything() }),
+        null,
       );
     });
 
@@ -205,6 +256,7 @@ describe('DocumentCopyService', () => {
       });
       expect(documentService.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ title: 'Weekly Report (2)' }),
+        null,
       );
     });
   });
@@ -368,6 +420,7 @@ describe('DocumentCopyService', () => {
         fileSize: 1234,
         mimeType: 'application/pdf',
       }),
+      null,
     );
     // A blob document has no CRDT content to attach to.
     expect(withDocument).not.toHaveBeenCalled();
@@ -449,6 +502,7 @@ describe('DocumentCopyService', () => {
     // No `folder` connect at all, rather than one connecting to null.
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.not.objectContaining({ folder: expect.anything() }),
+      null,
     );
   });
 

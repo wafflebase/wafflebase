@@ -64,6 +64,7 @@ describe('DocumentController.createDocument fileId gating', () => {
         type: 'pdf',
         fileId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf',
       }),
+      expect.anything(),
     );
   });
 
@@ -83,6 +84,7 @@ describe('DocumentController.createDocument fileId gating', () => {
         fileSize: 1234,
         mimeType: 'application/pdf',
       }),
+      expect.anything(),
     );
   });
 
@@ -136,6 +138,7 @@ describe('DocumentController.createInWorkspace blob metadata forwarding', () => 
         fileSize: 5678,
         mimeType: 'application/pdf',
       }),
+      expect.anything(),
     );
   });
 
@@ -255,7 +258,10 @@ describe('DocumentController delete/move/rename permissions', () => {
       await expect(
         controller.deleteDocument(reqAs(OWNER), 'doc-1'),
       ).resolves.toMatchObject({ id: 'doc-1', deletedAt: TRASHED_AT });
-      expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
+      expect(documentService.trashDocuments).toHaveBeenCalledWith(
+        ['doc-1'],
+        expect.any(Number),
+      );
       // A soft delete keeps the row and its blob.
       expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
       expect(fileService.delete).not.toHaveBeenCalled();
@@ -276,6 +282,7 @@ describe('DocumentController delete/move/rename permissions', () => {
       });
       expect(documentService.purgeTrashedDocument).toHaveBeenCalledWith(
         'doc-1',
+        expect.any(Number),
       );
       expect(documentService.trashDocuments).not.toHaveBeenCalled();
       expect(fileService.delete).toHaveBeenCalledWith(BLOB_ID);
@@ -354,7 +361,10 @@ describe('DocumentController delete/move/rename permissions', () => {
       await expect(
         controller.restoreDocument(reqAs(AUTHOR), 'doc-1'),
       ).resolves.toMatchObject({ id: 'doc-1', deletedAt: null });
-      expect(documentService.restoreDocument).toHaveBeenCalledWith('doc-1');
+      expect(documentService.restoreDocument).toHaveBeenCalledWith(
+        'doc-1',
+        expect.any(Number),
+      );
     });
 
     it('forbids a plain member who does not own it', async () => {
@@ -422,10 +432,13 @@ describe('DocumentController delete/move/rename permissions', () => {
       await controller.updateDocument(reqAs(MEMBER), 'doc-1', {
         title: 'Renamed',
       } as never);
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: { title: 'Renamed' },
-      });
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: { title: 'Renamed' },
+        },
+        expect.any(Number),
+      );
     });
 
     it('forbids a plain member from moving a document', async () => {
@@ -447,22 +460,43 @@ describe('DocumentController delete/move/rename permissions', () => {
       expect(workspaceService.assertMember).toHaveBeenCalledWith('ws-2', OWNER);
       // Moving across workspaces with no explicit folderId also drops the
       // folder, since the old folder belongs to the source workspace.
-      expect(documentService.updateDocument).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-        data: {
-          workspace: { connect: { id: 'ws-2' } },
-          folder: { disconnect: true },
+      expect(documentService.updateDocument).toHaveBeenCalledWith(
+        {
+          where: { id: 'doc-1' },
+          data: {
+            workspace: { connect: { id: 'ws-2' } },
+            folder: { disconnect: true },
+          },
         },
-      });
+        expect.any(Number),
+      );
     });
   });
 
   describe('getDocuments (canManage annotation)', () => {
     it('flags canManage per row from workspace role and authorship', async () => {
       documentService.listDocumentsWithAuthor.mockResolvedValue([
-        { id: 'a', type: 'sheet', workspaceId: WS, authorID: AUTHOR, updatedAt: new Date(0) },
-        { id: 'b', type: 'sheet', workspaceId: WS, authorID: 999, updatedAt: new Date(0) },
-        { id: 'c', type: 'sheet', workspaceId: 'ws-owned', authorID: 999, updatedAt: new Date(0) },
+        {
+          id: 'a',
+          type: 'sheet',
+          workspaceId: WS,
+          authorID: AUTHOR,
+          updatedAt: new Date(0),
+        },
+        {
+          id: 'b',
+          type: 'sheet',
+          workspaceId: WS,
+          authorID: 999,
+          updatedAt: new Date(0),
+        },
+        {
+          id: 'c',
+          type: 'sheet',
+          workspaceId: 'ws-owned',
+          authorID: 999,
+          updatedAt: new Date(0),
+        },
       ]);
       workspaceService.findMembershipsByUser.mockResolvedValue([
         { workspaceId: WS, role: 'member' },
@@ -495,7 +529,9 @@ describe('DocumentController.moveDocuments', () => {
         role: overrides.memberRole ?? 'owner',
       })),
     };
-    const folderService = { assertSameWorkspace: jest.fn(async () => undefined) };
+    const folderService = {
+      assertSameWorkspace: jest.fn(async () => undefined),
+    };
     const controller = new DocumentController(
       documentService as never,
       copyService as never,
@@ -530,10 +566,13 @@ describe('DocumentController.moveDocuments', () => {
       'fld1',
       'ws1',
     );
-    expect(documentService.moveDocuments).toHaveBeenCalledWith([
-      { id: 'a', data: { folder: { connect: { id: 'fld1' } } } },
-      { id: 'b', data: { folder: { connect: { id: 'fld1' } } } },
-    ]);
+    expect(documentService.moveDocuments).toHaveBeenCalledWith(
+      [
+        { id: 'a', data: { folder: { connect: { id: 'fld1' } } } },
+        { id: 'b', data: { folder: { connect: { id: 'fld1' } } } },
+      ],
+      expect.any(Number),
+    );
   });
 
   it('rejects atomically when one id is not managed by the caller', async () => {
@@ -561,9 +600,10 @@ describe('DocumentController.moveDocuments', () => {
       ids: ['a'],
       folderId: null,
     } as never);
-    expect(documentService.moveDocuments).toHaveBeenCalledWith([
-      { id: 'a', data: { folder: { disconnect: true } } },
-    ]);
+    expect(documentService.moveDocuments).toHaveBeenCalledWith(
+      [{ id: 'a', data: { folder: { disconnect: true } } }],
+      expect.any(Number),
+    );
   });
 });
 
@@ -626,7 +666,10 @@ describe('DocumentController.deleteDocuments', () => {
       ids: ['a', 'b'],
     } as never);
     expect(res).toEqual({ deleted: ['a', 'b'] });
-    expect(documentService.trashDocuments).toHaveBeenCalledWith(['a', 'b']);
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(
+      ['a', 'b'],
+      expect.any(Number),
+    );
     expect(documentService.purgeTrashedDocuments).not.toHaveBeenCalled();
     expect(fileService.delete).not.toHaveBeenCalled();
   });
@@ -655,10 +698,10 @@ describe('DocumentController.deleteDocuments', () => {
       permanent: true,
     });
     expect(res).toEqual({ deleted: ['a', 'b'] });
-    expect(documentService.purgeTrashedDocuments).toHaveBeenCalledWith([
-      'a',
-      'b',
-    ]);
+    expect(documentService.purgeTrashedDocuments).toHaveBeenCalledWith(
+      ['a', 'b'],
+      expect.any(Number),
+    );
     expect(documentService.trashDocuments).not.toHaveBeenCalled();
     expect(fileService.delete).toHaveBeenCalledWith(BLOB_ID);
   });
@@ -769,9 +812,8 @@ describe('DocumentController.copyDocument', () => {
       workspaceId: WS,
       authorID: AUTHOR,
     };
-    const { controller, copyService, workspaceService } = makeCopyController(
-      source,
-    );
+    const { controller, copyService, workspaceService } =
+      makeCopyController(source);
     await expect(
       controller.copyDocument(reqAs(MEMBER), 'doc-1'),
     ).resolves.toMatchObject({ id: 'copy-1' });
