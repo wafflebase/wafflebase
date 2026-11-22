@@ -33,7 +33,7 @@ function makeTx(hooks: ReturnType<typeof hook>[] = []) {
       findUnique: jest.fn().mockResolvedValue({ id: 7, username: 'ada' }),
     },
     folder: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'f1', name: 'Planning' }),
+      findMany: jest.fn().mockResolvedValue([{ id: 'f1', name: 'Planning' }]),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
   };
@@ -301,7 +301,7 @@ describe('WebhookEventService family helpers', () => {
         where: { workspaceId: 'w0', status: 'active' },
       }),
     );
-    expect(tx.folder.findUnique).not.toHaveBeenCalled();
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
   });
 
   it('describes a member from their user row', async () => {
@@ -359,8 +359,96 @@ describe('WebhookEventService family helpers', () => {
       userId: 7,
       role: 'owner',
     });
-    expect(tx.folder.findUnique).not.toHaveBeenCalled();
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
     expect(tx.user.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebhookEventService.batch', () => {
+  const doc = (id: string, folderId: string | null) => ({
+    id,
+    type: 'sheet',
+    title: `Doc ${id}`,
+    workspaceId: 'w1',
+    folderId,
+  });
+
+  // A bulk trash or move of a thousand documents must not cost five or six
+  // statements per document inside one interactive transaction.
+  it('reads hooks, folders and the actor once and writes once', async () => {
+    const tx = makeTx([hook('h1'), hook('h2')]);
+    const batch = makeService().service.batch(asTx(tx));
+    await batch.preloadFolders(['f1', 'f1', null]);
+    for (let i = 0; i < 50; i++) {
+      await batch.emitDocumentEvent({
+        type: 'document.trashed',
+        actor: 7,
+        document: doc(`d${i}`, i % 2 ? 'f1' : null),
+      });
+    }
+    expect(tx.webhookDelivery.createMany).not.toHaveBeenCalled();
+    await batch.flush();
+
+    expect(tx.webhook.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.folder.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.webhookDelivery.createMany).toHaveBeenCalledTimes(1);
+    expect(deliveries(tx)).toHaveLength(100);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(deliveries(tx)[2].payload).toMatchObject({
+      data: {
+        actor: { id: 7, username: 'ada' },
+        document: { id: 'd1', folder: { id: 'f1', name: 'Planning' } },
+      },
+    });
+  });
+
+  it('looks nothing up for an event no webhook takes', async () => {
+    const tx = makeTx([hook('h1', { events: ['folder.created'] })]);
+    const batch = makeService().service.batch(asTx(tx));
+    await batch.emitDocumentEvent({
+      type: 'document.trashed',
+      actor: 7,
+      document: doc('d1', 'f1'),
+    });
+    await batch.flush();
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
+    expect(tx.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.webhookDelivery.createMany).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('notifies each workspace it wrote for', async () => {
+    const tx = makeTx([hook('h1')]);
+    const batch = makeService().service.batch(asTx(tx));
+    for (const workspaceId of ['w1', 'w2', 'w1']) {
+      await batch.emitDocumentEvent({
+        type: 'document.moved',
+        actor: null,
+        document: doc('d1', null),
+        folder: null,
+        workspaceId,
+      });
+    }
+    await batch.flush();
+    const notified = (tx.$executeRaw.mock.calls as unknown[][]).map(
+      (c) => c[2],
+    );
+    expect(notified).toEqual(['w1', 'w2']);
+  });
+
+  it('leaves the links out when told to', async () => {
+    const tx = makeTx([hook('h1')]);
+    await makeService().service.emitDocumentEvent(asTx(tx), {
+      type: 'document.moved',
+      actor: null,
+      document: doc('d1', null),
+      folder: null,
+      links: false,
+    });
+    const data = (deliveries(tx)[0].payload as { data: object }).data;
+    expect(data).not.toHaveProperty('url');
+    expect(data).not.toHaveProperty('api_url');
   });
 });
 

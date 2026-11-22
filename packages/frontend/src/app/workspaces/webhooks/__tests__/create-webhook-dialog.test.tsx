@@ -37,6 +37,7 @@ const DETAIL: WebhookDetail = {
   folderIds: [],
   format: "standard",
   disabledAt: null,
+  recoverFrom: null,
   rotationExpiresAt: null,
   failingSince: null,
 };

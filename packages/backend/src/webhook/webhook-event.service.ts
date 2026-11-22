@@ -75,6 +75,12 @@ export interface DocumentEventInput {
   filterFolderId?: EmitInput['folderId'];
   /** The document's folder, when the caller already has it. */
   folder?: FolderRef | null;
+  /**
+   * `false` leaves out `url` and `api_url` — for the source half of a
+   * cross-workspace move, whose links would point into a workspace its
+   * subscribers may not be able to open.
+   */
+  links?: boolean;
 }
 
 /** One `/api/v1` write, recorded for the `content_updated` loop guard. */
@@ -142,7 +148,8 @@ export function writeWithEvents<T>(
  * matching active webhook inside the caller's transaction (transactional
  * outbox), then `pg_notify('webhook', workspaceId)`, which Postgres delivers
  * on commit. Callers without a transaction wrap the call in
- * `prisma.$transaction(async (tx) => …)`.
+ * `prisma.$transaction(async (tx) => …)`; callers reporting many events in
+ * one transaction take a {@link WebhookEventService.batch}.
  *
  * Emission lives in the domain services, never in controllers: the web
  * routes and `/api/v1` are parallel controllers over the same services, and
@@ -161,53 +168,20 @@ export class WebhookEventService {
     return this.config.enabled;
   }
 
+  /**
+   * Emission for a transaction that reports many events — a bulk trash or
+   * move. See {@link WebhookEventBatch}; call `flush()` before the
+   * transaction ends.
+   */
+  batch(tx: Prisma.TransactionClient): WebhookEventBatch {
+    return new WebhookEventBatch(this.config, this.logger, tx);
+  }
+
   async emit(tx: Prisma.TransactionClient, input: EmitInput): Promise<void> {
     if (!this.config.enabled) return;
-    // One rule for what a workspace webhook may see, rather than one per
-    // emitter: something only some members can read never leaves.
-    if (input.visibility === 'restricted') return;
-    // `webhook.test` goes to one webhook through the worker, never fanned out.
-    if (input.type === 'webhook.test') return;
-
-    const hooks = await tx.webhook.findMany({
-      where: { workspaceId: input.workspaceId, status: 'active' },
-      select: { id: true, events: true, documentTypes: true, folderIds: true },
-    });
-    const matching = hooks.filter((hook) => webhookMatches(hook, input));
-    if (matching.length === 0) return;
-
-    const envelope: WebhookEnvelope = {
-      type: input.type,
-      timestamp: new Date().toISOString(),
-      data: {
-        workspace_id: input.workspaceId,
-        actor: await this.resolveActor(tx, input.actor),
-        ...input.data,
-      },
-    };
-    // Payloads are thin by design, so only an absurd title gets here. Refused
-    // rather than truncated — a receiver would act on a half payload — and
-    // never thrown: a webhook must not be able to fail the write it reports.
-    const size = Buffer.byteLength(JSON.stringify(envelope.data), 'utf8');
-    if (size > MAX_PAYLOAD_BYTES) {
-      this.logger.warn(
-        `dropping ${input.type} for workspace=${input.workspaceId}: data is ${size} bytes`,
-      );
-      return;
-    }
-
-    await tx.webhookDelivery.createMany({
-      data: matching.map((hook) => ({
-        webhookId: hook.id,
-        eventType: input.type,
-        payload: envelope as unknown as Prisma.InputJsonValue,
-        status: 'pending',
-        nextAttemptAt: new Date(),
-      })),
-    });
-    // Held by Postgres until the transaction commits, and dropped with it on
-    // rollback — so the worker is never woken for a row that does not exist.
-    await tx.$executeRaw`SELECT pg_notify(${WEBHOOK_NOTIFY_CHANNEL}, ${input.workspaceId})`;
+    const batch = this.batch(tx);
+    await batch.emit(input);
+    await batch.flush();
   }
 
   /**
@@ -219,24 +193,9 @@ export class WebhookEventService {
     input: DocumentEventInput,
   ): Promise<void> {
     if (!this.config.enabled) return;
-    const folder =
-      input.folder !== undefined
-        ? input.folder
-        : await this.folderRef(tx, input.document.folderId);
-    await this.emit(tx, {
-      workspaceId: input.workspaceId ?? input.document.workspaceId,
-      type: input.type,
-      actor: input.actor,
-      data: {
-        ...documentEventData(this.config, input.document, folder),
-        ...input.extra,
-      },
-      documentType: input.document.type,
-      folderId:
-        input.filterFolderId !== undefined
-          ? input.filterFolderId
-          : input.document.folderId,
-    });
+    const batch = this.batch(tx);
+    await batch.emitDocumentEvent(input);
+    await batch.flush();
   }
 
   /** A `folder.*` event. Folder events are not narrowed by the document filters. */
@@ -284,19 +243,6 @@ export class WebhookEventService {
       actor: input.actor,
       data: memberEventData(user, input.role),
     });
-  }
-
-  /** `{ id, name }` of a folder, or `null` at the root (or once it is gone). */
-  async folderRef(
-    tx: Prisma.TransactionClient,
-    folderId: string | null,
-  ): Promise<FolderRef | null> {
-    if (!folderId) return null;
-    const folder = await tx.folder.findUnique({
-      where: { id: folderId },
-      select: { id: true, name: true },
-    });
-    return toFolderRef(folder);
   }
 
   /**
@@ -371,19 +317,6 @@ export class WebhookEventService {
           ) AS latest
         )`;
   }
-
-  private async resolveActor(
-    tx: Prisma.TransactionClient,
-    actor: ActorInput,
-  ): Promise<Actor | null> {
-    if (actor === null) return null;
-    if (typeof actor !== 'number') return actor;
-    const user = await tx.user.findUnique({
-      where: { id: actor },
-      select: { id: true, username: true },
-    });
-    return user ? { id: user.id, username: user.username } : null;
-  }
 }
 
 /**
@@ -409,4 +342,193 @@ function subscribedToContent(): Prisma.Sql {
         OR 'document.content_updated' = ANY(w."events")
       )
   )`;
+}
+
+/** Delivery rows written per `createMany` at flush. */
+const FLUSH_CHUNK = 1000;
+
+type HookFilterRow = WebhookFilter & { id: string };
+
+/**
+ * The emission work of one transaction. Each workspace's active webhooks,
+ * each folder and each actor are read once however many events need them,
+ * and every delivery row goes out in one `createMany` (chunked) plus one
+ * `pg_notify` per workspace at {@link flush} — so a bulk trash or move of a
+ * thousand documents costs a handful of statements for its events rather
+ * than five or six per document, which would run a large one past the
+ * interactive transaction's timeout and fail it only while webhooks are on.
+ * A document event whose workspace has no matching webhook costs no folder
+ * or actor lookup at all.
+ *
+ * `WebhookEventService.emit` is a batch of one, so there is still exactly
+ * one implementation of what an event becomes.
+ */
+export class WebhookEventBatch {
+  private readonly hooks = new Map<string, Promise<HookFilterRow[]>>();
+  private readonly folders = new Map<string, FolderRef | null>();
+  private readonly actors = new Map<number, Promise<Actor | null>>();
+  private readonly rows: Prisma.WebhookDeliveryCreateManyInput[] = [];
+  private readonly workspaces = new Set<string>();
+
+  constructor(
+    private readonly config: WebhookConfig,
+    private readonly logger: Logger,
+    private readonly tx: Prisma.TransactionClient,
+  ) {}
+
+  async emit(input: EmitInput): Promise<void> {
+    if (!this.config.enabled) return;
+    // One rule for what a workspace webhook may see, rather than one per
+    // emitter: something only some members can read never leaves.
+    if (input.visibility === 'restricted') return;
+    // `webhook.test` goes to one webhook through the worker, never fanned out.
+    if (input.type === 'webhook.test') return;
+
+    const matching = await this.matching(input.workspaceId, input);
+    if (matching.length === 0) return;
+
+    const envelope: WebhookEnvelope = {
+      type: input.type,
+      timestamp: new Date().toISOString(),
+      data: {
+        workspace_id: input.workspaceId,
+        actor: await this.resolveActor(input.actor),
+        ...input.data,
+      },
+    };
+    // Payloads are thin by design, so only an absurd title gets here. Refused
+    // rather than truncated — a receiver would act on a half payload — and
+    // never thrown: a webhook must not be able to fail the write it reports.
+    const size = Buffer.byteLength(JSON.stringify(envelope.data), 'utf8');
+    if (size > MAX_PAYLOAD_BYTES) {
+      this.logger.warn(
+        `dropping ${input.type} for workspace=${input.workspaceId}: data is ${size} bytes`,
+      );
+      return;
+    }
+
+    const at = new Date();
+    for (const hook of matching) {
+      this.rows.push({
+        webhookId: hook.id,
+        eventType: input.type,
+        payload: envelope as unknown as Prisma.InputJsonValue,
+        status: 'pending',
+        nextAttemptAt: at,
+      });
+    }
+    this.workspaces.add(input.workspaceId);
+  }
+
+  /**
+   * A `document.*` event, described the one way every emitter describes a
+   * document. Looks the folder up unless the caller passes it — and only
+   * once some webhook would receive the event.
+   */
+  async emitDocumentEvent(input: DocumentEventInput): Promise<void> {
+    if (!this.config.enabled) return;
+    const workspaceId = input.workspaceId ?? input.document.workspaceId;
+    const filter = {
+      type: input.type,
+      documentType: input.document.type,
+      folderId:
+        input.filterFolderId !== undefined
+          ? input.filterFolderId
+          : input.document.folderId,
+    };
+    if ((await this.matching(workspaceId, filter)).length === 0) return;
+    const folder =
+      input.folder !== undefined
+        ? input.folder
+        : await this.folderRef(input.document.folderId);
+    const data = documentEventData(this.config, input.document, folder);
+    if (input.links === false) {
+      delete data.url;
+      delete data.api_url;
+    }
+    await this.emit({
+      workspaceId,
+      ...filter,
+      actor: input.actor,
+      data: { ...data, ...input.extra },
+    });
+  }
+
+  /** `{ id, name }` of a folder, or `null` at the root (or once it is gone). */
+  async folderRef(folderId: string | null): Promise<FolderRef | null> {
+    if (!folderId) return null;
+    if (!this.folders.has(folderId)) await this.preloadFolders([folderId]);
+    return this.folders.get(folderId) ?? null;
+  }
+
+  /** Read many folders in one query ahead of the events that name them. */
+  async preloadFolders(ids: ReadonlyArray<string | null>): Promise<void> {
+    if (!this.config.enabled) return;
+    const wanted = [
+      ...new Set(ids.filter((id): id is string => !!id)),
+    ].filter((id) => !this.folders.has(id));
+    if (wanted.length === 0) return;
+    const found = await this.tx.folder.findMany({
+      where: { id: { in: wanted } },
+      select: { id: true, name: true },
+    });
+    for (const id of wanted) this.folders.set(id, null);
+    for (const folder of found) this.folders.set(folder.id, toFolderRef(folder));
+  }
+
+  /**
+   * Write what the batch emitted. `pg_notify` is held by Postgres until the
+   * transaction commits and dropped with it on rollback — so the worker is
+   * never woken for a row that does not exist.
+   */
+  async flush(): Promise<void> {
+    const rows = this.rows.splice(0);
+    for (let i = 0; i < rows.length; i += FLUSH_CHUNK) {
+      await this.tx.webhookDelivery.createMany({
+        data: rows.slice(i, i + FLUSH_CHUNK),
+      });
+    }
+    const workspaces = [...this.workspaces];
+    this.workspaces.clear();
+    for (const workspaceId of workspaces) {
+      await this.tx
+        .$executeRaw`SELECT pg_notify(${WEBHOOK_NOTIFY_CHANNEL}, ${workspaceId})`;
+    }
+  }
+
+  private async matching(
+    workspaceId: string,
+    input: Pick<EmitInput, 'type' | 'documentType' | 'folderId'>,
+  ): Promise<HookFilterRow[]> {
+    let hooks = this.hooks.get(workspaceId);
+    if (!hooks) {
+      hooks = this.tx.webhook.findMany({
+        where: { workspaceId, status: 'active' },
+        select: {
+          id: true,
+          events: true,
+          documentTypes: true,
+          folderIds: true,
+        },
+      });
+      this.hooks.set(workspaceId, hooks);
+    }
+    return (await hooks).filter((hook) => webhookMatches(hook, input));
+  }
+
+  private resolveActor(actor: ActorInput): Promise<Actor | null> {
+    if (actor === null) return Promise.resolve(null);
+    if (typeof actor !== 'number') return Promise.resolve(actor);
+    let resolved = this.actors.get(actor);
+    if (!resolved) {
+      resolved = this.tx.user
+        .findUnique({
+          where: { id: actor },
+          select: { id: true, username: true },
+        })
+        .then((user) => (user ? { id: user.id, username: user.username } : null));
+      this.actors.set(actor, resolved);
+    }
+    return resolved;
+  }
 }

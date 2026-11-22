@@ -142,9 +142,27 @@ describe('streakDecision', () => {
         now,
       }),
     ).toBe('disable');
-    // Even when the warning never went out (e.g. the worker was down).
+  });
+
+  // A streak can reach three days unwarned — the worker was down, or the
+  // first failure after a long gap arrives late. Owners still get their day.
+  it('warns instead of disabling a streak nobody was warned about', () => {
     expect(
       streakDecision({ failingSince: ago(80 * HOUR), warnedAt: null, now }),
+    ).toBe('warn');
+    expect(
+      streakDecision({
+        failingSince: ago(80 * HOUR),
+        warnedAt: ago(23 * HOUR),
+        now,
+      }),
+    ).toBeNull();
+    expect(
+      streakDecision({
+        failingSince: ago(80 * HOUR),
+        warnedAt: ago(24 * HOUR),
+        now,
+      }),
     ).toBe('disable');
   });
 });

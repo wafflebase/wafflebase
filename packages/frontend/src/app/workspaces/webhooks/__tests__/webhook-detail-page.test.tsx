@@ -59,6 +59,7 @@ const HOOK: WebhookDetail = {
   folderIds: [],
   format: "standard",
   disabledAt: null,
+  recoverFrom: null,
   rotationExpiresAt: null,
   failingSince: null,
 };
@@ -171,13 +172,16 @@ describe("WebhookDetailPage", () => {
     ).toBe(true);
   });
 
-  it("explains a disable and re-enables from when it was turned off", async () => {
+  // The default reaches back to the oldest delivery the disable stopped:
+  // those were all queued before it was turned off.
+  it("explains a disable and re-enables from what it stopped", async () => {
     const disabled: WebhookDetail = {
       ...HOOK,
       status: "disabled",
       disabledReason: "failing",
       lastDeliveryStatus: 502,
       disabledAt: "2026-11-21T00:00:00.000Z",
+      recoverFrom: "2026-11-19T06:00:00.000Z",
       failingSince: "2026-11-18T00:00:00.000Z",
     };
     vi.mocked(enableWebhook).mockResolvedValue({ ...HOOK });
@@ -193,14 +197,16 @@ describe("WebhookDetailPage", () => {
       expect(vi.mocked(enableWebhook)).toHaveBeenCalledWith(
         "ws-1",
         "wh-1",
-        "2026-11-21T00:00:00.000Z",
+        "2026-11-19T06:00:00.000Z",
       ),
     );
   });
 
   it("maps each recover choice to recoverSince", () => {
-    const w = { disabledAt: "D", failingSince: "F" };
-    expect(recoverSinceFor("disabled", w)).toBe("D");
+    const w = { disabledAt: "D", recoverFrom: "R", failingSince: "F" };
+    expect(recoverSinceFor("disabled", w)).toBe("R");
+    // A row disabled before `recoverFrom` existed falls back.
+    expect(recoverSinceFor("disabled", { ...w, recoverFrom: null })).toBe("D");
     expect(recoverSinceFor("failing", w)).toBe("F");
     expect(recoverSinceFor("none", w)).toBeNull();
   });

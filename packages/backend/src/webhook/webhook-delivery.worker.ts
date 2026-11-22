@@ -25,12 +25,15 @@ import {
   MAX_IN_FLIGHT_PER_WEBHOOK,
   POLL_INTERVAL_MS,
   RESPONSE_EXCERPT_BYTES,
+  STREAK_BREAK_MS,
   WEBHOOK_NOTIFY_CHANNEL,
   type WebhookConfig,
 } from './webhook-config';
+import { stopQueuedDeliveries, TURNED_OFF_ERROR } from './webhook-disable';
 import { WEBHOOK_CONFIG, WebhookEventService } from './webhook-event.service';
 import {
   classifyStatus,
+  type FailurePlan,
   parseRetryAfterMs,
   planFailure,
   streakDecision,
@@ -48,8 +51,6 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 /** Sends one replica runs at once, across every webhook. */
 const MAX_LOCAL_IN_FLIGHT = CLAIM_BATCH_SIZE;
-/** Pending rows a claim considers before ranking them per webhook. */
-const CLAIM_SCAN_SIZE = CLAIM_BATCH_SIZE * 10;
 /** `WebhookContentPending` rows flushed per tick. */
 const FLUSH_BATCH_SIZE = 50;
 /** How often the hourly-cap overflow is looked for. */
@@ -169,10 +170,10 @@ function headerValue(
  * 1. returns rows whose lease expired (a replica died mid-send) to `pending`;
  * 2. flushes `WebhookContentPending` windows that are quiet or past their max
  *    wait into `document.content_updated`;
- * 3. claims due rows with one `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP
- *    LOCKED)`, at most {@link MAX_IN_FLIGHT_PER_WEBHOOK} in flight per webhook
- *    and none for a webhook past its hourly cap, and sends them **outside**
- *    any transaction;
+ * 3. claims due rows with one `UPDATE … WHERE id IN (… FOR UPDATE SKIP
+ *    LOCKED)`, picked per webhook — at most {@link MAX_IN_FLIGHT_PER_WEBHOOK}
+ *    in flight each and none for a webhook past its hourly cap — and sends
+ *    them **outside** any transaction;
  * 4. once a day, purges delivery rows past 30 days.
  *
  * A finished send wakes the loop, so a webhook's queue drains at the pace
@@ -322,7 +323,8 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   /**
    * An `in_flight` row whose lease expired belongs to a replica that died
    * mid-send. It goes back to `pending` — or to `failed` if that was its last
-   * attempt, or a one-shot test.
+   * attempt, or a one-shot test, or its webhook has been turned off since
+   * (as the disable failed the rest of its queue).
    */
   private async recoverLeases(now: Date): Promise<void> {
     const expired = { status: 'in_flight', leaseUntil: { lt: now } } as const;
@@ -335,6 +337,10 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
         ],
       },
       data: { status: 'failed', leaseUntil: null, lastError: 'Lease expired' },
+    });
+    await this.prisma.webhookDelivery.updateMany({
+      where: { ...expired, webhook: { status: { not: 'active' } } },
+      data: { status: 'failed', leaseUntil: null, lastError: TURNED_OFF_ERROR },
     });
     await this.prisma.webhookDelivery.updateMany({
       where: expired,
@@ -370,11 +376,14 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Claim up to `limit` due rows in one statement. The innermost select locks
-   * candidates with `SKIP LOCKED`; ranking them per webhook against the rows
-   * already in flight keeps each endpoint at {@link MAX_IN_FLIGHT_PER_WEBHOOK}
-   * concurrent requests, and a webhook that has sent
-   * {@link HOURLY_DELIVERY_CAP} rows created in the last hour waits.
+   * Claim up to `limit` due rows in one statement, picked **per webhook**: a
+   * webhook gets at most its free in-flight slots (of
+   * {@link MAX_IN_FLIGHT_PER_WEBHOOK}), and none once it has sent
+   * {@link HOURLY_DELIVERY_CAP} rows created in the last hour. Those
+   * exclusions run before any row is picked, so one webhook's backlog —
+   * thousands of due rows for an endpoint that is slow, saturated or capped —
+   * can never fill the claim with rows it cannot take and starve every other
+   * webhook on the deployment. Across webhooks the oldest due rows go first.
    */
   private async claim(now: Date, limit: number): Promise<ClaimedRow[]> {
     const leaseUntil = new Date(now.getTime() + LEASE_MS);
@@ -382,42 +391,49 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CLAIM_LOCK_KEY})`;
       return tx.$queryRaw<ClaimedRow[]>`
+        WITH due AS (
+          SELECT DISTINCT d."webhookId" AS id
+          FROM "WebhookDelivery" d
+          WHERE d."status" = 'pending'
+            AND d."nextAttemptAt" <= ${utc(now)}
+        ),
+        busy AS (
+          SELECT f."webhookId" AS id, count(*) AS n
+          FROM "WebhookDelivery" f
+          WHERE f."status" = 'in_flight'
+          GROUP BY f."webhookId"
+        ),
+        eligible AS (
+          SELECT due.id, ${MAX_IN_FLIGHT_PER_WEBHOOK} - COALESCE(busy.n, 0) AS room
+          FROM due
+          JOIN "Webhook" w ON w."id" = due.id AND w."status" = 'active'
+          LEFT JOIN busy ON busy.id = due.id
+          WHERE COALESCE(busy.n, 0) < ${MAX_IN_FLIGHT_PER_WEBHOOK}
+            AND (
+              SELECT count(*) FROM "WebhookDelivery" h
+              WHERE h."webhookId" = due.id
+                AND h."createdAt" >= ${utc(hourAgo)}
+                AND h."attempts" > 0
+            ) < ${HOURLY_DELIVERY_CAP}
+        )
         UPDATE "WebhookDelivery"
         SET "status" = 'in_flight',
             "leaseUntil" = ${utc(leaseUntil)},
             "attempts" = "attempts" + 1
         WHERE "id" IN (
-          SELECT ranked."id"
-          FROM (
-            SELECT c."id", c."webhookId", c."nextAttemptAt",
-                   row_number() OVER (
-                     PARTITION BY c."webhookId"
-                     ORDER BY c."nextAttemptAt", c."createdAt"
-                   ) AS rn
-            FROM (
-              SELECT d."id", d."webhookId", d."nextAttemptAt", d."createdAt"
-              FROM "WebhookDelivery" d
-              JOIN "Webhook" w ON w."id" = d."webhookId"
-              WHERE d."status" = 'pending'
-                AND d."nextAttemptAt" <= ${utc(now)}
-                AND w."status" = 'active'
-              ORDER BY d."nextAttemptAt"
-              LIMIT ${CLAIM_SCAN_SIZE}
-              FOR UPDATE OF d SKIP LOCKED
-            ) c
-          ) ranked
-          WHERE ranked.rn <= ${MAX_IN_FLIGHT_PER_WEBHOOK} - (
-              SELECT count(*) FROM "WebhookDelivery" f
-              WHERE f."webhookId" = ranked."webhookId"
-                AND f."status" = 'in_flight'
-            )
-            AND (
-              SELECT count(*) FROM "WebhookDelivery" h
-              WHERE h."webhookId" = ranked."webhookId"
-                AND h."createdAt" >= ${utc(hourAgo)}
-                AND h."attempts" > 0
-            ) < ${HOURLY_DELIVERY_CAP}
-          ORDER BY ranked."nextAttemptAt"
+          SELECT pick."id"
+          FROM eligible e
+          CROSS JOIN LATERAL (
+            SELECT d."id", d."nextAttemptAt"
+            FROM "WebhookDelivery" d
+            WHERE d."webhookId" = e.id
+              AND d."status" = 'pending'
+              AND d."nextAttemptAt" <= ${utc(now)}
+            ORDER BY d."nextAttemptAt", d."createdAt"
+            LIMIT e.room
+            FOR UPDATE OF d SKIP LOCKED
+          ) pick
+          ORDER BY pick."nextAttemptAt"
           LIMIT ${limit}
         )
         RETURNING "id", "webhookId", "eventType", "payload", "attempts"`;
@@ -429,14 +445,16 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     row: ClaimedRow,
     webhook: Webhook | undefined,
   ): Promise<void> {
-    // Deleted (its rows cascade) or disabled since the claim: hand the row
-    // back unspent, so a re-enable sends it.
+    // Deleted (its rows cascade) or disabled since the claim: unsent, and
+    // failed as the disable failed everything else it had queued, so only a
+    // "recover since" — whose default covers this row — sends it.
     if (!webhook || webhook.status !== 'active') {
       await this.prisma.webhookDelivery.updateMany({
         where: { id: row.id, status: 'in_flight' },
         data: {
-          status: 'pending',
+          status: 'failed',
           leaseUntil: null,
+          lastError: TURNED_OFF_ERROR,
           attempts: { decrement: 1 },
         },
       });
@@ -446,6 +464,10 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     const result = await this.attempt(webhook, row);
     const now = this.now();
     const where = { id: row.id, status: 'in_flight' } as const;
+    // A `webhook.test` — redelivered from the log, or recovered — is one
+    // shot, as `sendTest` sends it: no retries, and nothing it answers moves
+    // the failure streak or disables, a 410 included.
+    const oneShot = row.eventType === 'webhook.test';
 
     if (result.kind === 'response') {
       const outcome = classifyStatus(result.status);
@@ -465,6 +487,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
             lastError: null,
           },
         });
+        if (oneShot) return;
         await this.prisma.webhook.updateMany({
           where: { id: webhook.id },
           data: {
@@ -476,7 +499,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
         });
         return;
       }
-      if (outcome === 'gone') {
+      if (outcome === 'gone' && !oneShot) {
         await this.prisma.webhookDelivery.updateMany({
           where,
           data: { ...recorded, status: 'failed', lastError: 'HTTP 410 Gone' },
@@ -500,44 +523,68 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
         outcome === 'rate_limited'
           ? parseRetryAfterMs(headerValue(result.headers, 'retry-after'), now)
           : null;
-      const plan = planFailure({
-        attemptsMade: row.attempts,
-        now,
-        retryAfterMs,
-        random: this.random,
-      });
-      await this.prisma.webhookDelivery.updateMany({
-        where,
-        data: {
-          ...recorded,
-          ...plan,
-          lastError:
-            result.status >= 300 && result.status < 400
+      const plan: FailurePlan = oneShot
+        ? { status: 'failed' }
+        : planFailure({
+            attemptsMade: row.attempts,
+            now,
+            retryAfterMs,
+            random: this.random,
+          });
+      await this.recordAttemptFailure(row.id, plan, {
+        ...recorded,
+        lastError:
+          result.status === 410
+            ? 'HTTP 410 Gone'
+            : result.status >= 300 && result.status < 400
               ? `HTTP ${result.status}: redirects are not followed`
               : `HTTP ${result.status}`,
-        },
       });
-      await this.recordFailure(webhook, result.status, now);
+      if (!oneShot) await this.recordFailure(webhook, result.status, now);
       return;
     }
 
-    const plan = planFailure({
-      attemptsMade: row.attempts,
-      now,
-      random: this.random,
+    const plan: FailurePlan = oneShot
+      ? { status: 'failed' }
+      : planFailure({ attemptsMade: row.attempts, now, random: this.random });
+    await this.recordAttemptFailure(row.id, plan, {
+      leaseUntil: null,
+      lastStatus: null,
+      lastError: result.message,
+      lastDurationMs: result.durationMs,
+      responseExcerpt: null,
     });
+    if (!oneShot) await this.recordFailure(webhook, null, now);
+  }
+
+  /**
+   * Write a failed attempt's outcome. A retry is only scheduled while the
+   * webhook is still on: one turned off during the send (whose queued rows
+   * the disable already failed) gets this row failed the same way, or a
+   * re-enable that recovers nothing would still send it.
+   */
+  private async recordAttemptFailure(
+    id: string,
+    plan: FailurePlan,
+    recorded: Prisma.WebhookDeliveryUpdateManyMutationInput,
+  ): Promise<void> {
+    const where = { id, status: 'in_flight' } as const;
+    if (plan.status === 'failed') {
+      await this.prisma.webhookDelivery.updateMany({
+        where,
+        data: { ...recorded, status: 'failed' },
+      });
+      return;
+    }
+    const { count } = await this.prisma.webhookDelivery.updateMany({
+      where: { ...where, webhook: { status: 'active' } },
+      data: { ...recorded, ...plan },
+    });
+    if (count > 0) return;
     await this.prisma.webhookDelivery.updateMany({
       where,
-      data: {
-        ...plan,
-        leaseUntil: null,
-        lastStatus: null,
-        lastError: result.message,
-        lastDurationMs: result.durationMs,
-        responseExcerpt: null,
-      },
+      data: { ...recorded, status: 'failed', lastError: TURNED_OFF_ERROR },
     });
-    await this.recordFailure(webhook, null, now);
   }
 
   /**
@@ -616,12 +663,27 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
    * its first failure, then warn once or disable as the streak's age calls
    * for. Each transition is a conditional update, so two replicas failing
    * the same webhook at once send one notification.
+   *
+   * A streak whose previous failure is more than {@link STREAK_BREAK_MS}
+   * old is over, not continued: nothing was attempted in between, so nothing
+   * is known to have been failing, and one transient error days after an
+   * outage must not inherit that outage's age and disable on the spot.
+   * Every retry gap is shorter than that, so a dead endpoint with work
+   * queued keeps one unbroken streak.
    */
   private async recordFailure(
     webhook: Webhook,
     status: number | null,
     now: Date,
   ): Promise<void> {
+    await this.prisma.webhook.updateMany({
+      where: {
+        id: webhook.id,
+        failingSince: { not: null },
+        lastDeliveryAt: { lt: new Date(now.getTime() - STREAK_BREAK_MS) },
+      },
+      data: { failingSince: null, warnedAt: null },
+    });
     await this.prisma.webhook.updateMany({
       where: { id: webhook.id },
       data: { lastDeliveryAt: now, lastDeliveryStatus: status },
@@ -669,8 +731,9 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Turn the webhook off and fail what it still has queued, so a re-enable
-   * sends only what its "recover since" asks for. Owners hear about it once.
+   * Turn the webhook off and fail what it still has queued (see
+   * {@link stopQueuedDeliveries}), so a re-enable sends only what its
+   * "recover since" asks for. Owners hear about it once.
    */
   private async disable(
     webhook: Webhook,
@@ -684,10 +747,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       data: { status: 'disabled', disabledAt: now, disabledReason: reason },
     });
     if (count === 0) return;
-    await this.prisma.webhookDelivery.updateMany({
-      where: { webhookId: webhook.id, status: 'pending' },
-      data: { status: 'failed', lastError: 'Webhook turned off' },
-    });
+    await stopQueuedDeliveries(this.prisma, [webhook.id], now);
     this.logger.warn(`webhook ${webhook.id} disabled: ${reason}`);
     await this.notify(webhook, 'webhook_disabled', words, since);
   }
@@ -835,8 +895,9 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
    * Pull a delivery's next attempt to now and wake the loop (redeliver). The
    * row keeps its id — the `webhook-id` a receiver deduplicates on — and its
    * attempt count, so this is one more attempt of the same delivery rather
-   * than a parallel one. A row already in flight is left alone. Waits for the
-   * webhook to be enabled if it is not.
+   * than a parallel one: a row whose schedule is spent gets exactly one, a
+   * row stopped before that (by a disable) resumes what is left of it, and a
+   * `webhook.test` stays one shot. A row already in flight is left alone.
    */
   async deliverNow(deliveryId: string): Promise<void> {
     await this.prisma.webhookDelivery.updateMany({

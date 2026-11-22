@@ -37,6 +37,7 @@ function makePrisma() {
       findMany: jest.fn().mockResolvedValue([DOC]),
       update: jest.fn().mockResolvedValue({ ...DOC, title: 'Plan v2' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateManyAndReturn: jest.fn().mockResolvedValue([DOC]),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     folder: {
@@ -53,11 +54,19 @@ function makePrisma() {
 }
 
 function makeEvents() {
+  const emitDocumentEvent = jest.fn().mockResolvedValue(undefined);
   return {
     enabled: true,
-    emitDocumentEvent: jest.fn().mockResolvedValue(undefined),
+    emitDocumentEvent,
     emitFolderEvent: jest.fn().mockResolvedValue(undefined),
-    folderRef: jest.fn().mockResolvedValue(null),
+    // A batch records into the same mock, so a bulk path counts like a
+    // single one.
+    batch: jest.fn((tx: unknown) => ({
+      emitDocumentEvent: (input: unknown) => emitDocumentEvent(tx, input),
+      folderRef: jest.fn().mockResolvedValue(null),
+      preloadFolders: jest.fn().mockResolvedValue(undefined),
+      flush: jest.fn().mockResolvedValue(undefined),
+    })),
   };
 }
 

@@ -571,6 +571,10 @@ model Webhook {
   disabledAt          DateTime?
   /// failing | gone | creator_removed | manual
   disabledReason      String?
+  /// Set by a disable: the creation time of the oldest row it stopped, or
+  /// `disabledAt` when it stopped none. The default "recover since", so
+  /// re-enabling re-sends exactly what the disable cut off.
+  recoverFrom         DateTime?
   /// First failure of the current unbroken failure streak; cleared on a
   /// success. Drives the warning and the auto-disable.
   failingSince        DateTime?
@@ -610,6 +614,8 @@ model WebhookDelivery {
 
   @@index([status, nextAttemptAt])
   @@index([webhookId, createdAt])
+  /// The claim's per-webhook pick and in-flight count.
+  @@index([webhookId, status, nextAttemptAt])
 }
 
 /// Coalescing state for `document.content_updated`: one row per document

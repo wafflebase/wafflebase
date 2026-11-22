@@ -54,6 +54,7 @@ function webhook(overrides: Partial<Webhook> = {}): Webhook {
     status: 'active',
     disabledAt: null,
     disabledReason: null,
+    recoverFrom: null,
     failingSince: null,
     warnedAt: null,
     lastDeliveryAt: null,
@@ -62,6 +63,26 @@ function webhook(overrides: Partial<Webhook> = {}): Webhook {
     updatedAt: ago(HOUR),
     ...overrides,
   };
+}
+
+/**
+ * Whether a row satisfies a Prisma `where` as far as these tests write them:
+ * equality, `{ not: null }`, `{ lt }` and `{ in }`.
+ */
+function matchesWhere(
+  row: Record<string, unknown>,
+  where: Record<string, unknown>,
+): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    const value = row[k];
+    if (v && typeof v === 'object' && !(v instanceof Date)) {
+      const op = v as { not?: unknown; lt?: Date; in?: unknown[] };
+      if ('not' in op) return value !== op.not;
+      if (op.lt) return value instanceof Date && value < op.lt;
+      if (op.in) return op.in.includes(value);
+    }
+    return value === v;
+  });
 }
 
 /** A tagged-template call's SQL, for routing `$queryRaw`. */
@@ -122,10 +143,9 @@ function makePrisma() {
         }) => {
           let count = 0;
           state.webhooks = state.webhooks.map((w) => {
-            const matches = Object.entries(where).every(
-              ([k, v]) => (w as Record<string, unknown>)[k] === v,
-            );
-            if (!matches) return w;
+            if (!matchesWhere(w as unknown as Record<string, unknown>, where)) {
+              return w;
+            }
             count += 1;
             return { ...w, ...data };
           });
@@ -134,7 +154,9 @@ function makePrisma() {
       ),
     },
     webhookDelivery: {
-      updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
+      updateMany: jest.fn((_args: { where: Record<string, unknown> }) =>
+        Promise.resolve({ count: 1 }),
+      ),
       create: jest.fn(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ id: 'test-delivery', ...data }),
       ),
@@ -174,15 +196,20 @@ function harness(config: Partial<WebhookConfig> = {}): Harness {
   return { worker, prisma, events, notifications, bus };
 }
 
-function claim(h: Harness, attempts = 1, hook: Webhook = webhook()) {
+function claim(
+  h: Harness,
+  attempts = 1,
+  hook: Webhook = webhook(),
+  eventType = 'document.created',
+) {
   h.prisma.state.webhooks = [hook];
   h.prisma.state.claimed = [
     {
       id: 'd1',
       webhookId: hook.id,
-      eventType: 'document.created',
+      eventType,
       payload: {
-        type: 'document.created',
+        type: eventType,
         timestamp: NOW.toISOString(),
         data: {},
       },
@@ -344,11 +371,17 @@ describe('WebhookDeliveryWorker sending', () => {
       disabledReason: 'gone',
       disabledAt: NOW,
     });
-    // What it still had queued fails with it.
+    // What it still had queued fails with it, and becomes the default
+    // "recover since".
     expect(h.prisma.webhookDelivery.updateMany).toHaveBeenCalledWith({
-      where: { webhookId: 'wh1', status: 'pending' },
-      data: expect.objectContaining({ status: 'failed' }) as unknown,
+      where: { webhookId: { in: ['wh1'] }, status: 'pending' },
+      data: { status: 'failed', lastError: 'Webhook turned off' },
     });
+    expect(
+      h.prisma.$executeRaw.mock.calls.some((c: unknown[]) =>
+        sqlOf(c).includes('"recoverFrom"'),
+      ),
+    ).toBe(true);
     expect(h.notifications.createWebhookAlert).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'webhook_disabled',
@@ -376,16 +409,72 @@ describe('WebhookDeliveryWorker sending', () => {
     });
   });
 
-  it('hands a row back unspent when its webhook was disabled meanwhile', async () => {
+  // Failed like the rest of its queue, so a re-enable that recovers
+  // nothing does not send it.
+  it('fails a row unspent when its webhook was disabled meanwhile', async () => {
     const h = harness();
     claim(h, 3, webhook({ status: 'disabled', disabledReason: 'manual' }));
     await tick(h);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(deliveryUpdate(h)).toEqual({
-      status: 'pending',
+      status: 'failed',
       leaseUntil: null,
+      lastError: 'Webhook turned off',
       attempts: { decrement: 1 },
     });
+  });
+
+  it('fails instead of retrying when the webhook went off during the send', async () => {
+    const h = harness();
+    claim(h, 1);
+    // The retry is conditional on the webhook still being on; it is not.
+    h.prisma.webhookDelivery.updateMany.mockImplementation(
+      ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve({ count: where.webhook ? 0 : 1 }),
+    );
+    respond(503);
+    await tick(h);
+    const calls = h.prisma.webhookDelivery.updateMany.mock.calls.map(
+      (c: unknown[]) => c[0] as { where: Record<string, unknown>; data: unknown },
+    );
+    expect(calls).toContainEqual({
+      where: { id: 'd1', status: 'in_flight', webhook: { status: 'active' } },
+      data: expect.objectContaining({ status: 'pending' }) as unknown,
+    });
+    expect(calls).toContainEqual({
+      where: { id: 'd1', status: 'in_flight' },
+      data: expect.objectContaining({
+        status: 'failed',
+        lastStatus: 503,
+        lastError: 'Webhook turned off',
+      }) as unknown,
+    });
+  });
+
+  // A redelivered (or recovered) test is one shot, as `sendTest` is.
+  it('sends a queued webhook.test once, outside the failure streak', async () => {
+    const h = harness();
+    claim(h, 2, webhook(), 'webhook.test');
+    respond(503);
+    await tick(h);
+    expect(deliveryUpdate(h)).toMatchObject({
+      status: 'failed',
+      lastStatus: 503,
+    });
+    expect(h.prisma.webhook.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not disable on a 410 to a queued webhook.test', async () => {
+    const h = harness();
+    claim(h, 2, webhook(), 'webhook.test');
+    respond(410);
+    await tick(h);
+    expect(deliveryUpdate(h)).toMatchObject({
+      status: 'failed',
+      lastError: 'HTTP 410 Gone',
+    });
+    expect(h.prisma.state.webhooks[0].status).toBe('active');
+    expect(h.prisma.webhook.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -419,6 +508,46 @@ describe('WebhookDeliveryWorker failure streak', () => {
     await tick(h);
     expect(h.notifications.createWebhookAlert).not.toHaveBeenCalled();
     expect(h.prisma.state.webhooks[0].status).toBe('active');
+  });
+
+  // The outage ended, nothing was sent for two days, then one transient
+  // error: a new streak, not the old one's last straw.
+  it('starts a new streak after a long gap instead of disabling', async () => {
+    const h = harness();
+    claim(
+      h,
+      1,
+      webhook({
+        failingSince: ago(73 * HOUR),
+        lastDeliveryAt: ago(45 * HOUR),
+      }),
+    );
+    respond(502);
+    await tick(h);
+    expect(h.prisma.state.webhooks[0]).toMatchObject({
+      status: 'active',
+      failingSince: NOW,
+      warnedAt: null,
+    });
+    expect(h.notifications.createWebhookAlert).not.toHaveBeenCalled();
+  });
+
+  it('warns rather than disables a three-day streak nobody was warned of', async () => {
+    const h = harness();
+    claim(
+      h,
+      1,
+      webhook({ failingSince: ago(73 * HOUR), lastDeliveryAt: ago(HOUR) }),
+    );
+    respond(502);
+    await tick(h);
+    expect(h.prisma.state.webhooks[0]).toMatchObject({
+      status: 'active',
+      warnedAt: NOW,
+    });
+    expect(h.notifications.createWebhookAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'webhook_failing' }),
+    );
   });
 
   it('disables after three days with no success', async () => {
@@ -614,7 +743,7 @@ describe('apiWritersOf', () => {
 });
 
 describe('WebhookDeliveryWorker maintenance', () => {
-  it('returns expired leases to pending, or fails spent ones and tests', async () => {
+  it('returns expired leases to pending, or fails spent ones, tests and turned-off ones', async () => {
     const h = harness();
     await tick(h);
     const calls = h.prisma.webhookDelivery.updateMany.mock.calls.map(
@@ -627,6 +756,18 @@ describe('WebhookDeliveryWorker maintenance', () => {
         OR: [{ attempts: { gte: 8 } }, { eventType: 'webhook.test' }],
       },
       data: { status: 'failed', leaseUntil: null, lastError: 'Lease expired' },
+    });
+    expect(calls).toContainEqual({
+      where: {
+        status: 'in_flight',
+        leaseUntil: { lt: NOW },
+        webhook: { status: { not: 'active' } },
+      },
+      data: {
+        status: 'failed',
+        leaseUntil: null,
+        lastError: 'Webhook turned off',
+      },
     });
     expect(calls).toContainEqual({
       where: { status: 'in_flight', leaseUntil: { lt: NOW } },

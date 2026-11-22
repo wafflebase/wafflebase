@@ -71,6 +71,11 @@ export interface WebhookDetail extends WebhookSummary {
   folderIds: string[];
   format: string;
   disabledAt: string | null;
+  /**
+   * The default "recover since" while disabled: when the oldest delivery the
+   * disable stopped was created, or `disabledAt` if it stopped none.
+   */
+  recoverFrom: string | null;
   /** When the previous secret stops being signed with, during an overlap. */
   rotationExpiresAt: string | null;
   failingSince: string | null;

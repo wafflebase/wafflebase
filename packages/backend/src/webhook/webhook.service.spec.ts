@@ -479,11 +479,16 @@ describe('WebhookService', () => {
       const res = await service.disable(WS, OWNER, 'wh-1');
       expect(res.status).toBe('disabled');
       expect(res.disabledReason).toBe('manual');
-      // Queued rows end with it, so re-enabling never flushes them unasked.
+      // Queued rows end with it, so re-enabling never flushes them unasked,
+      // and the oldest of them becomes the default "recover since".
       expect(prisma.webhookDelivery.updateMany).toHaveBeenCalledWith({
-        where: { webhookId: 'wh-1', status: 'pending' },
+        where: { webhookId: { in: ['wh-1'] }, status: 'pending' },
         data: { status: 'failed', lastError: 'Webhook turned off' },
       });
+      const sql = (prisma.$executeRaw.mock.calls as unknown[][]).map((c) =>
+        (c[0] as string[]).join('?'),
+      );
+      expect(sql.some((q) => q.includes('"recoverFrom"'))).toBe(true);
     });
 
     it('keeps an earlier reason when already disabled', async () => {
@@ -506,13 +511,16 @@ describe('WebhookService', () => {
       expect(prisma.webhook.update.mock.calls[0][0].data).toMatchObject({
         status: 'active',
         disabledReason: null,
+        recoverFrom: null,
         failingSince: null,
         createdBy: OWNER,
       });
+      // A test is a one-shot check of the endpoint, never recovered.
       const requeue = prisma.webhookDelivery.updateMany.mock.calls[0][0];
       expect(requeue.where).toEqual({
         webhookId: 'wh-1',
         status: 'failed',
+        eventType: { not: 'webhook.test' },
         createdAt: { gte: new Date(since) },
       });
       expect(requeue.data).toMatchObject({ status: 'pending', attempts: 0 });

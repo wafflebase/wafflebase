@@ -1,7 +1,6 @@
 import {
   DISABLE_AFTER_FAILING_MS,
   MAX_ATTEMPTS,
-  MIN_FAILURE_SPAN_MS,
   RETRY_AFTER_CAP_MS,
   RETRY_JITTER,
   RETRY_SCHEDULE_SECONDS,
@@ -102,12 +101,16 @@ export type StreakDecision = 'disable' | 'warn' | null;
 /**
  * What the current failure streak calls for after another failure.
  *
- * - `disable` once nothing has succeeded for {@link DISABLE_AFTER_FAILING_MS}
- *   (3 days) and the failures span at least {@link MIN_FAILURE_SPAN_MS}
- *   (12 h). `failingSince` is the streak's first failure and `now` its
- *   latest, so a single stale failure followed by silence never disables.
  * - `warn` once, when the streak is {@link WARN_AFTER_FAILING_MS} old
- *   (2 days, so a day before the disable) and nobody has been warned yet.
+ *   (2 days) and nobody has been warned yet;
+ * - `disable` once it is {@link DISABLE_AFTER_FAILING_MS} old (3 days) **and**
+ *   the warning went out at least a day before. Owners always get their day:
+ *   a streak that reaches three days unwarned is warned first.
+ *
+ * `failingSince` is the streak's first failure and `now` its latest. The
+ * worker ends a streak whose previous failure is more than
+ * `STREAK_BREAK_MS` old before asking, so the age here is of failures that
+ * kept happening, not of one stale failure followed by silence.
  */
 export function streakDecision(input: {
   failingSince: Date | null;
@@ -117,9 +120,14 @@ export function streakDecision(input: {
   const { failingSince, warnedAt, now } = input;
   if (!failingSince) return null;
   const age = now.getTime() - failingSince.getTime();
-  if (age >= DISABLE_AFTER_FAILING_MS && age >= MIN_FAILURE_SPAN_MS) {
+  if (age < WARN_AFTER_FAILING_MS) return null;
+  if (!warnedAt) return 'warn';
+  const sinceWarning = now.getTime() - warnedAt.getTime();
+  if (
+    age >= DISABLE_AFTER_FAILING_MS &&
+    sinceWarning >= DISABLE_AFTER_FAILING_MS - WARN_AFTER_FAILING_MS
+  ) {
     return 'disable';
   }
-  if (age >= WARN_AFTER_FAILING_MS && !warnedAt) return 'warn';
   return null;
 }

@@ -13,6 +13,7 @@ import {
 } from '../chat/default-channel';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { stopQueuedDeliveries } from '../webhook/webhook-disable';
 import { WebhookEventService } from '../webhook/webhook-event.service';
 
 @Injectable()
@@ -151,14 +152,24 @@ export class WorkspaceService {
           where: { workspaceId, createdBy: targetUserId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        await tx.webhook.updateMany({
+        // Like every other disable, it fails what they still had queued.
+        const hooks = await tx.webhook.findMany({
           where: { workspaceId, createdBy: targetUserId, status: 'active' },
-          data: {
-            status: 'disabled',
-            disabledAt: new Date(),
-            disabledReason: 'creator_removed',
-          },
+          select: { id: true },
         });
+        const hookIds = hooks.map((h) => h.id);
+        if (hookIds.length > 0) {
+          const now = new Date();
+          await tx.webhook.updateMany({
+            where: { id: { in: hookIds }, status: 'active' },
+            data: {
+              status: 'disabled',
+              disabledAt: now,
+              disabledReason: 'creator_removed',
+            },
+          });
+          await stopQueuedDeliveries(tx, hookIds, now);
+        }
         await this.webhookEvents.emitMemberEvent(tx, {
           type: 'member.removed',
           workspaceId,

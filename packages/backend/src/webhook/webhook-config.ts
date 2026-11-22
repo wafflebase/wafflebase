@@ -41,10 +41,19 @@ export const DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 /** `webhook_failing` once the current failure streak is this old. */
 export const WARN_AFTER_FAILING_MS = 48 * HOUR_MS;
-/** Auto-disable once the streak is this old… */
+/**
+ * Auto-disable once the streak is this old, and only once its warning went
+ * out at least {@link DISABLE_AFTER_FAILING_MS} − {@link WARN_AFTER_FAILING_MS}
+ * (a day) before.
+ */
 export const DISABLE_AFTER_FAILING_MS = 72 * HOUR_MS;
-/** …and its failures span at least this long. */
-export const MIN_FAILURE_SPAN_MS = 12 * HOUR_MS;
+/**
+ * A failure this long after the previous attempt starts a new streak rather
+ * than continuing the old one. Longer than any retry gap (10 h ± 10 %, a
+ * `Retry-After` of at most an hour), so a dead endpoint with work queued
+ * keeps one unbroken streak.
+ */
+export const STREAK_BREAK_MS = 24 * HOUR_MS;
 
 /** Payload `data` larger than this is refused at emit time. */
 export const MAX_PAYLOAD_BYTES = 20 * 1024;

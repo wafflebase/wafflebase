@@ -56,3 +56,63 @@
   stack held 5432/8080 and its Yorkie was unreachable; a scratch database on
   the shared Postgres plus a throwaway Yorkie on another port ran every e2e
   suite without touching either.
+
+## Review round 1 (correctness + security-design lenses)
+
+Seven blocking findings; all seven were real on reading the code. Fixed:
+
+1. **Claim starvation** (`webhook-delivery.worker.ts`). The claim scanned the
+   500 oldest due rows, then dropped rows of saturated or capped webhooks, so
+   one webhook's backlog stopped delivery deployment-wide. Now a `LATERAL`
+   per-webhook pick runs after those webhooks are excluded, with a
+   `(webhookId, status, nextAttemptAt)` index. New e2e test (busy webhook
+   saturated, then capped; idle webhook still served) fails on the old query.
+2. **Disable without warning** (`webhook-retry.ts`). `streakDecision` disabled
+   any 72 h-old streak, warned or not, and the 12 h span check was implied by
+   the 72 h. Disable now needs a warning ≥24 h old (unwarned → warn), and a
+   failure >24 h after the previous attempt starts a new streak
+   (`STREAK_BREAK_MS`). `MIN_FAILURE_SPAN_MS` removed.
+3. **Queued `webhook.test` retried / disabled** (`deliver()`). Tests are now
+   one shot wherever sent from: no retry, no streak, no disable on 410; and
+   recovery never re-queues them. *Partly rebutted:* "redeliver gives exactly
+   one more attempt" already held for rows whose schedule was spent; a row a
+   disable stopped early resumes its remaining schedule, which is what
+   recovering it would do. Faking `attempts = MAX-1` would make the log lie,
+   so the design text was corrected instead.
+4. **`creator_removed` left rows pending** (`workspace.service.ts`). One
+   helper, `stopQueuedDeliveries`, now serves all four disable paths. Also
+   fixed in passing: a row in flight when its webhook was disabled was put
+   back `pending` (claim race, expired lease) or rescheduled (mid-send); all
+   three now end `failed`.
+5. **Bulk trash/move past the 5 s transaction timeout**. Added
+   `WebhookEventBatch` (hooks/folders/actor read once, one `createMany`, one
+   notify per workspace); bulk trash is one `updateManyAndReturn`; bulk move
+   reads its before-rows in one query and sizes its timeout. e2e: 1,000
+   documents moved and trashed with webhooks on.
+6. **Default "recover since" recovered nothing**. Chose model (b): every
+   disable records `Webhook.recoverFrom` (oldest stopped row's `createdAt`),
+   the UI default sends it, tests are excluded. e2e covers disable → enable.
+7. **Cross-workspace move leaked the other side's folder and links**. Each
+   half now describes only its own workspace (source: `to_folder: null`,
+   `folder: null`, title before, no links).
+
+Lessons:
+
+- **A filter applied after a LIMIT is a starvation bug.** Any "scan N, then
+  exclude" query lets the excluded rows fill the scan. Exclude first.
+- **A pure decision function needs the invariant it relies on stated as a
+  test.** `streakDecision`'s docstring promised "a stale failure never
+  disables" with nothing enforcing it; the test that would have caught it
+  ("stale streak, then one failure") is the scenario, not the arithmetic.
+- **One state transition, one helper.** Three disable paths agreed on
+  "fail pending rows" and the fourth (in another module) forgot. Shared
+  semantics belong in a shared function, not in three comments.
+- **Default UI choices are the feature.** The recover default was tested only
+  as "maps to `disabledAt`" — never against the rows it was meant to find.
+- **Per-item work inside an interactive transaction needs a size budget.**
+  The feature-off path was one statement; the feature-on path was O(n)
+  round trips with a fixed 5 s ceiling. Test bulk paths at realistic N with
+  the feature on.
+- **Fan-out to two audiences means two payloads.** Building one `extra` and
+  sending it to both workspaces of a move is the same mistake as one
+  visibility rule per emitter.

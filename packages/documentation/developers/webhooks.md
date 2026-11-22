@@ -51,7 +51,7 @@ Run `wafflebase webhooks --help` for every command: `get`, `update`, `delete`, `
 |-------|-----------|
 | `document.created` | A document is created, copied, made from a template, or uploaded. `data.source.kind` is `blank`, `copy`, `template`, or `upload`; `data.source.id` is the copied document or the template |
 | `document.renamed` | A document's title changes |
-| `document.moved` | A document moves to another folder or workspace. Carries `from_folder` and `to_folder`. A move between workspaces is sent to both, with `from_workspace_id` and `to_workspace_id` |
+| `document.moved` | A document moves to another folder or workspace. Carries `from_folder` and `to_folder`. A move between workspaces is sent to both, with `from_workspace_id` and `to_workspace_id`; each side sees only its own folder and links (the side the document left gets `to_folder: null` and no `url`) |
 | `document.trashed` | A document is moved to the trash |
 | `document.restored` | A document is restored from the trash |
 | `document.deleted` | A trashed document is deleted for good. The payload still has its title and type |
@@ -143,9 +143,11 @@ Only a `2xx` answer counts as delivered. Redirects are not followed.
 - A failed delivery is retried after 5 seconds, 5 minutes, 30 minutes, 2 hours, 5 hours, 10 hours, and 10 hours. After 8 attempts it is marked failed.
 - `429` waits for the `Retry-After` you send, up to an hour.
 - `410 Gone` turns the webhook off at once.
-- When nothing has been delivered for 3 days, the webhook turns off. Every owner gets a notification after 2 days of failures, and again when it turns off.
+- When nothing has been delivered for 3 days, the webhook turns off. Every owner gets a notification after 2 days of failures, at least a day before it turns off, and again when it turns off.
 
-To turn a webhook back on, open it and click **Re-enable**. Choose whether to also send the deliveries that failed while it was off.
+Turning a webhook off, by hand or automatically, stops what it still had waiting to send. Nothing is recorded while it is off.
+
+To turn a webhook back on, open it and click **Re-enable**. Choose whether to also send what was waiting when it was turned off (the default), everything since the failures began, or nothing. Test pings are never sent again.
 
 The delivery log keeps 30 days of requests and responses. Expand a row to see the payload and the first 1 KB of your response, or click **Redeliver** to send it again with the same `webhook-id`.
 

@@ -900,14 +900,17 @@ write's transaction (a transactional outbox), and `pg_notify('webhook', …)`
 wakes `WebhookDeliveryWorker` on every replica on commit, with a 5 s poll as
 the fallback. Claims use `FOR UPDATE SKIP LOCKED` under one advisory lock, so
 two replicas never send the same row and an endpoint never has more than two
-requests open. Sends go through `common/safe-outbound.ts`, which re-resolves
+requests open; rows are picked per webhook, so one webhook's backlog never
+holds up another's. Sends go through `common/safe-outbound.ts`, which re-resolves
 the host, connects only to the address it checked, refuses redirects, and
 caps the response. Retries: immediately, 5 s, 5 m, 30 m, 2 h, 5 h, 10 h,
 10 h (±10 %), then `failed`; a `410` turns the webhook off at once; a `429`
-honours `Retry-After` up to an hour. A webhook failing for three days (with
-failures spanning at least 12 h) is turned off, with a `webhook_failing`
-notification to every owner after two days and `webhook_disabled` when it
-happens. Delivery rows are kept 30 days. The per-webhook cap is 1,000
+honours `Retry-After` up to an hour. A webhook failing for three days is
+turned off, with a `webhook_failing` notification to every owner after two
+days (always at least a day before the disable) and `webhook_disabled` when it
+happens; a failure more than a day after the previous attempt starts a new
+streak. Any disable fails the webhook's queued rows and records the oldest
+as `recoverFrom`, the default re-enable recovery point. Delivery rows are kept 30 days. The per-webhook cap is 1,000
 deliveries an hour; rows over it wait and the overflow is logged.
 
 **`document.content_updated`** comes from the Yorkie `DocumentRootChanged`

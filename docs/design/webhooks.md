@@ -381,8 +381,8 @@ deliberately stayed Postgres-only.
   `Retry-After`.
 - Schedule (Svix): immediately, 5 s, 5 m, 30 m, 2 h, 5 h, 10 h, 10 h, with
   jitter — 8 attempts over ~32 h.
-- Auto-disable when no delivery has succeeded for 3 days and failures span
-  at least 12 h. A `webhook_failing` notification goes to **every owner**
+- Auto-disable when no delivery has succeeded for 3 days of continuing
+  failures. A `webhook_failing` notification goes to **every owner**
   24 h before; `webhook_disabled` when it happens. Every owner, not the
   creator — the creator may be the reason (`creator_removed`).
 - Re-enabling asks whether to also send what failed while disabled
@@ -543,16 +543,44 @@ why:
   `pg_advisory_xact_lock`. Without it two replicas each read the same
   in-flight count and together exceed two requests per endpoint. Sends still
   run concurrently, outside the transaction. Attempts are counted at claim
-  time, so a crash loop cannot keep a row alive forever.
+  time, so a crash loop cannot keep a row alive forever. Rows are picked
+  **per webhook** (a `LATERAL` pick of each eligible webhook's oldest due
+  rows, up to its free in-flight slots), after webhooks at their in-flight
+  limit or hourly cap are excluded. A first version scanned the 500 oldest
+  due rows and only then dropped what could not be claimed, so one
+  webhook's backlog — a bulk trash of a thousand documents — filled the scan
+  and stopped delivery for every webhook on the deployment. An index on
+  `(webhookId, status, nextAttemptAt)` serves the pick and the in-flight
+  count.
 - **The hourly cap.** Rows over 1,000 an hour stay `pending` and go out once
   the hour rolls; the overflow is logged once per hour per webhook. "Reported"
   means the log for now, not a UI.
-- **Disable.** Any disable — automatic or manual — marks the webhook's
-  `pending` rows `failed`, so turning a webhook off and on never flushes what
-  piled up unless the owner asks with "recover since". A `webhook.test`
-  never moves the failure streak, and a `410` on a test does not disable.
-- **Redeliver** pulls a row's next attempt to now under the same id. A failed
-  row gets exactly one more attempt (its count is not reset); "recover since"
+- **Disable.** Any disable — manual, `failing`, `gone` or
+  `creator_removed` — marks the webhook's `pending` rows `failed`
+  (`webhook-disable.ts`, one helper for all four), so turning a webhook off
+  and on never flushes what piled up unless the owner asks with "recover
+  since". A row in flight when the webhook goes off ends `failed` too rather
+  than scheduling a retry. Nothing is queued while a webhook is off (emission
+  reads active webhooks only), so every row a disable stops predates
+  `disabledAt`: the disable records the oldest one's `createdAt` as
+  `Webhook.recoverFrom`, and that — not `disabledAt`, which would recover
+  nothing — is the UI's default "recover since". Recovery never re-queues a
+  `webhook.test`.
+- **The streak.** Disable needs the `webhook_failing` warning to have gone
+  out at least 24 h before, so a streak that reaches 3 days unwarned is
+  warned first. A failure more than 24 h after the previous attempt starts a
+  new streak — longer than any retry gap, so a dead endpoint with work
+  queued keeps one streak, but a single transient error days after an
+  outage no longer inherits its age and disables on the spot. The proposal's
+  "failures span at least 12 h" is dropped: measured from the streak's first
+  failure to its latest it was implied by the 3 days and guarded nothing.
+- **`webhook.test` is one shot wherever it is sent from** — `sendTest`, a
+  redeliver from the log or a lease recovery: no retries, no effect on the
+  failure streak, and a `410` does not disable.
+- **Redeliver** pulls a row's next attempt to now under the same id, keeping
+  its attempt count. A row whose schedule is spent gets exactly one more
+  attempt; a row stopped before that — by a disable — resumes what is left of
+  its schedule, which is what recovering it would have done; "recover since"
   on re-enable is what restarts the full schedule. Redeliver on a disabled
   webhook is a `409`.
 - **Emission.**
@@ -560,6 +588,23 @@ why:
     some webhook matches, because an API-key request carries no username.
   - `folderId` accepts a list, so a move matches a filter on either the folder
     it left or the one it entered.
+  - A cross-workspace move's two halves each describe only their own side.
+    The source half has `from_folder`, `to_folder: null`,
+    `document.folder: null`, the title as it was, and no `url`/`api_url`; the
+    destination half has `to_folder` and the links, with `from_folder: null`.
+    Both keep `from_workspace_id`/`to_workspace_id` (opaque ids). Sending both
+    halves the same payload would have told a webhook owner who is not a
+    member of the other workspace its folder names and handed them links
+    into it.
+  - A transaction that emits many events — bulk trash, bulk move — uses one
+    `WebhookEventBatch`: each workspace's webhooks, each folder and each
+    actor are read once and every delivery row is written by one
+    `createMany` and one `pg_notify` per workspace. Bulk trash is a single
+    `updateManyAndReturn` compare-and-set. Emitting per document cost five
+    or six statements each, which ran an 800-document bulk trash past
+    Prisma's 5 s interactive-transaction timeout — only with webhooks on.
+    Bulk move still updates row by row (its data can differ per document)
+    and sizes its timeout to the batch.
   - Copy and template use emit `document.created` after the content copy
     succeeds, in a small transaction of their own: emitting with the row
     insert would announce copies that are then rolled back. This one event is

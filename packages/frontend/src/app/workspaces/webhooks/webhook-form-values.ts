@@ -121,12 +121,16 @@ export function folderPaths(
 /** The re-enable banner's "recover since" choices. */
 export type RecoverChoice = "disabled" | "failing" | "none";
 
-/** The `recoverSince` the server takes for a banner choice. */
+/**
+ * The `recoverSince` the server takes for a banner choice. "Since it was
+ * turned off" starts at `recoverFrom`, not `disabledAt`: what the disable
+ * stopped was all queued before it, and nothing is queued while it is off.
+ */
 export function recoverSinceFor(
   choice: RecoverChoice,
-  webhook: Pick<WebhookDetail, "disabledAt" | "failingSince">,
+  webhook: Pick<WebhookDetail, "disabledAt" | "recoverFrom" | "failingSince">,
 ): string | null {
-  if (choice === "disabled") return webhook.disabledAt;
+  if (choice === "disabled") return webhook.recoverFrom ?? webhook.disabledAt;
   if (choice === "failing") return webhook.failingSince;
   return null;
 }

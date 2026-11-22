@@ -24,6 +24,7 @@ import {
   encryptSecret,
   secretsKeyProblem,
 } from './webhook-secret';
+import { stopQueuedDeliveries } from './webhook-disable';
 import { generateWebhookSecret } from './webhook-signer';
 import {
   DELIVERY_PAGE_SIZE,
@@ -280,7 +281,11 @@ export class WebhookService {
    * keeps "who answers for this export" pointing at somebody who chose it.
    *
    * `recoverSince` re-queues every failed delivery created at or after it,
-   * from the first attempt, under the same delivery id.
+   * from the first attempt, under the same delivery id. The UI's default is
+   * `recoverFrom`, which the disable set to the oldest row it stopped — those
+   * rows all predate `disabledAt`, and nothing is queued while a webhook is
+   * off, so `disabledAt` itself would recover nothing. A `webhook.test` is
+   * never recovered: it was a one-shot check of the endpoint, not an event.
    */
   async enable(
     workspace: string,
@@ -301,6 +306,7 @@ export class WebhookService {
           status: 'active',
           disabledAt: null,
           disabledReason: null,
+          recoverFrom: null,
           // A fresh start: the old streak must not auto-disable it again on
           // the first failure after re-enabling.
           failingSince: null,
@@ -313,6 +319,7 @@ export class WebhookService {
           where: {
             webhookId: webhook.id,
             status: 'failed',
+            eventType: { not: 'webhook.test' },
             createdAt: { gte: since },
           },
           data: {
@@ -338,22 +345,20 @@ export class WebhookService {
     // Already off: keep the reason it went off for (`failing`, `gone`, …)
     // rather than overwriting the more informative one with `manual`.
     if (webhook.status !== 'disabled') {
+      const now = new Date();
       await this.prisma.$transaction(async (tx) => {
         await tx.webhook.update({
           where: { id: webhook.id },
           data: {
             status: 'disabled',
-            disabledAt: new Date(),
+            disabledAt: now,
             disabledReason: 'manual',
           },
         });
         // Queued rows end here, as on an automatic disable; re-enabling with
         // "recover since" is what sends them, so turning a webhook off and on
         // again never silently flushes what piled up while it was off.
-        await tx.webhookDelivery.updateMany({
-          where: { webhookId: webhook.id, status: 'pending' },
-          data: { status: 'failed', lastError: 'Webhook turned off' },
-        });
+        await stopQueuedDeliveries(tx, [webhook.id], now);
       });
     }
     return toDetail(await this.reload(webhook.id));

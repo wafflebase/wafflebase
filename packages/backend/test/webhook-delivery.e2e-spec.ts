@@ -6,6 +6,9 @@ import type { NotificationService } from 'src/notification/notification.service'
 import { loadWebhookConfig } from 'src/webhook/webhook-config';
 import { WebhookDeliveryWorker } from 'src/webhook/webhook-delivery.worker';
 import { WebhookEventService } from 'src/webhook/webhook-event.service';
+import { WebhookService } from 'src/webhook/webhook.service';
+import { DocumentService } from 'src/document/document.service';
+import type { WorkspaceService } from 'src/workspace/workspace.service';
 import { encryptSecret } from 'src/webhook/webhook-secret';
 import {
   generateWebhookSecret,
@@ -242,25 +245,243 @@ describeDb('WebhookDeliveryWorker integration', () => {
     });
   });
 
-  it('returns an expired lease to pending', async () => {
+  it('returns an expired lease to pending, or fails it once turned off', async () => {
     const hook = await createHook('lease');
+    const expiredRow = () =>
+      prismaA.webhookDelivery.create({
+        data: {
+          webhookId: hook.id,
+          eventType: 'document.created',
+          payload: { type: 'document.created', timestamp: '', data: {} },
+          status: 'in_flight',
+          attempts: 1,
+          leaseUntil: new Date(Date.now() - 1_000),
+        },
+      });
+    // The recovery step alone: a whole tick would claim and send the row it
+    // just made due again.
+    const recover = () =>
+      makeWorker(prismaA)['recoverLeases'](new Date()) as Promise<void>;
+    const live = await expiredRow();
+    await recover();
+    expect(
+      await prismaA.webhookDelivery.findUnique({ where: { id: live.id } }),
+    ).toMatchObject({ status: 'pending', leaseUntil: null, attempts: 1 });
+
+    await prismaA.webhookDelivery.delete({ where: { id: live.id } });
     await prismaA.webhook.update({
       where: { id: hook.id },
       data: { status: 'disabled' },
     });
-    const row = await prismaA.webhookDelivery.create({
-      data: {
-        webhookId: hook.id,
-        eventType: 'document.created',
-        payload: { type: 'document.created', timestamp: '', data: {} },
-        status: 'in_flight',
-        attempts: 1,
-        leaseUntil: new Date(Date.now() - 1_000),
-      },
-    });
-    await makeWorker(prismaA).runOnce();
+    const off = await expiredRow();
+    await recover();
     expect(
-      await prismaA.webhookDelivery.findUnique({ where: { id: row.id } }),
-    ).toMatchObject({ status: 'pending', leaseUntil: null, attempts: 1 });
+      await prismaA.webhookDelivery.findUnique({ where: { id: off.id } }),
+    ).toMatchObject({ status: 'failed', lastError: 'Webhook turned off' });
   });
+
+  /** Pending delivery rows for `webhookId`, `n` of them, all due now. */
+  async function queue(webhookId: string, n: number, over = {}) {
+    await prismaA.webhookDelivery.createMany({
+      data: Array.from({ length: n }, (_, i) => ({
+        webhookId,
+        eventType: 'document.created',
+        payload: {
+          type: 'document.created',
+          timestamp: new Date().toISOString(),
+          data: { workspace_id: workspaceId, actor: null, n: i },
+        },
+        nextAttemptAt: new Date(Date.now() - 60_000),
+        ...over,
+      })),
+    });
+  }
+
+  // One webhook's backlog must not starve the rest of the deployment: the
+  // claim excludes a saturated or capped webhook before it picks rows.
+  it('serves an idle webhook while another is saturated, then capped', async () => {
+    const busy = await createHook('busy');
+    const idle = await createHook('idle');
+    await queue(busy.id, 600);
+    // Two already in flight: `busy` is at its concurrency limit.
+    await queue(busy.id, 2, {
+      status: 'in_flight',
+      attempts: 1,
+      leaseUntil: new Date(Date.now() + 60_000),
+    });
+    await queue(idle.id, 1);
+
+    const worker = makeWorker(prismaA);
+    await worker.runOnce();
+    await worker.drain();
+    const status = async (webhookId: string) =>
+      prismaA.webhookDelivery.groupBy({
+        by: ['status'],
+        where: { webhookId },
+        _count: true,
+      });
+    expect(await status(idle.id)).toEqual([
+      { status: 'delivered', _count: 1 },
+    ]);
+    expect(
+      await prismaA.webhookDelivery.count({
+        where: { webhookId: busy.id, status: 'pending' },
+      }),
+    ).toBe(600);
+
+    // Now past its hourly cap instead: a thousand sent this hour.
+    await prismaA.webhookDelivery.updateMany({
+      where: { webhookId: busy.id, status: 'in_flight' },
+      data: { status: 'delivered', leaseUntil: null },
+    });
+    await queue(busy.id, 998, { status: 'delivered', attempts: 1 });
+    await queue(idle.id, 1);
+    await worker.runOnce();
+    await worker.drain();
+    expect(
+      await prismaA.webhookDelivery.count({
+        where: { webhookId: idle.id, status: 'delivered' },
+      }),
+    ).toBe(2);
+    expect(
+      await prismaA.webhookDelivery.count({
+        where: { webhookId: busy.id, status: 'pending' },
+      }),
+    ).toBe(600);
+
+    await prismaA.webhook.deleteMany({
+      where: { id: { in: [busy.id, idle.id] } },
+    });
+  }, 30_000);
+
+  // The rows a disable stops were all created before `disabledAt`, so the
+  // default "recover since" has to reach back to the oldest of them.
+  it('recovers what a disable stopped, from the default recover point', async () => {
+    const hook = await createHook('recover');
+    const hour = 60 * 60 * 1000;
+    for (const h of [3, 2, 1]) {
+      await queue(hook.id, 1, {
+        createdAt: new Date(Date.now() - h * hour),
+        attempts: 3,
+        nextAttemptAt: new Date(Date.now() + hour),
+      });
+    }
+    const workspaces = {
+      resolveId: (id: string) => Promise.resolve(id),
+      assertOwner: () => Promise.resolve(),
+    } as unknown as WorkspaceService;
+    const service = new WebhookService(
+      prismaA,
+      workspaces,
+      makeWorker(prismaA),
+      config,
+    );
+
+    const off = await service.disable(workspaceId, userId, hook.id);
+    const oldest = await prismaA.webhookDelivery.findFirst({
+      where: { webhookId: hook.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(off.recoverFrom).toBe(oldest!.createdAt.toISOString());
+    expect(
+      await prismaA.webhookDelivery.count({
+        where: { webhookId: hook.id, status: 'failed' },
+      }),
+    ).toBe(3);
+    // A test sent while it was off: never recovered.
+    await queue(hook.id, 1, {
+      eventType: 'webhook.test',
+      status: 'failed',
+      attempts: 1,
+    });
+
+    const on = await service.enable(
+      workspaceId,
+      userId,
+      hook.id,
+      off.recoverFrom,
+    );
+    expect(on.recoverFrom).toBeNull();
+    const rows = await prismaA.webhookDelivery.findMany({
+      where: { webhookId: hook.id },
+    });
+    expect(
+      rows
+        .filter((r) => r.eventType === 'document.created')
+        .map((r) => [r.status, r.attempts]),
+    ).toEqual([
+      ['pending', 0],
+      ['pending', 0],
+      ['pending', 0],
+    ]);
+    expect(rows.find((r) => r.eventType === 'webhook.test')?.status).toBe(
+      'failed',
+    );
+    await prismaA.webhook.delete({ where: { id: hook.id } });
+  });
+
+  // With webhooks on, a bulk move or trash emits one event per document
+  // inside one interactive transaction; it must fit Prisma's timeout.
+  it('bulk-moves and bulk-trashes a thousand documents with webhooks on', async () => {
+    const hook = await createHook('bulk');
+    const folder = await prismaA.folder.create({
+      data: { name: 'Archive', workspaceId },
+    });
+    const N = 1000;
+    await prismaA.document.createMany({
+      data: Array.from({ length: N }, (_, i) => ({
+        title: `bulk-${i}`,
+        type: 'sheet',
+        workspaceId,
+        authorID: userId,
+      })),
+    });
+    const docs = await prismaA.document.findMany({
+      where: { workspaceId, title: { startsWith: 'bulk-' } },
+      select: { id: true },
+    });
+    const service = new DocumentService(
+      prismaA,
+      new WebhookEventService(config, prismaA),
+    );
+
+    await service.moveDocuments(
+      docs.map((d) => ({
+        id: d.id,
+        data: { folder: { connect: { id: folder.id } } },
+      })),
+      userId,
+    );
+    await expect(
+      service.trashDocuments(
+        docs.map((d) => d.id),
+        userId,
+      ),
+    ).resolves.toBe(N);
+    // A second trash finds nothing live and emits nothing.
+    await expect(
+      service.trashDocuments(
+        docs.map((d) => d.id),
+        userId,
+      ),
+    ).resolves.toBe(0);
+
+    const counts = await prismaA.webhookDelivery.groupBy({
+      by: ['eventType'],
+      where: { webhookId: hook.id },
+      _count: true,
+      orderBy: { eventType: 'asc' },
+    });
+    expect(counts).toEqual([
+      { eventType: 'document.moved', _count: N },
+      { eventType: 'document.trashed', _count: N },
+    ]);
+    const sample = await prismaA.webhookDelivery.findFirst({
+      where: { webhookId: hook.id, eventType: 'document.trashed' },
+    });
+    expect(sample!.payload).toMatchObject({
+      data: { document: { folder: { id: folder.id, name: 'Archive' } } },
+    });
+    await prismaA.webhook.delete({ where: { id: hook.id } });
+  }, 60_000);
 });

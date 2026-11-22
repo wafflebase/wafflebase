@@ -125,7 +125,11 @@ export interface DocumentCreatedData extends DocumentEventData {
 
 /**
  * A cross-workspace move adds both workspace ids and is emitted to both
- * workspaces' webhooks.
+ * workspaces' webhooks, each half describing only its own workspace: the
+ * source half carries `from_folder` with `to_folder` and `document.folder`
+ * null and no links; the destination half carries `to_folder` (also
+ * `document.folder`) and links, with `from_folder` null. A webhook never
+ * learns the other workspace's folder names or a link into it.
  */
 export interface DocumentMovedData extends DocumentEventData {
   from_folder: FolderRef | null;

@@ -3,10 +3,20 @@ import { Document, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { LIVE_DOCUMENT, TRASHED_DOCUMENT } from './live-document';
 import {
+  type WebhookEventBatch,
   WebhookEventService,
   writeWithEvents,
 } from '../webhook/webhook-event.service';
 import type { DocumentSource } from '../webhook/webhook.types';
+
+/**
+ * The interactive-transaction timeout for a bulk write of `count` documents
+ * that emits webhook events: Prisma's 5 s default, plus 10 ms a document for
+ * the per-document update that cannot be batched.
+ */
+function bulkTimeoutMs(count: number): number {
+  return 5_000 + count * 10;
+}
 
 /**
  * Who a document write is attributed to in its webhook event: the acting
@@ -204,25 +214,31 @@ export class DocumentService {
         ? await tx.document.findUnique({ where })
         : null;
       const after = await tx.document.update({ data: nextData, where });
-      if (before) await this.emitChange(tx, before, after, actorId);
+      if (before && this.webhookEvents) {
+        const batch = this.webhookEvents.batch(tx);
+        await this.emitChange(batch, before, after, actorId);
+        await batch.flush();
+      }
       return after;
     });
   }
 
   /**
    * The rename / move events one update produced. A cross-workspace move is
-   * reported to both workspaces, each half filtered on its own folder.
+   * reported to both workspaces, each half filtered on its own folder and
+   * describing only its own side: the source learns which of its folders the
+   * document left, the destination which of its folders it entered, and
+   * neither gets the other's folder names or links into it — a webhook's
+   * owner need not be a member of the other workspace.
    */
   private async emitChange(
-    tx: Prisma.TransactionClient,
+    batch: WebhookEventBatch,
     before: Document,
     after: Document,
     actorId: DocumentActor,
   ): Promise<void> {
-    const events = this.webhookEvents;
-    if (!events) return;
     if (before.title !== after.title) {
-      await events.emitDocumentEvent(tx, {
+      await batch.emitDocumentEvent({
         type: 'document.renamed',
         actor: actorId,
         document: after,
@@ -231,39 +247,46 @@ export class DocumentService {
     const crossWorkspace = before.workspaceId !== after.workspaceId;
     if (!crossWorkspace && before.folderId === after.folderId) return;
 
-    const fromFolder = await events.folderRef(tx, before.folderId);
-    const toFolder = await events.folderRef(tx, after.folderId);
-    const extra: Record<string, unknown> = {
-      from_folder: fromFolder,
-      to_folder: toFolder,
-    };
+    const fromFolder = await batch.folderRef(before.folderId);
+    const toFolder = await batch.folderRef(after.folderId);
     if (!crossWorkspace) {
-      await events.emitDocumentEvent(tx, {
+      await batch.emitDocumentEvent({
         type: 'document.moved',
         actor: actorId,
         document: after,
         folder: toFolder,
         filterFolderId: [before.folderId, after.folderId],
-        extra,
+        extra: { from_folder: fromFolder, to_folder: toFolder },
       });
       return;
     }
-    extra.from_workspace_id = before.workspaceId;
-    extra.to_workspace_id = after.workspaceId;
-    for (const [workspaceId, folderId] of [
-      [before.workspaceId, before.folderId],
-      [after.workspaceId, after.folderId],
-    ] as const) {
-      await events.emitDocumentEvent(tx, {
-        type: 'document.moved',
-        actor: actorId,
-        document: after,
-        folder: toFolder,
-        workspaceId,
-        filterFolderId: folderId,
-        extra,
-      });
-    }
+    const workspaces = {
+      from_workspace_id: before.workspaceId,
+      to_workspace_id: after.workspaceId,
+    };
+    // The source half is described as the source knew the document (its
+    // title before any rename in the same request), with no folder and no
+    // links: it is no longer in this workspace, and its new place is not
+    // this workspace's business.
+    await batch.emitDocumentEvent({
+      type: 'document.moved',
+      actor: actorId,
+      document: before,
+      folder: null,
+      links: false,
+      workspaceId: before.workspaceId,
+      filterFolderId: before.folderId,
+      extra: { from_folder: fromFolder, to_folder: null, ...workspaces },
+    });
+    await batch.emitDocumentEvent({
+      type: 'document.moved',
+      actor: actorId,
+      document: after,
+      folder: toFolder,
+      workspaceId: after.workspaceId,
+      filterFolderId: after.folderId,
+      extra: { from_folder: null, to_folder: toFolder, ...workspaces },
+    });
   }
 
   /**
@@ -278,7 +301,8 @@ export class DocumentService {
   ): Promise<number> {
     if (updates.length === 0) return 0;
     const at = new Date();
-    if (!this.webhookEvents?.enabled) {
+    const events = this.webhookEvents;
+    if (!events?.enabled) {
       await this.prisma.$transaction(
         updates.map((u) =>
           this.prisma.document.update({
@@ -289,17 +313,30 @@ export class DocumentService {
       );
       return updates.length;
     }
-    // One `document.moved` per document, inside the move's transaction.
-    await this.prisma.$transaction(async (tx) => {
-      for (const u of updates) {
-        const before = await tx.document.findUnique({ where: { id: u.id } });
-        const after = await tx.document.update({
-          where: { id: u.id },
-          data: { ...u.data, updatedAt: at },
+    // One `document.moved` per document, inside the move's transaction. The
+    // rows before the move are read in one query and the events written in
+    // one batch, so the per-document cost is the update itself; the
+    // timeout still grows with the batch, since that much cannot shrink.
+    await this.prisma.$transaction(
+      async (tx) => {
+        const beforeRows = await tx.document.findMany({
+          where: { id: { in: updates.map((u) => u.id) } },
         });
-        if (before) await this.emitChange(tx, before, after, actorId);
-      }
-    });
+        const before = new Map(beforeRows.map((d) => [d.id, d]));
+        const batch = events.batch(tx);
+        await batch.preloadFolders(beforeRows.map((d) => d.folderId));
+        for (const u of updates) {
+          const after = await tx.document.update({
+            where: { id: u.id },
+            data: { ...u.data, updatedAt: at },
+          });
+          const prior = before.get(u.id);
+          if (prior) await this.emitChange(batch, prior, after, actorId);
+        }
+        await batch.flush();
+      },
+      { timeout: bulkTimeoutMs(updates.length) },
+    );
     return updates.length;
   }
 
@@ -313,35 +350,35 @@ export class DocumentService {
   async trashDocuments(ids: string[], actorId: DocumentActor): Promise<number> {
     if (ids.length === 0) return 0;
     const deletedAt = new Date();
-    if (!this.webhookEvents?.enabled) {
+    const events = this.webhookEvents;
+    if (!events?.enabled) {
       const { count } = await this.prisma.document.updateMany({
         where: { id: { in: ids }, ...LIVE_DOCUMENT },
         data: { deletedAt },
       });
       return count;
     }
-    // Each id is its own compare-and-set so `document.trashed` is emitted
-    // exactly for the rows this call trashed — never for one a concurrent
-    // request got to first. One event per document, bulk or not.
+    // One compare-and-set that returns what it trashed, so
+    // `document.trashed` is emitted exactly for the rows this call trashed —
+    // never for one a concurrent request got to first — and a bulk trash
+    // costs a constant number of statements however many ids it names. One
+    // event per document, bulk or not.
     return this.prisma.$transaction(async (tx) => {
-      const live = await tx.document.findMany({
+      const trashed = await tx.document.updateManyAndReturn({
         where: { id: { in: ids }, ...LIVE_DOCUMENT },
+        data: { deletedAt },
       });
-      let trashed = 0;
-      for (const doc of live) {
-        const { count } = await tx.document.updateMany({
-          where: { id: doc.id, ...LIVE_DOCUMENT },
-          data: { deletedAt },
-        });
-        if (count === 0) continue;
-        trashed++;
-        await this.webhookEvents?.emitDocumentEvent(tx, {
+      const batch = events.batch(tx);
+      await batch.preloadFolders(trashed.map((d) => d.folderId));
+      for (const doc of trashed) {
+        await batch.emitDocumentEvent({
           type: 'document.trashed',
           actor: actorId,
           document: doc,
         });
       }
-      return trashed;
+      await batch.flush();
+      return trashed.length;
     });
   }
 

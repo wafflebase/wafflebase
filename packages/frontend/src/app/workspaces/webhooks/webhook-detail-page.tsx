@@ -423,9 +423,9 @@ function DisabledBanner({
   const [choice, setChoice] = useState<RecoverChoice>(
     webhook.disabledAt ? "disabled" : "none",
   );
+  const offFrom = webhook.recoverFrom ?? webhook.disabledAt;
   const failingEarlier =
-    !!webhook.failingSince &&
-    (!webhook.disabledAt || webhook.failingSince < webhook.disabledAt);
+    !!webhook.failingSince && (!offFrom || webhook.failingSince < offFrom);
 
   const enableMutation = useMutation({
     mutationFn: () =>
@@ -468,8 +468,8 @@ function DisabledBanner({
             <div className="flex items-center gap-2">
               <RadioGroupItem value="disabled" id="recover-disabled" />
               <Label htmlFor="recover-disabled" className="font-normal">
-                Since it was turned off (
-                {new Date(webhook.disabledAt).toLocaleString()})
+                What was waiting when it was turned off, and since (
+                {new Date(offFrom ?? webhook.disabledAt).toLocaleString()})
               </Label>
             </div>
           )}
