@@ -125,55 +125,16 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledWith("hi @[minji](2)");
   });
 
-  it("restores the text and draft when sending fails", async () => {
-    let reject!: (e: Error) => void;
-    const onSend = vi.fn(
-      () => new Promise<void>((_, r) => (reject = r)),
-    );
+  it("never hands a sent message back; the caller owns failure", async () => {
+    let done!: () => void;
+    const onSend = vi.fn(() => new Promise<void>((r) => (done = r)));
     render(<Composer channelId="c1" onSend={onSend} />);
-    type("keep me");
+    type("gone");
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(box()).toHaveValue("");
-    reject(new Error("nope"));
-    await vi.waitFor(() => expect(box()).toHaveValue("keep me"));
-    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBe(
-      "keep me",
-    );
-  });
-
-  it("puts a failed message back ahead of text typed since", async () => {
-    let reject!: (e: Error) => void;
-    const onSend = vi.fn(
-      () => new Promise<void>((_, r) => (reject = r)),
-    );
-    render(<Composer channelId="c1" onSend={onSend} />);
-    type("first");
-    fireEvent.keyDown(box(), { key: "Enter" });
-    type("second");
-    reject(new Error("nope"));
-    await vi.waitFor(() => expect(box()).toHaveValue("first\nsecond"));
-  });
-
-  it("keeps a failed message's mention tokens", async () => {
-    const onSend = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("nope"))
-      .mockResolvedValue(undefined);
-    render(
-      <Composer
-        channelId="c1"
-        onSend={onSend}
-        members={[{ userId: "2", username: "minji" }]}
-      />,
-    );
-    fireEvent.change(combo(), {
-      target: { value: "hi @min", selectionStart: 7 },
-    });
-    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
-    fireEvent.keyDown(combo(), { key: "Enter" });
-    await vi.waitFor(() => expect(combo()).toHaveValue("hi @minji "));
-    fireEvent.keyDown(combo(), { key: "Enter" });
-    expect(onSend).toHaveBeenLastCalledWith("hi @[minji](2)");
+    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    done();
+    await vi.waitFor(() => expect(box()).toHaveValue(""));
   });
 
   describe("ArrowUp in an empty box", () => {

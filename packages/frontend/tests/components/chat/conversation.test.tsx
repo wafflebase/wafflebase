@@ -74,6 +74,8 @@ const loadOlder = vi.fn<() => Promise<boolean>>();
 const markRead = vi.fn();
 const joinMutate = vi.fn();
 const send = vi.fn(() => Promise.resolve());
+const retrySend = vi.fn(() => Promise.resolve());
+const discardSend = vi.fn();
 const retryLoad = vi.fn();
 const openThread = vi.fn();
 let pending: ChatMessageDto[] = [];
@@ -98,7 +100,7 @@ vi.mock("@/components/chat/use-chat", () => ({
     return { ...s, isLoading: false, error: loadError, loadOlder, retry: retryLoad };
   },
   usePendingMessages: () => pending,
-  useSendMessage: () => ({ send, retry: vi.fn(), discard: vi.fn() }),
+  useSendMessage: () => ({ send, retry: retrySend, discard: discardSend }),
   useJoinChannel: () => ({ mutate: joinMutate, isPending: false }),
   useMarkRead: () => markRead,
   useDeleteMessage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -192,6 +194,8 @@ describe("Conversation", () => {
     joinMutate.mockReset();
     send.mockClear();
     retryLoad.mockReset();
+    retrySend.mockClear();
+    discardSend.mockClear();
     pending = [];
     loadError = null;
     openThread.mockReset();
@@ -597,8 +601,10 @@ describe("Conversation", () => {
       );
       const failed = screen.getByRole("group", { name: "Message not sent" });
       expect(failed).toHaveTextContent("Not sent");
-      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(retrySend).toHaveBeenCalledWith("b");
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(discardSend).toHaveBeenCalledWith("b");
     });
   });
 

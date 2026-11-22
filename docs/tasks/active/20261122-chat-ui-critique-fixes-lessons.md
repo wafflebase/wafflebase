@@ -19,3 +19,10 @@
 ## Self-review rounds
 
 (logged below)
+- Round 1 (correctness/tests): blocked on 4. Fixed: Retry/Discard now
+  asserted to call `retry`/`discard` with the client id; `chat-shortcuts`
+  gained its own tests; the composer's restore-on-throw path was dead under
+  the resolve-only `onSend` contract, so it was deleted rather than tested;
+  Layout and the Chat page both wrote `document.title` and Layout's effect
+  (parent, runs after child) overwrote the page on mount — route titles
+  moved to `route-titles.ts` with `null` meaning "the page owns it".

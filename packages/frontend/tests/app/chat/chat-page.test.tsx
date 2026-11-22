@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
 import ChatPage from "@/app/chat/chat-page";
+import { routeTitle } from "@/app/route-titles";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const fetchMessageSpy =
@@ -142,26 +143,6 @@ function renderAt(url: string) {
     </QueryClientProvider>,
   );
   return location;
-}
-
-function renderAtWithUnmount(url: string) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <MemoryRouter initialEntries={[url]}>
-          <Routes>
-            <Route
-              path="/w/:workspaceId/chat/:channelId?"
-              element={<ChatPage />}
-            />
-          </Routes>
-        </MemoryRouter>
-      </TooltipProvider>
-    </QueryClientProvider>,
-  );
 }
 
 /**
@@ -516,18 +497,22 @@ describe("ChatPage keyboard", () => {
 });
 
 describe("ChatPage title", () => {
-  it("names the channel and counts what needs you, then restores the title", async () => {
-    document.title = "Before";
+  it("names the channel and counts what needs you", async () => {
     fetchChannelsSpy.mockResolvedValue([
       channel("c1", { mentionCount: 2, unreadCount: 5 }),
       channel("c2", { unreadCount: 9 }),
     ]);
-    const { unmount } = renderAtWithUnmount("/w/team/chat/c1");
+    renderAt("/w/team/chat/c1");
 
     await waitFor(() =>
       expect(document.title).toBe("(2) #c1 · Chat — Wafflebase"),
     );
-    unmount();
-    expect(document.title).toBe("Before");
+  });
+
+  it("is the only writer: Layout leaves the chat routes alone", () => {
+    expect(routeTitle("/w/team/chat")).toBeNull();
+    expect(routeTitle("/w/team/chat/c1")).toBeNull();
+    expect(routeTitle("/w/team/trash")).toBe("Trash");
+    expect(routeTitle("/nowhere/at/all")).toBeUndefined();
   });
 });

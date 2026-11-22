@@ -314,16 +314,10 @@ export default function ChatPage() {
     !!channelId && !!channelsQuery.data && !channel;
   const label = channel ? channelLabel(channel, meId) : "";
 
-  // The tab says where you are and how much needs you; the title the page
-  // found is put back on the way out.
-  // (The restore runs first, so it captures the title from before ours.)
+  // The tab says where you are and how much needs you. The page owns the
+  // title on its routes (Layout's ROUTE_TITLES leaves them alone), and the
+  // next route's title replaces it on the way out.
   const badge = chatBadgeCount(channels);
-  useEffect(() => {
-    const previous = document.title;
-    return () => {
-      document.title = previous;
-    };
-  }, []);
   useEffect(() => {
     document.title = chatTitle(channel, label, badge);
   }, [channel, label, badge]);

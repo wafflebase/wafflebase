@@ -21,6 +21,10 @@ const MAX_TEXTAREA_HEIGHT_PX = 200;
 interface ComposerProps {
   /** Keys the draft; a thread passes its own key so drafts stay apart. */
   channelId: string;
+  /**
+   * Sends the body. It should resolve rather than throw: the box has already
+   * cleared, and a failed send is the caller's to show and retry.
+   */
   onSend: (body: string) => void | Promise<void>;
   members?: MentionMember[];
   placeholder?: string;
@@ -63,8 +67,6 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // The channel this composer shows now, read by a send that resolves after
   // the reader moved on.
-  const channelRef = useRef(channelId);
-  const mountedRef = useRef(true);
 
   const update = (value: string) => {
     setBody(value);
@@ -110,17 +112,6 @@ export function Composer({
     mention.reset();
   }
 
-  useEffect(() => {
-    channelRef.current = channelId;
-  }, [channelId]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -140,39 +131,20 @@ export function Composer({
 
   const canSend = !disabled && !sending && !!trimmed && !tooLong;
 
+  // The box clears at once: the caller shows the message as pending and
+  // owns failure (the row offers Retry), so `onSend` never hands the text
+  // back. `sending` still holds a second Enter until the first is queued,
+  // which keeps messages in order.
   const send = async () => {
     if (!trimmed || sending || disabled || tooLong) return;
-    const sentChannel = channelId;
-    const sentText = body;
-    const sentMentions = mention.mentions();
     const finalBody = mention.applyMentions(body).trim();
     setSending(true);
     update("");
     mention.reset();
     try {
       await onSend(finalBody);
-    } catch {
-      // Put the text back so nothing is lost, ahead of anything typed since.
-      const stillHere =
-        mountedRef.current && channelRef.current === sentChannel;
-      const current = stillHere
-        ? (textareaRef.current?.value ?? "")
-        : draftStore.get(sentChannel);
-      const restored = current.trim() ? `${sentText}\n${current}` : sentText;
-      if (stillHere) {
-        update(restored);
-        const typed = mention.mentions();
-        mention.reset([
-          ...sentMentions,
-          ...typed.filter(
-            (m) => !sentMentions.some((s) => s.username === m.username),
-          ),
-        ]);
-      } else {
-        draftStore.set(sentChannel, restored);
-      }
     } finally {
-      if (mountedRef.current) setSending(false);
+      setSending(false);
     }
   };
 
