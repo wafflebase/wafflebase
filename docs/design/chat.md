@@ -450,7 +450,8 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `PATCH` | `…/chat/channels/:cid` | Rename, topic, archive |
 | `GET` | `…/chat/channels/:cid/members` | Who is in a public or private channel (Add people marks them "Already here") |
 | `POST` | `…/chat/channels/:cid/members` | Join (public) / invite (private) |
-| `DELETE` | `…/chat/channels/:cid/members/:uid` | Leave / remove |
+| `DELETE` | `…/chat/channels/:cid/members/me` | Leave |
+| `DELETE` | `…/chat/channels/:cid/members/:uid` | Remove someone else (`canManage`; not a DM or the default channel) |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |
 | `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }` |
 | `GET` | `…/chat/messages/:mid` | One message, for a bell deep link that must learn whether it is a thread reply; 404 unless its channel is readable |
@@ -579,9 +580,42 @@ say:
   thread-only reply leaves an existing read position alone, since replying
   in a thread is not reading the channel.
 - **DM membership is fixed.** A DM cannot be joined, left, renamed or
-  archived. Leaving is `DELETE …/members/me` (only the caller), not the
-  `…/members/:uid` removal the table above sketches; removing others is not
-  in P1. Re-opening a DM restores member rows a workspace removal deleted.
+  archived. Leaving is `DELETE …/members/me` (only the caller).
+  Re-opening a DM restores member rows a workspace removal deleted.
+- **Removing someone else** is `DELETE …/members/:userId`, declared after
+  `members/me` and parsed as an integer so `me` still means leave. It is
+  authorized by the same `canManage` rule as rename and archive: on a public
+  channel its creator or a workspace owner, on a private channel any of its
+  members — the Slack default, and the only rule that does not strand a
+  private channel whose creator left. It refuses a DM and the default channel
+  (`400`, even for an owner), yourself (`400`, use `members/me`), and a target
+  not in the channel (`404`); like leaving, it never empties a private
+  channel (`409`) and sends the `mem` bus event that evicts the hub member
+  cache. The removed person's open client is not told; it learns on its next
+  channel-list fetch, when the channel answers `404`. Removal from a public
+  channel does not stop them rejoining it.
+- **Members dialog.** The channel header shows a member count that opens the
+  member list (public and private channels, not DMs), with Add people and a
+  per-row Remove, confirmed inline on the row, for callers `canManage`.
+- **Archived channels stay reachable.** The channel list ends in a collapsed
+  **Archived** section of archived channels the caller belongs to (collapsed
+  state remembered per workspace in the browser; the open channel stays
+  visible while collapsed). They carry no unread marks and never count toward
+  the Chat badge. Browse channels has a "Show archived channels" toggle; an
+  archived public channel opens read-only and offers no Join, since the
+  server refuses to join one. Unarchiving is the header's Unarchive action.
+- **Unread orientation.** Opening a channel with unread messages draws a
+  **New messages** divider above the first of them and, when it is out of
+  view, opens there instead of at the bottom — without marking read until the
+  reader scrolls to the end. The summary carries `unreadCount` but no
+  `lastReadSeq`, so the divider is placed by counting back that many
+  messages that count as unread (top-level or also-sent-to-channel, not
+  deleted, not the reader's own — the server's rule), pinned to the newest
+  `seq` once the log has caught up, so it does not move as reading advances.
+  Scrolled away from the bottom, a **Jump to latest** pill (it reads
+  "N new messages" once others post) returns to the end. Exposing
+  `lastReadSeq` in the summary would place the divider exactly and is the
+  natural follow-up.
 - **`GET …/chat/messages/:mid`.** Added for the bell deep link, which knows
   only a message id and must learn whether it is a thread reply; it is `404`
   unless the message's channel is readable. The stream's `update` handling

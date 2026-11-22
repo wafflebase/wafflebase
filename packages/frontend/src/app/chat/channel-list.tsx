@@ -1,5 +1,12 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { IconHash, IconLock, IconPlus } from "@tabler/icons-react";
+import {
+  IconArchive,
+  IconChevronRight,
+  IconHash,
+  IconLock,
+  IconPlus,
+} from "@tabler/icons-react";
 
 import type { ChannelSummary } from "@/api/chat";
 import { channelCount } from "@/components/chat/chat-cache";
@@ -9,7 +16,29 @@ import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import { cn } from "@/lib/utils";
 import { channelLabel, groupChannels } from "./group-channels";
 
+const ARCHIVED_OPEN_KEY = (workspaceId: string) =>
+  `wafflebase:chat-archived-open:${workspaceId}`;
+
+function readArchivedOpen(workspaceId: string): boolean {
+  try {
+    return window.localStorage.getItem(ARCHIVED_OPEN_KEY(workspaceId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeArchivedOpen(workspaceId: string, open: boolean): void {
+  try {
+    if (open) window.localStorage.setItem(ARCHIVED_OPEN_KEY(workspaceId), "1");
+    else window.localStorage.removeItem(ARCHIVED_OPEN_KEY(workspaceId));
+  } catch {
+    // A convenience only.
+  }
+}
+
 interface ChannelListProps {
+  /** Keys the remembered state of the Archived section. */
+  workspaceId: string;
   channels: ChannelSummary[];
   isLoading: boolean;
   /** The list failed to load; shown instead of a misleading empty state. */
@@ -24,11 +53,14 @@ interface ChannelListProps {
 }
 
 /**
- * The Chat page's second column: Channels, then Direct messages. An unread
+ * The Chat page's second column: Channels, Direct messages, then — only when
+ * there are any — the archived channels the caller is in, collapsed. An unread
  * channel's name is bold; a mention, or anything unread in a DM, shows as a
- * count, other unread as a dot.
+ * count, other unread as a dot. Archived channels show neither: nothing can
+ * be posted there, and the Chat badge does not count them either.
  */
 export function ChannelList({
+  workspaceId,
   channels,
   isLoading,
   isError = false,
@@ -39,7 +71,7 @@ export function ChannelList({
   onNewChannel,
   onNewMessage,
 }: ChannelListProps) {
-  const { channels: rooms, directMessages } = groupChannels(channels);
+  const { channels: rooms, directMessages, archived } = groupChannels(channels);
 
   return (
     <nav aria-label="Chat channels" className="flex min-h-0 flex-1 flex-col">
@@ -130,6 +162,16 @@ export function ChannelList({
             })
           )}
         </Section>
+        {!isLoading && !isError && archived.length > 0 && (
+          <ArchivedSection
+            // Remount per workspace so the remembered state is read afresh.
+            key={workspaceId}
+            workspaceId={workspaceId}
+            channels={archived}
+            activeChannelId={activeChannelId}
+            hrefFor={hrefFor}
+          />
+        )}
       </div>
     </nav>
   );
@@ -155,7 +197,7 @@ function Section({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7"
+          className="size-7 pointer-coarse:size-11"
           aria-label={actionLabel}
           title={actionLabel}
           onClick={onAction}
@@ -164,6 +206,62 @@ function Section({
         </Button>
       </div>
       <ul className="flex flex-col gap-px">{children}</ul>
+    </section>
+  );
+}
+
+function ArchivedSection({
+  workspaceId,
+  channels,
+  activeChannelId,
+  hrefFor,
+}: {
+  workspaceId: string;
+  channels: ChannelSummary[];
+  activeChannelId: string | null;
+  hrefFor: (channelId: string) => string;
+}) {
+  const [open, setOpen] = useState(() => readArchivedOpen(workspaceId));
+  const toggle = () => {
+    setOpen(!open);
+    writeArchivedOpen(workspaceId, !open);
+  };
+  // Collapsed, the open channel still shows, so the list never loses track
+  // of where you are.
+  const shown = open ? channels : channels.filter((c) => c.id === activeChannelId);
+
+  return (
+    <section className="mt-4">
+      <h2 className="pb-1">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggle}
+          className="flex h-7 w-full items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+        >
+          <IconChevronRight
+            aria-hidden
+            className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+          />
+          Archived
+          <span className="tabular-nums">({channels.length})</span>
+        </button>
+      </h2>
+      {shown.length > 0 && (
+        <ul className="flex flex-col gap-px">
+          {shown.map((c) => (
+            <ChannelRow
+              key={c.id}
+              channel={c}
+              label={c.name ?? ""}
+              active={c.id === activeChannelId}
+              href={hrefFor(c.id)}
+              archived
+              icon={<IconArchive className="size-4 shrink-0 text-muted-foreground" />}
+            />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -178,15 +276,18 @@ function ChannelRow({
   active,
   href,
   icon,
+  archived = false,
 }: {
   channel: ChannelSummary;
   label: string;
   active: boolean;
   href: string;
   icon: React.ReactNode;
+  /** Muted, with no unread marks. */
+  archived?: boolean;
 }) {
-  const unread = channel.unreadCount > 0;
-  const count = channelCount(channel);
+  const unread = !archived && channel.unreadCount > 0;
+  const count = archived ? 0 : channelCount(channel);
   const description = count
     ? `${count} unread${channel.mentionCount > 0 ? ` mention${count === 1 ? "" : "s"}` : ""}`
     : unread

@@ -6,9 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { IconArchive } from "@tabler/icons-react";
+import { IconArchive, IconArrowDown } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import { fetchMe } from "@/api/auth";
@@ -19,6 +20,11 @@ import { useChatConnection } from "./chat-connection";
 import { Composer } from "./composer";
 import { groupMessages, type MessageGroup } from "./group-messages";
 import { MessageGroupView } from "./message-item";
+import {
+  countNewSince,
+  findUnreadDivider,
+  type UnreadSnapshot,
+} from "./unread-marker";
 import { useFlashMessage } from "./use-flash-message";
 import {
   useChannelMessages,
@@ -33,6 +39,16 @@ import { setOpenChatChannel } from "./use-chat-stream";
 const BOTTOM_SLACK_PX = 48;
 /** How far back a deep link may page to find its message. */
 const MAX_DEEP_LINK_PAGES = 10;
+/** The "New messages" divider's element id, for the opening scroll. */
+/** Room left above the divider when the view opens at it. */
+const DIVIDER_MARGIN_PX = 8;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 interface ConversationProps {
   workspaceId: string;
@@ -67,6 +83,10 @@ function dayLabel(iso: string): string {
  * already there, so scrolling back through history is never yanked away, and
  * it advances the read position when the newest message is in view. Mount it
  * with `key={channelId}` so each channel starts at its own newest message.
+ *
+ * Opening a channel with unread messages draws a "New messages" divider
+ * above the first of them and opens there when it is out of view. Scrolled
+ * away from the end, a "Jump to latest" pill counts what arrived since.
  */
 export function Conversation({
   workspaceId,
@@ -80,8 +100,15 @@ export function Conversation({
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
   const members = useWorkspaceMembers(workspaceId);
-  const { messages, isLoading, error, hasOlder, loadingOlder, loadOlder } =
-    useChannelMessages(workspaceId, channelId);
+  const {
+    messages,
+    isLoading,
+    error,
+    hasOlder,
+    loadingOlder,
+    loadOlder,
+    settled,
+  } = useChannelMessages(workspaceId, channelId);
   const post = usePostMessage(workspaceId, channelId);
   const join = useJoinChannel(workspaceId);
   const markRead = useMarkRead(workspaceId, channelId);
@@ -103,6 +130,40 @@ export function Conversation({
     setAtBottom(next);
   }, []);
 
+  // What was unread when the channel opened. The count is read off the
+  // summary the first time it is there — reading clears it in the cache, so
+  // it is taken before the read position can move — and pinned to the newest
+  // message once the loaded log has caught up to what it counted. The
+  // divider derives from that pin, so it stays put while the channel is open
+  // and resets with the remount a channel switch brings.
+  const [unreadAtOpen, setUnreadAtOpen] = useState<number | null>(null);
+  if (unreadAtOpen === null && channel) {
+    setUnreadAtOpen(channel.isMember ? channel.unreadCount : 0);
+  }
+  const newestSeq = messages.at(-1)?.seq;
+  const [snapshot, setSnapshot] = useState<UnreadSnapshot | null>(null);
+  // Placing the divider needs to know which messages are the reader's own.
+  if (
+    !snapshot &&
+    unreadAtOpen !== null &&
+    settled &&
+    (unreadAtOpen === 0 || me)
+  ) {
+    setSnapshot({ count: unreadAtOpen, boundarySeq: newestSeq ?? 0 });
+  }
+  const dividerId = useMemo(
+    () => (snapshot ? findUnreadDivider(messages, snapshot, meId) : null),
+    [messages, snapshot, meId],
+  );
+
+  // The newest message the reader has been at the bottom for; what arrived
+  // after it is what the "Jump to latest" pill counts.
+  const [seenSeq, setSeenSeq] = useState(0);
+  useEffect(() => {
+    if (atBottomRef.current && newestSeq !== undefined) setSeenSeq(newestSeq);
+  }, [atBottom, newestSeq]);
+  const newCount = atBottom ? 0 : countNewSince(messages, seenSeq, meId);
+
   // Keep the reader's place when older messages are prepended: the content
   // above grows, so shift by exactly the height it grew.
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
@@ -121,6 +182,49 @@ export function Conversation({
       el.scrollTop = el.scrollHeight;
     }
   }, [firstId, lastId, highlightMessageId]);
+
+  // Open at the divider when the bottom leaves it out of view, once. The
+  // reader is then away from the end, which keeps the read position where it
+  // is until they scroll down, and the pill counts everything below it.
+  const openedAtDivider = useRef(false);
+  const dividerRef = useRef<HTMLLIElement>(null);
+  useLayoutEffect(() => {
+    if (!snapshot || openedAtDivider.current) return;
+    openedAtDivider.current = true;
+    if (!dividerId || highlightMessageId) return;
+    const el = scrollRef.current;
+    const divider = dividerRef.current;
+    if (!el || !divider) return;
+    const offset =
+      divider.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    if (offset >= 0) return;
+    el.scrollTop = Math.max(0, el.scrollTop + offset - DIVIDER_MARGIN_PX);
+    atBottomRef.current = false;
+    setAtBottom(false);
+    const first = messages.find((m) => m.id === dividerId);
+    if (first) setSeenSeq(first.seq - 1);
+  }, [snapshot, dividerId, highlightMessageId, messages]);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const jumpToLatest = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const behavior = prefersReducedMotion() ? "auto" : "smooth";
+    if (typeof el.scrollTo === "function") {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+    // The pill goes away at the bottom; a keyboard user lands in the
+    // composer rather than on the page body. Focus cannot tell the two apart
+    // (Chrome focuses a button on mousedown), but a keyboard-made click has
+    // detail 0 — and focusing the textarea on a tap would raise the keyboard.
+    if (e.detail === 0) {
+      rootRef.current?.querySelector<HTMLElement>("textarea")?.focus({
+        preventScroll: true,
+      });
+    }
+  }, []);
 
   const handleLoadOlder = useCallback(async () => {
     const el = scrollRef.current;
@@ -150,19 +254,25 @@ export function Conversation({
   }, [highlightMessageId, present, isLoading, loadingOlder, hasOlder, loadOlder]);
   const flashing = useFlashMessage(highlightMessageId, present);
 
-  // Read up to the newest message whenever it is in view and the tab is.
-  const newestSeq = messages.at(-1)?.seq;
+  // Read up to the newest message whenever it is in view and the tab is —
+  // not before the unread snapshot is taken, nor while the view opened at the
+  // divider (the ref, because that happens in this same commit).
   useEffect(() => {
     if (!atBottom || newestSeq === undefined || !channel?.isMember) return;
+    if (!snapshot) return;
     const tryMark = () => {
+      if (!atBottomRef.current) return;
       if (document.visibilityState === "visible") markRead(newestSeq);
     };
     tryMark();
     document.addEventListener("visibilitychange", tryMark);
     return () => document.removeEventListener("visibilitychange", tryMark);
-  }, [atBottom, newestSeq, channel?.isMember, markRead]);
+  }, [atBottom, newestSeq, channel?.isMember, markRead, snapshot]);
 
-  const groups = useMemo(() => groupMessages(messages), [messages]);
+  const groups = useMemo(
+    () => groupMessages(messages, dividerId),
+    [messages, dividerId],
+  );
 
   const send = async (body: string) => {
     try {
@@ -177,10 +287,16 @@ export function Conversation({
     }
   };
 
-  const readOnlyPreview = channel?.kind === "public" && !channel.isMember;
+  // An archived channel cannot be joined, so a non-member gets the archived
+  // read-only composer rather than a Join the server would refuse.
+  const readOnlyPreview =
+    channel?.kind === "public" && !channel.isMember && !channel.archived;
+
+  const showJump = !atBottom && messages.length > 0 && !isLoading && !error;
+  const newLabel = `${newCount} new ${newCount === 1 ? "message" : "messages"}`;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {channel?.archived && (
         <p
           role="status"
@@ -191,67 +307,101 @@ export function Conversation({
           post in it.
         </p>
       )}
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-        aria-label="Messages"
-        role="log"
-      >
-        {isLoading ? (
-          <p className="p-6 text-sm text-muted-foreground">Loading messages…</p>
-        ) : error ? (
-          <p className="p-6 text-sm text-muted-foreground">
-            {userFacingError(error, "Couldn't load messages. Reload to try again.")}
-          </p>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
-            <p className="text-sm font-medium text-foreground">
-              No messages yet
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          aria-label="Messages"
+          role="log"
+        >
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              Loading messages…
             </p>
-            <p className="text-sm text-muted-foreground">
-              Say hello to start the conversation.
+          ) : error ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {userFacingError(
+                error,
+                "Couldn't load messages. Reload to try again.",
+              )}
             </p>
-          </div>
-        ) : (
-          <div className="pb-3">
-            {hasOlder && (
-              <div className="flex justify-center py-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleLoadOlder()}
-                  disabled={loadingOlder}
-                >
-                  {loadingOlder ? "Loading…" : "Load older messages"}
-                </Button>
-              </div>
-            )}
-            <ol className="flex flex-col">
-              {groups.map((g, i) => (
-                <Fragment key={g.first.id}>
-                  {startsNewDay(groups, i) && (
-                    <li
-                      role="separator"
-                      className="mx-4 mt-4 flex items-center gap-3 text-xs font-medium text-muted-foreground"
-                    >
-                      <span className="h-px flex-1 bg-border" />
-                      {dayLabel(g.first.createdAt)}
-                      <span className="h-px flex-1 bg-border" />
-                    </li>
-                  )}
-                  <MessageGroupView
-                    group={g}
-                    workspaceId={workspaceId}
-                    me={meId}
-                    highlightId={flashing}
-                    onOpenThread={onOpenThread}
-                  />
-                </Fragment>
-              ))}
-            </ol>
+          ) : messages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
+              <p className="text-sm font-medium text-foreground">
+                No messages yet
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Say hello to start the conversation.
+              </p>
+            </div>
+          ) : (
+            <div className="pb-3">
+              {hasOlder && (
+                <div className="flex justify-center py-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleLoadOlder()}
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? "Loading…" : "Load older messages"}
+                  </Button>
+                </div>
+              )}
+              <ol className="flex flex-col">
+                {groups.map((g, i) => (
+                  <Fragment key={g.first.id}>
+                    {startsNewDay(groups, i) && (
+                      <li
+                        role="separator"
+                        className="mx-4 mt-4 flex items-center gap-3 text-xs font-medium text-muted-foreground"
+                      >
+                        <span className="h-px flex-1 bg-border" />
+                        {dayLabel(g.first.createdAt)}
+                        <span className="h-px flex-1 bg-border" />
+                      </li>
+                    )}
+                    {g.first.id === dividerId && (
+                      <li
+                        ref={dividerRef}
+                        role="separator"
+                        aria-label="New messages"
+                        className="mx-4 mt-3 flex items-center gap-3 text-xs font-medium text-primary"
+                      >
+                        <span className="h-px flex-1 bg-primary" />
+                        New messages
+                      </li>
+                    )}
+                    <MessageGroupView
+                      group={g}
+                      workspaceId={workspaceId}
+                      me={meId}
+                      highlightId={flashing}
+                      onOpenThread={onOpenThread}
+                    />
+                  </Fragment>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+        {showJump && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={jumpToLatest}
+              className="pointer-events-auto shadow-md pointer-coarse:min-h-11 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
+            >
+              <IconArrowDown aria-hidden />
+              {newCount > 0 ? newLabel : "Jump to latest"}
+            </Button>
           </div>
         )}
+        <span aria-live="polite" className="sr-only">
+          {showJump && newCount > 0 ? newLabel : ""}
+        </span>
       </div>
       <div className="border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <ConnectionNotice />

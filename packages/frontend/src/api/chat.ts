@@ -183,6 +183,22 @@ export async function leaveChannel(
   await assertOk(res, "Couldn't leave the channel");
 }
 
+/**
+ * Remove somebody else from a public or private channel. Allowed whenever
+ * `canManage` is, except on the default channel; leaving is `leaveChannel`.
+ */
+export async function removeChannelMember(
+  workspaceId: string,
+  channelId: string,
+  userId: number,
+): Promise<void> {
+  const res = await fetchWithAuth(
+    `${channelBase(workspaceId, channelId)}/members/${userId}`,
+    { method: "DELETE" },
+  );
+  await assertOk(res, "Couldn't remove them from the channel");
+}
+
 export async function updateChannel(
   workspaceId: string,
   channelId: string,

@@ -1,9 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatMessageDto } from "@/api/chat";
-import { useThreadMessages } from "@/components/chat/use-chat";
+import {
+  useChannelMessages,
+  useThreadMessages,
+} from "@/components/chat/use-chat";
+import { catchUpChannel } from "@/components/chat/use-chat-stream";
+import { chatKeys } from "@/components/chat/chat-cache";
 
 const PAGE = 50;
 
@@ -33,7 +38,7 @@ const fetchMessagesSpy = vi.fn(
   async (
     _w: string,
     _c: string,
-    opts: { before?: number; after?: number; thread?: string },
+    opts: { before?: number; after?: number; thread?: string } = {},
   ): Promise<ChatMessageDto[]> => {
     const rows = thread.filter(
       (m) =>
@@ -49,7 +54,7 @@ vi.mock("@/api/chat", () => ({
   fetchMessages: (
     w: string,
     c: string,
-    o: { before?: number; after?: number; thread?: string },
+    o?: { before?: number; after?: number; thread?: string },
   ) => fetchMessagesSpy(w, c, o),
 }));
 
@@ -74,5 +79,44 @@ describe("useThreadMessages", () => {
     expect(result.current.data?.map((m) => m.seq)).toEqual(
       thread.map((m) => m.seq),
     );
+  });
+});
+
+describe("useChannelMessages settled", () => {
+  const setup = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    return { queryClient, wrapper };
+  };
+
+  it("settles once the first page lands", async () => {
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useChannelMessages("w1", "c-fresh"), {
+      wrapper,
+    });
+    expect(result.current.settled).toBe(false);
+    await waitFor(() => expect(result.current.settled).toBe(true));
+  });
+
+  it("waits for a surviving cache to catch up", async () => {
+    let finish: () => void = () => {};
+    vi.mocked(catchUpChannel).mockImplementationOnce(
+      () => new Promise<void>((r) => (finish = r)),
+    );
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(chatKeys.messages("c-cached"), [msg(1)]);
+
+    const { result } = renderHook(
+      () => useChannelMessages("w1", "c-cached"),
+      { wrapper },
+    );
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.settled).toBe(false);
+
+    await act(async () => finish());
+    expect(result.current.settled).toBe(true);
   });
 });

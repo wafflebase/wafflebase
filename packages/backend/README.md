@@ -795,6 +795,7 @@ one they are not in, any channel once they leave the workspace — answers
 | `GET` | `/workspaces/:wid/chat/channels/:cid/members` | Who is in a public or private channel |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/members` | No `userIds`: join a public channel. With `userIds`: invite |
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM, not the default channel) |
+| `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/:userId` | Remove someone else — channel creator or workspace owner on a public channel, any member on a private one; not a DM or the default channel |
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |

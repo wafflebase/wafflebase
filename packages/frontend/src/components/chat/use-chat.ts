@@ -19,6 +19,7 @@ import {
   markRead,
   openDm,
   postMessage,
+  removeChannelMember,
   updateChannel,
   type ChannelSummary,
   type ChatMessageDto,
@@ -68,10 +69,23 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
     refetchOnWindowFocus: false,
   });
 
+  // Whether a cache this view mounted on is still catching up to the server.
+  const [catchingUp, setCatchingUp] = useState(
+    () => queryClient.getQueryData(chatKeys.messages(channelId)) !== undefined,
+  );
   useEffect(() => {
-    if (queryClient.getQueryData(chatKeys.messages(channelId))) {
-      void catchUpChannel(queryClient, workspaceId, channelId);
+    if (!queryClient.getQueryData(chatKeys.messages(channelId))) {
+      setCatchingUp(false);
+      return;
     }
+    let live = true;
+    setCatchingUp(true);
+    void catchUpChannel(queryClient, workspaceId, channelId).finally(() => {
+      if (live) setCatchingUp(false);
+    });
+    return () => {
+      live = false;
+    };
   }, [queryClient, workspaceId, channelId]);
 
   useEffect(() => {
@@ -124,6 +138,12 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
     hasOlder: hasOlder && (query.data?.length ?? 0) > 0,
     loadingOlder,
     loadOlder,
+    /**
+     * The loaded messages reach what the server held when the view opened:
+     * the first page has landed, or a cache that survived has caught up from
+     * its tail. What the channel summary counted as unread is loaded by now.
+     */
+    settled: query.isSuccess && !catchingUp,
   };
 }
 
@@ -332,6 +352,19 @@ export function useLeaveChannel(workspaceId: string) {
   return useMutation({
     mutationFn: (channelId: string) => leaveChannel(workspaceId, channelId),
     onSuccess: () => invalidate(),
+  });
+}
+
+/** Remove somebody else from a channel; refreshes its member list. */
+export function useRemoveChannelMember(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { channelId: string; userId: number }) =>
+      removeChannelMember(workspaceId, input.channelId, input.userId),
+    onSuccess: (_, input) =>
+      queryClient.invalidateQueries({
+        queryKey: chatKeys.members(input.channelId),
+      }),
   });
 }
 

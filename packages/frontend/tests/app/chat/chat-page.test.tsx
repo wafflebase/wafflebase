@@ -18,6 +18,11 @@ vi.mock("@/api/chat", () => ({
   CHAT_PAGE_SIZE: 50,
   fetchMessage: (w: string, id: string) => fetchMessageSpy(w, id),
   fetchChannels: (w: string) => fetchChannelsSpy(w),
+  fetchChannelMembers: () =>
+    Promise.resolve([
+      { id: 1, username: "me", photo: null },
+      { id: 2, username: "minji", photo: null },
+    ]),
 }));
 vi.mock("@/api/auth", () => ({
   fetchMe: () => Promise.resolve({ id: 1, username: "me" }),
@@ -276,5 +281,38 @@ describe("ChatPage channel actions", () => {
     expect(menu).toHaveTextContent("Unarchive channel");
     expect(menu).not.toHaveTextContent("Rename");
     expect(menu).not.toHaveTextContent("Add people");
+  });
+});
+
+describe("ChatPage members", () => {
+  it("shows the member count on a channel and opens the list", async () => {
+    const user = userEvent.setup();
+    renderAt("/w/team/chat/c1");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Members: 2" }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Members of #c1" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no member control on a DM", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("d1", {
+        kind: "dm",
+        name: null,
+        members: [
+          { id: 1, username: "me", photo: null },
+          { id: 2, username: "minji", photo: null },
+        ],
+      }),
+    ]);
+    renderAt("/w/team/chat/d1");
+
+    await screen.findByTestId("conversation");
+    expect(
+      screen.queryByRole("button", { name: /^Members/ }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -50,6 +50,10 @@ import {
 import { channelMenu, chatLayout, landingChannelId } from "./chat-layout";
 import { channelLabel } from "./group-channels";
 import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
+import {
+  ChannelMembersButton,
+  ChannelMembersDialog,
+} from "./channel-members-dialog";
 import { AddPeopleDialog, NewDmDialog } from "./new-dm-dialog";
 
 const LAST_CHANNEL_KEY = (workspaceId: string) =>
@@ -124,6 +128,7 @@ export default function ChatPage() {
   };
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<ChannelSettingsMode | null>(
     null,
   );
@@ -133,6 +138,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (workspaceId && channelId) writeLastChannel(workspaceId, channelId);
   }, [workspaceId, channelId]);
+
+  // The members dialog belongs to one channel; back/forward must not carry
+  // it, open, to the next one.
+  useEffect(() => setMembersOpen(false), [channelId]);
   useEffect(() => {
     // `useIsMobile` reads false until its own effect runs, and the channel
     // list is often cached already, so ask the viewport directly.
@@ -228,6 +237,7 @@ export default function ChatPage() {
           )}
         >
           <ChannelList
+            workspaceId={workspaceId}
             channels={channels}
             isLoading={channelsQuery.isLoading}
             isError={channelsQuery.isError && !channelsQuery.data}
@@ -301,74 +311,83 @@ export default function ChatPage() {
                     Archived
                   </span>
                 )}
-                {menu.any && channel && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="ml-auto size-8 pointer-coarse:size-11"
-                        aria-label="Channel actions"
-                      >
-                        <IconDots />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {menu.edit && (
-                        <>
-                          <DropdownMenuItem
-                            onSelect={() => setSettingsMode("rename")}
-                          >
-                            <IconPencil />
-                            Rename channel…
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {channel && channel.kind !== "dm" && (
+                    <ChannelMembersButton
+                      workspaceId={workspaceId}
+                      channelId={channel.id}
+                      onClick={() => setMembersOpen(true)}
+                    />
+                  )}
+                  {menu.any && channel && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 pointer-coarse:size-11"
+                          aria-label="Channel actions"
+                        >
+                          <IconDots />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {menu.edit && (
+                          <>
+                            <DropdownMenuItem
+                              onSelect={() => setSettingsMode("rename")}
+                            >
+                              <IconPencil />
+                              Rename channel…
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => setSettingsMode("topic")}
+                            >
+                              <IconTextCaption />
+                              Edit topic…
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {menu.addPeople && (
+                          <DropdownMenuItem onSelect={() => setAddPeopleOpen(true)}>
+                            <IconUserPlus />
+                            Add people
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() => setSettingsMode("topic")}
-                          >
-                            <IconTextCaption />
-                            Edit topic…
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {menu.addPeople && (
-                        <DropdownMenuItem onSelect={() => setAddPeopleOpen(true)}>
-                          <IconUserPlus />
-                          Add people
-                        </DropdownMenuItem>
-                      )}
-                      {menu.archive &&
-                        (channel.archived ? (
-                          <DropdownMenuItem
-                            onSelect={() => unarchive(channel)}
-                            disabled={update.isPending}
-                          >
-                            <IconArchiveOff />
-                            Unarchive channel
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            onSelect={() => setSettingsMode("archive")}
-                          >
-                            <IconArchive />
-                            Archive channel…
-                          </DropdownMenuItem>
-                        ))}
-                      {menu.leave && (
-                        <>
-                          {(menu.edit || menu.addPeople || menu.archive) && (
-                            <DropdownMenuSeparator />
-                          )}
-                          <DropdownMenuItem
-                            onSelect={() => leaveChannel(channel)}
-                          >
-                            <IconLogout />
-                            Leave channel
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                        )}
+                        {menu.archive &&
+                          (channel.archived ? (
+                            <DropdownMenuItem
+                              onSelect={() => unarchive(channel)}
+                              disabled={update.isPending}
+                            >
+                              <IconArchiveOff />
+                              Unarchive channel
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              onSelect={() => setSettingsMode("archive")}
+                            >
+                              <IconArchive />
+                              Archive channel…
+                            </DropdownMenuItem>
+                          ))}
+                        {menu.leave && (
+                          <>
+                            {(menu.edit || menu.addPeople || menu.archive) && (
+                              <DropdownMenuSeparator />
+                            )}
+                            <DropdownMenuItem
+                              onSelect={() => leaveChannel(channel)}
+                            >
+                              <IconLogout />
+                              Leave channel
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
               </header>
               <Conversation
                 key={channelId}
@@ -416,7 +435,7 @@ export default function ChatPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="ml-auto size-8"
+                className="ml-auto size-8 pointer-coarse:size-11"
                 aria-label="Close thread"
                 onClick={closeThread}
               >
@@ -455,6 +474,16 @@ export default function ChatPage() {
           channel={channel}
           mode={settingsMode}
           onClose={() => setSettingsMode(null)}
+        />
+      )}
+      {channel && channel.kind !== "dm" && (
+        <ChannelMembersDialog
+          workspaceId={workspaceId}
+          channel={channel}
+          meId={meId}
+          open={membersOpen}
+          onOpenChange={setMembersOpen}
+          onAddPeople={() => setAddPeopleOpen(true)}
         />
       )}
       {channel && channel.kind !== "dm" && (

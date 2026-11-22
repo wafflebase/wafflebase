@@ -338,6 +338,72 @@ export class ChatChannelService {
   }
 
   /**
+   * Remove somebody else from a public or private channel. Whoever may
+   * rename or archive it may remove from it (`canManage`): a public
+   * channel's creator or a workspace owner, any member of a private one.
+   * Removing yourself is leaving, which has its own route and rules; a DM's
+   * member set is its identity, and everyone is in the default channel.
+   *
+   * Like `leave`, an emptied private channel is refused under the channel
+   * row's lock. The caller is a member of a private channel they can read,
+   * so only a leave racing this removal can get there.
+   */
+  async removeMember(
+    userId: number,
+    channelId: string,
+    targetId: number,
+    workspaceIdOrSlug: string,
+  ): Promise<void> {
+    const { channel, ctx } = await this.resolve(
+      userId,
+      channelId,
+      workspaceIdOrSlug,
+    );
+    if (channel.kind === 'dm') {
+      throw new BadRequestException(
+        'A direct message has a fixed set of people; open a new one instead',
+      );
+    }
+    if (channel.defaultKey !== null) {
+      throw new BadRequestException(
+        'Everyone in the workspace is in this channel, so nobody can be removed from it',
+      );
+    }
+    if (targetId === userId) {
+      throw new BadRequestException(
+        'To leave a channel, use DELETE .../members/me',
+      );
+    }
+    await this.assertCanManage(
+      userId,
+      channel,
+      ctx,
+      "Only the channel's creator or a workspace owner can remove people from it",
+    );
+    await this.prisma.$transaction(async (tx) => {
+      if (channel.kind === 'private') {
+        await tx.$queryRaw`
+          SELECT id FROM "ChatChannel" WHERE id = ${channelId} FOR UPDATE`;
+      }
+      const { count } = await tx.chatChannelMember.deleteMany({
+        where: { channelId, userId: targetId },
+      });
+      if (count === 0) {
+        throw new NotFoundException('That person is not in this channel');
+      }
+      if (
+        channel.kind === 'private' &&
+        (await tx.chatChannelMember.count({ where: { channelId } })) === 0
+      ) {
+        throw new ConflictException(
+          'That would leave the channel empty — archive it instead',
+        );
+      }
+    });
+    await this.announceMembership(channelId);
+  }
+
+  /**
    * Rename, set the topic, archive or unarchive. Public: creator or workspace
    * owner. Private: any channel member (see `canManage`).
    */
@@ -352,22 +418,12 @@ export class ChatChannelService {
         'A direct message cannot be renamed or archived',
       );
     }
-    const owner = await this.prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: { workspaceId: channel.workspaceId, userId },
-      },
-      select: { role: true },
-    });
-    const allowed = canManage({
-      ...ctx,
-      isCreator: channel.createdBy === userId,
-      isWorkspaceOwner: owner?.role === 'owner',
-    });
-    if (!allowed) {
-      throw new ForbiddenException(
-        "Only the channel's creator or a workspace owner can change it",
-      );
-    }
+    await this.assertCanManage(
+      userId,
+      channel,
+      ctx,
+      "Only the channel's creator or a workspace owner can change it",
+    );
 
     if (data.archived && channel.defaultKey !== null) {
       throw new BadRequestException(
@@ -472,6 +528,31 @@ export class ChatChannelService {
     };
     if (!canRead(ctx)) throw new NotFoundException('Channel not found');
     return { channel, ctx };
+  }
+
+  /**
+   * Refuses with 403 unless `userId` passes `canManage` on a channel
+   * `resolve` already loaded. Shared by `update` and `removeMember`, so
+   * renaming, archiving and removing people have one owner check.
+   */
+  private async assertCanManage(
+    userId: number,
+    channel: ChatChannel,
+    ctx: AccessContext,
+    refusal: string,
+  ): Promise<void> {
+    const owner = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: channel.workspaceId, userId },
+      },
+      select: { role: true },
+    });
+    const allowed = canManage({
+      ...ctx,
+      isCreator: channel.createdBy === userId,
+      isWorkspaceOwner: owner?.role === 'owner',
+    });
+    if (!allowed) throw new ForbiddenException(refusal);
   }
 
   /** One channel's summary as `userId` sees it. */

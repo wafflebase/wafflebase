@@ -88,4 +88,11 @@ describe("ChannelSettingsDialog", () => {
       expect.anything(),
     );
   });
+
+  it("says where an archived channel goes", () => {
+    open("archive");
+    expect(
+      screen.getByText(/It moves to Archived in the channel list/),
+    ).toBeInTheDocument();
+  });
 });
