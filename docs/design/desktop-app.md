@@ -247,6 +247,31 @@ desktop release is not a step in the server release procedure.
 | 2. Release | Google `mode=desktop`; signing, notarization, updater; `test:webkit` in CI; public release |
 | Later | Linux; file associations into import; deep links; offline (separate design) |
 
+### 9. What the Phase 0 spike found
+
+Measured on macOS with Tauri 2.12.7 (wry 0.57.3), running the real app
+against a local backend whose GitHub endpoints pointed at a fake OAuth server:
+
+- **The handoff works on WebKit.** The cross-site form POST from
+  `tauri://localhost` arrives with `Origin: tauri://localhost`. The cookies set
+  on its `303` are kept, the frontend's next requests carry them, and they
+  survive an app restart. The tracking-prevention risk below did not show up
+  with the frontend and backend on the same site. It is still untested with
+  the two on different sites.
+- **The handoff page must not set `no-referrer`.** With
+  `<meta name="referrer" content="no-referrer">`, WebKit sends `Origin: null`
+  on the POST, as the Fetch spec requires, and the backend correctly refuses
+  it. `handoff.html` carries a comment saying so.
+- **`on_navigation` fires for the initial load, and for subframes too.** On
+  macOS, wry passes only the URL, so the policy cannot tell a subframe from a
+  top-level navigation. That is safe today because the frontend only embeds
+  same-origin iframes. It has to be revisited if a cross-origin embed is ever
+  added.
+- **The remote origin really has no IPC.** A script on the deployment calling
+  the shell's own commands and `plugin:opener|open_url` was refused by the ACL
+  for each one. `withGlobalTauri` still exposes an inert `window.__TAURI__`
+  object to remote pages.
+
 ### Risks and Mitigation
 
 | Risk | Mitigation |
@@ -259,6 +284,8 @@ desktop release is not a step in the server release procedure.
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
 | Signing certificates and their cost | Secrets scoped to tag-triggered jobs; Phase 1 builds are unsigned and internal |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the URL |
+| `http(s)://tauri.localhost` is reachable from an ordinary browser: Chrome and Firefox resolve `*.localhost` to loopback, so a process already listening on the user's port 80 or 443 could serve a page with an allowed `Origin` and replay an attacker's code (login CSRF) | Accepted. It needs a hostile local listener, and no remote site can produce these origins |
+| A `mode=cli` or `mode=desktop` start that another site navigated the browser into is answered with the confirmation page, not refused. `CliLoginConfirmMiddleware` runs before the guard's `Sec-Fetch-Site` check, which therefore only ever sees the same-origin Continue click. This is inherited from the CLI flow | The confirmation click remains the gate. Enforcing the check in the middleware is a follow-up: first confirm what `Sec-Fetch-Site` browsers report after the loopback `/launch` redirect, so the fix does not refuse genuine sign-ins |
 
 ## Alternatives Considered
 
