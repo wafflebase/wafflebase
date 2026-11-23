@@ -29,12 +29,12 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 
 ## Backend (`packages/backend/src/auth/**`, owner: backend agent)
 
-- [ ] `mode=desktop` on `GET /auth/github` (guard, confirm middleware, state)
-- [ ] Mode recorded on `CliAuthStore` codes; cross-mode redemption refused
-- [ ] `POST /auth/desktop/session` with the Origin rule
-- [ ] `desktop` field on `GET /auth/providers`
-- [ ] Unit tests for each; `pnpm backend test` green
-- [ ] `docs/design/backend.md`, `docs/design/rest-api.md`, backend README auth tables
+- [x] `mode=desktop` on `GET /auth/github` (guard, confirm middleware, state)
+- [x] Mode recorded on `CliAuthStore` codes; cross-mode redemption refused
+- [x] `POST /auth/desktop/session` with the Origin rule
+- [x] `desktop` field on `GET /auth/providers`
+- [x] Unit tests for each; `pnpm backend test` green
+- [x] `docs/design/backend.md`, `docs/design/rest-api.md`, backend README auth tables
 
 ## Shell (`packages/desktop/**`, owner: shell agent)
 

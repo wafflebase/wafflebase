@@ -595,8 +595,8 @@ earlier gate.
 
 The application registers a global NestJS `ThrottlerGuard` via
 `ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected
-routes tighten or relax it with `@Throttle`: the CLI auth endpoints cap
-at 10/min and the image endpoints raise to 600/min. This is coarse
+routes tighten or relax it with `@Throttle`: the CLI and desktop auth
+endpoints cap at 10/min and the image endpoints raise to 600/min. This is coarse
 request throttling, not per-key usage metering or quotas.
 
 #### 5.10 Board (granular editing for agents)
@@ -767,6 +767,21 @@ backend surface is:
   (`?challenge=`, PKCE S256). A CLI login that registered no challenge is
   refused at the callback rather than issued a weaker code, so the pair
   is a **backend + CLI contract** in both directions.
+- **`GET /auth/github?mode=desktop&…`** and
+  **`POST /auth/desktop/session`** — the desktop app's sign-in, which
+  reuses the start and callback above unchanged under `mode=desktop`
+  (confirmation page worded for the desktop app) and redeems the code
+  differently: its bundled handoff page form-POSTs `code`, `verifier` to
+  `/auth/desktop/session`, which sets the session cookies on that webview
+  and answers `303 FRONTEND_URL` (a failed redemption is `303
+  FRONTEND_URL/login?error=desktop_session`). Codes record their mode, so
+  `cli/exchange` refuses a desktop code and `desktop/session` a CLI code,
+  each as an invalid code. The session endpoint answers `403`, before
+  touching the code, unless `Origin` is `tauri://localhost`,
+  `http://tauri.localhost` or `https://tauri.localhost`. `GET
+  /auth/providers` reports `desktop: { github, google }`. Design and
+  rationale in [desktop-app.md](desktop-app.md) §3; endpoint detail in
+  [backend.md](backend.md).
 - **`POST /auth/refresh`** — body fallback added: if there is no
   `wafflebase_refresh` cookie, the controller reads
   `{ refreshToken }` from the body and returns
@@ -795,4 +810,5 @@ exchanged server-to-server.
 | Login secrets in access logs | The `req` serializer replaces the query string of any `/auth` URL with `?<redacted>`. `/auth` query strings carry single-use login material — the CLI's `nonce` and `challenge` outbound, GitHub's `code` and `state` inbound — and every 4xx there is logged at `warn`, so an unredacted line would park a replayable login in the access log. Other paths keep their query, which is what distinguishes two calls. |
 | Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused. `--allow-unbound-callback` is the one documented downgrade, and it is the operator's explicit choice. |
 | A CLI login another *site* navigated the browser into | `GitHubAuthGuard` refuses `Sec-Fetch-Site: cross-site` on `?mode=cli` with a `400` before any state is minted; `none` (the CLI's OS opener), `same-origin` (the confirmation click), `same-site`, and a client that sends no such header are served. Neither state mechanism covers this direction on its own — the navigation carrying the attack is also the one that mints the state and sets its cookie. The check is deliberately not applied to browser logins: the login link points at `VITE_BACKEND_API_URL` from the frontend origin, which is `cross-site` on any split-domain deployment, and the double-submit state cookie (set and read on the backend's own origin) already covers that flow. |
+| Login CSRF through `POST /auth/desktop/session` | The endpoint signs in the browser that posts, so a page could auto-submit an attacker's own desktop code and verifier and sign the visitor into the attacker's account. It answers `403` unless `Origin` is one of the Tauri webview origins, checked before the code is touched; `null` and a missing header are refused. See [desktop-app.md](desktop-app.md) §3. |
 | A CLI authorization code observed on the plaintext loopback hop | The code is proof-of-possession, not bearer: `login` registers `sha256(verifier)` as `?challenge=` and `POST /auth/cli/exchange` requires `{ code, verifier }`. The verifier never leaves the CLI process, and a login that registered no challenge is refused at the callback rather than issued a weaker code. |

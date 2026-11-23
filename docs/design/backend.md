@@ -102,12 +102,18 @@ imports the full module set listed below.
 #### Authentication (`/auth`)
 
 **`GET /auth/providers`**
-- No guard. Returns `{ github: true, google: <bool> }`.
+- No guard. Returns `{ github: true, google: <bool>, desktop: { github:
+  <bool>, google: false } }`.
 - Which sign-in buttons the login page should offer. Google is optional and
   configured per *deployment*, so a build-time `VITE_` flag could not answer
   it — a self-hosted image is built once and configured per install.
   Unauthenticated because the login page is, and it names no secret: the
   answer is exactly what a visitor learns by clicking.
+- `desktop` says which providers the desktop app can run through the system
+  browser (`?mode=desktop`, below). `github` is `cliLoginAvailable()`, the
+  same gate as the CLI login; Google has no loopback mode yet. A server
+  without the field is how the app recognizes one too old for desktop
+  sign-in ([desktop-app.md](desktop-app.md) §3).
 
 **`GET /auth/google`** (only where `GOOGLE_*` is configured)
 - Guard: `GoogleAuthGuard`
@@ -138,6 +144,15 @@ imports the full module set listed below.
 **`GET /auth/github`**
 - Middleware: `CliLoginConfirmMiddleware` · Guard: `GitHubAuthGuard`
 - Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+- **`?mode=desktop`** takes the same `port`/`nonce`/`challenge` and runs the
+  `?mode=cli` path below unchanged — cross-site check, `cliLoginAvailable()`
+  refusal (`400 Desktop sign-in requires an https server`), confirmation page
+  (worded for the Wafflebase desktop app), `CliAuthStore` state and the
+  loopback redirect. The mode is stored with the state and minted into the
+  code, which then redeems only at `POST /auth/desktop/session`; the mode is
+  also signed into the `?confirm=` token, so a click on one mode's page cannot
+  start the other. Why the app reuses this flow:
+  [desktop-app.md](desktop-app.md) §3.
 - Refuses a **`?mode=cli`** start another site navigated the browser into,
   before any `state` is minted: a `Sec-Fetch-Site` of `cross-site` is a
   `400`. `none` (opened by `wafflebase login`), `same-origin` (the
@@ -281,6 +296,27 @@ imports the full module set listed below.
   attempt and releases the user id only on a constant-time challenge match. A
   CLI login carrying no challenge is refused at the callback — no unbound code
   is ever minted.
+- A code minted for `?mode=desktop` is refused here as an unknown code (and
+  spent), so a desktop login cannot be turned into bearer tokens.
+
+**`POST /auth/desktop/session`**
+- Guard: none (public — one-time desktop auth code), but only from a desktop
+  `Origin`.
+- Body: form-encoded `code`, `verifier`, top-level POSTed by the desktop app's
+  bundled handoff page in its webview. Redeems like `cli/exchange` (mode
+  `desktop` only), then sets the session cookies with the same
+  `setAuthCookies` the OAuth callback uses and answers `303` to
+  `FRONTEND_URL`. Any redemption failure — unknown, expired, spent or CLI
+  code, wrong or malformed verifier — is `303` to
+  `FRONTEND_URL/login?error=desktop_session`. Rate-limited to 10 req/60s/IP.
+- `403` unless `Origin` is exactly `tauri://localhost`,
+  `http://tauri.localhost` or `https://tauri.localhost`, checked before the
+  body is read or the code touched; missing and `null` are refused. Unlike
+  `cli/exchange`, this endpoint signs in *the browser that sent it*, so from
+  any other origin it would be login CSRF ([desktop-app.md](desktop-app.md)
+  §3). The body is read by hand rather than through a validated DTO so the
+  global `ValidationPipe` cannot answer a malformed body ahead of the origin
+  check.
 
 #### Documents (`/documents`)
 
@@ -676,7 +712,7 @@ registered as an `APP_GUARD` in `packages/backend/src/app.module.ts`:
 | Route group | Limit | Source |
 |-------------|-------|--------|
 | All routes (implicit) | 120 req / 60s / IP | `default` bucket |
-| `/auth/github/callback`, `/auth/refresh`, `/auth/cli/exchange` | 10 req / 60s / IP | `@Throttle({ default: { limit: 10, ttl: 60_000 } })` |
+| `/auth/github/callback`, `/auth/refresh`, `/auth/cli/exchange`, `/auth/desktop/session` | 10 req / 60s / IP | `@Throttle({ default: { limit: 10, ttl: 60_000 } })` |
 | `/images/**`, `/api/v1/workspaces/:id/images/**` | 600 req / 60s / IP | controller-level `@Throttle` — opening a doc with many embedded images bursts past the global cap |
 | `/health`, `/health/ready` | exempt | `@SkipThrottle()` |
 
