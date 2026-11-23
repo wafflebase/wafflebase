@@ -183,10 +183,12 @@ its own cookies.
 | Navigation | Action |
 |------------|--------|
 | Same window, frontend origin | Allow |
-| `/auth/github` or `/auth/google` without `mode`, any origin | Cancel, run §3 |
+| `/auth/github` or `/auth/google` without `mode`, any origin, as a same-window navigation from the frontend's `/login` page | Cancel, run §3 against the link's origin |
+| The same link from any other page, or as a new window | System browser (a collaborator's hyperlink must not start sign-in against its host) |
 | New window (`window.open`, `target=_blank`) to the frontend origin | Open a new app window |
 | Any other origin, same or new window | Cancel, open in the system browser |
 | Download (`<a download>` on a `blob:` URL) | Save via Tauri's download handler, to Downloads or a save dialog |
+| `<backend>/auth/desktop/session` from the handoff page | Allowed once, in the window running sign-in. If that window then renders anything but the frontend or a bundled page, sign-in fails and the window shows the error |
 
 The frontend's `window.open` calls are all external hyperlinks in sheets and
 docs (`worksheet.ts`, `text-editor.ts`), so the system browser is the right
