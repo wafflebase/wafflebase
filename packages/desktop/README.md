@@ -148,6 +148,7 @@ window. Both are compiled out of release builds (`#[cfg(debug_assertions)]`).
 |----------|--------|
 | `WAFFLEBASE_DESKTOP_BROWSER=<executable>` | The sign-in launch URL is opened by running `<executable> <launch-url>` instead of the system opener. Only the launch URL; external links still use the opener |
 | `WAFFLEBASE_DESKTOP_SMOKE_SIGNIN=<backend origin>` | The first time the main window finishes loading the server's frontend, sign-in starts against that backend, through the same code path as an intercepted `/auth/github` navigation |
+| `WAFFLEBASE_DESKTOP_SMOKE_SIGNIN=click:<backend origin>` | Exercises the intercept itself: on each frontend load, a script signs out once if a session survived (`POST <backend>/auth/logout`), waits for `/login`, and clicks the page's own GitHub link, so the navigation goes through the same-window `/login` rule |
 
 Debug builds also print one line per step on stderr (`[wafflebase-desktop]`
 prefix): navigations and their decisions (without query strings), providers

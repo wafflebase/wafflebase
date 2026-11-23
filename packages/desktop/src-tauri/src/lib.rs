@@ -288,6 +288,38 @@ fn smoke_signin<R: Runtime>(window: &WebviewWindow<R>, url: &Url) {
         return;
     }
     let raw = raw.to_string_lossy();
+    if let Some(backend) = raw.strip_prefix("click:") {
+        // Exercise the real intercept: sign out if a session survived from
+        // an earlier run, then click the login page's own GitHub link, so
+        // the navigation goes through the same-window `/login` rule.
+        // Re-armed on every frontend load; `sessionStorage` keeps the
+        // script from signing out again or clicking twice.
+        state.smoke_signin_started.store(false, Ordering::SeqCst);
+        let script = format!(
+            r#"(function () {{
+  if (sessionStorage.getItem('wbSmokeClicked')) return;
+  var started = Date.now();
+  var timer = setInterval(function () {{
+    var link = document.querySelector('a[href*="/auth/github"]');
+    if (link && location.pathname === '/login') {{
+      clearInterval(timer);
+      sessionStorage.setItem('wbSmokeClicked', '1');
+      link.click();
+    }} else if (Date.now() - started > 3000 && !sessionStorage.getItem('wbSmokeSignedOut')) {{
+      clearInterval(timer);
+      sessionStorage.setItem('wbSmokeSignedOut', '1');
+      fetch({backend:?} + '/auth/logout', {{ method: 'POST', credentials: 'include' }})
+        .finally(function () {{ location.href = '/login'; }});
+    }} else if (Date.now() - started > 15000) {{
+      clearInterval(timer);
+    }}
+  }}, 200);
+}})();"#
+        );
+        dlog!("smoke: clicking the login page's GitHub link");
+        let _ = window.eval(&script);
+        return;
+    }
     match Url::parse(&raw)
         .ok()
         .filter(|u| matches!(u.scheme(), "http" | "https"))
