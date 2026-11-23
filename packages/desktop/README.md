@@ -70,7 +70,9 @@ WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 pnpm --filter @wafflebase/deskto
 ## Sign-in
 
 The frontend's sign-in link (`<backend>/auth/github` with no `mode`) is
-intercepted, never followed in the window:
+intercepted, never followed in the window, when the frontend's own `/login`
+page follows it in the same window. The same link anywhere else (a hyperlink
+in a sheet, a new window) goes to the system browser like any other link:
 
 1. `GET <backend>/auth/providers` must report `desktop.github === true`;
    otherwise the window says the server is too old for desktop sign-in.
@@ -97,11 +99,28 @@ Starting another sign-in cancels the running one.
   bundled pages reach only the five commands the capability grants. No plugin
   permission is granted to any page: the opener is used from Rust only.
 - **Navigation policy** (`navigation.rs`): the frontend origin stays in the
-  window, bundled pages are allowed, and every other http(s) origin goes to the
-  system browser. New windows to the frontend open as app windows with the same
-  policy; others go to the browser. `file:` and custom schemes are refused.
-  The only other origin allowed in a window is the
-  `<backend>/auth/desktop/session` POST, while a sign-in has a code waiting.
+  window, bundled pages are allowed (exactly `tauri://localhost` on macOS and
+  Linux, `http://tauri.localhost` on Windows), and every other http(s) origin
+  goes to the system browser. New windows to the frontend open as app windows
+  with the same policy; others go to the browser. `blob:` documents are
+  allowed only when the frontend minted them; `data:`, `file:` and custom
+  schemes are refused. The bundled pages are served with
+  `frame-ancestors 'none'`, so no page can frame them.
+- **Sign-in is taken over only from the login page.** A `/auth/github` link
+  starts desktop sign-in only as a same-window navigation from the frontend's
+  `/login` route, against the link's origin. Without that rule a
+  collaborator's hyperlink to `https://evil.example/auth/github` would run
+  sign-in against `evil.example`, which then holds the nonce and could drive
+  the loopback callback itself, and would cancel a real sign-in in progress.
+  The frontend reaches `/login` by client-side routing, which fires no
+  page-load event, so the window's URL is read after the navigation is
+  cancelled rather than tracked from page loads.
+- **The handoff POST is one-shot.** The only other origin a window may load is
+  `<backend>/auth/desktop/session`, once, in the window running the sign-in.
+  If that window then finishes loading anything that is neither the frontend
+  nor a bundled page (the backend should answer with a redirect to the
+  frontend), the sign-in fails and the window shows the error page instead of
+  leaving a foreign page on screen without an address bar.
 - **Loopback listener** (`login.rs`): the CLI's rules unchanged. It binds
   `127.0.0.1` only; the launch link works once (then `410`); `/callback`
   accepts only `GET` with `state` equal to the nonce (constant-time compare),

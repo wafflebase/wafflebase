@@ -28,6 +28,9 @@ pub enum Request {
 pub enum Decision {
     /// Let the webview proceed.
     Allow,
+    /// Let the webview proceed with the handoff page's one POST to
+    /// `<backend>/auth/desktop/session`. The caller consumes the allowance.
+    AllowSessionPost,
     /// Cancel, and run desktop sign-in against this backend origin.
     StartSignIn { backend: Url },
     /// Cancel, and open the URL in a new app window with the same policy.
@@ -43,26 +46,46 @@ pub enum Decision {
 pub struct Context<'a> {
     /// The saved server's frontend origin, once one is chosen.
     pub frontend: Option<&'a Url>,
-    /// The `<backend>/auth/desktop/session` URL the handoff page is allowed to
-    /// POST to, while a sign-in has a code waiting to be redeemed.
+    /// The page the requesting window shows now. Sign-in is intercepted only
+    /// from the frontend's own login page.
+    pub current: Option<&'a Url>,
+    /// The `<backend>/auth/desktop/session` URL this window's handoff page may
+    /// POST to, once, while a sign-in has a code waiting to be redeemed. The
+    /// caller passes it only for the window the sign-in runs in.
     pub session_post: Option<&'a Url>,
 }
 
-/// Whether a URL is one of the app's bundled pages: `tauri://localhost` on
-/// macOS and Linux, `http(s)://tauri.localhost` on Windows.
+/// The origin bundled pages are served from on this platform.
+const BUNDLED_ORIGIN: (&str, &str) = if cfg!(windows) {
+    ("http", "tauri.localhost")
+} else {
+    ("tauri", "localhost")
+};
+
+/// Whether a URL is one of the app's bundled pages: exactly
+/// `tauri://localhost` on macOS and Linux, `http://tauri.localhost` on
+/// Windows (no port, no other scheme).
 pub fn is_bundled(url: &Url) -> bool {
-    match url.scheme() {
-        "tauri" => url.host_str() == Some("localhost"),
-        "http" | "https" => url.host_str() == Some("tauri.localhost"),
-        _ => false,
-    }
+    is_bundled_on(url, BUNDLED_ORIGIN)
 }
 
-/// A top-level `<backend>/auth/github` with no `mode`: the web sign-in link
-/// the frontend renders. A URL that already carries `mode` (`cli`, `desktop`)
-/// is some other flow's and is left alone.
-fn is_web_github_sign_in(url: &Url) -> bool {
-    url.path() == "/auth/github" && !url.query_pairs().any(|(key, _)| key == "mode")
+fn is_bundled_on(url: &Url, (scheme, host): (&str, &str)) -> bool {
+    url.scheme() == scheme && url.host_str() == Some(host) && url.port().is_none()
+}
+
+/// A `<backend>/auth/github` with no `mode`: the web sign-in link the
+/// frontend renders. A URL that already carries `mode` (`cli`, `desktop`) is
+/// some other flow's and is left alone.
+pub fn is_web_github_sign_in(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url.path() == "/auth/github"
+        && !url.query_pairs().any(|(key, _)| key == "mode")
+}
+
+/// Whether `url` is the frontend's login route, the only page whose sign-in
+/// link the shell takes over.
+fn is_frontend_login(url: &Url, frontend: &Url) -> bool {
+    same_origin(url, frontend) && url.path() == "/login"
 }
 
 fn same_origin(a: &Url, b: &Url) -> bool {
@@ -78,45 +101,64 @@ pub fn decide(url: &Url, request: Request, ctx: Context<'_>) -> Decision {
         };
     }
 
+    let is_frontend = |u: &Url| ctx.frontend.is_some_and(|f| same_origin(u, f));
     match url.scheme() {
         "http" | "https" => {}
-        // In-page documents: `about:blank`/`about:srcdoc` frames and `blob:`/
-        // `data:` documents have no other place to go. A `blob:` download is
-        // not a navigation (WebKit routes it to the download hook directly).
-        "about" | "blob" | "data" => {
+        // `about:blank`/`about:srcdoc` frames have no other place to go.
+        "about" => {
             return match request {
                 Request::Navigate => Decision::Allow,
                 Request::NewWindow => Decision::Deny,
             };
         }
+        // A `blob:` document the frontend made (a PDF preview, say). A blob
+        // minted by any other origin is not the frontend's. A `blob:`
+        // download is not a navigation: WebKit routes it to the download hook.
+        "blob" => {
+            return match request {
+                Request::Navigate if is_frontend(url) => Decision::Allow,
+                _ => Decision::Deny,
+            };
+        }
         // Links that name another app on purpose.
         "mailto" | "tel" => return Decision::OpenExternal,
-        // `file:`, custom schemes and anything else: opening them would let a
-        // remote page launch arbitrary handlers on this machine.
+        // `data:`, `file:`, custom schemes and anything else: a `data:`
+        // document has an opaque origin and no address bar to show it, and
+        // the rest would let a remote page launch handlers on this machine.
         _ => return Decision::Deny,
     }
 
+    // The sign-in link is taken over only when the frontend's own login page
+    // follows it in the same window. A link to `/auth/github` anywhere else
+    // (a collaborator's hyperlink in a sheet, a new window) is somebody
+    // else's sign-in page as far as the shell knows, so it goes to the system
+    // browser, never in-window: OAuth in a window without an address bar is
+    // what this design avoids.
     if is_web_github_sign_in(url) {
-        let backend = Url::parse(&url.origin().ascii_serialization())
-            .expect("an http(s) origin serializes to a valid URL");
-        return Decision::StartSignIn { backend };
+        let from_login = request == Request::Navigate
+            && matches!((ctx.current, ctx.frontend), (Some(c), Some(f)) if is_frontend_login(c, f));
+        if from_login {
+            let backend = Url::parse(&url.origin().ascii_serialization())
+                .expect("an http(s) origin serializes to a valid URL");
+            return Decision::StartSignIn { backend };
+        }
+        return Decision::OpenExternal;
     }
 
-    let is_frontend = ctx.frontend.is_some_and(|f| same_origin(url, f));
     match request {
         Request::Navigate => {
-            if is_frontend {
+            if is_frontend(url) {
                 return Decision::Allow;
             }
             if let Some(target) = ctx.session_post {
                 if same_origin(url, target) && url.path() == target.path() {
-                    return Decision::Allow;
+                    return Decision::AllowSessionPost;
                 }
             }
             Decision::OpenExternal
         }
         Request::NewWindow => {
-            if is_frontend {
+            if is_frontend(url) {
                 Decision::OpenAppWindow
             } else {
                 Decision::OpenExternal
@@ -177,51 +219,87 @@ mod tests {
         Url::parse(s).unwrap()
     }
 
-    fn nav(url: &str, frontend: &Url) -> Decision {
+    const FRONTEND: &str = "https://app.example.com";
+
+    /// A same-window navigation from a page on the frontend (not the login
+    /// page) with no sign-in pending.
+    fn nav(url: &str) -> Decision {
+        let f = u(FRONTEND);
+        let current = u("https://app.example.com/w/1");
         decide(
             &u(url),
             Request::Navigate,
-            Context {
-                frontend: Some(frontend),
-                session_post: None,
-            },
+            Context { frontend: Some(&f), current: Some(&current), session_post: None },
         )
+    }
+
+    /// The same, from `current`.
+    fn nav_from(url: &str, current: &str) -> Decision {
+        let f = u(FRONTEND);
+        let current = u(current);
+        decide(
+            &u(url),
+            Request::Navigate,
+            Context { frontend: Some(&f), current: Some(&current), session_post: None },
+        )
+    }
+
+    fn new_window(url: &str, current: &str) -> Decision {
+        let f = u(FRONTEND);
+        let current = u(current);
+        decide(
+            &u(url),
+            Request::NewWindow,
+            Context { frontend: Some(&f), current: Some(&current), session_post: None },
+        )
+    }
+
+    fn sign_in(backend: &str) -> Decision {
+        Decision::StartSignIn { backend: u(backend) }
     }
 
     #[test]
     fn bundled_pages_are_allowed_in_window_only() {
-        for page in [
-            "tauri://localhost/index.html",
-            "http://tauri.localhost/handoff.html",
-            "https://tauri.localhost/",
-        ] {
-            assert_eq!(decide(&u(page), Request::Navigate, Context::default()), Decision::Allow);
-            assert_eq!(decide(&u(page), Request::NewWindow, Context::default()), Decision::Deny);
-        }
-        assert!(!is_bundled(&u("tauri://evil/")));
-        assert!(!is_bundled(&u("https://tauri.localhost.evil.com/")));
+        let page = if cfg!(windows) { "http://tauri.localhost/handoff.html" } else { "tauri://localhost/index.html" };
+        assert_eq!(decide(&u(page), Request::Navigate, Context::default()), Decision::Allow);
+        assert_eq!(decide(&u(page), Request::NewWindow, Context::default()), Decision::Deny);
+    }
+
+    #[test]
+    fn bundled_origin_is_exact_per_platform() {
+        let mac = ("tauri", "localhost");
+        let win = ("http", "tauri.localhost");
+        assert!(is_bundled_on(&u("tauri://localhost/index.html"), mac));
+        assert!(!is_bundled_on(&u("tauri://localhost:8080/"), mac));
+        assert!(!is_bundled_on(&u("http://tauri.localhost/"), mac));
+        assert!(!is_bundled_on(&u("tauri://evil/"), mac));
+        assert!(is_bundled_on(&u("http://tauri.localhost/handoff.html"), win));
+        assert!(!is_bundled_on(&u("http://tauri.localhost:8080/"), win));
+        assert!(!is_bundled_on(&u("https://tauri.localhost/"), win));
+        assert!(!is_bundled_on(&u("tauri://localhost/"), win));
+        assert!(!is_bundled_on(&u("http://tauri.localhost.evil.com/"), win));
+        // This platform's check is one of the two, never both.
+        assert_ne!(
+            is_bundled(&u("tauri://localhost/")),
+            is_bundled(&u("http://tauri.localhost/"))
+        );
     }
 
     #[test]
     fn frontend_origin_stays_in_window() {
-        let f = u("https://app.example.com");
-        assert_eq!(nav("https://app.example.com/", &f), Decision::Allow);
-        assert_eq!(nav("https://app.example.com/w/1/sheets/abc?x=1", &f), Decision::Allow);
+        assert_eq!(nav("https://app.example.com/"), Decision::Allow);
+        assert_eq!(nav("https://app.example.com/w/1/sheets/abc?x=1"), Decision::Allow);
         // Origin, not host: another port or scheme is another site.
-        assert_eq!(nav("https://app.example.com:8443/", &f), Decision::OpenExternal);
-        assert_eq!(nav("http://app.example.com/", &f), Decision::OpenExternal);
+        assert_eq!(nav("https://app.example.com:8443/"), Decision::OpenExternal);
+        assert_eq!(nav("http://app.example.com/"), Decision::OpenExternal);
     }
 
     #[test]
     fn other_origins_go_to_the_system_browser() {
-        let f = u("https://app.example.com");
-        assert_eq!(nav("https://github.com/yorkie-team", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/docs", &f), Decision::OpenExternal);
-        assert_eq!(nav("mailto:someone@example.com", &f), Decision::OpenExternal);
-        assert_eq!(
-            decide(&u("https://github.com/"), Request::NewWindow, Context { frontend: Some(&f), session_post: None }),
-            Decision::OpenExternal
-        );
+        assert_eq!(nav("https://github.com/yorkie-team"), Decision::OpenExternal);
+        assert_eq!(nav("https://api.example.com/docs"), Decision::OpenExternal);
+        assert_eq!(nav("mailto:someone@example.com"), Decision::OpenExternal);
+        assert_eq!(new_window("https://github.com/", "https://app.example.com/w/1"), Decision::OpenExternal);
         // Without a server chosen (picker), every http(s) site is external.
         assert_eq!(
             decide(&u("https://app.example.com/"), Request::Navigate, Context::default()),
@@ -231,71 +309,103 @@ mod tests {
 
     #[test]
     fn dangerous_schemes_are_denied() {
-        let f = u("https://app.example.com");
-        assert_eq!(nav("file:///etc/passwd", &f), Decision::Deny);
-        assert_eq!(nav("vscode://file/x", &f), Decision::Deny);
-        assert_eq!(nav("ftp://example.com/", &f), Decision::Deny);
+        assert_eq!(nav("file:///etc/passwd"), Decision::Deny);
+        assert_eq!(nav("vscode://file/x"), Decision::Deny);
+        assert_eq!(nav("ftp://example.com/"), Decision::Deny);
+        assert_eq!(nav("data:text/html,<h1>hi</h1>"), Decision::Deny);
+        assert_eq!(new_window("data:text/html,x", FRONTEND), Decision::Deny);
     }
 
     #[test]
-    fn in_page_documents_are_allowed() {
-        let f = u("https://app.example.com");
-        assert_eq!(nav("about:blank", &f), Decision::Allow);
-        assert_eq!(nav("about:srcdoc", &f), Decision::Allow);
-        assert_eq!(nav("blob:https://app.example.com/1234", &f), Decision::Allow);
+    fn about_and_frontend_blobs_are_allowed() {
+        assert_eq!(nav("about:blank"), Decision::Allow);
+        assert_eq!(nav("about:srcdoc"), Decision::Allow);
+        assert_eq!(nav("blob:https://app.example.com/1234"), Decision::Allow);
+        assert_eq!(new_window("about:blank", FRONTEND), Decision::Deny);
+        assert_eq!(new_window("blob:https://app.example.com/1234", FRONTEND), Decision::Deny);
+    }
+
+    #[test]
+    fn blobs_from_other_origins_are_denied() {
+        assert_eq!(nav("blob:https://evil.example/1234"), Decision::Deny);
+        assert_eq!(nav("blob:https://app.example.com:8443/1234"), Decision::Deny);
+        assert_eq!(nav("blob:null/1234"), Decision::Deny);
         assert_eq!(
-            decide(&u("about:blank"), Request::NewWindow, Context { frontend: Some(&f), session_post: None }),
+            decide(&u("blob:https://app.example.com/1"), Request::Navigate, Context::default()),
             Decision::Deny
         );
     }
 
     #[test]
-    fn web_github_sign_in_is_intercepted_on_any_origin() {
-        let f = u("https://app.example.com");
-        let expect = |backend: &str| Decision::StartSignIn { backend: u(backend) };
-        assert_eq!(nav("https://api.example.com/auth/github", &f), expect("https://api.example.com"));
-        assert_eq!(nav("https://app.example.com/auth/github", &f), expect("https://app.example.com"));
+    fn sign_in_is_intercepted_from_the_login_page_on_any_backend() {
+        let login = "https://app.example.com/login";
+        assert_eq!(nav_from("https://api.example.com/auth/github", login), sign_in("https://api.example.com"));
+        assert_eq!(nav_from("https://app.example.com/auth/github", login), sign_in("https://app.example.com"));
         assert_eq!(
-            nav("http://localhost:3000/auth/github?redirect=%2Fw%2F1", &f),
-            expect("http://localhost:3000")
+            nav_from("http://localhost:3000/auth/github?returnTo=%2Fw%2F1", "https://app.example.com/login?returnTo=%2Fw%2F1"),
+            sign_in("http://localhost:3000")
         );
+    }
+
+    #[test]
+    fn sign_in_links_anywhere_else_go_to_the_system_browser() {
+        // A collaborator's hyperlink in a sheet, followed in the window.
+        assert_eq!(nav("https://evil.example/auth/github"), Decision::OpenExternal);
+        assert_eq!(nav("https://app.example.com/auth/github"), Decision::OpenExternal);
+        // The same link through window.open, even from the login page.
+        assert_eq!(new_window("https://evil.example/auth/github", "https://app.example.com/login"), Decision::OpenExternal);
+        assert_eq!(new_window("https://app.example.com/auth/github", "https://app.example.com/login"), Decision::OpenExternal);
+        // A login page on another origin, or a lookalike path.
+        assert_eq!(nav_from("https://api.example.com/auth/github", "https://evil.example/login"), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/auth/github", "https://app.example.com/login/x"), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/auth/github", "https://app.example.com/w/1?next=/login"), Decision::OpenExternal);
+        // A bundled page or no known current page.
+        assert_eq!(nav_from("https://api.example.com/auth/github", "tauri://localhost/signin.html"), Decision::OpenExternal);
+        let f = u(FRONTEND);
         assert_eq!(
-            decide(&u("https://api.example.com/auth/github"), Request::NewWindow, Context { frontend: Some(&f), session_post: None }),
-            expect("https://api.example.com")
+            decide(&u("https://api.example.com/auth/github"), Request::Navigate, Context { frontend: Some(&f), current: None, session_post: None }),
+            Decision::OpenExternal
+        );
+        // Before a server is chosen there is no login page to trust.
+        let login = u("https://app.example.com/login");
+        assert_eq!(
+            decide(&u("https://api.example.com/auth/github"), Request::Navigate, Context { frontend: None, current: Some(&login), session_post: None }),
+            Decision::OpenExternal
         );
     }
 
     #[test]
     fn sign_in_with_a_mode_or_another_path_is_not_intercepted() {
-        let f = u("https://app.example.com");
-        assert_eq!(nav("https://api.example.com/auth/github?mode=desktop", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/auth/github?mode=cli&port=1", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/auth/github/", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/auth/github/callback?code=x", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/x/auth/github", &f), Decision::OpenExternal);
-        assert_eq!(nav("https://app.example.com/auth/github?mode=", &f), Decision::Allow);
+        let login = "https://app.example.com/login";
+        assert_eq!(nav_from("https://api.example.com/auth/github?mode=desktop", login), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/auth/github?mode=cli&port=1", login), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/auth/github/", login), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/auth/github/callback?code=x", login), Decision::OpenExternal);
+        assert_eq!(nav_from("https://api.example.com/x/auth/github", login), Decision::OpenExternal);
+        assert_eq!(nav_from("https://app.example.com/auth/github?mode=", login), Decision::Allow);
     }
 
     #[test]
     fn handoff_post_is_allowed_only_while_pending_and_only_to_that_url() {
-        let f = u("https://app.example.com");
+        let f = u(FRONTEND);
+        let current = u("tauri://localhost/handoff.html");
         let post = u("https://api.example.com/auth/desktop/session");
-        let ctx = Context { frontend: Some(&f), session_post: Some(&post) };
-        assert_eq!(decide(&post, Request::Navigate, ctx), Decision::Allow);
+        let ctx = Context { frontend: Some(&f), current: Some(&current), session_post: Some(&post) };
+        assert_eq!(decide(&post, Request::Navigate, ctx), Decision::AllowSessionPost);
         assert_eq!(
             decide(&u("https://api.example.com/auth/desktop/session?x=1"), Request::Navigate, ctx),
-            Decision::Allow
+            Decision::AllowSessionPost
         );
         assert_eq!(decide(&u("https://api.example.com/auth/me"), Request::Navigate, ctx), Decision::OpenExternal);
+        assert_eq!(decide(&u("https://evil.example/auth/desktop/session"), Request::Navigate, ctx), Decision::OpenExternal);
         assert_eq!(decide(&post, Request::NewWindow, ctx), Decision::OpenExternal);
-        assert_eq!(nav("https://api.example.com/auth/desktop/session", &f), Decision::OpenExternal);
+        // Not pending (or another window): external.
+        assert_eq!(nav("https://api.example.com/auth/desktop/session"), Decision::OpenExternal);
     }
 
     #[test]
     fn new_windows_to_the_frontend_open_app_windows() {
-        let f = u("https://app.example.com");
-        let ctx = Context { frontend: Some(&f), session_post: None };
-        assert_eq!(decide(&u("https://app.example.com/w/1"), Request::NewWindow, ctx), Decision::OpenAppWindow);
+        assert_eq!(new_window("https://app.example.com/w/1", "https://app.example.com/"), Decision::OpenAppWindow);
     }
 
     #[test]

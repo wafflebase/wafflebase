@@ -84,18 +84,56 @@ fn log_url(url: &Url) -> String {
     }
 }
 
-fn decide<R: Runtime>(app: &AppHandle<R>, url: &Url, request: Request) -> Decision {
+/// Decide for a request from window `label`, whose current page is
+/// `current` when the caller knows it.
+fn decide<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    url: &Url,
+    request: Request,
+    current: Option<&Url>,
+) -> Decision {
     let state = app.state::<AppState>();
     let frontend = state.frontend();
-    let session_post = state.signin.session_post();
+    let session_post = state.signin.session_post_for(label);
     navigation::decide(
         url,
         request,
         Context {
             frontend: frontend.as_ref(),
+            current,
             session_post: session_post.as_ref(),
         },
     )
+}
+
+/// A same-window navigation to a web sign-in link. Whether to take it over
+/// depends on the page the window shows now (the frontend's `/login` only),
+/// and the frontend reaches `/login` by client-side routing, which fires no
+/// page-load event, so the window's URL is read here, after the navigation
+/// was cancelled. Reading it inside the navigation callback would wait on the
+/// main thread that is running the callback.
+fn decide_sign_in_link<R: Runtime>(app: &AppHandle<R>, label: &str, target: Url) {
+    let app = app.clone();
+    let label = label.to_string();
+    tauri::async_runtime::spawn(async move {
+        let current = app
+            .get_webview_window(&label)
+            .and_then(|window| window.url().ok());
+        let decision = decide(&app, &label, &target, Request::Navigate, current.as_ref());
+        dlog!(
+            "sign-in link {} from {} -> {:?}",
+            log_url(&target),
+            current.as_ref().map(log_url).unwrap_or_else(|| "unknown".into()),
+            decision
+        );
+        match decision {
+            Decision::StartSignIn { backend } => signin::start(&app, &label, backend),
+            Decision::OpenExternal => open_external(&app, &target),
+            // A web sign-in link is always one of the two above.
+            _ => {}
+        }
+    });
 }
 
 fn open_external<R: Runtime>(app: &AppHandle<R>, url: &Url) {
@@ -123,10 +161,23 @@ fn build_window<R: Runtime>(
         .inner_size(1280.0, 800.0)
         .min_inner_size(480.0, 360.0)
         .on_navigation(move |url| {
-            let decision = decide(&nav_app, url, Request::Navigate);
+            if navigation::is_web_github_sign_in(url) {
+                decide_sign_in_link(&nav_app, &nav_label, url.clone());
+                return false;
+            }
+            let decision = decide(&nav_app, &nav_label, url, Request::Navigate, None);
             dlog!("navigation {} -> {:?}", log_url(url), decision);
             match decision {
                 Decision::Allow => true,
+                Decision::AllowSessionPost => {
+                    // One-shot: the first navigation consumes it.
+                    let allowed = nav_app
+                        .state::<AppState>()
+                        .signin
+                        .take_session_post(&nav_label, url);
+                    dlog!("session POST allowance consumed: {allowed}");
+                    allowed
+                }
                 Decision::StartSignIn { backend } => {
                     signin::start(&nav_app, &nav_label, backend);
                     false
@@ -139,7 +190,7 @@ fn build_window<R: Runtime>(
             }
         })
         .on_new_window(move |url, _features| {
-            let decision = decide(&new_app, &url, Request::NewWindow);
+            let decision = decide(&new_app, &new_label, &url, Request::NewWindow, None);
             dlog!("new window {} -> {:?}", log_url(&url), decision);
             match decision {
                 Decision::OpenAppWindow => {
@@ -157,11 +208,12 @@ fn build_window<R: Runtime>(
                         }
                     });
                 }
-                Decision::StartSignIn { backend } => {
-                    signin::start(&new_app, &new_label, backend);
-                }
                 Decision::OpenExternal => open_external(&new_app, &url),
-                Decision::Allow | Decision::Deny => {}
+                // A new window never starts sign-in or gets the session POST.
+                Decision::StartSignIn { .. }
+                | Decision::AllowSessionPost
+                | Decision::Allow
+                | Decision::Deny => {}
             }
             NewWindowResponse::Deny
         })
@@ -199,7 +251,16 @@ fn build_window<R: Runtime>(
             let on_frontend = state
                 .frontend()
                 .is_some_and(|f| f.origin() == payload.url().origin());
-            state.signin.page_loaded(window.label(), on_frontend);
+            let bundled = navigation::is_bundled(payload.url());
+            if state.signin.page_loaded(window.label(), on_frontend, bundled)
+                == signin::PageCheck::Unexpected
+            {
+                dlog!("sign-in window loaded an unexpected page; showing the error");
+                let window = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = window.navigate(bundled_url("signin.html"));
+                });
+            }
             #[cfg(debug_assertions)]
             smoke_signin(&window, payload.url());
         })
@@ -408,4 +469,24 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the Wafflebase desktop app");
+}
+
+#[cfg(test)]
+mod tests {
+    /// The bundled pages hold IPC, so no other page may frame them.
+    #[test]
+    fn bundled_pages_cannot_be_framed() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = conf["app"]["security"]["csp"].as_str().unwrap();
+        assert!(csp.split(';').any(|d| d.trim() == "frame-ancestors 'none'"), "{csp}");
+    }
+
+    /// The deployment's origin gets no capability.
+    #[test]
+    fn no_capability_is_granted_to_a_remote_origin() {
+        let cap: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/local.json")).unwrap();
+        assert!(cap.get("remote").is_none(), "{cap}");
+    }
 }

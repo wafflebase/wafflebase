@@ -56,6 +56,16 @@ pub struct SignIn {
     inner: Mutex<Inner>,
 }
 
+/// What a finished page load in the sign-in window means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageCheck {
+    /// Nothing to do.
+    Fine,
+    /// The sign-in window loaded a page that is neither the frontend nor a
+    /// bundled page: the sign-in was failed, show the error page.
+    Unexpected,
+}
+
 impl SignIn {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
@@ -65,9 +75,87 @@ impl SignIn {
         self.lock().status.clone().unwrap_or(Status::Idle)
     }
 
-    /// The URL the handoff page may POST to, while a code is waiting.
-    pub fn session_post(&self) -> Option<Url> {
-        self.lock().session_post.clone()
+    /// Start a new attempt in window `label`, cancelling any running one.
+    /// Returns the attempt's generation; results from older ones are dropped.
+    fn begin(&self, label: &str) -> u64 {
+        let mut inner = self.lock();
+        inner.generation += 1;
+        if let Some(c) = inner.canceller.take() {
+            c.cancel();
+        }
+        inner.status = Some(Status::Checking);
+        inner.window = Some(label.to_string());
+        inner.handoff = None;
+        inner.session_post = None;
+        inner.generation
+    }
+
+    /// Hand the listener's canceller to the state, if this attempt is still
+    /// the current one. `false` means it was superseded: drop the listener.
+    fn arm(&self, generation: u64, canceller: Canceller) -> bool {
+        let mut inner = self.lock();
+        if inner.generation != generation {
+            return false;
+        }
+        inner.canceller = Some(canceller);
+        inner.status = Some(Status::Waiting);
+        true
+    }
+
+    /// Fail the current attempt: release its listener and forget its
+    /// handoff. A superseded attempt changes nothing.
+    fn fail(&self, generation: u64, message: String) -> bool {
+        let mut inner = self.lock();
+        if inner.generation != generation {
+            return false;
+        }
+        if let Some(c) = inner.canceller.take() {
+            c.cancel();
+        }
+        inner.status = Some(Status::Failed(message));
+        inner.handoff = None;
+        inner.session_post = None;
+        true
+    }
+
+    /// The callback was accepted: keep the handoff for one page load, and
+    /// allow the sign-in window one POST to `session_post`.
+    fn complete(&self, generation: u64, handoff: Handoff, session_post: Url) -> bool {
+        let mut inner = self.lock();
+        if inner.generation != generation {
+            return false;
+        }
+        inner.canceller = None;
+        inner.status = Some(Status::Done);
+        inner.handoff = Some(handoff);
+        inner.session_post = Some(session_post);
+        true
+    }
+
+    /// The URL the handoff page in `label` may POST to, while a code is
+    /// waiting. Other windows get nothing.
+    pub fn session_post_for(&self, label: &str) -> Option<Url> {
+        let inner = self.lock();
+        if inner.window.as_deref() == Some(label) {
+            inner.session_post.clone()
+        } else {
+            None
+        }
+    }
+
+    /// Consume the session-POST allowance for a navigation to `url` in
+    /// `label`. One navigation gets it; any later one is refused.
+    pub fn take_session_post(&self, label: &str, url: &Url) -> bool {
+        let mut inner = self.lock();
+        let matches = inner.window.as_deref() == Some(label)
+            && inner
+                .session_post
+                .as_ref()
+                .is_some_and(|t| t.origin() == url.origin() && t.path() == url.path());
+        if matches {
+            inner.session_post = None;
+        }
+        matches
     }
 
     /// The handoff material, once. A second call gets nothing, so the
@@ -76,19 +164,42 @@ impl SignIn {
         self.lock().handoff.take()
     }
 
-    /// A page finished loading in `label`. Once the sign-in window is back on
-    /// the frontend after a handoff, the session POST is no longer expected,
-    /// so the navigation policy stops allowing it.
-    pub fn page_loaded(&self, label: &str, on_frontend: bool) {
+    /// A page finished loading in `label`. Back on the frontend after a
+    /// handoff, the sign-in is over. Anything that is neither the frontend nor
+    /// a bundled page, while a sign-in is running in that window, is wrong:
+    /// the backend answers the session POST with a redirect to the frontend,
+    /// so a page rendered from anywhere else (an error, or a server that is
+    /// not the one the frontend sent us to) must not stay on screen in a
+    /// window with no address bar.
+    pub fn page_loaded(&self, label: &str, on_frontend: bool, bundled: bool) -> PageCheck {
         let mut inner = self.lock();
-        if on_frontend
-            && inner.status == Some(Status::Done)
-            && inner.window.as_deref() == Some(label)
-        {
-            inner.session_post = None;
-            inner.window = None;
-            inner.status = None;
+        let running = matches!(
+            inner.status,
+            Some(Status::Checking | Status::Waiting | Status::Done)
+        );
+        if !running || inner.window.as_deref() != Some(label) || bundled {
+            return PageCheck::Fine;
         }
+        if on_frontend {
+            if inner.status == Some(Status::Done) {
+                inner.session_post = None;
+                inner.handoff = None;
+                inner.window = None;
+                inner.status = None;
+            }
+            return PageCheck::Fine;
+        }
+        if let Some(c) = inner.canceller.take() {
+            c.cancel();
+        }
+        inner.handoff = None;
+        inner.session_post = None;
+        inner.status = Some(Status::Failed(
+            "Sign-in did not finish: the server answered with a page this app does not \
+             expect. Try again, or ask the server's administrator."
+                .to_string(),
+        ));
+        PageCheck::Unexpected
     }
 
     /// Cancel the running sign-in, if any. Returns the window it ran in.
@@ -102,15 +213,6 @@ impl SignIn {
         inner.handoff = None;
         inner.session_post = None;
         inner.window.take()
-    }
-
-    fn set_status(&self, generation: u64, status: Status) -> bool {
-        let mut inner = self.lock();
-        if inner.generation != generation {
-            return false;
-        }
-        inner.status = Some(status);
-        true
     }
 }
 
@@ -185,18 +287,7 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
 /// builds, from the smoke hook), so it never blocks.
 pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
     let state = app.state::<AppState>();
-    let generation = {
-        let mut inner = state.signin.lock();
-        inner.generation += 1;
-        if let Some(c) = inner.canceller.take() {
-            c.cancel();
-        }
-        inner.status = Some(Status::Checking);
-        inner.window = Some(label.to_string());
-        inner.handoff = None;
-        inner.session_post = None;
-        inner.generation
-    };
+    let generation = state.signin.begin(label);
     dlog!("sign-in started against {}", crate::server::origin_string(&backend));
 
     let app = app.clone();
@@ -216,7 +307,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
             }
         );
         if let Err(message) = checked {
-            state.signin.set_status(generation, Status::Failed(message));
+            state.signin.fail(generation, message);
             return;
         }
 
@@ -230,22 +321,16 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
             Err(e) => {
                 state
                     .signin
-                    .set_status(generation, Status::Failed(format!("Could not start sign-in: {e}")));
+                    .fail(generation, format!("Could not start sign-in: {e}"));
                 return;
             }
         };
         dlog!("listener port {}", listener.port());
-        {
-            let mut inner = state.signin.lock();
-            if inner.generation != generation {
-                return;
-            }
-            inner.canceller = Some(listener.canceller());
-            inner.status = Some(Status::Waiting);
+        if !state.signin.arm(generation, listener.canceller()) {
+            return;
         }
         if let Err(message) = open_launch_url(&app, listener.launch_url()) {
-            state.signin.cancel();
-            state.signin.lock().status = Some(Status::Failed(message));
+            state.signin.fail(generation, message);
             return;
         }
 
@@ -265,19 +350,13 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
                 let session_post = backend
                     .join("/auth/desktop/session")
                     .expect("a backend origin joins a path");
-                {
-                    let mut inner = state.signin.lock();
-                    if inner.generation != generation {
-                        return;
-                    }
-                    inner.canceller = None;
-                    inner.status = Some(Status::Done);
-                    inner.handoff = Some(Handoff {
-                        backend: crate::server::origin_string(&backend),
-                        code,
-                        verifier,
-                    });
-                    inner.session_post = Some(session_post);
+                let handoff = Handoff {
+                    backend: crate::server::origin_string(&backend),
+                    code,
+                    verifier,
+                };
+                if !state.signin.complete(generation, handoff, session_post) {
+                    return;
                 }
                 if let Some(window) = app.get_webview_window(&label) {
                     let _ = window.unminimize();
@@ -290,7 +369,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
                 dlog!("callback carried a server refusal");
                 state
                     .signin
-                    .set_status(generation, Status::Failed(login::server_refusal_message(&code)));
+                    .fail(generation, login::server_refusal_message(&code));
                 if let Some(window) = app.get_webview_window(&label) {
                     let _ = window.set_focus();
                 }
@@ -299,9 +378,141 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
                 dlog!("sign-in timed out");
                 state
                     .signin
-                    .set_status(generation, Status::Failed(status_message_for_timeout(last)));
+                    .fail(generation, status_message_for_timeout(last));
             }
             Outcome::Cancelled => dlog!("sign-in cancelled"),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::thread;
+
+    fn u(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    fn handoff() -> Handoff {
+        Handoff { backend: "https://api.example.com".into(), code: "c".into(), verifier: "v".into() }
+    }
+
+    /// A real listener whose wait runs on a thread; the receiver reports how
+    /// the wait ended.
+    fn listener() -> (Canceller, mpsc::Receiver<Outcome>) {
+        let listener = Listener::start("n", |port| {
+            login::authorization_url(&u("https://api.example.com"), port, "n", "c")
+        })
+        .unwrap();
+        let canceller = listener.canceller();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(listener.wait(Duration::from_secs(30), |_| {}));
+        });
+        (canceller, rx)
+    }
+
+    #[test]
+    fn failing_releases_the_listener() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let (canceller, outcome) = listener();
+        assert!(signin.arm(generation, canceller));
+        assert_eq!(signin.status(), Status::Waiting);
+        assert!(signin.fail(generation, "timed out".into()));
+        assert_eq!(signin.status(), Status::Failed("timed out".into()));
+        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+    }
+
+    #[test]
+    fn a_superseded_attempt_changes_nothing() {
+        let signin = SignIn::default();
+        let old = signin.begin("main");
+        let new = signin.begin("main");
+        assert!(!signin.fail(old, "could not open the browser".into()));
+        assert_eq!(signin.status(), Status::Checking);
+        let (canceller, outcome) = listener();
+        assert!(!signin.arm(old, canceller.clone()));
+        canceller.cancel();
+        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        assert!(!signin.complete(old, handoff(), u("https://api.example.com/auth/desktop/session")));
+        assert!(signin.session_post_for("main").is_none());
+        assert!(signin.complete(new, handoff(), u("https://api.example.com/auth/desktop/session")));
+    }
+
+    #[test]
+    fn a_new_attempt_cancels_the_running_listener() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let (canceller, outcome) = listener();
+        assert!(signin.arm(generation, canceller));
+        signin.begin("main");
+        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+    }
+
+    #[test]
+    fn session_post_is_one_shot_and_scoped_to_the_sign_in_window() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let post = u("https://api.example.com/auth/desktop/session");
+        assert!(signin.complete(generation, handoff(), post.clone()));
+        assert!(signin.session_post_for("window-2").is_none());
+        assert_eq!(signin.session_post_for("main"), Some(post.clone()));
+        assert!(!signin.take_session_post("window-2", &post));
+        assert!(!signin.take_session_post("main", &u("https://evil.example/auth/desktop/session")));
+        assert!(signin.take_session_post("main", &post));
+        assert!(!signin.take_session_post("main", &post), "a second POST is refused");
+        assert!(signin.session_post_for("main").is_none());
+    }
+
+    #[test]
+    fn handoff_is_handed_out_once() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        signin.complete(generation, handoff(), u("https://api.example.com/auth/desktop/session"));
+        assert!(signin.take_handoff().is_some());
+        assert!(signin.take_handoff().is_none());
+    }
+
+    #[test]
+    fn landing_on_the_frontend_after_handoff_ends_the_sign_in() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        signin.complete(generation, handoff(), u("https://api.example.com/auth/desktop/session"));
+        assert_eq!(signin.page_loaded("main", false, true), PageCheck::Fine, "handoff page");
+        assert_eq!(signin.page_loaded("main", true, false), PageCheck::Fine);
+        assert_eq!(signin.status(), Status::Idle);
+        assert!(signin.session_post_for("main").is_none());
+    }
+
+    #[test]
+    fn an_unexpected_page_in_the_sign_in_window_fails_it() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        signin.complete(generation, handoff(), u("https://evil.example/auth/desktop/session"));
+        // The session response rendered instead of redirecting.
+        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Unexpected);
+        assert!(matches!(signin.status(), Status::Failed(_)));
+        assert!(signin.session_post_for("main").is_none());
+        assert!(signin.take_handoff().is_none());
+    }
+
+    #[test]
+    fn unexpected_page_check_ignores_other_windows_and_idle_state() {
+        let signin = SignIn::default();
+        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Fine, "no sign-in");
+        let generation = signin.begin("main");
+        let (canceller, outcome) = listener();
+        signin.arm(generation, canceller);
+        assert_eq!(signin.page_loaded("window-2", false, false), PageCheck::Fine);
+        assert_eq!(signin.status(), Status::Waiting);
+        // While waiting, the sign-in window showing a foreign page fails it
+        // and releases the listener.
+        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Unexpected);
+        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        // Once failed, nothing more happens.
+        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Fine);
+    }
 }
