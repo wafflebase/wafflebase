@@ -211,9 +211,35 @@ pub fn download_destination(downloads: &Path, suggested: &str) -> PathBuf {
     downloads.join(name)
 }
 
+/// Whether a download may be saved. On macOS, WebKit decides an
+/// `<a download>` before the navigation hook sees it, so this is the only
+/// check: the frontend's own `blob:` URLs (its export and file helpers) and
+/// URLs on the frontend origin. `Url::origin` of a `blob:` URL is the origin
+/// that minted it.
+pub fn download_allowed(url: &Url, frontend: Option<&Url>) -> bool {
+    frontend.is_some_and(|f| {
+        matches!(url.scheme(), "blob" | "http" | "https") && url.origin() == f.origin()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downloads_only_from_the_frontend() {
+        let f = Url::parse("https://app.example.com").unwrap();
+        let ok = |s: &str| download_allowed(&Url::parse(s).unwrap(), Some(&f));
+        assert!(ok("blob:https://app.example.com/1234"));
+        assert!(ok("https://app.example.com/export.pdf"));
+        assert!(!ok("blob:https://evil.example/1234"));
+        assert!(!ok("https://evil.example/x.pdf"));
+        assert!(!ok("data:text/plain,hi"));
+        assert!(!download_allowed(
+            &Url::parse("blob:https://app.example.com/1").unwrap(),
+            None
+        ));
+    }
 
     fn u(s: &str) -> Url {
         Url::parse(s).unwrap()
@@ -229,7 +255,11 @@ mod tests {
         decide(
             &u(url),
             Request::Navigate,
-            Context { frontend: Some(&f), current: Some(&current), session_post: None },
+            Context {
+                frontend: Some(&f),
+                current: Some(&current),
+                session_post: None,
+            },
         )
     }
 
@@ -240,7 +270,11 @@ mod tests {
         decide(
             &u(url),
             Request::Navigate,
-            Context { frontend: Some(&f), current: Some(&current), session_post: None },
+            Context {
+                frontend: Some(&f),
+                current: Some(&current),
+                session_post: None,
+            },
         )
     }
 
@@ -250,19 +284,35 @@ mod tests {
         decide(
             &u(url),
             Request::NewWindow,
-            Context { frontend: Some(&f), current: Some(&current), session_post: None },
+            Context {
+                frontend: Some(&f),
+                current: Some(&current),
+                session_post: None,
+            },
         )
     }
 
     fn sign_in(backend: &str) -> Decision {
-        Decision::StartSignIn { backend: u(backend) }
+        Decision::StartSignIn {
+            backend: u(backend),
+        }
     }
 
     #[test]
     fn bundled_pages_are_allowed_in_window_only() {
-        let page = if cfg!(windows) { "http://tauri.localhost/handoff.html" } else { "tauri://localhost/index.html" };
-        assert_eq!(decide(&u(page), Request::Navigate, Context::default()), Decision::Allow);
-        assert_eq!(decide(&u(page), Request::NewWindow, Context::default()), Decision::Deny);
+        let page = if cfg!(windows) {
+            "http://tauri.localhost/handoff.html"
+        } else {
+            "tauri://localhost/index.html"
+        };
+        assert_eq!(
+            decide(&u(page), Request::Navigate, Context::default()),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(&u(page), Request::NewWindow, Context::default()),
+            Decision::Deny
+        );
     }
 
     #[test]
@@ -273,7 +323,10 @@ mod tests {
         assert!(!is_bundled_on(&u("tauri://localhost:8080/"), mac));
         assert!(!is_bundled_on(&u("http://tauri.localhost/"), mac));
         assert!(!is_bundled_on(&u("tauri://evil/"), mac));
-        assert!(is_bundled_on(&u("http://tauri.localhost/handoff.html"), win));
+        assert!(is_bundled_on(
+            &u("http://tauri.localhost/handoff.html"),
+            win
+        ));
         assert!(!is_bundled_on(&u("http://tauri.localhost:8080/"), win));
         assert!(!is_bundled_on(&u("https://tauri.localhost/"), win));
         assert!(!is_bundled_on(&u("tauri://localhost/"), win));
@@ -288,7 +341,10 @@ mod tests {
     #[test]
     fn frontend_origin_stays_in_window() {
         assert_eq!(nav("https://app.example.com/"), Decision::Allow);
-        assert_eq!(nav("https://app.example.com/w/1/sheets/abc?x=1"), Decision::Allow);
+        assert_eq!(
+            nav("https://app.example.com/w/1/sheets/abc?x=1"),
+            Decision::Allow
+        );
         // Origin, not host: another port or scheme is another site.
         assert_eq!(nav("https://app.example.com:8443/"), Decision::OpenExternal);
         assert_eq!(nav("http://app.example.com/"), Decision::OpenExternal);
@@ -296,13 +352,23 @@ mod tests {
 
     #[test]
     fn other_origins_go_to_the_system_browser() {
-        assert_eq!(nav("https://github.com/yorkie-team"), Decision::OpenExternal);
+        assert_eq!(
+            nav("https://github.com/yorkie-team"),
+            Decision::OpenExternal
+        );
         assert_eq!(nav("https://api.example.com/docs"), Decision::OpenExternal);
         assert_eq!(nav("mailto:someone@example.com"), Decision::OpenExternal);
-        assert_eq!(new_window("https://github.com/", "https://app.example.com/w/1"), Decision::OpenExternal);
+        assert_eq!(
+            new_window("https://github.com/", "https://app.example.com/w/1"),
+            Decision::OpenExternal
+        );
         // Without a server chosen (picker), every http(s) site is external.
         assert_eq!(
-            decide(&u("https://app.example.com/"), Request::Navigate, Context::default()),
+            decide(
+                &u("https://app.example.com/"),
+                Request::Navigate,
+                Context::default()
+            ),
             Decision::OpenExternal
         );
     }
@@ -322,16 +388,26 @@ mod tests {
         assert_eq!(nav("about:srcdoc"), Decision::Allow);
         assert_eq!(nav("blob:https://app.example.com/1234"), Decision::Allow);
         assert_eq!(new_window("about:blank", FRONTEND), Decision::Deny);
-        assert_eq!(new_window("blob:https://app.example.com/1234", FRONTEND), Decision::Deny);
+        assert_eq!(
+            new_window("blob:https://app.example.com/1234", FRONTEND),
+            Decision::Deny
+        );
     }
 
     #[test]
     fn blobs_from_other_origins_are_denied() {
         assert_eq!(nav("blob:https://evil.example/1234"), Decision::Deny);
-        assert_eq!(nav("blob:https://app.example.com:8443/1234"), Decision::Deny);
+        assert_eq!(
+            nav("blob:https://app.example.com:8443/1234"),
+            Decision::Deny
+        );
         assert_eq!(nav("blob:null/1234"), Decision::Deny);
         assert_eq!(
-            decide(&u("blob:https://app.example.com/1"), Request::Navigate, Context::default()),
+            decide(
+                &u("blob:https://app.example.com/1"),
+                Request::Navigate,
+                Context::default()
+            ),
             Decision::Deny
         );
     }
@@ -339,10 +415,19 @@ mod tests {
     #[test]
     fn sign_in_is_intercepted_from_the_login_page_on_any_backend() {
         let login = "https://app.example.com/login";
-        assert_eq!(nav_from("https://api.example.com/auth/github", login), sign_in("https://api.example.com"));
-        assert_eq!(nav_from("https://app.example.com/auth/github", login), sign_in("https://app.example.com"));
         assert_eq!(
-            nav_from("http://localhost:3000/auth/github?returnTo=%2Fw%2F1", "https://app.example.com/login?returnTo=%2Fw%2F1"),
+            nav_from("https://api.example.com/auth/github", login),
+            sign_in("https://api.example.com")
+        );
+        assert_eq!(
+            nav_from("https://app.example.com/auth/github", login),
+            sign_in("https://app.example.com")
+        );
+        assert_eq!(
+            nav_from(
+                "http://localhost:3000/auth/github?returnTo=%2Fw%2F1",
+                "https://app.example.com/login?returnTo=%2Fw%2F1"
+            ),
             sign_in("http://localhost:3000")
         );
     }
@@ -350,26 +435,84 @@ mod tests {
     #[test]
     fn sign_in_links_anywhere_else_go_to_the_system_browser() {
         // A collaborator's hyperlink in a sheet, followed in the window.
-        assert_eq!(nav("https://evil.example/auth/github"), Decision::OpenExternal);
-        assert_eq!(nav("https://app.example.com/auth/github"), Decision::OpenExternal);
+        assert_eq!(
+            nav("https://evil.example/auth/github"),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav("https://app.example.com/auth/github"),
+            Decision::OpenExternal
+        );
         // The same link through window.open, even from the login page.
-        assert_eq!(new_window("https://evil.example/auth/github", "https://app.example.com/login"), Decision::OpenExternal);
-        assert_eq!(new_window("https://app.example.com/auth/github", "https://app.example.com/login"), Decision::OpenExternal);
+        assert_eq!(
+            new_window(
+                "https://evil.example/auth/github",
+                "https://app.example.com/login"
+            ),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            new_window(
+                "https://app.example.com/auth/github",
+                "https://app.example.com/login"
+            ),
+            Decision::OpenExternal
+        );
         // A login page on another origin, or a lookalike path.
-        assert_eq!(nav_from("https://api.example.com/auth/github", "https://evil.example/login"), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/auth/github", "https://app.example.com/login/x"), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/auth/github", "https://app.example.com/w/1?next=/login"), Decision::OpenExternal);
+        assert_eq!(
+            nav_from(
+                "https://api.example.com/auth/github",
+                "https://evil.example/login"
+            ),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from(
+                "https://api.example.com/auth/github",
+                "https://app.example.com/login/x"
+            ),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from(
+                "https://api.example.com/auth/github",
+                "https://app.example.com/w/1?next=/login"
+            ),
+            Decision::OpenExternal
+        );
         // A bundled page or no known current page.
-        assert_eq!(nav_from("https://api.example.com/auth/github", "tauri://localhost/signin.html"), Decision::OpenExternal);
+        assert_eq!(
+            nav_from(
+                "https://api.example.com/auth/github",
+                "tauri://localhost/signin.html"
+            ),
+            Decision::OpenExternal
+        );
         let f = u(FRONTEND);
         assert_eq!(
-            decide(&u("https://api.example.com/auth/github"), Request::Navigate, Context { frontend: Some(&f), current: None, session_post: None }),
+            decide(
+                &u("https://api.example.com/auth/github"),
+                Request::Navigate,
+                Context {
+                    frontend: Some(&f),
+                    current: None,
+                    session_post: None
+                }
+            ),
             Decision::OpenExternal
         );
         // Before a server is chosen there is no login page to trust.
         let login = u("https://app.example.com/login");
         assert_eq!(
-            decide(&u("https://api.example.com/auth/github"), Request::Navigate, Context { frontend: None, current: Some(&login), session_post: None }),
+            decide(
+                &u("https://api.example.com/auth/github"),
+                Request::Navigate,
+                Context {
+                    frontend: None,
+                    current: Some(&login),
+                    session_post: None
+                }
+            ),
             Decision::OpenExternal
         );
     }
@@ -377,12 +520,30 @@ mod tests {
     #[test]
     fn sign_in_with_a_mode_or_another_path_is_not_intercepted() {
         let login = "https://app.example.com/login";
-        assert_eq!(nav_from("https://api.example.com/auth/github?mode=desktop", login), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/auth/github?mode=cli&port=1", login), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/auth/github/", login), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/auth/github/callback?code=x", login), Decision::OpenExternal);
-        assert_eq!(nav_from("https://api.example.com/x/auth/github", login), Decision::OpenExternal);
-        assert_eq!(nav_from("https://app.example.com/auth/github?mode=", login), Decision::Allow);
+        assert_eq!(
+            nav_from("https://api.example.com/auth/github?mode=desktop", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("https://api.example.com/auth/github?mode=cli&port=1", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("https://api.example.com/auth/github/", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("https://api.example.com/auth/github/callback?code=x", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("https://api.example.com/x/auth/github", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("https://app.example.com/auth/github?mode=", login),
+            Decision::Allow
+        );
     }
 
     #[test]
@@ -390,22 +551,56 @@ mod tests {
         let f = u(FRONTEND);
         let current = u("tauri://localhost/handoff.html");
         let post = u("https://api.example.com/auth/desktop/session");
-        let ctx = Context { frontend: Some(&f), current: Some(&current), session_post: Some(&post) };
-        assert_eq!(decide(&post, Request::Navigate, ctx), Decision::AllowSessionPost);
+        let ctx = Context {
+            frontend: Some(&f),
+            current: Some(&current),
+            session_post: Some(&post),
+        };
         assert_eq!(
-            decide(&u("https://api.example.com/auth/desktop/session?x=1"), Request::Navigate, ctx),
+            decide(&post, Request::Navigate, ctx),
             Decision::AllowSessionPost
         );
-        assert_eq!(decide(&u("https://api.example.com/auth/me"), Request::Navigate, ctx), Decision::OpenExternal);
-        assert_eq!(decide(&u("https://evil.example/auth/desktop/session"), Request::Navigate, ctx), Decision::OpenExternal);
-        assert_eq!(decide(&post, Request::NewWindow, ctx), Decision::OpenExternal);
+        assert_eq!(
+            decide(
+                &u("https://api.example.com/auth/desktop/session?x=1"),
+                Request::Navigate,
+                ctx
+            ),
+            Decision::AllowSessionPost
+        );
+        assert_eq!(
+            decide(
+                &u("https://api.example.com/auth/me"),
+                Request::Navigate,
+                ctx
+            ),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            decide(
+                &u("https://evil.example/auth/desktop/session"),
+                Request::Navigate,
+                ctx
+            ),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            decide(&post, Request::NewWindow, ctx),
+            Decision::OpenExternal
+        );
         // Not pending (or another window): external.
-        assert_eq!(nav("https://api.example.com/auth/desktop/session"), Decision::OpenExternal);
+        assert_eq!(
+            nav("https://api.example.com/auth/desktop/session"),
+            Decision::OpenExternal
+        );
     }
 
     #[test]
     fn new_windows_to_the_frontend_open_app_windows() {
-        assert_eq!(new_window("https://app.example.com/w/1", "https://app.example.com/"), Decision::OpenAppWindow);
+        assert_eq!(
+            new_window("https://app.example.com/w/1", "https://app.example.com/"),
+            Decision::OpenAppWindow
+        );
     }
 
     #[test]
@@ -422,12 +617,21 @@ mod tests {
 
     #[test]
     fn download_names_do_not_overwrite() {
-        let taken = ["report.xlsx", "report (1).xlsx", "notes", "archive.tar.gz", ".env"];
+        let taken = [
+            "report.xlsx",
+            "report (1).xlsx",
+            "notes",
+            "archive.tar.gz",
+            ".env",
+        ];
         let exists = |n: &str| taken.contains(&n);
         assert_eq!(dedupe_file_name("fresh.csv", exists), "fresh.csv");
         assert_eq!(dedupe_file_name("report.xlsx", exists), "report (2).xlsx");
         assert_eq!(dedupe_file_name("notes", exists), "notes (1)");
-        assert_eq!(dedupe_file_name("archive.tar.gz", exists), "archive.tar (1).gz");
+        assert_eq!(
+            dedupe_file_name("archive.tar.gz", exists),
+            "archive.tar (1).gz"
+        );
         assert_eq!(dedupe_file_name(".env", exists), ".env (1)");
     }
 
@@ -438,7 +642,10 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "x").unwrap();
         assert_eq!(download_destination(&dir, "b.txt"), dir.join("b.txt"));
         assert_eq!(download_destination(&dir, "a.txt"), dir.join("a (1).txt"));
-        assert_eq!(download_destination(&dir, "../a.txt"), dir.join("a (1).txt"));
+        assert_eq!(
+            download_destination(&dir, "../a.txt"),
+            dir.join("a (1).txt")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

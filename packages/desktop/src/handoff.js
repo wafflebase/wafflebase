@@ -26,5 +26,14 @@ invoke("take_handoff")
     form.elements.code.value = handoff.code;
     form.elements.verifier.value = handoff.verifier;
     form.submit();
+    // The backend answers 303 to its FRONTEND_URL. If that is not the
+    // server chosen in the app (an alias, a `www.` variant), the redirect
+    // goes to the system browser and this page would wait forever.
+    setTimeout(() => {
+      fail(
+        "The server did not send you back to Wafflebase. Check that the " +
+          "address you chose is the server's own address (its FRONTEND_URL).",
+      );
+    }, 15000);
   })
   .catch((error) => fail(String(error)));

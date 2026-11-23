@@ -52,7 +52,10 @@ pub struct AppState {
 
 impl AppState {
     fn frontend(&self) -> Option<Url> {
-        self.frontend.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.frontend
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn set_frontend(&self, url: Option<Url>) {
@@ -124,7 +127,10 @@ fn decide_sign_in_link<R: Runtime>(app: &AppHandle<R>, label: &str, target: Url)
         dlog!(
             "sign-in link {} from {} -> {:?}",
             log_url(&target),
-            current.as_ref().map(log_url).unwrap_or_else(|| "unknown".into()),
+            current
+                .as_ref()
+                .map(log_url)
+                .unwrap_or_else(|| "unknown".into()),
             decision
         );
         match decision {
@@ -220,6 +226,11 @@ fn build_window<R: Runtime>(
         .on_download(move |_webview, event| {
             match event {
                 DownloadEvent::Requested { url, destination } => {
+                    let frontend = dl_app.state::<AppState>().frontend();
+                    if !navigation::download_allowed(&url, frontend.as_ref()) {
+                        dlog!("download {} refused: not from the frontend", log_url(&url));
+                        return false;
+                    }
                     let suggested = destination
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
@@ -252,7 +263,9 @@ fn build_window<R: Runtime>(
                 .frontend()
                 .is_some_and(|f| f.origin() == payload.url().origin());
             let bundled = navigation::is_bundled(payload.url());
-            if state.signin.page_loaded(window.label(), on_frontend, bundled)
+            if state
+                .signin
+                .page_loaded(window.label(), on_frontend, bundled)
                 == signin::PageCheck::Unexpected
             {
                 dlog!("sign-in window loaded an unexpected page; showing the error");
@@ -281,9 +294,7 @@ fn smoke_signin<R: Runtime>(window: &WebviewWindow<R>, url: &Url) {
     };
     let app = window.app_handle();
     let state = app.state::<AppState>();
-    let on_frontend = state
-        .frontend()
-        .is_some_and(|f| f.origin() == url.origin());
+    let on_frontend = state.frontend().is_some_and(|f| f.origin() == url.origin());
     if !on_frontend || state.smoke_signin_started.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -511,7 +522,10 @@ mod tests {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let csp = conf["app"]["security"]["csp"].as_str().unwrap();
-        assert!(csp.split(';').any(|d| d.trim() == "frame-ancestors 'none'"), "{csp}");
+        assert!(
+            csp.split(';').any(|d| d.trim() == "frame-ancestors 'none'"),
+            "{csp}"
+        );
     }
 
     /// The deployment's origin gets no capability.
