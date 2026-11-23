@@ -38,16 +38,21 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 
 ## Shell (`packages/desktop/**`, owner: shell agent)
 
-- [ ] Tauri 2 package `@wafflebase/desktop`, pnpm workspace member, indexed
-- [ ] Bundled server picker; URL validation (https, or http on loopback);
+- [x] Tauri 2 package `@wafflebase/desktop`, pnpm workspace member, indexed
+- [x] Bundled server picker; URL validation (https, or http on loopback);
       profile persisted; "Change server…" menu item
-- [ ] Remote origin has no capability; picker/handoff pages only
-- [ ] Navigation policy: frontend origin in-window, auth intercept, new
+- [x] Remote origin has no capability; picker/handoff pages only
+- [x] Navigation policy: frontend origin in-window, auth intercept, new
       windows for frontend origin, other origins to the system browser
-- [ ] Loopback listener + PKCE in Rust with the CLI's rules; Rust tests
-- [ ] Handoff page; `blob:` downloads saved to disk
-- [ ] Menus (app + Edit), window-state, single-instance, opener
-- [ ] `cargo test` and `tauri build --debug` green on macOS
+- [x] Loopback listener + PKCE in Rust with the CLI's rules; Rust tests
+- [x] Handoff page; `blob:` downloads saved to disk
+- [x] Menus (app + Edit), window-state, single-instance, opener
+- [x] `cargo test` and `tauri build --debug` green on macOS
+
+Verified unattended on macOS: picker and IPC on bundled pages, remote origin
+refused every command, full sign-in against fake servers (smoke hooks in the
+package README). Not yet exercised at a real window: a `blob:` download, menu
+clicks, single-instance focus and `window.open` app windows.
 
 ## Integration (lead)
 
