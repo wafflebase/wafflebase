@@ -42,6 +42,7 @@ pnpm --filter @wafflebase/desktop build        # release bundles (.app/.dmg, NSI
 pnpm --filter @wafflebase/desktop build:debug  # debug .app only, faster
 pnpm --filter @wafflebase/desktop test         # cargo test
 pnpm --filter @wafflebase/desktop lint         # cargo clippy -D warnings
+pnpm --filter @wafflebase/desktop check        # page scripts + JSON config (the CI lane)
 ```
 
 The debug bundle lands at

@@ -279,6 +279,16 @@ const LANES = [
     pkgs: ["cli"],
     needs: ["core:build", "docs:build", "slides:build"],
   },
+  // The Rust crate is NOT built here: compiling Tauri on the Ubuntu runner
+  // needs webkit2gtk and friends, and the runner has no Rust setup. So this
+  // lane checks only what Node can see (the bundled page scripts and the
+  // Tauri JSON config); `pnpm --filter @wafflebase/desktop test` and `lint`
+  // run cargo locally until a macOS CI job takes them over.
+  {
+    name: "desktop:check",
+    cmd: "pnpm --filter @wafflebase/desktop check",
+    pkgs: ["desktop"],
+  },
   { name: "backend:test", cmd: "pnpm backend test", pkgs: ["backend"] },
   { name: "frontend:lint", cmd: "pnpm frontend lint", pkgs: ["frontend"] },
   {

@@ -9,6 +9,7 @@
     "build": "tauri build",
     "build:debug": "tauri build --debug --bundles app",
     "icon": "tauri icon app-icon.svg",
+    "check": "for f in src/*.js; do node --check \"$f\" || exit 1; done && node -e \"for (const f of ['src-tauri/tauri.conf.json', 'src-tauri/capabilities/local.json']) JSON.parse(require('fs').readFileSync(f, 'utf8'))\"",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "tauri": "tauri"
