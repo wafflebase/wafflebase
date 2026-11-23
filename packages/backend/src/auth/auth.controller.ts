@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Logger,
@@ -27,7 +28,7 @@ import {
   type OAuthProfile,
 } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
-import { GitHubAuthGuard } from './github-auth.guard';
+import { cliLoginAvailable, GitHubAuthGuard } from './github-auth.guard';
 import { GoogleAuthGuard, GoogleCallbackGuard } from './google-auth.guard';
 import { googleAuthConfigured } from './oauth-providers';
 import { consumeWebOAuthState } from './web-oauth-login';
@@ -49,6 +50,39 @@ import {
 
 const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The webview origins Tauri serves the desktop app's bundled pages from:
+ * `tauri://localhost` on macOS, `http(s)://tauri.localhost` on Windows.
+ * `POST /auth/desktop/session` answers nothing else — see
+ * `isDesktopOrigin`.
+ */
+export const DESKTOP_ORIGINS: ReadonlySet<string> = new Set([
+  'tauri://localhost',
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+]);
+
+/**
+ * Whether a request's `Origin` is the desktop app's bundled handoff page.
+ *
+ * `POST /auth/desktop/session` signs in *the browser that sent it*, so
+ * without this check any web page could auto-submit a form carrying the
+ * code and verifier from the attacker's own unfinished desktop login and
+ * sign the visitor into the attacker's account (login CSRF). A browser
+ * always sends `Origin` on a cross-site POST and a page cannot forge it.
+ *
+ * Exact match only. A missing header is refused, and so is `null`, which a
+ * sandboxed iframe on any site can send. A repeated header arrives joined
+ * (`a, b`) or as an array and matches nothing.
+ */
+export function isDesktopOrigin(raw: unknown): boolean {
+  return typeof raw === 'string' && DESKTOP_ORIGINS.has(raw);
+}
+
+/** Same bounds as `CliExchangeDto`; checked by hand, see `desktopSession`. */
+const DESKTOP_CODE_MAX_LENGTH = 200;
+const DESKTOP_VERIFIER_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
 
 @Controller('auth')
 export class AuthController {
@@ -187,8 +221,11 @@ export class AuthController {
         ...cliStateCookieOptions(),
         maxAge: undefined,
       });
+      // A desktop-app login (`?mode=desktop`) is this same branch: same
+      // state, cookie and loopback redirect. Its mode is minted into the
+      // code, which then redeems only at `POST /auth/desktop/session`.
       const state = this.cliAuthStore.consumeState(stateToken, cliCookieSecret);
-      if (state && state.mode === 'cli') {
+      if (state && (state.mode === 'cli' || state.mode === 'desktop')) {
         const port = state.port;
         if (port < 1024 || port > 65535) {
           throw new BadRequestException('Invalid CLI port');
@@ -201,8 +238,12 @@ export class AuthController {
         // handed a weaker credential.
         if (!state.challenge) {
           throw new BadRequestException(
-            'CLI login is missing its proof-of-possession challenge. ' +
-              'Update the wafflebase CLI and run `wafflebase login` again.',
+            state.mode === 'desktop'
+              ? 'Desktop sign-in is missing its proof-of-possession ' +
+                'challenge. Update the Wafflebase desktop app and sign ' +
+                'in again.'
+              : 'CLI login is missing its proof-of-possession challenge. ' +
+                'Update the wafflebase CLI and run `wafflebase login` again.',
           );
         }
         // Echo the CLI's per-attempt nonce back as `state`: the CLI's
@@ -228,6 +269,7 @@ export class AuthController {
         const code = this.cliAuthStore.createCode(
           result.user.id,
           state.challenge,
+          state.mode,
         );
         return res.redirect(
           `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateParam}`,
@@ -237,9 +279,12 @@ export class AuthController {
       // State token was provided but invalid, expired, or came from
       // another browser — this is a CLI flow that failed. Return an error
       // instead of falling through to web flow.
+      // Which program started it is unknown here — the state is gone — so
+      // the message names both.
       throw new BadRequestException(
         'CLI login state expired, invalid, or completed in a different ' +
-          'browser. Please run `wafflebase login` again.',
+          'browser. Please run `wafflebase login` again (or sign in again ' +
+          'from the Wafflebase desktop app).',
       );
     }
   }
@@ -308,10 +353,20 @@ export class AuthController {
    * build-time `VITE_` flag could not answer it. Unauthenticated, because
    * the login page is: the answer is exactly what a visitor learns by
    * clicking, and it names no secret.
+   *
+   * `desktop` says which of them the desktop app can run through the system
+   * browser (`?mode=desktop`). GitHub can wherever the CLI login can
+   * (`cliLoginAvailable()`), since it is the same gate; Google has no
+   * loopback mode yet. A server that predates the field is how the app tells
+   * "too old for desktop sign-in" apart from a login that never comes back.
    */
   @Get('providers')
   authProviders() {
-    return { github: true, google: googleAuthConfigured() };
+    return {
+      github: true,
+      google: googleAuthConfigured(),
+      desktop: { github: cliLoginAvailable(), google: false },
+    };
   }
 
   @Get('google')
@@ -401,7 +456,12 @@ export class AuthController {
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: CliExchangeDto) {
-    const userId = this.cliAuthStore.consumeCode(body.code, body.verifier);
+    // A code minted for the desktop app is refused here as an unknown one.
+    const userId = this.cliAuthStore.consumeCode(
+      body.code,
+      body.verifier,
+      'cli',
+    );
     if (userId === undefined) {
       throw new UnauthorizedException('Invalid or expired code');
     }
@@ -413,6 +473,62 @@ export class AuthController {
 
     const tokens = this.authService.createTokens(user);
     return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+  }
+
+  /**
+   * Turn a desktop-app login code into session cookies on the webview.
+   *
+   * The desktop app's bundled handoff page top-level POSTs
+   * `application/x-www-form-urlencoded` `{ code, verifier }` here, so the
+   * response that sets the cookies is one the webview itself receives and
+   * the native shell never holds a JWT (`docs/design/desktop-app.md` §3).
+   *
+   * Unlike `cliExchange`, this signs in the browser that sent the request,
+   * so the `Origin` check comes first and before the code is touched: from
+   * any other origin it is a login-CSRF vector (`isDesktopOrigin`). That is
+   * also why the body is read off the request rather than through a
+   * validated DTO — the global `ValidationPipe` would answer a malformed
+   * body with a 400 before the origin was ever looked at.
+   *
+   * Every failure past the origin check is the same `303` to the sign-in
+   * page with `?error=desktop_session`: the webview is the reader, and a
+   * JSON error would strand it on the backend origin. A CLI code is refused
+   * as an unknown one.
+   */
+  @Post('desktop/session')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async desktopSession(@Req() req: Request, @Res() res: Response) {
+    if (!isDesktopOrigin(req.headers?.origin)) {
+      throw new ForbiddenException('Desktop sign-in only');
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const { code, verifier } = body;
+    if (
+      typeof code !== 'string' ||
+      code.length === 0 ||
+      code.length > DESKTOP_CODE_MAX_LENGTH ||
+      typeof verifier !== 'string' ||
+      !DESKTOP_VERIFIER_PATTERN.test(verifier)
+    ) {
+      return res.redirect(303, this.loginErrorUrl('desktop_session'));
+    }
+
+    const userId = this.cliAuthStore.consumeCode(code, verifier, 'desktop');
+    if (userId === undefined) {
+      return res.redirect(303, this.loginErrorUrl('desktop_session'));
+    }
+    const user = await this.userService.user({ id: userId });
+    if (!user) {
+      return res.redirect(303, this.loginErrorUrl('desktop_session'));
+    }
+
+    // The same session the OAuth callback issues. Workspace claims already
+    // ran when the callback resolved this user, and there is no `returnTo`
+    // cookie: the webview never visited `/auth/github` itself.
+    const tokens = this.authService.createTokens(user);
+    this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+    return res.redirect(303, this.configService.get<string>('FRONTEND_URL')!);
   }
 
   @Post('refresh')
