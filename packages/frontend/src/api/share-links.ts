@@ -2,6 +2,14 @@ import { fetchWithAuth } from "./auth";
 import { assertOk, HttpError } from "./http-error";
 import { seg } from "./url";
 
+/**
+ * The URL a share token resolves to. One definition, so the Copy button and
+ * the QR code cannot hand out different links.
+ */
+export function shareLinkUrl(token: string): string {
+  return `${window.location.origin}/shared/${token}`;
+}
+
 export type ShareLink = {
   id: string;
   token: string;

@@ -30,10 +30,12 @@ import {
   deleteShareLink,
   ShareLinkListItem,
   ShareLinkPermissions,
+  shareLinkUrl,
 } from "@/api/share-links";
 import { isAuthExpiredError } from "@/api/auth";
 import { userFacingError } from "@/api/http-error";
 import { TemplateShareSection } from "@/components/template-share-section";
+import { QrCodePopover } from "@/components/qr-code";
 
 const DEFAULT_PERMISSIONS: ShareLinkPermissions = {
   canCreateEditorLink: false,
@@ -140,7 +142,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       );
       // The creator can always revoke a link they just made.
       setLinks((prev) => [{ ...link, canDelete: true }, ...prev]);
-      url = `${window.location.origin}/shared/${link.token}`;
+      url = shareLinkUrl(link.token);
     } catch (error) {
       if (!isAuthExpiredError(error)) {
         toast.error(
@@ -158,10 +160,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
   };
 
   const handleCopy = async (token: string) => {
-    await copyToClipboard(
-      `${window.location.origin}/shared/${token}`,
-      "Link copied to clipboard",
-    );
+    await copyToClipboard(shareLinkUrl(token), "Link copied to clipboard");
   };
 
   const handleDelete = async (id: string) => {
@@ -282,6 +281,11 @@ export function ShareDialog({ documentId }: { documentId: string }) {
                         >
                           <IconCopy className="h-3.5 w-3.5" />
                         </Button>
+                        <QrCodePopover
+                          url={shareLinkUrl(link.token)}
+                          fileName={`share-link-${link.token.slice(0, 8)}`}
+                          triggerClassName="h-7 w-7"
+                        />
                         {link.canDelete && (
                           <Button
                             variant="ghost"
