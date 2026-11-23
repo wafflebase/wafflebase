@@ -257,11 +257,12 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|_| format!("Could not reach {} to start sign-in.", crate::server::origin_string(backend)))?;
+    let response = client.get(url).send().await.map_err(|_| {
+        format!(
+            "Could not reach {} to start sign-in.",
+            crate::server::origin_string(backend)
+        )
+    })?;
     if !response.status().is_success() {
         return Err(format!(
             "{} answered {} when asked how to sign in.",
@@ -276,9 +277,11 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
     if providers.desktop.and_then(|d| d.github) == Some(true) {
         Ok(())
     } else {
-        Err("This server is too old for desktop sign-in. Ask its administrator to \
+        Err(
+            "This server is too old for desktop sign-in. Ask its administrator to \
              upgrade Wafflebase, or sign in from a web browser."
-            .to_string())
+                .to_string(),
+        )
     }
 }
 
@@ -288,7 +291,10 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
 pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
     let state = app.state::<AppState>();
     let generation = state.signin.begin(label);
-    dlog!("sign-in started against {}", crate::server::origin_string(&backend));
+    dlog!(
+        "sign-in started against {}",
+        crate::server::origin_string(&backend)
+    );
 
     let app = app.clone();
     let label = label.to_string();
@@ -396,7 +402,11 @@ mod tests {
     }
 
     fn handoff() -> Handoff {
-        Handoff { backend: "https://api.example.com".into(), code: "c".into(), verifier: "v".into() }
+        Handoff {
+            backend: "https://api.example.com".into(),
+            code: "c".into(),
+            verifier: "v".into(),
+        }
     }
 
     /// A real listener whose wait runs on a thread; the receiver reports how
@@ -423,7 +433,10 @@ mod tests {
         assert_eq!(signin.status(), Status::Waiting);
         assert!(signin.fail(generation, "timed out".into()));
         assert_eq!(signin.status(), Status::Failed("timed out".into()));
-        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        assert_eq!(
+            outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Cancelled
+        );
     }
 
     #[test]
@@ -436,10 +449,21 @@ mod tests {
         let (canceller, outcome) = listener();
         assert!(!signin.arm(old, canceller.clone()));
         canceller.cancel();
-        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
-        assert!(!signin.complete(old, handoff(), u("https://api.example.com/auth/desktop/session")));
+        assert_eq!(
+            outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Cancelled
+        );
+        assert!(!signin.complete(
+            old,
+            handoff(),
+            u("https://api.example.com/auth/desktop/session")
+        ));
         assert!(signin.session_post_for("main").is_none());
-        assert!(signin.complete(new, handoff(), u("https://api.example.com/auth/desktop/session")));
+        assert!(signin.complete(
+            new,
+            handoff(),
+            u("https://api.example.com/auth/desktop/session")
+        ));
     }
 
     #[test]
@@ -449,7 +473,10 @@ mod tests {
         let (canceller, outcome) = listener();
         assert!(signin.arm(generation, canceller));
         signin.begin("main");
-        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        assert_eq!(
+            outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Cancelled
+        );
     }
 
     #[test]
@@ -463,7 +490,10 @@ mod tests {
         assert!(!signin.take_session_post("window-2", &post));
         assert!(!signin.take_session_post("main", &u("https://evil.example/auth/desktop/session")));
         assert!(signin.take_session_post("main", &post));
-        assert!(!signin.take_session_post("main", &post), "a second POST is refused");
+        assert!(
+            !signin.take_session_post("main", &post),
+            "a second POST is refused"
+        );
         assert!(signin.session_post_for("main").is_none());
     }
 
@@ -471,7 +501,11 @@ mod tests {
     fn handoff_is_handed_out_once() {
         let signin = SignIn::default();
         let generation = signin.begin("main");
-        signin.complete(generation, handoff(), u("https://api.example.com/auth/desktop/session"));
+        signin.complete(
+            generation,
+            handoff(),
+            u("https://api.example.com/auth/desktop/session"),
+        );
         assert!(signin.take_handoff().is_some());
         assert!(signin.take_handoff().is_none());
     }
@@ -480,8 +514,16 @@ mod tests {
     fn landing_on_the_frontend_after_handoff_ends_the_sign_in() {
         let signin = SignIn::default();
         let generation = signin.begin("main");
-        signin.complete(generation, handoff(), u("https://api.example.com/auth/desktop/session"));
-        assert_eq!(signin.page_loaded("main", false, true), PageCheck::Fine, "handoff page");
+        signin.complete(
+            generation,
+            handoff(),
+            u("https://api.example.com/auth/desktop/session"),
+        );
+        assert_eq!(
+            signin.page_loaded("main", false, true),
+            PageCheck::Fine,
+            "handoff page"
+        );
         assert_eq!(signin.page_loaded("main", true, false), PageCheck::Fine);
         assert_eq!(signin.status(), Status::Idle);
         assert!(signin.session_post_for("main").is_none());
@@ -491,9 +533,16 @@ mod tests {
     fn an_unexpected_page_in_the_sign_in_window_fails_it() {
         let signin = SignIn::default();
         let generation = signin.begin("main");
-        signin.complete(generation, handoff(), u("https://evil.example/auth/desktop/session"));
+        signin.complete(
+            generation,
+            handoff(),
+            u("https://evil.example/auth/desktop/session"),
+        );
         // The session response rendered instead of redirecting.
-        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Unexpected);
+        assert_eq!(
+            signin.page_loaded("main", false, false),
+            PageCheck::Unexpected
+        );
         assert!(matches!(signin.status(), Status::Failed(_)));
         assert!(signin.session_post_for("main").is_none());
         assert!(signin.take_handoff().is_none());
@@ -502,16 +551,29 @@ mod tests {
     #[test]
     fn unexpected_page_check_ignores_other_windows_and_idle_state() {
         let signin = SignIn::default();
-        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Fine, "no sign-in");
+        assert_eq!(
+            signin.page_loaded("main", false, false),
+            PageCheck::Fine,
+            "no sign-in"
+        );
         let generation = signin.begin("main");
         let (canceller, outcome) = listener();
         signin.arm(generation, canceller);
-        assert_eq!(signin.page_loaded("window-2", false, false), PageCheck::Fine);
+        assert_eq!(
+            signin.page_loaded("window-2", false, false),
+            PageCheck::Fine
+        );
         assert_eq!(signin.status(), Status::Waiting);
         // While waiting, the sign-in window showing a foreign page fails it
         // and releases the listener.
-        assert_eq!(signin.page_loaded("main", false, false), PageCheck::Unexpected);
-        assert_eq!(outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        assert_eq!(
+            signin.page_loaded("main", false, false),
+            PageCheck::Unexpected
+        );
+        assert_eq!(
+            outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Cancelled
+        );
         // Once failed, nothing more happens.
         assert_eq!(signin.page_loaded("main", false, false), PageCheck::Fine);
     }

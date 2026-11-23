@@ -98,7 +98,9 @@ pub fn is_loopback_host_header(host: Option<&str>, port: u16) -> bool {
 
 /// `<backend>/auth/github?mode=desktop&port=…&nonce=…&challenge=…`.
 pub fn authorization_url(backend: &Url, port: u16, nonce: &str, challenge: &str) -> Url {
-    let mut url = backend.join("/auth/github").expect("a backend origin joins a path");
+    let mut url = backend
+        .join("/auth/github")
+        .expect("a backend origin joins a path");
     url.query_pairs_mut()
         .append_pair("mode", "desktop")
         .append_pair("port", &port.to_string())
@@ -179,7 +181,9 @@ pub fn server_refusal_message(code: &str) -> String {
         other => {
             let safe = if !other.is_empty()
                 && other.len() <= 40
-                && other.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+                && other
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
             {
                 other
             } else {
@@ -201,10 +205,20 @@ pub struct Reply {
 
 impl Reply {
     fn text(status: u16, body: impl Into<String>) -> Self {
-        Self { status, location: None, html: false, body: body.into() }
+        Self {
+            status,
+            location: None,
+            html: false,
+            body: body.into(),
+        }
     }
     fn html(status: u16, body: impl Into<String>) -> Self {
-        Self { status, location: None, html: true, body: body.into() }
+        Self {
+            status,
+            location: None,
+            html: true,
+            body: body.into(),
+        }
     }
 }
 
@@ -233,7 +247,12 @@ pub struct Gate {
 
 impl Gate {
     pub fn new(port: u16, nonce: String, launch_token: String, authorization_url: String) -> Self {
-        Self { port, nonce, launch_token, launch_target: Some(authorization_url) }
+        Self {
+            port,
+            nonce,
+            launch_token,
+            launch_target: Some(authorization_url),
+        }
     }
 
     /// Answer one request. The second value settles the wait when present.
@@ -295,12 +314,23 @@ impl Gate {
         }
         let state = param("state");
         if !secret_matches(&self.nonce, state.as_deref()) {
-            return self.refuse(if state.is_none() { Refusal::NoState } else { Refusal::BadState });
+            return self.refuse(if state.is_none() {
+                Refusal::NoState
+            } else {
+                Refusal::BadState
+            });
         }
 
         if let Some(failure) = failure {
-            let body = page("Sign-in was refused", "Return to Wafflebase. It says what to do next.");
-            return (Reply::html(200, body), Some(Outcome::ServerRefused(failure)), None);
+            let body = page(
+                "Sign-in was refused",
+                "Return to Wafflebase. It says what to do next.",
+            );
+            return (
+                Reply::html(200, body),
+                Some(Outcome::ServerRefused(failure)),
+                None,
+            );
         }
         let code = code.expect("checked above");
         let body = page(
@@ -351,7 +381,12 @@ impl Listener {
             .ok_or_else(|| std::io::Error::other("listener has no IP address"))?;
         let token = URL_SAFE_NO_PAD.encode(random_bytes());
         let launch_url = format!("http://127.0.0.1:{port}{LAUNCH_PREFIX}{token}");
-        let gate = Gate::new(port, nonce.to_string(), token, authorization(port).to_string());
+        let gate = Gate::new(
+            port,
+            nonce.to_string(),
+            token,
+            authorization(port).to_string(),
+        );
         Ok(Self {
             server: Arc::new(server),
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -371,7 +406,10 @@ impl Listener {
     }
 
     pub fn canceller(&self) -> Canceller {
-        Canceller { server: self.server.clone(), cancelled: self.cancelled.clone() }
+        Canceller {
+            server: self.server.clone(),
+            cancelled: self.cancelled.clone(),
+        }
     }
 
     /// Serve requests until a callback settles the wait, the timeout passes or
@@ -419,7 +457,11 @@ fn header(name: &str, value: &str) -> Header {
 }
 
 fn to_response(reply: Reply) -> Response<std::io::Cursor<Vec<u8>>> {
-    let content_type = if reply.html { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" };
+    let content_type = if reply.html {
+        "text/html; charset=utf-8"
+    } else {
+        "text/plain; charset=utf-8"
+    };
     let mut response = Response::from_string(reply.body)
         .with_status_code(reply.status)
         .with_header(header("Content-Type", content_type))
@@ -454,7 +496,9 @@ mod tests {
         assert!(nonce.bytes().all(|b| b.is_ascii_hexdigit()));
         let verifier = create_verifier();
         assert_eq!(verifier.len(), 43);
-        assert!(verifier.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+        assert!(verifier
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
         assert_ne!(create_nonce(), nonce);
     }
 
@@ -476,7 +520,10 @@ mod tests {
         assert!(is_loopback_host_header(Some("127.0.0.1"), 4000));
         assert!(!is_loopback_host_header(Some("127.0.0.1:4001"), 4000));
         assert!(!is_loopback_host_header(Some("evil.example:4000"), 4000));
-        assert!(!is_loopback_host_header(Some("127.0.0.1.nip.io:4000"), 4000));
+        assert!(!is_loopback_host_header(
+            Some("127.0.0.1.nip.io:4000"),
+            4000
+        ));
         assert!(!is_loopback_host_header(Some("[::1"), 4000));
         assert!(!is_loopback_host_header(Some("127.0.0.1:"), 4000));
         assert!(!is_loopback_host_header(Some("127.0.0.1:40a0"), 4000));
@@ -484,7 +531,12 @@ mod tests {
 
     #[test]
     fn authorization_url_carries_the_contract() {
-        let url = authorization_url(&Url::parse("https://api.example.com").unwrap(), 4242, "n0", "c0");
+        let url = authorization_url(
+            &Url::parse("https://api.example.com").unwrap(),
+            4242,
+            "n0",
+            "c0",
+        );
         assert_eq!(
             url.as_str(),
             "https://api.example.com/auth/github?mode=desktop&port=4242&nonce=n0&challenge=c0"
@@ -494,8 +546,14 @@ mod tests {
     #[test]
     fn server_refusal_vocabulary() {
         assert!(server_refusal_message("email_conflict").contains("other sign-in provider"));
-        assert_eq!(server_refusal_message("weird_code"), "Sign-in was refused by the server (weird_code).");
-        assert_eq!(server_refusal_message("<script>"), "Sign-in was refused by the server (unknown).");
+        assert_eq!(
+            server_refusal_message("weird_code"),
+            "Sign-in was refused by the server (weird_code)."
+        );
+        assert_eq!(
+            server_refusal_message("<script>"),
+            "Sign-in was refused by the server (unknown)."
+        );
     }
 
     // Socket-level tests: a real listener and raw HTTP, so the Host header and
@@ -511,11 +569,17 @@ mod tests {
 
     fn start(nonce: &str, timeout: Duration) -> Running {
         let listener = Listener::start(nonce, |port| {
-            authorization_url(&Url::parse("https://api.example.com").unwrap(), port, nonce, "chal")
+            authorization_url(
+                &Url::parse("https://api.example.com").unwrap(),
+                port,
+                nonce,
+                "chal",
+            )
         })
         .unwrap();
         let port = listener.port();
-        let launch_path = listener.launch_url()[format!("http://127.0.0.1:{port}").len()..].to_string();
+        let launch_path =
+            listener.launch_url()[format!("http://127.0.0.1:{port}").len()..].to_string();
         let canceller = listener.canceller();
         let (out_tx, outcome) = mpsc::channel();
         let (ev_tx, events) = mpsc::channel();
@@ -525,7 +589,13 @@ mod tests {
             });
             let _ = out_tx.send(outcome);
         });
-        Running { port, launch_path, outcome, events, canceller }
+        Running {
+            port,
+            launch_path,
+            outcome,
+            events,
+            canceller,
+        }
     }
 
     fn raw(port: u16, method: &str, path: &str, host: Option<&str>) -> (u16, String) {
@@ -558,7 +628,10 @@ mod tests {
         let addr = format!("127.0.0.1:{}", r.port);
         assert!(TcpStream::connect(&addr).is_ok());
         r.canceller.cancel();
-        assert_eq!(r.outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Cancelled);
+        assert_eq!(
+            r.outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Cancelled
+        );
     }
 
     #[test]
@@ -568,7 +641,10 @@ mod tests {
         assert_eq!(status, 302);
         let location = response
             .lines()
-            .find_map(|l| l.strip_prefix("Location: ").or_else(|| l.strip_prefix("location: ")))
+            .find_map(|l| {
+                l.strip_prefix("Location: ")
+                    .or_else(|| l.strip_prefix("location: "))
+            })
             .unwrap()
             .trim()
             .to_string();
@@ -583,7 +659,10 @@ mod tests {
 
         let (status, response) = get(&r, &r.launch_path);
         assert_eq!(status, 410);
-        assert!(!response.contains("api.example.com"), "the spent link never re-offers the URL");
+        assert!(
+            !response.contains("api.example.com"),
+            "the spent link never re-offers the URL"
+        );
         assert_eq!(r.events.recv().unwrap(), Event::LaunchSpent);
 
         // A token that is not ours is a bare 404.
@@ -616,27 +695,54 @@ mod tests {
 
         let (status, body) = get(&r, "/callback?code=attacker");
         assert_eq!(status, 403);
-        assert!(body.contains("no `state`"), "missing state names its cause: {body}");
+        assert!(
+            body.contains("no `state`"),
+            "missing state names its cause: {body}"
+        );
         assert_eq!(r.events.recv().unwrap(), Event::Refused(Refusal::NoState));
 
-        let (status, _) = raw(r.port, "POST", &format!("/callback?code=x&state={NONCE}"), Some(&format!("127.0.0.1:{}", r.port)));
+        let (status, _) = raw(
+            r.port,
+            "POST",
+            &format!("/callback?code=x&state={NONCE}"),
+            Some(&format!("127.0.0.1:{}", r.port)),
+        );
         assert_eq!(status, 403);
         assert_eq!(r.events.recv().unwrap(), Event::Refused(Refusal::NotGet));
 
-        let (status, _) = raw(r.port, "GET", &format!("/callback?code=x&state={NONCE}"), Some(&format!("rebind.example:{}", r.port)));
+        let (status, _) = raw(
+            r.port,
+            "GET",
+            &format!("/callback?code=x&state={NONCE}"),
+            Some(&format!("rebind.example:{}", r.port)),
+        );
         assert_eq!(status, 403);
-        assert_eq!(r.events.recv().unwrap(), Event::Refused(Refusal::NotLoopback));
+        assert_eq!(
+            r.events.recv().unwrap(),
+            Event::Refused(Refusal::NotLoopback)
+        );
 
-        let (status, _) = raw(r.port, "GET", &format!("/callback?code=x&state={NONCE}"), Some("127.0.0.1:1"));
+        let (status, _) = raw(
+            r.port,
+            "GET",
+            &format!("/callback?code=x&state={NONCE}"),
+            Some("127.0.0.1:1"),
+        );
         assert_eq!(status, 403);
-        assert_eq!(r.events.recv().unwrap(), Event::Refused(Refusal::NotLoopback));
+        assert_eq!(
+            r.events.recv().unwrap(),
+            Event::Refused(Refusal::NotLoopback)
+        );
 
         assert!(r.outcome.try_recv().is_err(), "no refusal settles the wait");
 
         // The genuine redirect still lands.
         let (status, _) = get(&r, &format!("/callback?code=real&state={NONCE}"));
         assert_eq!(status, 200);
-        assert_eq!(r.outcome.recv_timeout(Duration::from_secs(5)).unwrap(), Outcome::Code("real".into()));
+        assert_eq!(
+            r.outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Outcome::Code("real".into())
+        );
     }
 
     #[test]

@@ -150,7 +150,10 @@ mod tests {
 
     #[test]
     fn bare_host_means_https() {
-        assert_eq!(ok("wafflebase.example.com"), "https://wafflebase.example.com");
+        assert_eq!(
+            ok("wafflebase.example.com"),
+            "https://wafflebase.example.com"
+        );
         assert_eq!(ok("localhost:5173"), "https://localhost:5173");
     }
 
@@ -194,7 +197,10 @@ mod tests {
             parse_server_origin("javascript:alert(1)"),
             Err(ServerUrlError::Invalid)
         );
-        assert_eq!(parse_server_origin("https://"), Err(ServerUrlError::Invalid));
+        assert_eq!(
+            parse_server_origin("https://"),
+            Err(ServerUrlError::Invalid)
+        );
         assert_eq!(
             parse_server_origin("https://user:pw@example.com"),
             Err(ServerUrlError::Credentials)
@@ -212,8 +218,15 @@ mod tests {
         assert!(store.load().is_none());
         let origin = parse_server_origin("https://example.com/path").unwrap();
         store.save(&origin).unwrap();
-        assert_eq!(store.load().map(|u| origin_string(&u)).as_deref(), Some("https://example.com"));
-        fs::write(dir.join("server.json"), r#"{"origin":"http://evil.example"}"#).unwrap();
+        assert_eq!(
+            store.load().map(|u| origin_string(&u)).as_deref(),
+            Some("https://example.com")
+        );
+        fs::write(
+            dir.join("server.json"),
+            r#"{"origin":"http://evil.example"}"#,
+        )
+        .unwrap();
         assert!(store.load().is_none());
         fs::remove_dir_all(&dir).unwrap();
     }
