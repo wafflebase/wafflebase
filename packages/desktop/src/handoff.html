@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Signing in · Wafflebase</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="handoff.js" defer></script>
+  </head>
+  <body>
+    <main aria-live="polite">
+      <img class="mark" src="mark.svg" alt="" />
+      <h1 id="title">Signing in…</h1>
+      <p id="message">Finishing sign-in with your server.</p>
+      <!-- Filled from `take_handoff` and submitted as a top-level POST, so the
+           response that sets the session cookies is one this webview receives.
+           The verifier never goes into a URL. No `referrer` meta here: under
+           `no-referrer` a browser sends `Origin: null` on a cross-site POST,
+           and the backend accepts only the app's own origin. -->
+      <form id="handoff" method="post" enctype="application/x-www-form-urlencoded" hidden>
+        <input type="hidden" name="code" />
+        <input type="hidden" name="verifier" />
+      </form>
+      <div class="actions" id="actions" hidden>
+        <button id="back" type="button">Back to Wafflebase</button>
+      </div>
+    </main>
+  </body>
+</html>

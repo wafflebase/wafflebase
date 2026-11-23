@@ -1,0 +1,19 @@
+{
+  "name": "@wafflebase/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell (Tauri 2) that opens a Wafflebase deployment in a native window",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug --bundles app",
+    "icon": "tauri icon app-icon.svg",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.6"
+  }
+}

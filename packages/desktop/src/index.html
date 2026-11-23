@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Choose a server · Wafflebase</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="picker.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="mark.svg" alt="" />
+      <h1>Connect to your Wafflebase server</h1>
+      <p>Enter the address you open Wafflebase at in a web browser.</p>
+      <form id="picker" novalidate>
+        <label for="server">Server address</label>
+        <input
+          id="server"
+          name="server"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          spellcheck="false"
+          placeholder="https://wafflebase.example.com"
+          required
+          autofocus
+        />
+        <p class="hint">Use https://. Plain http:// works only for localhost.</p>
+        <p id="error" class="error" role="alert"></p>
+        <div class="actions">
+          <button id="back" type="button" hidden>Cancel</button>
+          <button id="connect" class="primary" type="submit">Connect</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

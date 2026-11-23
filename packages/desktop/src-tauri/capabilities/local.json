@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local",
+  "description": "IPC for the bundled pages (server picker, sign-in status, handoff) only. There is deliberately no `remote` section: the deployment's own origin gets no capability, so it cannot call any command.",
+  "windows": ["*"],
+  "permissions": [
+    "allow-get-server",
+    "allow-set-server",
+    "allow-login-status",
+    "allow-cancel-login",
+    "allow-take-handoff"
+  ]
+}

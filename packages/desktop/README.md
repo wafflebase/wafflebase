@@ -1,0 +1,155 @@
+# @wafflebase/desktop
+
+The Wafflebase desktop app: a [Tauri 2](https://tauri.app) shell that opens a
+team's own Wafflebase deployment in a native window. It ships no editor code.
+It loads the deployment's frontend from its URL, so the server decides which
+version of Wafflebase people see, and a server upgrade needs no app release.
+Sign-in runs in the system browser and comes back through the loopback + PKCE
+flow the CLI uses. The design is
+[docs/design/desktop-app.md](../../docs/design/desktop-app.md).
+
+Status: Phase 0 + 1 (unsigned builds for the team). Google desktop sign-in,
+signing, notarization and the updater are Phase 2.
+
+## Layout
+
+| Path | What |
+|------|------|
+| `src/` | Bundled pages, plain HTML/CSS/JS: server picker (`index.html`), sign-in status (`signin.html`), sign-in handoff (`handoff.html`) |
+| `src-tauri/src/server.rs` | Server profile: URL validation, `server.json` in the app config dir |
+| `src-tauri/src/navigation.rs` | Navigation, new-window and download policy (pure, tested) |
+| `src-tauri/src/login.rs` | Loopback listener + PKCE, with the CLI's rules (tested) |
+| `src-tauri/src/signin.rs` | Sign-in orchestration: providers check, browser, handoff |
+| `src-tauri/src/lib.rs` | Windows, hooks, menu, plugins, commands |
+| `src-tauri/capabilities/local.json` | IPC for the bundled pages only |
+| `app-icon.svg` | Icon source; `pnpm icon` regenerates `src-tauri/icons/` |
+
+## Prerequisites
+
+- Rust stable (`rustup`), 1.80 or newer.
+- macOS: Xcode Command Line Tools (`xcode-select --install`).
+- Windows: the Microsoft C++ Build Tools and WebView2 (preinstalled on
+  Windows 11). See Tauri's
+  [prerequisites](https://tauri.app/start/prerequisites/).
+- Node and pnpm as for the rest of the repository (`pnpm install` at the root
+  installs the Tauri CLI).
+
+## Commands
+
+```bash
+pnpm --filter @wafflebase/desktop dev          # run the app (debug build)
+pnpm --filter @wafflebase/desktop build        # release bundles (.app/.dmg, NSIS)
+pnpm --filter @wafflebase/desktop build:debug  # debug .app only, faster
+pnpm --filter @wafflebase/desktop test         # cargo test
+pnpm --filter @wafflebase/desktop lint         # cargo clippy -D warnings
+```
+
+The debug bundle lands at
+`src-tauri/target/debug/bundle/macos/Wafflebase.app`. These commands are not
+part of `pnpm verify:fast`: they need a Rust toolchain the other packages do
+not.
+
+## Choosing a server
+
+On first launch the picker asks for the deployment's address, the one people
+open in a browser. It must be `https://`, or `http://` on `localhost`,
+`127.0.0.1` or `[::1]`, the same rule the backend applies before it offers
+desktop sign-in. The origin is saved to `server.json` in the app config
+directory (`~/Library/Application Support/io.wafflebase.desktop/` on macOS) and
+loaded directly on later launches. The app menu's **Change server…** returns
+to the picker.
+
+`WAFFLEBASE_DESKTOP_SERVER=<url>` overrides the saved server for one run,
+without saving it. It is validated like the picker's input and ignored, with a
+message on stderr, when invalid. Against a local `pnpm dev`:
+
+```bash
+WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 pnpm --filter @wafflebase/desktop dev
+```
+
+## Sign-in
+
+The frontend's sign-in link (`<backend>/auth/github` with no `mode`) is
+intercepted, never followed in the window:
+
+1. `GET <backend>/auth/providers` must report `desktop.github === true`;
+   otherwise the window says the server is too old for desktop sign-in.
+2. A listener starts on `127.0.0.1:<random>` with a fresh nonce and PKCE
+   verifier, and the system browser opens its single-use
+   `http://127.0.0.1:<port>/launch/<token>`, which redirects to
+   `<backend>/auth/github?mode=desktop&port&nonce&challenge`.
+3. On a valid callback the browser tab says "Return to Wafflebase", the app
+   window comes to the front and loads `handoff.html`, which takes
+   `{ backend, code, verifier }` once from the `take_handoff` command and
+   POSTs them as a form to `<backend>/auth/desktop/session`. The backend sets
+   the session cookies on that response and redirects to the frontend.
+
+Starting another sign-in cancels the running one.
+
+## Security notes
+
+- **No IPC for the remote origin.** `capabilities/local.json` has no `remote`
+  section. In Tauri 2, a request from an origin that is not the app's own
+  (`tauri://localhost`, `http(s)://tauri.localhost`) is refused unless a
+  capability lists it under `remote.urls`, for app commands as well as plugin
+  commands (`Webview::on_message` checks the ACL whenever the origin is not
+  local). On top of that, `build.rs` declares an app manifest, so even the
+  bundled pages reach only the five commands the capability grants. No plugin
+  permission is granted to any page: the opener is used from Rust only.
+- **Navigation policy** (`navigation.rs`): the frontend origin stays in the
+  window, bundled pages are allowed, and every other http(s) origin goes to the
+  system browser. New windows to the frontend open as app windows with the same
+  policy; others go to the browser. `file:` and custom schemes are refused.
+  The only other origin allowed in a window is the
+  `<backend>/auth/desktop/session` POST, while a sign-in has a code waiting.
+- **Loopback listener** (`login.rs`): the CLI's rules unchanged. It binds
+  `127.0.0.1` only; the launch link works once (then `410`); `/callback`
+  accepts only `GET` with `state` equal to the nonce (constant-time compare),
+  and refuses anything else with `403` without ending the wait; a `Host` that
+  is not a loopback literal on this port is refused; it gives up after five
+  minutes.
+- The PKCE verifier lives in memory and reaches the webview only through the
+  one-shot `take_handoff` command, never a URL. The authorization URL never
+  reaches a child process's argv: the browser is handed the launch link.
+- Downloads go to the Downloads folder under the suggested name, reduced to
+  its last path component, with ` (1)`, ` (2)`… added instead of overwriting.
+
+Known limits: on macOS the navigation hook cannot tell a subframe navigation
+from a top-level one (wry passes only the URL), so the policy applies to both.
+The frontend's only iframes are same-origin. The backend must redirect to the
+same frontend origin the app was pointed at (its `FRONTEND_URL`), or the
+post-sign-in redirect opens in the system browser.
+
+## Smoke testing
+
+Two debug-build-only hooks let the whole sign-in run without clicking the
+window. Both are compiled out of release builds (`#[cfg(debug_assertions)]`).
+
+| Variable | Effect |
+|----------|--------|
+| `WAFFLEBASE_DESKTOP_BROWSER=<executable>` | The sign-in launch URL is opened by running `<executable> <launch-url>` instead of the system opener. Only the launch URL; external links still use the opener |
+| `WAFFLEBASE_DESKTOP_SMOKE_SIGNIN=<backend origin>` | The first time the main window finishes loading the server's frontend, sign-in starts against that backend, through the same code path as an intercepted `/auth/github` navigation |
+
+Debug builds also print one line per step on stderr (`[wafflebase-desktop]`
+prefix): navigations and their decisions (without query strings), providers
+checked, listener port, callback accepted or refused (with the reason), handoff
+page loaded. They never print the nonce, verifier, code or launch token.
+
+Example, with a stand-in browser that follows the redirects:
+
+```bash
+cat > /tmp/fake-browser.sh <<'EOF'
+#!/bin/sh
+exec curl -sS -L -o /dev/null "$1"
+EOF
+chmod +x /tmp/fake-browser.sh
+
+WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 \
+WAFFLEBASE_DESKTOP_SMOKE_SIGNIN=http://localhost:3000 \
+WAFFLEBASE_DESKTOP_BROWSER=/tmp/fake-browser.sh \
+  src-tauri/target/debug/bundle/macos/Wafflebase.app/Contents/MacOS/wafflebase-desktop
+```
+
+`curl` cannot click the backend's confirmation page, so against a real backend
+the stand-in browser has to do that step itself, or point at a fake backend
+that redirects straight to the callback.
