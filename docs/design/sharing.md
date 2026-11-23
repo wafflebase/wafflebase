@@ -147,6 +147,15 @@ insert stays unavailable there.
 "Share" button. Allows creating links with role and expiration settings, copying
 URLs to clipboard, and revoking existing links.
 
+Each listed link also carries a **QR code** (`QrCodePopover`, encoding in
+`src/lib/qr-code.ts`), for handing a link over in a room rather than in a
+message. Both it and the Copy button read one `shareLinkUrl(token)`, so they
+cannot differ. The encoding is `uqr` running **in the browser** — a share token
+is a capability, and sending one to a QR image service would publish it. The
+modules are pinned `#000` on a `#fff` quiet zone in either app theme, because a
+scanner needs dark-on-light; the code is therefore not themed, only its
+surrounding card is.
+
 **Shared document route** (`/shared/:token`) — Placed outside `PrivateRoute` so
 anonymous users can access it. Resolves the token, sets up `YorkieProvider` and
 `DocumentProvider`, and branches on the resolved `type` to a per-type read-only
