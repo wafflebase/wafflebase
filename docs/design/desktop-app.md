@@ -61,15 +61,17 @@ the remote origin gets no native API at all by default. The comparison is in
 ```text
 packages/desktop/
 ├── package.json          # @wafflebase/desktop (tauri CLI scripts)
-├── src/                  # Bundled local pages: server picker, sign-in handoff
+├── src/                  # Bundled pages: picker, sign-in status, handoff
 └── src-tauri/
     ├── tauri.conf.json
     ├── capabilities/
     │   └── local.json    # IPC for the bundled pages only
     └── src/
         ├── main.rs
+        ├── lib.rs        # Windows, webview hooks, menus, commands
         ├── server.rs     # Server profile: URL validation, persistence
-        ├── navigation.rs # Navigation and new-window policy (§4)
+        ├── navigation.rs # Pure navigation and download decisions (§4)
+        ├── signin.rs     # Sign-in state machine (§3)
         └── login.rs      # Loopback listener + PKCE (§3)
 ```
 
@@ -77,7 +79,7 @@ The webview shows two kinds of content:
 
 | Content | Origin | IPC |
 |---------|--------|-----|
-| Server picker, sign-in handoff page | Bundled (`tauri://localhost`) | `set_server`, `start_login` |
+| Server picker, sign-in status, handoff page | Bundled (`tauri://localhost` on macOS, `http://tauri.localhost` on Windows) | `get_server`, `set_server`, `login_status`, `cancel_login`, `take_handoff` |
 | The deployment's frontend | The team's server | **None** |
 
 The remote origin is granted no capability. Everything the desktop needs from
@@ -94,6 +96,12 @@ applies before it offers CLI sign-in (`cliLoginAvailable()`), and §3 depends
 on it. The shell saves the origin as the server profile and loads it. A
 "Change server…" menu item returns to the picker. One server per app instance
 is enough for the first release.
+
+The origin chosen here has to be the server's own address, the one its
+backend redirects to after sign-in (`FRONTEND_URL`). An alias or a `www.`
+variant signs in fine but the backend's final redirect then leaves the app's
+origin, goes to the system browser, and the handoff page reports that it was
+not sent back.
 
 The backend can be on a different origin from the frontend: the Docker image
 is backend-only, and the frontend is built against `VITE_BACKEND_API_URL`. The
@@ -112,13 +120,16 @@ The login page renders links to `<backend>/auth/github` and, when configured,
   there.
 
 So the shell intercepts those navigations and runs the login in the system
-browser. It reuses the CLI's flow and its defenses unchanged, under a new
+browser. The first release intercepts GitHub only; Google follows the same
+path in Phase 2, and until then a "Continue with Google" link opens in the
+system browser like any other backend link. It reuses the CLI's flow and its defenses unchanged, under a new
 `mode=desktop`:
 
 ```text
 Webview navigates to <backend>/auth/github  (no `mode` param)
   │
-  ├─ 1. navigation.rs cancels it, hands <backend> + provider to login.rs
+  ├─ 1. lib.rs cancels it; if it came from the frontend's /login page,
+  │     signin.rs starts sign-in against <backend>
   ├─ 2. GET <backend>/auth/providers → must report desktop support
   │     (absent → "This server is too old for desktop sign-in")
   ├─ 3. Loopback listener on 127.0.0.1:<random>; nonce + PKCE verifier
@@ -151,9 +162,9 @@ code and its verifier.
 | Change | Notes |
 |--------|-------|
 | `mode=desktop` on `GET /auth/github` | Same state, confirmation and nonce machinery as `mode=cli`. Entries in `CliAuthStore` record their mode, so a code minted for one flow cannot be redeemed through the other. The confirmation page names the desktop app instead of the command line |
-| `mode=desktop` on `GET /auth/google` | Google has no CLI mode today ([backend README](../../packages/backend/README.md) `/auth/google`: browser only). The Google guard gains the same state handling |
+| `mode=desktop` on `GET /auth/google` (Phase 2) | Google has no CLI mode today ([backend README](../../packages/backend/README.md) `/auth/google`: browser only). The Google guard gains the same state handling |
 | `POST /auth/desktop/session` | Form-encoded `{ code, verifier }`, accepted only from a desktop `Origin` (below). Consumes like `cli/exchange`, then writes cookies with the existing `setAuthCookies` path and answers `303` to `FRONTEND_URL`. A code that does not redeem answers `303` to `FRONTEND_URL/login?error=desktop_session`. Throttled like `cli/exchange` |
-| `GET /auth/providers` | Adds `desktop: { github, google }`, so a new app can tell an old server apart and say so instead of hanging on the loopback timeout |
+| `GET /auth/providers` | Adds `desktop: { github, google }` (`google` is `false` until Phase 2), so a new app can tell an old server apart and say so instead of hanging on the loopback timeout |
 
 **The session endpoint only answers the desktop app.** Unlike
 `cli/exchange`, which returns tokens to whoever calls it, this endpoint
@@ -183,11 +194,11 @@ its own cookies.
 | Navigation | Action |
 |------------|--------|
 | Same window, frontend origin | Allow |
-| `/auth/github` or `/auth/google` without `mode`, any origin, as a same-window navigation from the frontend's `/login` page | Cancel, run §3 against the link's origin |
+| `/auth/github` without `mode`, any origin, as a same-window navigation from the frontend's `/login` page | Cancel, run §3 against the link's origin (`/auth/google` joins in Phase 2) |
 | The same link from any other page, or as a new window | System browser (a collaborator's hyperlink must not start sign-in against its host) |
 | New window (`window.open`, `target=_blank`) to the frontend origin | Open a new app window |
 | Any other origin, same or new window | Cancel, open in the system browser |
-| Download (`<a download>` on a `blob:` URL) | Save via Tauri's download handler, to Downloads or a save dialog |
+| Download (`<a download>`) | Saved to Downloads, without a dialog, only for `blob:` URLs the frontend minted or URLs on the frontend origin; anything else is refused. On macOS WebKit routes downloads to this handler before the navigation hook |
 | `<backend>/auth/desktop/session` from the handoff page | Allowed once, in the window running sign-in. If that window then renders anything but the frontend or a bundled page, sign-in fails and the window shows the error |
 
 The frontend's `window.open` calls are all external hyperlinks in sheets and
@@ -268,7 +279,10 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
   macOS, wry passes only the URL, so the policy cannot tell a subframe from a
   top-level navigation. That is safe today because the frontend only embeds
   same-origin iframes. It has to be revisited if a cross-origin embed is ever
-  added.
+  added. On Windows the opposite holds: wry's WebView2 backend hooks
+  `NavigationStarting`, which is top-level only, so subframe navigations are
+  not checked at all. Neither gives a frame IPC, and `frame-ancestors 'none'`
+  keeps bundled pages from being framed.
 - **The remote origin really has no IPC.** A script on the deployment calling
   the shell's own commands and `plugin:opener|open_url` was refused by the ACL
   for each one. `withGlobalTauri` still exposes an inert `window.__TAURI__`

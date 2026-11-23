@@ -153,9 +153,13 @@ imports the full module set listed below.
   also signed into the `?confirm=` token, so a click on one mode's page cannot
   start the other. Why the app reuses this flow:
   [desktop-app.md](desktop-app.md) §3.
-- Refuses a **`?mode=cli`** start another site navigated the browser into,
-  before any `state` is minted: a `Sec-Fetch-Site` of `cross-site` is a
-  `400`. `none` (opened by `wafflebase login`), `same-origin` (the
+- Refuses a **`?mode=cli`** (or `?mode=desktop`) start another site
+  navigated the browser into, before any `state` is minted: a
+  `Sec-Fetch-Site` of `cross-site` is a `400`. Because
+  `CliLoginConfirmMiddleware` runs first and answers the unconfirmed start
+  with its page, this check in practice only sees the request after the
+  confirmation click; see the Risks table in
+  [desktop-app.md](desktop-app.md). `none` (opened by `wafflebase login`), `same-origin` (the
   confirmation-page click), `same-site` and a client that sends no such
   header are served. Neither state mechanism covers this direction on its
   own — the navigation carrying the attack is also the one that mints the

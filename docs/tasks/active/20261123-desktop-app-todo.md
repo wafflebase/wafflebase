@@ -7,8 +7,9 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 
 ## Contract (shared by backend and shell)
 
-- Shell intercepts top-level navigations to `<backend>/auth/github` whose
-  query has no `mode`.
+- Shell intercepts same-window navigations to `<backend>/auth/github`
+  whose query has no `mode`, and only from the frontend's `/login` page
+  (narrowed in review round 1).
 - `GET <backend>/auth/providers` → `{ github, google, desktop: { github,
   google } }`. A response without `desktop.github === true` means the server
   cannot do desktop sign-in.
@@ -56,7 +57,7 @@ clicks, single-instance focus and `window.open` app windows.
 
 ## Integration (lead)
 
-- [ ] Local end-to-end: backend with a fake GitHub OAuth server, frontend
+- [x] Local end-to-end: backend with a fake GitHub OAuth server, frontend
       dev server, desktop app; signed in inside the app window
-- [ ] Self-review rounds (max 3) logged in lessons
-- [ ] Design doc updated with what the spike found
+- [x] Self-review rounds (max 3) logged in lessons
+- [x] Design doc updated with what the spike found

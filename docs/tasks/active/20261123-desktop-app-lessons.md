@@ -37,3 +37,25 @@
   produced it.** A desktop shell around a collaborative app renders content
   any collaborator can author, so every navigation hook has to ask where
   the navigation came from, not only where it goes.
+
+### Round 2 — design fit (one reviewer, whole branch)
+
+- No blocking findings, so the loop stops here.
+- Fixed: the design doc's Google rows now say Phase 2 (only GitHub is
+  intercepted); stale §1/§3 statements (command list, file layout, the
+  sign-in hand-off path); downloads restricted to the frontend's own `blob:`
+  URLs and origin, since on macOS WebKit routes `<a download>` to the
+  download hook before any navigation check; a 15-second timeout on the
+  handoff page when the backend's `FRONTEND_URL` differs from the origin
+  chosen in the app; Windows subframe behaviour noted next to the macOS one;
+  backend docs no longer claim a cross-site start is refused outright.
+- Known limitations, not fixed: `cargo test`/`clippy` for the new crate are
+  not in `verify:fast` or CI; `WAFFLEBASE_DESKTOP_SERVER` works in release
+  builds (needs local control, documented as a development override);
+  bundled pages accept a same-window navigation from the remote origin and
+  `take_handoff` is not tied to a window (defense in depth only, nothing
+  produces such a navigation).
+- **Lesson: page-load events miss client-side routing.** The first plan was
+  to track each window's current page from `on_page_load`, but the frontend
+  reaches `/login` through React Router, which fires no load. Reading the
+  webview's URL when the decision is needed was the only reliable source.
