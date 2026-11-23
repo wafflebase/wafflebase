@@ -134,7 +134,9 @@ fn decide_sign_in_link<R: Runtime>(app: &AppHandle<R>, label: &str, target: Url)
             decision
         );
         match decision {
-            Decision::StartSignIn { backend } => signin::start(&app, &label, backend),
+            Decision::StartSignIn { backend, return_to } => {
+                signin::start(&app, &label, backend, return_to)
+            }
             Decision::OpenExternal => open_external(&app, &target),
             // A web sign-in link is always one of the two above.
             _ => {}
@@ -184,15 +186,27 @@ fn build_window<R: Runtime>(
                     dlog!("session POST allowance consumed: {allowed}");
                     allowed
                 }
-                Decision::StartSignIn { backend } => {
-                    signin::start(&nav_app, &nav_label, backend);
-                    false
-                }
                 Decision::OpenExternal => {
+                    // The session POST's redirect, sent somewhere other than
+                    // the chosen server: report it in the window rather than
+                    // open the frontend's sign-in result in the browser.
+                    if nav_app
+                        .state::<AppState>()
+                        .signin
+                        .redirected_away_after_post(&nav_label)
+                    {
+                        dlog!("session POST redirected off the frontend; sign-in failed");
+                        if let Some(window) = nav_app.get_webview_window(&nav_label) {
+                            let _ = window.navigate(bundled_url("signin.html"));
+                        }
+                        return false;
+                    }
                     open_external(&nav_app, url);
                     false
                 }
-                Decision::OpenAppWindow | Decision::Deny => false,
+                // Web sign-in links were diverted above, and `decide` with no
+                // current page never takes one over.
+                Decision::StartSignIn { .. } | Decision::OpenAppWindow | Decision::Deny => false,
             }
         })
         .on_new_window(move |url, _features| {
@@ -302,8 +316,9 @@ fn smoke_signin<R: Runtime>(window: &WebviewWindow<R>, url: &Url) {
     if let Some(backend) = raw.strip_prefix("click:") {
         // Exercise the real intercept: sign out if a session survived from
         // an earlier run, then click the login page's own GitHub link, so
-        // the navigation goes through the same-window `/login` rule.
-        // Re-armed on every frontend load; `sessionStorage` keeps the
+        // the navigation goes through the same-window `/login` rule. The
+        // sign-out lands on `/login?returnTo=/templates`, so a run that
+        // ends on `/templates` has carried `returnTo` through. Re-armed on every frontend load; `sessionStorage` keeps the
         // script from signing out again or clicking twice.
         state.smoke_signin_started.store(false, Ordering::SeqCst);
         let script = format!(
@@ -320,7 +335,7 @@ fn smoke_signin<R: Runtime>(window: &WebviewWindow<R>, url: &Url) {
       clearInterval(timer);
       sessionStorage.setItem('wbSmokeSignedOut', '1');
       fetch({backend:?} + '/auth/logout', {{ method: 'POST', credentials: 'include' }})
-        .finally(function () {{ location.href = '/login'; }});
+        .finally(function () {{ location.href = '/login?returnTo=%2Ftemplates'; }});
     }} else if (Date.now() - started > 15000) {{
       clearInterval(timer);
     }}
@@ -342,14 +357,29 @@ fn smoke_signin<R: Runtime>(window: &WebviewWindow<R>, url: &Url) {
                 "smoke: starting sign-in against {}",
                 server::origin_string(&backend)
             );
-            signin::start(app, MAIN_WINDOW, backend);
+            signin::start(app, MAIN_WINDOW, backend, None);
         }
         None => dlog!("smoke: WAFFLEBASE_DESKTOP_SMOKE_SIGNIN is not an http(s) URL"),
     }
 }
 
+/// Window `label`, or else the main window, or else any open one: the main
+/// window can be closed while windows opened from it stay.
+pub(crate) fn window_or_any<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> Option<WebviewWindow<R>> {
+    app.get_webview_window(label)
+        .or_else(|| app.get_webview_window(MAIN_WINDOW))
+        .or_else(|| {
+            let mut windows: Vec<_> = app.webview_windows().into_iter().collect();
+            windows.sort_by(|a, b| a.0.cmp(&b.0));
+            windows.into_iter().next().map(|(_, w)| w)
+        })
+}
+
 fn focus_main<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+    if let Some(window) = window_or_any(app, MAIN_WINDOW) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -485,9 +515,11 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == CHANGE_SERVER_ID {
                 app.state::<AppState>().signin.cancel();
-                if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                if let Some(window) = window_or_any(app, MAIN_WINDOW) {
                     let _ = window.navigate(bundled_url("index.html"));
-                    focus_main(app);
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
         })

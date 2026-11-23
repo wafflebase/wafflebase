@@ -777,8 +777,9 @@ backend surface is:
   FRONTEND_URL/login?error=desktop_session`). Codes record their mode, so
   `cli/exchange` refuses a desktop code and `desktop/session` a CLI code,
   each as an invalid code. The session endpoint answers `403`, before
-  touching the code, unless `Origin` is `tauri://localhost`,
-  `http://tauri.localhost` or `https://tauri.localhost`. `GET
+  touching the code, unless `Origin` is `tauri://localhost` or
+  `http://tauri.localhost`. An optional `returnTo` is re-validated with
+  `safeReturnPath` and appended to the redirect. `GET
   /auth/providers` reports `desktop: { github, google }`. Design and
   rationale in [desktop-app.md](desktop-app.md) §3; endpoint detail in
   [backend.md](backend.md).

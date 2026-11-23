@@ -1,4 +1,6 @@
 import { CookieOptions, Request, Response } from 'express';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import {
   BadRequestException,
   Body,
@@ -53,14 +55,18 @@ const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * The webview origins Tauri serves the desktop app's bundled pages from:
- * `tauri://localhost` on macOS, `http(s)://tauri.localhost` on Windows.
- * `POST /auth/desktop/session` answers nothing else — see
- * `isDesktopOrigin`.
+ * `tauri://localhost` on macOS and Linux, `http://tauri.localhost` on
+ * Windows. `POST /auth/desktop/session` answers nothing else — see
+ * `isDesktopOrigin`. `https://tauri.localhost` (Tauri's `useHttpsScheme`)
+ * is left out because the app does not use it.
+ *
+ * These origins are not Wafflebase's alone: every Tauri app on the machine
+ * serves its pages from them. The check stops web pages, not another
+ * installed app, and the design doc lists that as an accepted risk.
  */
 export const DESKTOP_ORIGINS: ReadonlySet<string> = new Set([
   'tauri://localhost',
   'http://tauri.localhost',
-  'https://tauri.localhost',
 ]);
 
 /**
@@ -80,9 +86,14 @@ export function isDesktopOrigin(raw: unknown): boolean {
   return typeof raw === 'string' && DESKTOP_ORIGINS.has(raw);
 }
 
-/** Same bounds as `CliExchangeDto`; checked by hand, see `desktopSession`. */
-const DESKTOP_CODE_MAX_LENGTH = 200;
-const DESKTOP_VERIFIER_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
+/**
+ * Whether `{ code, verifier }` passes the same rules as `CliExchangeDto`.
+ * Run by hand after the origin check, see `desktopSession`.
+ */
+function isValidDesktopRedemption(code: unknown, verifier: unknown): boolean {
+  const dto = plainToInstance(CliExchangeDto, { code, verifier });
+  return validateSync(dto).length === 0;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -488,7 +499,12 @@ export class AuthController {
    * any other origin it is a login-CSRF vector (`isDesktopOrigin`). That is
    * also why the body is read off the request rather than through a
    * validated DTO — the global `ValidationPipe` would answer a malformed
-   * body with a 400 before the origin was ever looked at.
+   * body with a 400 before the origin was ever looked at. The same DTO's
+   * rules are applied after the check instead.
+   *
+   * An optional `returnTo` (the path the sign-in link carried) is
+   * re-validated with `safeReturnPath`, as the web callback does with its
+   * cookie.
    *
    * Every failure past the origin check is the same `303` to the sign-in
    * page with `?error=desktop_session`: the webview is the reader, and a
@@ -504,17 +520,15 @@ export class AuthController {
 
     const body = (req.body ?? {}) as Record<string, unknown>;
     const { code, verifier } = body;
-    if (
-      typeof code !== 'string' ||
-      code.length === 0 ||
-      code.length > DESKTOP_CODE_MAX_LENGTH ||
-      typeof verifier !== 'string' ||
-      !DESKTOP_VERIFIER_PATTERN.test(verifier)
-    ) {
+    if (!isValidDesktopRedemption(code, verifier)) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }
 
-    const userId = this.cliAuthStore.consumeCode(code, verifier, 'desktop');
+    const userId = this.cliAuthStore.consumeCode(
+      code as string,
+      verifier as string,
+      'desktop',
+    );
     if (userId === undefined) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }
@@ -524,11 +538,18 @@ export class AuthController {
     }
 
     // The same session the OAuth callback issues. Workspace claims already
-    // ran when the callback resolved this user, and there is no `returnTo`
-    // cookie: the webview never visited `/auth/github` itself.
+    // ran when the callback resolved this user. There is no `returnTo`
+    // cookie (the webview never visited `/auth/github` itself), so the
+    // handoff page posts the path instead.
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-    return res.redirect(303, this.configService.get<string>('FRONTEND_URL')!);
+    return res.redirect(
+      303,
+      loginRedirectUrl(
+        this.configService.get<string>('FRONTEND_URL')!,
+        safeReturnPath(body.returnTo),
+      ),
+    );
   }
 
   @Post('refresh')

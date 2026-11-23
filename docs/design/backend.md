@@ -313,14 +313,17 @@ imports the full module set listed below.
   `FRONTEND_URL`. Any redemption failure — unknown, expired, spent or CLI
   code, wrong or malformed verifier — is `303` to
   `FRONTEND_URL/login?error=desktop_session`. Rate-limited to 10 req/60s/IP.
-- `403` unless `Origin` is exactly `tauri://localhost`,
-  `http://tauri.localhost` or `https://tauri.localhost`, checked before the
+- `403` unless `Origin` is exactly `tauri://localhost` or
+  `http://tauri.localhost`, checked before the
   body is read or the code touched; missing and `null` are refused. Unlike
   `cli/exchange`, this endpoint signs in *the browser that sent it*, so from
   any other origin it would be login CSRF ([desktop-app.md](desktop-app.md)
   §3). The body is read by hand rather than through a validated DTO so the
   global `ValidationPipe` cannot answer a malformed body ahead of the origin
-  check.
+  check; `CliExchangeDto`'s rules are then applied with `validateSync`.
+- An optional `returnTo` field (the sign-in link's own) is re-validated with
+  `safeReturnPath` and appended to the `303`, as the web callback does with
+  its cookie.
 
 #### Documents (`/documents`)
 

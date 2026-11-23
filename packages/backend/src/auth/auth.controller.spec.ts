@@ -1213,11 +1213,7 @@ describe('AuthController', () => {
       });
     });
 
-    it.each([
-      'tauri://localhost',
-      'http://tauri.localhost',
-      'https://tauri.localhost',
-    ])(
+    it.each(['tauri://localhost', 'http://tauri.localhost'])(
       'sets the session cookies and 303s to the frontend from %s',
       async (origin) => {
         const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
@@ -1261,6 +1257,7 @@ describe('AuthController', () => {
       ['a trailing slash', { origin: 'tauri://localhost/' }],
       ['a different case', { origin: 'TAURI://LOCALHOST' }],
       ['a port', { origin: 'http://tauri.localhost:8080' }],
+      ['the unused https scheme', { origin: 'https://tauri.localhost' }],
       [
         'a joined repeat',
         { origin: 'tauri://localhost, https://evil.example' },
@@ -1330,6 +1327,8 @@ describe('AuthController', () => {
       ['no verifier', (code) => ({ code })],
       ['no code', () => ({ verifier: CLI_VERIFIER })],
       ['an array code', (code) => ({ code: [code], verifier: CLI_VERIFIER })],
+      ['an empty code', () => ({ code: '', verifier: CLI_VERIFIER })],
+      ['an overlong code', () => ({ code: 'c'.repeat(201), verifier: CLI_VERIFIER })],
     ])('303s to the sign-in page on %s', async (_, body) => {
       const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
       const res = createMockResponse();
@@ -1346,6 +1345,42 @@ describe('AuthController', () => {
         'http://localhost:5173/login?error=desktop_session',
       );
     });
+
+    it('303s to a safe returnTo path', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER, returnTo: '/d/123?tab=2' },
+        ),
+        res,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/d/123?tab=2',
+      );
+    });
+
+    it.each(['//evil.example/x', 'https://evil.example', '/\\evil', 'd/1'])(
+      'ignores an unsafe returnTo %s',
+      async (returnTo) => {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await controller.desktopSession(
+          sessionRequest(
+            { origin: 'tauri://localhost' },
+            { code, verifier: CLI_VERIFIER, returnTo },
+          ),
+          res,
+        );
+
+        expect(res.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      },
+    );
 
     it('is single-use', async () => {
       const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
@@ -1386,10 +1421,10 @@ describe('AuthController', () => {
 });
 
 describe('isDesktopOrigin', () => {
-  it('accepts exactly the three Tauri webview origins', () => {
+  it('accepts exactly the two Tauri webview origins the app uses', () => {
     expect(isDesktopOrigin('tauri://localhost')).toBe(true);
     expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
-    expect(isDesktopOrigin('https://tauri.localhost')).toBe(true);
+    expect(isDesktopOrigin('https://tauri.localhost')).toBe(false);
     expect(isDesktopOrigin('null')).toBe(false);
     expect(isDesktopOrigin(undefined)).toBe(false);
     expect(isDesktopOrigin('https://tauri.localhost.example')).toBe(false);

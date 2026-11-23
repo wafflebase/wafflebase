@@ -25,15 +25,17 @@ invoke("take_handoff")
     form.action = new URL("/auth/desktop/session", handoff.backend).toString();
     form.elements.code.value = handoff.code;
     form.elements.verifier.value = handoff.verifier;
+    form.elements.returnTo.value = handoff.returnTo ?? "";
     form.submit();
-    // The backend answers 303 to its FRONTEND_URL. If that is not the
-    // server chosen in the app (an alias, a `www.` variant), the redirect
-    // goes to the system browser and this page would wait forever.
+    // A redirect off the chosen server is caught by the shell, which moves
+    // this window to the sign-in page with the reason. This is only for a
+    // server that never answers; WebKit's own request timeout is longer.
+    // Until then the POST may still succeed, so the page stays as it is.
     setTimeout(() => {
       fail(
-        "The server did not send you back to Wafflebase. Check that the " +
-          "address you chose is the server's own address (its FRONTEND_URL).",
+        "The server is taking a long time to answer. Wait a little longer, " +
+          "or go back and sign in again.",
       );
-    }, 15000);
+    }, 60000);
   })
   .catch((error) => fail(String(error)));

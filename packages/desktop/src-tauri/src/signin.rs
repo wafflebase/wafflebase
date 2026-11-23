@@ -39,6 +39,10 @@ pub struct Handoff {
     pub backend: String,
     pub code: String,
     pub verifier: String,
+    /// The sign-in link's `returnTo`, posted along for the backend to
+    /// re-validate.
+    #[serde(rename = "returnTo")]
+    pub return_to: Option<String>,
 }
 
 #[derive(Default)]
@@ -119,12 +123,15 @@ impl SignIn {
     }
 
     /// The callback was accepted: keep the handoff for one page load, and
-    /// allow the sign-in window one POST to `session_post`.
-    fn complete(&self, generation: u64, handoff: Handoff, session_post: Url) -> bool {
+    /// allow window `label` one POST to `session_post`. `label` is the window
+    /// the handoff will load in, which is not the one sign-in started in when
+    /// that one was closed meanwhile.
+    fn complete(&self, generation: u64, label: &str, handoff: Handoff, session_post: Url) -> bool {
         let mut inner = self.lock();
         if inner.generation != generation {
             return false;
         }
+        inner.window = Some(label.to_string());
         inner.canceller = None;
         inner.status = Some(Status::Done);
         inner.handoff = Some(handoff);
@@ -156,6 +163,27 @@ impl SignIn {
             inner.session_post = None;
         }
         matches
+    }
+
+    /// Window `label` was sent away from the frontend's origin after its
+    /// session POST: the backend's `FRONTEND_URL` is not the server chosen in
+    /// the app (an alias, a `www.` variant). Fail the sign-in so the window
+    /// says so instead of waiting on the handoff page. `false` when `label`
+    /// has no spent session POST, so the redirect is any other link.
+    pub fn redirected_away_after_post(&self, label: &str) -> bool {
+        let mut inner = self.lock();
+        let spent = inner.window.as_deref() == Some(label)
+            && inner.status == Some(Status::Done)
+            && inner.session_post.is_none();
+        if spent {
+            inner.handoff = None;
+            inner.status = Some(Status::Failed(
+                "The server did not send you back to Wafflebase. Check that the address \
+                 you chose is the server's own address (its FRONTEND_URL)."
+                    .to_string(),
+            ));
+        }
+        spent
     }
 
     /// The handoff material, once. A second call gets nothing, so the
@@ -274,21 +302,28 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
         .json()
         .await
         .map_err(|_| "The server's sign-in options could not be read.".to_string())?;
-    if providers.desktop.and_then(|d| d.github) == Some(true) {
-        Ok(())
-    } else {
-        Err(
+    match providers.desktop.and_then(|d| d.github) {
+        Some(true) => Ok(()),
+        // A current server that cannot run the loopback login: it reports
+        // the same for the CLI. See `cliLoginAvailable` in the backend.
+        Some(false) => Err(
+            "This server has desktop sign-in turned off: it needs an https sign-in \
+             address, or COOKIE_SECURE=true behind a TLS proxy. Ask its \
+             administrator, or sign in from a web browser."
+                .to_string(),
+        ),
+        None => Err(
             "This server is too old for desktop sign-in. Ask its administrator to \
              upgrade Wafflebase, or sign in from a web browser."
                 .to_string(),
-        )
+        ),
     }
 }
 
 /// Start desktop sign-in against `backend` in window `label`. Cancels any
 /// sign-in already running. Called from the navigation hook (and, in debug
 /// builds, from the smoke hook), so it never blocks.
-pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
+pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_to: Option<String>) {
     let state = app.state::<AppState>();
     let generation = state.signin.begin(label);
     dlog!(
@@ -360,16 +395,27 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url) {
                     backend: crate::server::origin_string(&backend),
                     code,
                     verifier,
+                    return_to,
                 };
-                if !state.signin.complete(generation, handoff, session_post) {
+                // The window sign-in started in may have been closed while
+                // the browser was open; finish in another one.
+                let Some(window) = crate::window_or_any(&app, &label) else {
+                    state.signin.fail(
+                        generation,
+                        "Sign-in finished after every window was closed.".to_string(),
+                    );
+                    return;
+                };
+                if !state
+                    .signin
+                    .complete(generation, window.label(), handoff, session_post)
+                {
                     return;
                 }
-                if let Some(window) = app.get_webview_window(&label) {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = window.navigate(bundled_url("handoff.html"));
-                }
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.navigate(bundled_url("handoff.html"));
             }
             Outcome::ServerRefused(code) => {
                 dlog!("callback carried a server refusal");
@@ -406,6 +452,7 @@ mod tests {
             backend: "https://api.example.com".into(),
             code: "c".into(),
             verifier: "v".into(),
+            return_to: None,
         }
     }
 
@@ -455,12 +502,14 @@ mod tests {
         );
         assert!(!signin.complete(
             old,
+            "main",
             handoff(),
             u("https://api.example.com/auth/desktop/session")
         ));
         assert!(signin.session_post_for("main").is_none());
         assert!(signin.complete(
             new,
+            "main",
             handoff(),
             u("https://api.example.com/auth/desktop/session")
         ));
@@ -484,7 +533,7 @@ mod tests {
         let signin = SignIn::default();
         let generation = signin.begin("main");
         let post = u("https://api.example.com/auth/desktop/session");
-        assert!(signin.complete(generation, handoff(), post.clone()));
+        assert!(signin.complete(generation, "main", handoff(), post.clone()));
         assert!(signin.session_post_for("window-2").is_none());
         assert_eq!(signin.session_post_for("main"), Some(post.clone()));
         assert!(!signin.take_session_post("window-2", &post));
@@ -498,11 +547,42 @@ mod tests {
     }
 
     #[test]
+    fn completing_in_another_window_moves_the_session_post_there() {
+        let signin = SignIn::default();
+        let generation = signin.begin("window-1");
+        let post = u("https://api.example.com/auth/desktop/session");
+        assert!(signin.complete(generation, "main", handoff(), post.clone()));
+        assert!(signin.session_post_for("window-1").is_none());
+        assert_eq!(signin.session_post_for("main"), Some(post));
+    }
+
+    #[test]
+    fn a_redirect_away_after_the_session_post_fails_the_sign_in() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let post = u("https://api.example.com/auth/desktop/session");
+        signin.complete(generation, "main", handoff(), post.clone());
+        assert!(
+            !signin.redirected_away_after_post("main"),
+            "the POST is not spent yet"
+        );
+        assert!(signin.take_session_post("main", &post));
+        assert!(!signin.redirected_away_after_post("window-2"));
+        assert!(signin.redirected_away_after_post("main"));
+        assert!(matches!(signin.status(), Status::Failed(_)));
+        assert!(
+            !signin.redirected_away_after_post("main"),
+            "once failed, other links are links"
+        );
+    }
+
+    #[test]
     fn handoff_is_handed_out_once() {
         let signin = SignIn::default();
         let generation = signin.begin("main");
         signin.complete(
             generation,
+            "main",
             handoff(),
             u("https://api.example.com/auth/desktop/session"),
         );
@@ -516,6 +596,7 @@ mod tests {
         let generation = signin.begin("main");
         signin.complete(
             generation,
+            "main",
             handoff(),
             u("https://api.example.com/auth/desktop/session"),
         );
@@ -535,6 +616,7 @@ mod tests {
         let generation = signin.begin("main");
         signin.complete(
             generation,
+            "main",
             handoff(),
             u("https://evil.example/auth/desktop/session"),
         );

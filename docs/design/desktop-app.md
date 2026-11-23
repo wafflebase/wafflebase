@@ -131,7 +131,7 @@ Webview navigates to <backend>/auth/github  (no `mode` param)
   ├─ 1. lib.rs cancels it; if it came from the frontend's /login page,
   │     signin.rs starts sign-in against <backend>
   ├─ 2. GET <backend>/auth/providers → must report desktop support
-  │     (absent → "This server is too old for desktop sign-in")
+  │     (absent → "too old"; false → desktop sign-in turned off)
   ├─ 3. Loopback listener on 127.0.0.1:<random>; nonce + PKCE verifier
   │     generated and held in memory only
   ├─ 4. System browser opens http://127.0.0.1:<port>/launch/<token>
@@ -142,9 +142,12 @@ Webview navigates to <backend>/auth/github  (no `mode` param)
   ├─ 7. login.rs checks nonce, Host and method exactly as the CLI does;
   │     the browser tab says "Return to Wafflebase"
   ├─ 8. Webview loads the bundled handoff page, which top-level POSTs a
-  │     form { code, verifier } to <backend>/auth/desktop/session
+  │     form { code, verifier, returnTo } to <backend>/auth/desktop/session
+  │     (returnTo is the sign-in link's own, so the user lands where /login
+  │     was sending them)
   ├─ 9. Backend consumes code + verifier (CliAuthStore), sets the same
-  │     session cookies the OAuth callback sets, 303 → FRONTEND_URL
+  │     session cookies the OAuth callback sets, 303 → FRONTEND_URL plus
+  │     the returnTo path if safeReturnPath accepts it
   └─ 10. The frontend's session check (GET /auth/me) succeeds as in a browser
 ```
 
@@ -163,7 +166,7 @@ code and its verifier.
 |--------|-------|
 | `mode=desktop` on `GET /auth/github` | Same state, confirmation and nonce machinery as `mode=cli`. Entries in `CliAuthStore` record their mode, so a code minted for one flow cannot be redeemed through the other. The confirmation page names the desktop app instead of the command line |
 | `mode=desktop` on `GET /auth/google` (Phase 2) | Google has no CLI mode today ([backend README](../../packages/backend/README.md) `/auth/google`: browser only). The Google guard gains the same state handling |
-| `POST /auth/desktop/session` | Form-encoded `{ code, verifier }`, accepted only from a desktop `Origin` (below). Consumes like `cli/exchange`, then writes cookies with the existing `setAuthCookies` path and answers `303` to `FRONTEND_URL`. A code that does not redeem answers `303` to `FRONTEND_URL/login?error=desktop_session`. Throttled like `cli/exchange` |
+| `POST /auth/desktop/session` | Form-encoded `{ code, verifier, returnTo? }`, accepted only from a desktop `Origin` (below). Consumes like `cli/exchange`, then writes cookies with the existing `setAuthCookies` path and answers `303` to `FRONTEND_URL` (plus `returnTo` when `safeReturnPath` accepts it). A code that does not redeem answers `303` to `FRONTEND_URL/login?error=desktop_session`. Throttled like `cli/exchange` |
 | `GET /auth/providers` | Adds `desktop: { github, google }` (`google` is `false` until Phase 2), so a new app can tell an old server apart and say so instead of hanging on the loopback timeout |
 
 **The session endpoint only answers the desktop app.** Unlike
@@ -176,8 +179,10 @@ land in the attacker's workspace. A browser always sends `Origin` on a
 cross-site POST and a page cannot forge it, so the endpoint refuses with
 `403`, before touching the code, unless `Origin` is one of the webview
 origins Tauri serves bundled pages from: `tauri://localhost` (macOS) or
-`http://tauri.localhost` / `https://tauri.localhost` (Windows). `null` is
-not accepted, since a sandboxed iframe on any site can send it.
+`http://tauri.localhost` (Windows). `https://tauri.localhost`, which Tauri
+uses only under `useHttpsScheme`, is not accepted because the app does not
+set it. `null` is not accepted, since a sandboxed iframe on any site can
+send it. These origins stop web pages, not other Tauri apps (see Risks).
 
 The loopback listener's rules (127.0.0.1 only, single-use `/launch/<token>`,
 nonce compared in constant time, `Host` check, `GET` only, five-minute
@@ -300,7 +305,8 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
 | Signing certificates and their cost | Secrets scoped to tag-triggered jobs; Phase 1 builds are unsigned and internal |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the URL |
-| `http(s)://tauri.localhost` is reachable from an ordinary browser: Chrome and Firefox resolve `*.localhost` to loopback, so a process already listening on the user's port 80 or 443 could serve a page with an allowed `Origin` and replay an attacker's code (login CSRF) | Accepted. It needs a hostile local listener, and no remote site can produce these origins |
+| Every Tauri app on the machine serves its bundled pages from the same origins (`tauri://localhost`, `http://tauri.localhost`), so another installed Tauri app, or one that renders untrusted HTML in its bundled origin, can POST an attacker's code with an allowed `Origin` (login CSRF) | Accepted. It needs a hostile or vulnerable app already on the machine. Tauri offers no per-app origin to check instead; binding the code to the app would need a secret the app holds and a page cannot read, which is a larger change than this risk warrants today |
+| `http://tauri.localhost` is reachable from an ordinary browser: Chrome and Firefox resolve `*.localhost` to loopback, so a process already listening on the user's port 80 or 443 could serve a page with an allowed `Origin` and replay an attacker's code (login CSRF) | Accepted. It needs a hostile local listener, and no remote site can produce these origins |
 | A `mode=cli` or `mode=desktop` start that another site navigated the browser into is answered with the confirmation page, not refused. `CliLoginConfirmMiddleware` runs before the guard's `Sec-Fetch-Site` check, which therefore only ever sees the same-origin Continue click. This is inherited from the CLI flow | The confirmation click remains the gate. Enforcing the check in the middleware is a follow-up: first confirm what `Sec-Fetch-Site` browsers report after the loopback `/launch` redirect, so the fix does not refuse genuine sign-ins |
 
 ## Alternatives Considered

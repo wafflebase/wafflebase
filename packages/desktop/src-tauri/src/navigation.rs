@@ -31,8 +31,13 @@ pub enum Decision {
     /// Let the webview proceed with the handoff page's one POST to
     /// `<backend>/auth/desktop/session`. The caller consumes the allowance.
     AllowSessionPost,
-    /// Cancel, and run desktop sign-in against this backend origin.
-    StartSignIn { backend: Url },
+    /// Cancel, and run desktop sign-in against this backend origin. The
+    /// link's `returnTo`, if any, goes along so the session lands on the page
+    /// the user was sent to sign in from; the backend re-validates it.
+    StartSignIn {
+        backend: Url,
+        return_to: Option<String>,
+    },
     /// Cancel, and open the URL in a new app window with the same policy.
     OpenAppWindow,
     /// Cancel, and hand the URL to the system browser.
@@ -140,7 +145,11 @@ pub fn decide(url: &Url, request: Request, ctx: Context<'_>) -> Decision {
         if from_login {
             let backend = Url::parse(&url.origin().ascii_serialization())
                 .expect("an http(s) origin serializes to a valid URL");
-            return Decision::StartSignIn { backend };
+            let return_to = url
+                .query_pairs()
+                .find(|(key, _)| key == "returnTo")
+                .map(|(_, value)| value.into_owned());
+            return Decision::StartSignIn { backend, return_to };
         }
         return Decision::OpenExternal;
     }
@@ -175,13 +184,23 @@ pub fn sanitize_file_name(name: &str) -> String {
         .next()
         .unwrap_or_default()
         .chars()
-        .map(|c| if c.is_control() || c == ':' { '_' } else { c })
+        .map(|c| {
+            // Control characters, and what Windows forbids in a file name.
+            if c.is_control() || matches!(c, ':' | '<' | '>' | '"' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect::<String>();
-    let trimmed = last.trim().trim_start_matches('.').to_string();
-    if trimmed.is_empty() {
+    // No trailing dot or space, which Windows drops from a name. A leading
+    // dot stays (`.env` is a real file name); a name of dots only (`..`) is
+    // no name at all.
+    let name = last.trim().trim_end_matches(['.', ' ']);
+    if name.trim_start_matches('.').is_empty() {
         "download".to_string()
     } else {
-        last.trim().to_string()
+        name.to_string()
     }
 }
 
@@ -295,6 +314,7 @@ mod tests {
     fn sign_in(backend: &str) -> Decision {
         Decision::StartSignIn {
             backend: u(backend),
+            return_to: None,
         }
     }
 
@@ -428,7 +448,10 @@ mod tests {
                 "http://localhost:3000/auth/github?returnTo=%2Fw%2F1",
                 "https://app.example.com/login?returnTo=%2Fw%2F1"
             ),
-            sign_in("http://localhost:3000")
+            Decision::StartSignIn {
+                backend: u("http://localhost:3000"),
+                return_to: Some("/w/1".into()),
+            }
         );
     }
 
@@ -612,6 +635,9 @@ mod tests {
         assert_eq!(sanitize_file_name(""), "download");
         assert_eq!(sanitize_file_name(".."), "download");
         assert_eq!(sanitize_file_name("dir/"), "download");
+        assert_eq!(sanitize_file_name("Q3?<draft>|*.pdf"), "Q3__draft___.pdf");
+        assert_eq!(sanitize_file_name("say \"hi\".txt"), "say _hi_.txt");
+        assert_eq!(sanitize_file_name("notes. "), "notes");
         assert_eq!(sanitize_file_name(".env"), ".env");
     }
 

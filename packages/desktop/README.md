@@ -75,19 +75,25 @@ intercepted, never followed in the window, when the frontend's own `/login`
 page follows it in the same window. The same link anywhere else (a hyperlink
 in a sheet, a new window) goes to the system browser like any other link:
 
-1. `GET <backend>/auth/providers` must report `desktop.github === true`;
-   otherwise the window says the server is too old for desktop sign-in.
+1. `GET <backend>/auth/providers` must report `desktop.github === true`.
+   Without the field the window says the server is too old for desktop
+   sign-in; with `false` it says the server has it turned off (no https
+   sign-in address, or no `COOKIE_SECURE=true` behind a TLS proxy).
 2. A listener starts on `127.0.0.1:<random>` with a fresh nonce and PKCE
    verifier, and the system browser opens its single-use
    `http://127.0.0.1:<port>/launch/<token>`, which redirects to
    `<backend>/auth/github?mode=desktop&port&nonce&challenge`.
 3. On a valid callback the browser tab says "Return to Wafflebase", the app
    window comes to the front and loads `handoff.html`, which takes
-   `{ backend, code, verifier }` once from the `take_handoff` command and
-   POSTs them as a form to `<backend>/auth/desktop/session`. The backend sets
-   the session cookies on that response and redirects to the frontend.
+   `{ backend, code, verifier, returnTo }` once from the `take_handoff`
+   command and POSTs them as a form to `<backend>/auth/desktop/session`. The
+   backend sets the session cookies on that response and redirects to the
+   frontend, at the sign-in link's `returnTo` path when it carried one.
 
-Starting another sign-in cancels the running one.
+Starting another sign-in cancels the running one. If the window sign-in
+started in was closed meanwhile, the handoff runs in the main window (or any
+open one). If the backend's redirect leaves the chosen server (its
+`FRONTEND_URL` is another address), the window shows that as the failure.
 
 ## Security notes
 
