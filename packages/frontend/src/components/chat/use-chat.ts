@@ -49,8 +49,8 @@ export function useChannels(workspaceId: string | undefined) {
 
 /** Channels whose oldest page has been reached, so "Load older" hides. */
 const exhausted = new Set<string>();
-/** A thread holds at most this many pages of replies in P1. */
-const MAX_THREAD_PAGES = 10;
+/** How many pages of replies opening a thread reads before it stops to ask. */
+const THREAD_OPEN_PAGES = 10;
 
 /**
  * A channel's top-level messages, newest page first loaded.
@@ -135,33 +135,87 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
   };
 }
 
-/** A thread's replies, ascending. */
+/**
+ * A thread, root first, ascending. It reads back from the newest reply, so a
+ * long thread is never cut off at its end: opening it reads up to
+ * `THREAD_OPEN_PAGES` pages, and `loadOlder` reads the rest on demand. The
+ * root has the lowest `seq` in the thread, so the thread is complete exactly
+ * when the root is loaded; until then `hasOlder` is set.
+ *
+ * The stream refetches the thread on every reply. A refetch reads back as far
+ * as the cache already reached, so the earlier replies the reader paged
+ * through stay put.
+ */
 export function useThreadMessages(
   workspaceId: string,
   channelId: string,
   rootId: string,
 ) {
-  return useQuery({
-    queryKey: chatKeys.thread(rootId),
-    queryFn: async () => {
+  const queryClient = useQueryClient();
+  const key = useMemo(() => chatKeys.thread(rootId), [rootId]);
+  const readBack = useCallback(
+    async (before: number | undefined, pages: number, floor: number) => {
+      // Reads `pages` pages back from `before` (the newest without it), and
+      // on past them while the oldest read is still above `floor`.
       let all: ChatMessageDto[] = [];
-      // Page forward from the start: without a cursor the server returns
-      // the newest page, after which nothing is newer and the loop stops.
-      let after = 0;
-      for (let page = 0; page < MAX_THREAD_PAGES; page++) {
+      for (let page = 0; ; page++) {
         const batch = await fetchMessages(workspaceId, channelId, {
           thread: rootId,
-          after,
+          ...(before === undefined ? {} : { before }),
         });
         all = mergeMessages(all, batch);
-        if (batch.length < CHAT_PAGE_SIZE) break;
-        const last = lastSeqOf(batch);
-        if (last === null) break;
-        after = last;
+        const oldest = batch[0];
+        if (!oldest || batch.length < CHAT_PAGE_SIZE) break;
+        if (batch.some((m) => m.id === rootId)) break;
+        if (page + 1 >= pages && oldest.seq <= floor) break;
+        before = oldest.seq;
       }
       return all;
     },
+    [workspaceId, channelId, rootId],
+  );
+
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => {
+      const cached = queryClient.getQueryData<ChatMessageDto[]>(key);
+      const reached =
+        cached && !cached.some((m) => m.id === rootId)
+          ? (cached[0]?.seq ?? Infinity)
+          : Infinity;
+      return readBack(undefined, THREAD_OPEN_PAGES, reached);
+    },
   });
+
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const data = query.data;
+  const hasOlder = !!data?.length && !data.some((m) => m.id === rootId);
+
+  /** Read the page of replies before the oldest loaded one. */
+  const loadOlder = useCallback(async () => {
+    const oldest = data?.[0];
+    if (!oldest || !hasOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const page = await readBack(oldest.seq, 1, Infinity);
+      queryClient.setQueryData<ChatMessageDto[]>(key, (old) =>
+        mergeMessages(old, page),
+      );
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [data, hasOlder, loadingOlder, readBack, queryClient, key]);
+
+  return {
+    data,
+    isLoading: query.isLoading,
+    error: query.error,
+    /** Try again after the thread failed to load. */
+    retry: query.refetch,
+    hasOlder,
+    loadingOlder,
+    loadOlder,
+  };
 }
 
 function patchEverywhere(
