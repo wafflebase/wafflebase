@@ -70,6 +70,23 @@ describe("scrubCapabilityTokens", () => {
     );
   });
 
+  it("redacts a token inside a ui.click breadcrumb message", () => {
+    // The SDK serializes the clicked element, aria-label and title included.
+    const event = {
+      breadcrumbs: [
+        {
+          category: "ui.click",
+          message:
+            'div.card > svg[aria-label="QR for https://wafflebase.io/shared/aaa"] > p[title="/invite/bbb?x=1"]',
+        },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      'div.card > svg[aria-label="QR for https://wafflebase.io/shared/__redacted__"] > p[title="/invite/__redacted__?x=1"]',
+    );
+  });
+
   it("scrubs a transaction event the same way", () => {
     // The gap that mattered most: `beforeSend` never sees these, and
     // `browserTracingIntegration` emits one per pageload and navigation.

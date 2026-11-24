@@ -79,7 +79,7 @@ export function QrCodePopover({
   const [open, setOpen] = useState(false);
 
   const handleDownloadPng = async () => {
-    const blob = await qrCodePngBlob(url);
+    const blob = await qrCodePngBlob(url).catch(() => null);
     if (!blob) {
       toast.error("Couldn't render the QR image. Download the SVG instead.");
       return;
@@ -132,16 +132,19 @@ export function QrCodePopover({
       </Tooltip>
       <PopoverContent align="end" className="w-64">
         <div className="grid gap-3">
+          {/* The URL stays out of every attribute (aria-label, title): Sentry
+              click breadcrumbs serialize those, and a share URL is the
+              whole capability. Text content is not serialized. */}
           {/* The white plate is part of the code: it is the quiet zone a
               scanner needs, so it is pinned rather than themed. */}
           <div className="rounded-md bg-white p-2">
             <QrCode
               value={url}
-              label={`QR code for ${url}`}
+              label="QR code for this link"
               className="w-full"
             />
           </div>
-          <p className="text-muted-foreground text-xs break-all" title={url}>
+          <p className="text-muted-foreground text-xs break-all">
             {url}
           </p>
           <div className="grid gap-1">

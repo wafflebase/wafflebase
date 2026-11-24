@@ -98,6 +98,9 @@ function initClient(origin: string, dsn: string): void {
   });
 }
 
+/** An absolute URL, or a root-relative path, embedded in free text. */
+const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\]]+|(?<![\w:/])\/[^\s"'<>\]]+/gi;
+
 /**
  * Strips share/invite/template tokens out of every event before it is sent.
  *
@@ -146,6 +149,14 @@ export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
       if (typeof value === "string") {
         crumb.data![key] = redactCapabilityTokens(value);
       }
+    }
+    // `ui.click` / `ui.input` crumbs carry the serialized element in
+    // `message`, attributes (aria-label, title, alt, name) included. It is
+    // not a URL, so redact each URL-shaped run inside it.
+    if (typeof crumb.message === "string") {
+      crumb.message = crumb.message.replace(URL_IN_TEXT, (match) =>
+        redactCapabilityTokens(match),
+      );
     }
   }
 

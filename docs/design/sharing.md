@@ -155,6 +155,11 @@ is a capability, and sending one to a QR image service would publish it. The
 modules are pinned `#000` on a `#fff` quiet zone in either app theme, because a
 scanner needs dark-on-light; the code is therefore not themed, only its
 surrounding card is.
+`shareLinkUrl` includes `VITE_FRONTEND_BASENAME`, since a printed code
+cannot be re-copied once it points at a 404. The URL is shown as text only,
+never in `aria-label` or `title`: Sentry's click breadcrumbs serialize those
+attributes, and `scrubCapabilityTokens` redacts URL-shaped runs in a
+breadcrumb `message` as the second line of defence.
 
 **Shared document route** (`/shared/:token`) — Placed outside `PrivateRoute` so
 anonymous users can access it. Resolves the token, sets up `YorkieProvider` and

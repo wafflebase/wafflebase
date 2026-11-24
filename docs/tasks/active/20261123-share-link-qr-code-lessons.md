@@ -25,8 +25,25 @@
   `share-dialog.test.tsx` fails to collect for a reason that has nothing to
   do with the change under test.
 
+- **Run `pnpm install` only to add the one dependency, and read the lockfile
+  diff.** The first push re-resolved unrelated entries — new `deprecated:`
+  notes (one a multi-line `|-` block) and a vitest `@types/node` peer drift —
+  and the agent-install lockfile allow-list refuses a multi-line scalar, so
+  `scripts:tests` went red on a change that had nothing to do with it. The
+  fix was main's lockfile plus the three `uqr` hunks.
+- **A capability URL never goes in a DOM attribute.** Sentry's `ui.click`
+  breadcrumb serializes `aria-label`/`title`/`alt`/`name` into
+  `crumb.message`, which the scrubber did not reach. Label the element
+  generically and keep the URL in text content.
+
 ## Review rounds
 
 - Round 1–3: not run. This change was produced by the autonomous agent
   pipeline, which is granted no tool that can dispatch the `/self-review`
   reviewer subagent. Review is CI, `@claude review`, and a human.
+- Panel round 1 (d14d12e1f): 5 blocking. Maintainer fix round: lockfile
+  restored to main + `uqr`; URL removed from `aria-label`/`title`;
+  breadcrumb `message` redaction in `sentry.ts`; `shareLinkUrl` honours
+  `VITE_FRONTEND_BASENAME`; tests now check the quiet zone and finder
+  patterns and click the export actions. Also took the suggestions to defer
+  `revokeObjectURL` and to catch a rejected PNG render.

@@ -108,5 +108,7 @@ export function saveBlob(blob: Blob, fileName: string): void {
   anchor.href = url;
   anchor.download = fileName;
   anchor.click();
-  URL.revokeObjectURL(url);
+  // Revoke on a delay, like `api/download-file.ts`: revoking synchronously
+  // after click() can cancel the download before the browser reads the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

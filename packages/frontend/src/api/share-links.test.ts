@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  shareLinkUrl,
   isRevokedShareLinkError,
   isShareLinkResolveFatal,
   shouldRetryShareLinkResolve,
@@ -129,6 +130,22 @@ describe("shouldRetryShareLinkResolve", () => {
     // authority is gone.
     for (const err of [verdict, expired]) {
       expect(shouldRetryShareLinkResolve(0, err)).toBe(false);
+    }
+  });
+});
+
+describe("shareLinkUrl", () => {
+  it("is the share route on this origin", () => {
+    expect(shareLinkUrl("abc", "")).toBe(`${window.location.origin}/shared/abc`);
+  });
+
+  it("keeps the router basename, with or without a trailing slash", () => {
+    // Copy and the QR code both hand this out; without the basename a
+    // sub-path deployment links to a 404.
+    for (const base of ["/app", "/app/"]) {
+      expect(shareLinkUrl("abc", base)).toBe(
+        `${window.location.origin}/app/shared/abc`,
+      );
     }
   });
 });
