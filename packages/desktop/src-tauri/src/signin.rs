@@ -186,10 +186,16 @@ impl SignIn {
         spent
     }
 
-    /// The handoff material, once. A second call gets nothing, so the
-    /// verifier is handed to exactly one page load.
-    pub fn take_handoff(&self) -> Option<Handoff> {
-        self.lock().handoff.take()
+    /// The handoff material, once, to the handoff page in the window the
+    /// sign-in finishes in. A second call, or a call from any other window (a
+    /// stale handoff page left in one an earlier attempt ran in), gets
+    /// nothing, so the verifier is handed to exactly one page load.
+    pub fn take_handoff(&self, label: &str) -> Option<Handoff> {
+        let mut inner = self.lock();
+        if inner.window.as_deref() != Some(label) {
+            return None;
+        }
+        inner.handoff.take()
     }
 
     /// A page finished loading in `label`. Back on the frontend after a
@@ -217,6 +223,9 @@ impl SignIn {
             }
             return PageCheck::Fine;
         }
+        // A new generation, as `cancel` does: a worker still checking the
+        // server must not arm a listener or complete over this failure.
+        inner.generation += 1;
         if let Some(c) = inner.canceller.take() {
             c.cancel();
         }
@@ -228,6 +237,17 @@ impl SignIn {
                 .to_string(),
         ));
         PageCheck::Unexpected
+    }
+
+    /// Cancel the running sign-in if it runs in window `label`. A page left
+    /// in a window an earlier, superseded attempt ran in must not cancel the
+    /// attempt running in another one.
+    pub fn cancel_in(&self, label: &str) -> bool {
+        if self.lock().window.as_deref() != Some(label) {
+            return false;
+        }
+        self.cancel();
+        true
     }
 
     /// Cancel the running sign-in, if any. Returns the window it ran in.
@@ -586,8 +606,8 @@ mod tests {
             handoff(),
             u("https://api.example.com/auth/desktop/session"),
         );
-        assert!(signin.take_handoff().is_some());
-        assert!(signin.take_handoff().is_none());
+        assert!(signin.take_handoff("main").is_some());
+        assert!(signin.take_handoff("main").is_none());
     }
 
     #[test]
@@ -627,7 +647,7 @@ mod tests {
         );
         assert!(matches!(signin.status(), Status::Failed(_)));
         assert!(signin.session_post_for("main").is_none());
-        assert!(signin.take_handoff().is_none());
+        assert!(signin.take_handoff("main").is_none());
     }
 
     #[test]
@@ -658,5 +678,55 @@ mod tests {
         );
         // Once failed, nothing more happens.
         assert_eq!(signin.page_loaded("main", false, false), PageCheck::Fine);
+    }
+
+    #[test]
+    fn a_page_load_failure_drops_the_workers_later_results() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        // Still checking the server when the window shows a foreign page.
+        assert_eq!(
+            signin.page_loaded("main", false, false),
+            PageCheck::Unexpected
+        );
+        let (canceller, _outcome) = listener();
+        assert!(!signin.arm(generation, canceller), "armed after failing");
+        assert!(!signin.complete(
+            generation,
+            "main",
+            handoff(),
+            u("https://api.example.com/auth/desktop/session"),
+        ));
+        assert!(matches!(signin.status(), Status::Failed(_)));
+        assert!(signin.take_handoff("main").is_none());
+    }
+
+    #[test]
+    fn handoff_goes_only_to_the_window_the_sign_in_finishes_in() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        signin.complete(
+            generation,
+            "main",
+            handoff(),
+            u("https://api.example.com/auth/desktop/session"),
+        );
+        assert!(signin.take_handoff("window-2").is_none());
+        assert!(signin.take_handoff("main").is_some());
+    }
+
+    #[test]
+    fn cancel_in_leaves_a_sign_in_in_another_window_running() {
+        let signin = SignIn::default();
+        signin.begin("window-1");
+        let generation = signin.begin("window-2");
+        let (canceller, outcome) = listener();
+        assert!(signin.arm(generation, canceller));
+        // window-1 still shows the page of the attempt window-2 replaced.
+        assert!(!signin.cancel_in("window-1"));
+        assert_eq!(signin.status(), Status::Waiting);
+        assert!(outcome.recv_timeout(Duration::from_millis(50)).is_err());
+        assert!(signin.cancel_in("window-2"));
+        assert_eq!(signin.status(), Status::Idle);
     }
 }

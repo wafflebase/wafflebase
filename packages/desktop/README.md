@@ -26,7 +26,7 @@ signing, notarization and the updater are Phase 2.
 
 ## Prerequisites
 
-- Rust stable (`rustup`), 1.80 or newer.
+- Rust stable (`rustup`), 1.90 or newer (`tauri` 2.12 requires it).
 - macOS: Xcode Command Line Tools (`xcode-select --install`).
 - Windows: the Microsoft C++ Build Tools and WebView2 (preinstalled on
   Windows 11). See Tauri's
@@ -121,19 +121,24 @@ open one). If the backend's redirect leaves the chosen server (its
   the loopback callback itself, and would cancel a real sign-in in progress.
   The frontend reaches `/login` by client-side routing, which fires no
   page-load event, so the window's URL is read after the navigation is
-  cancelled rather than tracked from page loads.
+  cancelled rather than tracked from page loads. That leaves a narrow race,
+  accepted: a foreign link clicked just as the window itself moves to
+  `/login` is taken over. The link cannot be required to be on the frontend
+  origin, because the backend may have its own (`VITE_BACKEND_API_URL`).
 - **The handoff POST is one-shot.** The only other origin a window may load is
   `<backend>/auth/desktop/session`, once, in the window running the sign-in.
   If that window then finishes loading anything that is neither the frontend
   nor a bundled page (the backend should answer with a redirect to the
   frontend), the sign-in fails and the window shows the error page instead of
-  leaving a foreign page on screen without an address bar.
+  leaving a foreign page on screen without an address bar. When the backend
+  shares the frontend's origin, the shell allows that origin anyway, so the
+  one-shot rule is the backend's alone: a code redeems once.
 - **Loopback listener** (`login.rs`): the CLI's rules unchanged. It binds
-  `127.0.0.1` only; the launch link works once (then `410`); `/callback`
-  accepts only `GET` with `state` equal to the nonce (constant-time compare),
-  and refuses anything else with `403` without ending the wait; a `Host` that
-  is not a loopback literal on this port is refused; it gives up after five
-  minutes.
+  `127.0.0.1` only; the launch link works once, for a `GET` (then `410`; a
+  `HEAD` gets `405` and leaves it unspent); `/callback` accepts only `GET`
+  with `state` equal to the nonce (constant-time compare), and refuses
+  anything else with `403` without ending the wait; a `Host` that is not a
+  loopback literal on this port is refused; it gives up after five minutes.
 - The PKCE verifier lives in memory and reaches the webview only through the
   one-shot `take_handoff` command, never a URL. The authorization URL never
   reaches a child process's argv: the browser is handed the launch link.

@@ -532,7 +532,18 @@ export class AuthController {
     if (userId === undefined) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }
-    const user = await this.userService.user({ id: userId });
+    // The code is spent from here on, so every failure below must still end
+    // in the 303: the webview cannot retry, and a JSON 500 would strand it on
+    // the backend origin.
+    let user: Awaited<ReturnType<UserService['user']>>;
+    try {
+      user = await this.userService.user({ id: userId });
+    } catch (e) {
+      this.logger.error(
+        `desktop session: user lookup failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return res.redirect(303, this.loginErrorUrl('desktop_session'));
+    }
     if (!user) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }

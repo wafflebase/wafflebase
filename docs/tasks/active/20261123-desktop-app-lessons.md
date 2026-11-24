@@ -59,3 +59,26 @@
   to track each window's current page from `on_page_load`, but the frontend
   reaches `/login` through React Router, which fires no load. Reading the
   webview's URL when the decision is needed was the only reliable source.
+
+### CodeRabbit rounds on PR #1195
+
+- Round 1 (`e5c0affc`, 12 comments) was only partly covered by
+  `dcafe584`. Fixed now: `rust-version` 1.80 → 1.90 (`tauri` 2.12.7
+  declares 1.90; a 1.83 toolchain fails on `edition2024` before compiling
+  anything), a page-load failure now bumps the sign-in generation so a
+  worker still checking the server cannot arm or complete over it,
+  `cancel_login` and `take_handoff` act only for the window the sign-in
+  runs in, a `HEAD` on the launch link answers `405` without spending it,
+  the callback page no longer says "signed in" before the session POST,
+  `desktopSession` 303s when the user lookup throws (the code is already
+  spent), and the docs name the throttled routes and the same-origin
+  one-shot caveat.
+- Not changed: the `unbound-method` spec assertions (63 of the same on
+  `main`, backend lint is in no verify lane).
+- Round 2 (`dcafe584`, 1 comment): the sign-in link race is real but its
+  suggested fix (`is_frontend(url)`) breaks a backend on its own origin.
+  Recorded as an accepted risk; pinning the backend origin after the first
+  sign-in is the follow-up.
+- **Lesson: "passed locally" for a Rust crate needs the toolchain named.**
+  The declared MSRV was never built: the machine's default stable could not
+  even parse the dependency graph. Build once with `cargo +<rust-version>`.

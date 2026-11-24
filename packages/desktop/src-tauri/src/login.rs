@@ -273,6 +273,11 @@ impl Gate {
         if let Some(presented) = url.path().strip_prefix(LAUNCH_PREFIX) {
             let ours = secret_matches(&self.launch_token, Some(presented));
             if ours {
+                // Only a GET follows the link. A HEAD probe (a link checker,
+                // a prefetch) must not spend it before the browser does.
+                if method != "GET" {
+                    return (Reply::text(405, "Method not allowed"), None, None);
+                }
                 if let Some(target) = self.launch_target.take() {
                     let reply = Reply {
                         status: 302,
@@ -335,7 +340,7 @@ impl Gate {
         let code = code.expect("checked above");
         let body = page(
             "Return to Wafflebase",
-            "You are signed in. You can close this tab and go back to the Wafflebase app.",
+            "Go back to the Wafflebase app to finish signing in. You can close this tab.",
         );
         (Reply::html(200, body), Some(Outcome::Code(code)), None)
     }
@@ -632,6 +637,18 @@ mod tests {
             r.outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
             Outcome::Cancelled
         );
+    }
+
+    #[test]
+    fn a_head_probe_does_not_spend_the_launch_link() {
+        let r = start(NONCE, Duration::from_secs(10));
+        let host = format!("127.0.0.1:{}", r.port);
+        let (status, _) = raw(r.port, "HEAD", &r.launch_path, Some(&host));
+        assert_eq!(status, 405);
+        let (status, _) = get(&r, &r.launch_path);
+        assert_eq!(status, 302);
+        assert_eq!(r.events.recv().unwrap(), Event::LaunchRedirected);
+        r.canceller.cancel();
     }
 
     #[test]

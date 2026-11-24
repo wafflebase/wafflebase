@@ -478,7 +478,9 @@ fn login_status(state: tauri::State<'_, AppState>) -> signin::Status {
 
 #[tauri::command]
 fn cancel_login<R: Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, AppState>) {
-    state.signin.cancel();
+    // Only this window's own attempt: a stale page here must not cancel one
+    // running in another window.
+    state.signin.cancel_in(window.label());
     let target = state
         .frontend()
         .unwrap_or_else(|| bundled_url("index.html"));
@@ -486,8 +488,11 @@ fn cancel_login<R: Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, Ap
 }
 
 #[tauri::command]
-fn take_handoff(state: tauri::State<'_, AppState>) -> Option<signin::Handoff> {
-    let handoff = state.signin.take_handoff();
+fn take_handoff<R: Runtime>(
+    window: WebviewWindow<R>,
+    state: tauri::State<'_, AppState>,
+) -> Option<signin::Handoff> {
+    let handoff = state.signin.take_handoff(window.label());
     dlog!(
         "handoff page loaded (material present: {})",
         handoff.is_some()

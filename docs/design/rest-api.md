@@ -595,8 +595,12 @@ earlier gate.
 
 The application registers a global NestJS `ThrottlerGuard` via
 `ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected
-routes tighten or relax it with `@Throttle`: the CLI and desktop auth
-endpoints cap at 10/min and the image endpoints raise to 600/min. This is coarse
+routes tighten or relax it with `@Throttle`: the OAuth callbacks
+(`GET /auth/github/callback`, `GET /auth/google/callback`), `POST
+/auth/cli/exchange`, `POST /auth/desktop/session` and `POST /auth/refresh`
+cap at 10/min, and the image endpoints raise to 600/min. Starting a sign-in
+(`GET /auth/github`, any `mode`) and `GET /auth/providers` keep the default
+bucket. This is coarse
 request throttling, not per-key usage metering or quotas.
 
 #### 5.10 Board (granular editing for agents)

@@ -1320,6 +1320,26 @@ describe('AuthController', () => {
       );
     });
 
+    it('303s to the sign-in page when the user lookup fails', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      (userService.user as jest.Mock).mockRejectedValue(new Error('db down'));
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER },
+        ),
+        res,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+
     it.each<[string, (code: string) => Record<string, unknown>]>([
       ['an unknown code', () => ({ code: 'nope', verifier: CLI_VERIFIER })],
       ['the wrong verifier', (code) => ({ code, verifier: 'w'.repeat(43) })],
