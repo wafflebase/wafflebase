@@ -1,0 +1,2 @@
+# Chat review hardening — lessons
+
