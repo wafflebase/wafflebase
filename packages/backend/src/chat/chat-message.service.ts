@@ -16,6 +16,7 @@ import { canonicalMentions } from './chat-mentions';
 import { MAX_BODY_LENGTH } from './chat.dto';
 import {
   ChatDocumentRefService,
+  describeError,
   REFS_INCLUDE,
   RefRow,
   toRefDtos,
@@ -32,6 +33,7 @@ export const PAGE_SIZE = 50;
 const POST_TRANSACTION = { maxWait: 10_000, timeout: 10_000 };
 
 const DELETED_ROOT = 'That message was deleted, so it cannot be replied to';
+const DELETED_REPLAY = 'That message was sent and has since been deleted';
 
 const AUTHOR = { select: { id: true, username: true, photo: true } } as const;
 
@@ -52,6 +54,12 @@ function isUniqueViolation(err: unknown): boolean {
   return (
     err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
   );
+}
+
+/** An idempotent retry's answer: the earlier message, unless it is gone. */
+function replayed(row: MessageRow): ChatMessageDto {
+  if (row.deletedAt !== null) throw new ConflictException(DELETED_REPLAY);
+  return toDto(row);
 }
 
 function toDto(m: MessageRow): ChatMessageDto {
@@ -119,7 +127,10 @@ export class ChatMessageService {
    * whose first attempt did reach the server — the response was lost, or a
    * reload cut it off — gets that message back, with no second `seq`, event
    * or notification. Two attempts racing both miss the lookup; the unique
-   * index lets one insert win and the other reads the winner.
+   * index lets one insert win and the other reads the winner. If that message
+   * has since been deleted the retry is a 409, a refusal the client reports
+   * and does not retry: the blank row is not a send that just landed, and a
+   * fresh insert would collide with the same `clientId`.
    */
   async post(
     userId: number,
@@ -138,7 +149,7 @@ export class ChatMessageService {
       // Before the archive check: a send that landed just before the
       // channel was archived still reports success on retry.
       const earlier = await this.findByClientId(userId, channelId, clientId);
-      if (earlier) return toDto(earlier);
+      if (earlier) return replayed(earlier);
     }
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
     const body = await this.canonicalBody(data.body, channel);
@@ -224,7 +235,7 @@ export class ChatMessageService {
       if (!duplicate) throw err;
       return duplicate;
     });
-    if (duplicate) return toDto(duplicate);
+    if (duplicate) return replayed(duplicate);
 
     const dto = toDto(created);
     dto.refs = await this.documentRefs.sync(dto.id, channel, body);
@@ -358,6 +369,8 @@ export class ChatMessageService {
       data: { body: text, editedAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('Message not found');
+    // The re-read below carries the refs as stored: the new body's on
+    // success, none after a failed sync (which clears them to match).
     await this.documentRefs.sync(messageId, channel, text);
     const updated = await this.prisma.chatMessage.findUniqueOrThrow({
       where: { id: messageId },
@@ -591,7 +604,10 @@ export class ChatMessageService {
         });
       }
     } catch (err) {
-      this.logger.warn(`chat notify failed for ${message.id}: ${String(err)}`);
+      // The class and code only: the failed call carried the body as preview.
+      this.logger.warn(
+        `chat notify failed for ${message.id}: ${describeError(err)}`,
+      );
     }
   }
 
@@ -625,8 +641,9 @@ export class ChatMessageService {
         preview: message.body,
       });
     } catch (err) {
+      // The class and code only: the failed call carried the body as preview.
       this.logger.warn(
-        `chat edit notify failed for ${message.id}: ${String(err)}`,
+        `chat edit notify failed for ${message.id}: ${describeError(err)}`,
       );
     }
   }

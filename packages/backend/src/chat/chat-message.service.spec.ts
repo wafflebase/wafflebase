@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { AccessContext } from './chat-access';
@@ -277,6 +277,60 @@ describe('ChatMessageService', () => {
       expect(notifications.syncChatMessage).toHaveBeenCalledWith(
         expect.objectContaining({ recipients: [] }),
       );
+    });
+
+    it('logs a failed bell sync without the message body', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      try {
+        const { service, notifications } = setup();
+        const secret = 'the private plan nobody should read in a log';
+        notifications.syncChatMessage.mockRejectedValue(
+          Object.assign(
+            new Error(`Invalid updateMany({ preview: "${secret}" })`),
+            {
+              name: 'PrismaClientValidationError',
+            },
+          ),
+        );
+        await service.edit(AUTHOR, 'm1', secret);
+        const line = String(warn.mock.calls[0][0]);
+        expect(line).toContain('PrismaClientValidationError');
+        expect(line).not.toContain(secret);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('logs a failed post notification without the message body', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      try {
+        const { service, notifications } = setup({
+          users: [{ id: 2, username: 'bob' }],
+          workspaceMembers: [2],
+          channelMembers: [2],
+        });
+        const secret = 'the private plan nobody should read in a log';
+        notifications.createChatMention.mockRejectedValue(
+          Object.assign(
+            new Error(`Invalid createMany({ preview: "${secret}" })`),
+            {
+              name: 'PrismaClientValidationError',
+            },
+          ),
+        );
+        await service.post(AUTHOR, 'c1', { body: `${secret} @[bob](2)` });
+        const lines = warn.mock.calls.map((c) => String(c[0]));
+        expect(
+          lines.some((l) => l.includes('PrismaClientValidationError')),
+        ).toBe(true);
+        expect(lines.some((l) => l.includes(secret))).toBe(false);
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('keeps the edit when the bell sync fails', async () => {
