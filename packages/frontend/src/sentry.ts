@@ -98,8 +98,64 @@ function initClient(origin: string, dsn: string): void {
   });
 }
 
-/** An absolute URL, or a root-relative path, embedded in free text. */
-const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\]]+|(?<![\w:/])\/[^\s"'<>\]]+/gi;
+/**
+ * An absolute URL, or a root-relative path, embedded in free text.
+ *
+ * The second alternative captures the character BEFORE the path and the
+ * replacer puts it back, rather than using the obvious `(?<![\w:/])`
+ * lookbehind. That is not style: `vite.config.ts` pins no `build.target`, so
+ * Vite's default `baseline-widely-available` target includes Safari 16.0,
+ * lookbehind only landed in Safari 16.4, and esbuild cannot transform regexp
+ * syntax — the literal would ship verbatim. A regex literal that does not
+ * parse is a SyntaxError at MODULE level, and `main.tsx` imports this file
+ * before it renders anything, so the cost would be a blank app on those
+ * browsers rather than a missing redaction.
+ */
+const URL_IN_TEXT =
+  /[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\]]+|(^|[^\w:/])(\/[^\s"'<>\]]+)/gi;
+
+/**
+ * Redacts every URL-shaped run inside a string that is not itself a URL —
+ * a serialized DOM element, a span description like `GET /api/v1/x?token=y`.
+ */
+function redactUrlsInText(text: string): string {
+  return text.replace(
+    URL_IN_TEXT,
+    (match: string, before: string | undefined, path: string | undefined) =>
+      // Only the root-relative alternative captures; the absolute-URL one
+      // leaves both groups undefined and is redacted whole.
+      path === undefined
+        ? redactCapabilityTokens(match)
+        : `${before ?? ""}${redactCapabilityTokens(path)}`,
+  );
+}
+
+/**
+ * Span attributes that hold a whole URL or a path. `browserTracingIntegration`
+ * sets `http.url` on every `http.client` span and the `url.*` set on the
+ * pageload span, and this app deliberately puts the raw share token in a query
+ * string — `?token=` on share-scoped image and file requests — so these carry
+ * the credential on an ordinary sampled transaction.
+ */
+const URL_SPAN_ATTRIBUTES = [
+  "http.url",
+  "url.full",
+  "url.path",
+  "http.fragment",
+  "url.fragment",
+];
+
+/** The same, for attributes holding a bare `?a=b` query string. */
+const QUERY_SPAN_ATTRIBUTES = ["http.query", "url.query"];
+
+/**
+ * Redacts a bare query string (`?token=x`). `redactCapabilityTokens` parses
+ * URLs, so hang it off a root path and take the path back off again.
+ */
+function redactQueryString(query: string): string {
+  if (!query.startsWith("?")) return redactUrlsInText(query);
+  return redactCapabilityTokens(`/${query}`).slice(1);
+}
 
 /**
  * Strips share/invite/template tokens out of every event before it is sent.
@@ -154,9 +210,29 @@ export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
     // `message`, attributes (aria-label, title, alt, name) included. It is
     // not a URL, so redact each URL-shaped run inside it.
     if (typeof crumb.message === "string") {
-      crumb.message = crumb.message.replace(URL_IN_TEXT, (match) =>
-        redactCapabilityTokens(match),
-      );
+      crumb.message = redactUrlsInText(crumb.message);
+    }
+  }
+
+  // The child spans of a transaction, and the half the transaction NAME does
+  // not cover. A share-scoped image (`?token=`) or file download becomes a
+  // `resource`/`http.client` span whose description IS the URL and whose
+  // attributes repeat it, and those ride out through `beforeSendTransaction`
+  // on every sampled transaction — the same leak as `event.transaction`, one
+  // field over.
+  for (const span of event.spans ?? []) {
+    if (typeof span.description === "string") {
+      span.description = redactUrlsInText(span.description);
+    }
+    const data = span.data;
+    if (!data) continue;
+    for (const key of URL_SPAN_ATTRIBUTES) {
+      const value = data[key];
+      if (typeof value === "string") data[key] = redactCapabilityTokens(value);
+    }
+    for (const key of QUERY_SPAN_ATTRIBUTES) {
+      const value = data[key];
+      if (typeof value === "string") data[key] = redactQueryString(value);
     }
   }
 

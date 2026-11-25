@@ -35,6 +35,18 @@
   breadcrumb serializes `aria-label`/`title`/`alt`/`name` into
   `crumb.message`, which the scrubber did not reach. Label the element
   generically and keep the URL in text content.
+- **A lookbehind is not a free regex feature in this frontend.**
+  `vite.config.ts` pins no `build.target`, so Vite's default
+  `baseline-widely-available` target includes Safari 16.0 while lookbehind
+  landed in 16.4 — and esbuild cannot transform regexp syntax, so the literal
+  ships verbatim and fails to parse. In a module `main.tsx` imports that is a
+  blank app, not a degraded feature. Capture the preceding character and put
+  it back instead.
+- **Redacting `event.transaction` is half a transaction.** The URL also rides
+  in each child span's `description` and its `http.url` / `url.full` /
+  `http.query` attributes, and share-scoped image and file requests put the
+  raw token in `?token=` — so a sampled transaction shipped it even with the
+  transaction name clean.
 
 ## Review rounds
 
@@ -47,3 +59,7 @@
   `VITE_FRONTEND_BASENAME`; tests now check the quiet zone and finder
   patterns and click the export actions. Also took the suggestions to defer
   `revokeObjectURL` and to catch a rejected PNG render.
+- Panel round 2 (2a2945a37): 3 blocking, 2 of them the same lookbehind.
+  Fix round: `URL_IN_TEXT` rewritten without a lookbehind, and
+  `scrubCapabilityTokens` extended to `event.spans[]` (description plus the
+  URL/query attributes).

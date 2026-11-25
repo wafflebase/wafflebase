@@ -159,7 +159,14 @@ surrounding card is.
 cannot be re-copied once it points at a 404. The URL is shown as text only,
 never in `aria-label` or `title`: Sentry's click breadcrumbs serialize those
 attributes, and `scrubCapabilityTokens` redacts URL-shaped runs in a
-breadcrumb `message` as the second line of defence.
+breadcrumb `message` as the second line of defence. The same hook also covers
+a transaction's child **spans** — a share-scoped image or file request carries
+the raw token as `?token=`, and each load becomes a span whose `description`
+and `http.url`/`url.*` attributes repeat the whole URL, which
+`event.transaction` alone does not reach. Its URL-in-free-text pattern
+deliberately avoids a lookbehind: Vite's default build target includes
+Safari 16.0, esbuild cannot transform regexp syntax, and a regex literal that
+does not parse would blank the app rather than merely lose the redaction.
 
 **Shared document route** (`/shared/:token`) — Placed outside `PrivateRoute` so
 anonymous users can access it. Resolves the token, sets up `YorkieProvider` and

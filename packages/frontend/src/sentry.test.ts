@@ -87,6 +87,70 @@ describe("scrubCapabilityTokens", () => {
     );
   });
 
+  it("redacts a path that starts the breadcrumb message", () => {
+    // The root-relative alternative is written with a captured preceding
+    // character instead of a lookbehind (Safari 16.0 is in Vite's default
+    // target), so the start-of-string case needs its own cover.
+    const event = {
+      breadcrumbs: [{ category: "ui.click", message: "/shared/aaa clicked" }],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      "/shared/__redacted__ clicked",
+    );
+  });
+
+  it("redacts child spans of a transaction", () => {
+    // Share-scoped images and file downloads put the raw token in `?token=`,
+    // and each load becomes a span whose description and attributes repeat the
+    // whole URL. `event.transaction` does not cover these.
+    const event = {
+      type: "transaction",
+      spans: [
+        {
+          op: "http.client",
+          description: "GET /api/v1/x?token=aaa",
+          data: {
+            "http.url": "https://wafflebase.io/images/y?token=aaa",
+            "http.query": "?token=aaa",
+            "http.response_status_code": 200,
+          },
+        },
+        {
+          op: "resource.img",
+          description: "https://wafflebase.io/shared/bbb/thumb.png",
+          data: { "url.full": "/shared/bbb/thumb.png", "url.query": "" },
+        },
+      ],
+    } as unknown as Event;
+
+    const scrubbed = scrubCapabilityTokens(event);
+    expect(scrubbed.spans?.[0].description).toBe(
+      "GET /api/v1/x?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.query"]).toBe("?token=__redacted__");
+    expect(scrubbed.spans?.[0].data["http.response_status_code"]).toBe(200);
+    expect(scrubbed.spans?.[1].description).toBe(
+      "https://wafflebase.io/shared/__redacted__/thumb.png",
+    );
+    expect(scrubbed.spans?.[1].data["url.full"]).toBe(
+      "/shared/__redacted__/thumb.png",
+    );
+    expect(scrubbed.spans?.[1].data["url.query"]).toBe("");
+  });
+
+  it("survives a span with no data or description", () => {
+    const event = {
+      type: "transaction",
+      spans: [{ op: "ui.render" }],
+    } as unknown as Event;
+
+    expect(() => scrubCapabilityTokens(event)).not.toThrow();
+  });
+
   it("scrubs a transaction event the same way", () => {
     // The gap that mattered most: `beforeSend` never sees these, and
     // `browserTracingIntegration` emits one per pageload and navigation.
