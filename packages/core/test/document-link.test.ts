@@ -107,6 +107,23 @@ describe('encodeAnchor / decodeAnchor', () => {
     });
   });
 
+  it("keeps a sheet anchor's selection kind, and decodes one without it", () => {
+    for (const kind of ['cell', 'row', 'column', 'all'] as const) {
+      expect(decodeAnchor(nodeAt({ ...sheet, kind }), 'sheet')).toEqual({
+        ...sheet,
+        kind,
+      });
+    }
+    // Older anchors carry no kind; they still decode, as a cell range.
+    expect(decodeAnchor(nodeAt(sheet), 'sheet')).not.toHaveProperty('kind');
+  });
+
+  it('rejects a sheet anchor with an unknown selection kind', () => {
+    expect(decodeAnchor(nodeAt({ ...sheet, kind: 'rows' }), 'sheet')).toBeNull();
+    expect(decodeAnchor(nodeAt({ ...sheet, kind: 1 }), 'sheet')).toBeNull();
+    expect(decodeAnchor(nodeAt({ ...sheet, kind: null }), 'sheet')).toBeNull();
+  });
+
   it('rejects garbage, the wrong shape, and values past the limits', () => {
     expect(decodeAnchor(null, 'sheet')).toBeNull();
     expect(decodeAnchor(undefined, 'sheet')).toBeNull();

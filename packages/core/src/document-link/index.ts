@@ -15,6 +15,13 @@
  * `TextEncoder`/`TextDecoder`, which browsers and Node both provide.
  */
 
+/**
+ * What a sheet anchor selected: a cell range, whole rows, whole columns, or
+ * the whole tab — the sheets engine's own `SelectionType` names.
+ */
+export const SHEET_ANCHOR_KINDS = ['cell', 'row', 'column', 'all'] as const;
+export type SheetAnchorKind = (typeof SHEET_ANCHOR_KINDS)[number];
+
 /** Where a sheet card points: its top-left cell by axis id, plus its spans. */
 export type SheetAnchor = {
   tabId: string;
@@ -22,6 +29,11 @@ export type SheetAnchor = {
   colId: string;
   rowSpan: number;
   colSpan: number;
+  /**
+   * What was selected, so whole rows come back as whole rows. Optional: an
+   * anchor without it is a cell range.
+   */
+  kind?: SheetAnchorKind;
   label?: string;
 };
 
@@ -137,6 +149,10 @@ function isId(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0 && v.length <= MAX_ANCHOR_ID;
 }
 
+function isSheetKind(v: unknown): v is SheetAnchorKind {
+  return (SHEET_ANCHOR_KINDS as readonly unknown[]).includes(v);
+}
+
 function isSpan(v: unknown): v is number {
   return (
     typeof v === 'number' &&
@@ -170,23 +186,28 @@ export function validateAnchor(
   const withLabel = <T extends object>(o: T): T & { label?: string } =>
     label === undefined ? o : { ...o, label };
   switch (type) {
-    case 'sheet':
+    case 'sheet': {
       if (
         !isId(a.tabId) ||
         !isId(a.rowId) ||
         !isId(a.colId) ||
         !isSpan(a.rowSpan) ||
-        !isSpan(a.colSpan)
+        !isSpan(a.colSpan) ||
+        (a.kind !== undefined && !isSheetKind(a.kind))
       ) {
         return null;
       }
-      return withLabel({
+      const cells = {
         tabId: a.tabId,
         rowId: a.rowId,
         colId: a.colId,
         rowSpan: a.rowSpan,
         colSpan: a.colSpan,
-      });
+      };
+      return withLabel(
+        a.kind === undefined ? cells : { ...cells, kind: a.kind },
+      );
+    }
     case 'doc': {
       if (!isId(a.blockId)) return null;
       const excerpt = optionalText(a.excerpt, MAX_ANCHOR_EXCERPT);

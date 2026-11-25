@@ -430,7 +430,7 @@ Anchors ride in the URL as `?at=<encoded anchor>` and are stored parsed:
 
 | Type | Anchor | Stable under concurrent edits via |
 | --- | --- | --- |
-| sheet | `{ tabId, rowId, colId, rowSpan, colSpan }` | axis IDs (as comment anchors and axis-ID selection) |
+| sheet | `{ tabId, rowId, colId, rowSpan, colSpan, kind? }` | axis IDs (as comment anchors and axis-ID selection); `kind` (`cell`/`row`/`column`/`all`, absent = cells) brings whole rows or columns back as such |
 | doc | `{ blockId, excerpt? }` | block ids; `excerpt` is a ≤200-char snapshot of the selected text shown on the card, not a live range |
 | slides | `{ slideId }` | slide ids |
 | others | none (document-level) | — |
