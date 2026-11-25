@@ -810,6 +810,31 @@ sections above:
   is lazy-loaded so editor chunks do not grow. On a phone it sits in the
   header `⋮` menu and opens as a bottom sheet; the file viewers keep their
   free-form header row.
+- **Send to chat opens the panel with a link.** The sheets cell menu, the
+  docs body menu and the slides canvas/element menus (and the mobile slides
+  long-press menu) build the document URL with `?at=` from the live
+  selection and call `useChatPanel().open({ draft })`: the link lands in the
+  panel's composer, appended to any draft, and the user picks the channel in
+  the panel and sends. There is no separate channel-picker dialog. A sheet
+  anchor is the top-left cell's axis ids plus spans, labelled like
+  `Sheet1!B3:C5`; a docs anchor is the selection's first block plus a
+  ≤200-char excerpt; a slides anchor is the slide, "Slide N". A selection
+  with nothing to anchor (cells past the written area, layout-edit mode)
+  sends a document-level link. The item is hidden where no panel exists
+  (share links, revision preview: `useChatPanelAvailable()`); read-only
+  editors keep it, since sending is not a write.
+- **`?at=` applies once the editor has loaded**, once per distinct value
+  (`use-anchor-param.ts`): the sheet resolves axis ids to current positions,
+  switches tab and selects the range; docs puts the caret at the block start
+  and scrolls to it without taking focus; slides selects the slide. An
+  anchor whose tab, row, column, block or slide is gone, or that does not
+  decode, does nothing.
+- **"Shared in"** is `GET …/chat/documents/:documentId/channels` →
+  `{ channels: [{ channelId, sharedAt }] }`, most recent first (≤20), only
+  channels the caller is a member of, not archived, from refs on live
+  messages to a live document in that workspace. The panel waits for it
+  before choosing, so a Send to chat draft is not seeded into a fallback
+  channel the panel then leaves.
 - **Chat page finish.** A loading channel shows a header skeleton and a
   disabled composer labelled "Message"; a thread load error has Retry; a
   coarse pointer gets a visible actions trigger on a tapped row, besides

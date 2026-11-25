@@ -40,52 +40,52 @@ its own branch; the branches are merged here.
 ## Wave 1 (parallel)
 
 ### A. Live reliability
-- [ ] Stream recovers after EventSource `CLOSED` (refresh auth, recreate with backoff; polling fallback while down)
-- [ ] `channel` stream event on rename / topic / archive / unarchive; peers' composer reflects archive
-- [ ] Non-member previewing a public channel receives `message`/`update` for it
-- [ ] `clientId` idempotent post; retry and reload-recovered pending sends reuse it
-- [ ] No Retry on 400/404/409 (show the reason); 429 says to slow down
+- [x] Stream recovers after EventSource `CLOSED` (refresh auth, recreate with backoff; polling fallback while down)
+- [x] `channel` stream event on rename / topic / archive / unarchive; peers' composer reflects archive
+- [x] Non-member previewing a public channel receives `message`/`update` for it
+- [x] `clientId` idempotent post; retry and reload-recovered pending sends reuse it
+- [x] No Retry on 400/404/409 (show the reason); 429 says to slow down
 
 ### B. Privacy and correctness
-- [ ] Edit refreshes or drops `chat_mention`/`chat_thread_reply` previews; mentions added by an edit notify
-- [ ] DM restore starts a returning member at the channel tail
-- [ ] Drafts keyed by user (like pending sends)
-- [ ] Leave / workspace removal delete the user's chat notification rows for channels they can no longer read
-- [ ] Mention of someone who cannot read the channel is flattened to text; autocomplete offers only readers in private channels/DMs
-- [ ] Composer length checked after mention expansion
-- [ ] Deleting a reply decrements the root's `replyCount`; replying to a deleted root refused
-- [ ] Mention count no longer matches plain `[x](id)` text
+- [x] Edit refreshes or drops `chat_mention`/`chat_thread_reply` previews; mentions added by an edit notify
+- [x] DM restore starts a returning member at the channel tail
+- [x] Drafts keyed by user (like pending sends)
+- [x] Leave / workspace removal delete the user's chat notification rows for channels they can no longer read
+- [x] Mention of someone who cannot read the channel is flattened to text; autocomplete offers only readers in private channels/DMs
+- [x] Composer length checked after mention expansion
+- [x] Deleting a reply decrements the root's `replyCount`; replying to a deleted root refused
+- [x] Mention count no longer matches plain `[x](id)` text
 
 ### C. UI finish
-- [ ] Loading state: header skeleton + disabled composer labelled "Message" until the channel resolves
-- [ ] Thread load error has Retry; archived channel thread shows the read-only line
-- [ ] Touch: visible message actions (not long-press only); Browse dialog buttons get coarse-pointer size
-- [ ] "Jump to… ⌘K" entry in the channel list + Mod+/ shortcut sheet
-- [ ] a11y: single Thread landmark, switcher `aria-controls` only when list exists, mention plural uses `mentionCount`
-- [ ] Heading hierarchy: date divider is not a heading; one `h1`
-- [ ] Thread load beyond 500 replies is not silently dropped
+- [x] Loading state: header skeleton + disabled composer labelled "Message" until the channel resolves
+- [x] Thread load error has Retry; archived channel thread shows the read-only line
+- [x] Touch: visible message actions (not long-press only); Browse dialog buttons get coarse-pointer size
+- [x] "Jump to… ⌘K" entry in the channel list + Mod+/ shortcut sheet
+- [x] a11y: single Thread landmark, switcher `aria-controls` only when list exists, mention plural uses `mentionCount`
+- [x] Heading hierarchy: date divider is not a heading; one `h1`
+- [x] Thread load beyond 500 replies is not silently dropped
 
 ### D. Document cards + Files
-- [ ] `ChatDocumentRef` model + migration; refs resolved on post/edit (live doc, same workspace)
-- [ ] Card rendering in messages (type icon hue, title, anchor label)
-- [ ] Files list in the channel header (`GET …/channels/:cid/files`)
+- [x] `ChatDocumentRef` model + migration; refs resolved on post/edit (live doc, same workspace)
+- [x] Card rendering in messages (type icon hue, title, anchor label)
+- [x] Files list in the channel header (`GET …/channels/:cid/files`)
 
 ### E. Editor chat panel
-- [ ] `useRightPanels` shared slot state, adopted by every document detail page
-- [ ] Chat panel (conversation + composer, channel switcher, "Open in Chat"), `?chat=` support
-- [ ] Mobile: Chat in the header overflow, opens as a bottom sheet
+- [x] `useRightPanels` shared slot state, adopted by every document detail page
+- [x] Chat panel (conversation + composer, channel switcher, "Open in Chat"), `?chat=` support
+- [x] Mobile: Chat in the header overflow, opens as a bottom sheet
 
 ## Wave 2
 
 ### F. Send to chat + anchors
-- [ ] "Send to chat" in sheets / docs / slides context menus → channel picker → posts a card with the anchor
-- [ ] Editors apply `?at=` once loaded
+- [x] "Send to chat" in sheets / docs / slides context menus → channel picker → posts a card with the anchor
+- [x] Editors apply `?at=` once loaded
 
 ## Integration
-- [ ] Merge stream branches, resolve conflicts
+- [x] Merge stream branches, resolve conflicts
 - [ ] `pnpm verify:fast`, `pnpm verify:self`
 - [ ] `/self-review` rounds
-- [ ] Update `docs/design/chat.md` (P2 as built), backend README
+- [x] Update `docs/design/chat.md` (P2 as built), backend README
 - [ ] PR with Before → After for mobile chat
 
 ## Review
