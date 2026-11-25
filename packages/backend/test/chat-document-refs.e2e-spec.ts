@@ -5,7 +5,7 @@ import * as cookieParser from 'cookie-parser';
 import * as request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { ChatMessageService } from 'src/chat/chat-message.service';
-import { frontendBase } from 'src/chat/chat-document-refs';
+import { frontendOrigin } from 'src/chat/chat-document-refs';
 import { PrismaService } from 'src/database/prisma.service';
 import { YorkieAdminService } from 'src/yorkie/yorkie-admin.service';
 import { YorkieService } from 'src/yorkie/yorkie.service';
@@ -69,7 +69,7 @@ describeDb('Chat document refs integration', () => {
   beforeAll(async () => {
     setIntegrationEnvDefaults();
     setAuthEnvDefaults();
-    base = frontendBase(process.env.FRONTEND_URL)!;
+    base = frontendOrigin(process.env.FRONTEND_URL)!;
 
     moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(YorkieService)
@@ -169,6 +169,52 @@ describeDb('Chat document refs integration', () => {
     const rows = await prisma.chatDocumentRef.findMany();
     expect(rows.map((r) => r.documentId)).toEqual([live.id]);
     expect(rows[0].channelId).toBe(general.id);
+  });
+
+  it('reads a link under a router basename', async () => {
+    const { owner, workspace, general, doc } = await setup();
+    const live = await doc('Plan', 'doc');
+    const res = await as(owner)
+      .post(messagesUrl(workspace.id, general.id))
+      .send({ body: `see ${base}/app/d/${live.id}` })
+      .expect(201);
+    expect(res.body.refs).toEqual([
+      { documentId: live.id, type: 'doc', title: 'Plan', anchor: null },
+    ]);
+  });
+
+  it('clears every ref when an edit leaves no link', async () => {
+    const { owner, workspace, general, doc } = await setup();
+    const a = await doc('A');
+    const b = await doc('B');
+    const posted = await as(owner)
+      .post(messagesUrl(workspace.id, general.id))
+      .send({ body: `/s/${a.id} /s/${b.id}` })
+      .expect(201);
+    expect(await prisma.chatDocumentRef.count()).toBe(2);
+    const edited = await as(owner)
+      .patch(`/workspaces/${workspace.id}/chat/messages/${posted.body.id}`)
+      .send({ body: 'no links any more' })
+      .expect(200);
+    expect(edited.body.refs).toEqual([]);
+    expect(await prisma.chatDocumentRef.count()).toBe(0);
+    const files = await as(owner)
+      .get(filesUrl(workspace.id, general.id))
+      .expect(200);
+    expect(files.body.files).toEqual([]);
+  });
+
+  it('pages from the start on a cursor outside the timestamp range', async () => {
+    const { owner, workspace, general, doc } = await setup();
+    const a = await doc('A');
+    await messages.post(owner.id, general.id, { body: `/s/${a.id}` });
+    const res = await as(owner)
+      .get(filesUrl(workspace.id, general.id))
+      .query({ before: `-271821-04-20_${a.id}` })
+      .expect(200);
+    expect(
+      res.body.files.map((f: { documentId: string }) => f.documentId),
+    ).toEqual([a.id]);
   });
 
   it('stores a null anchor for a garbage ?at=', async () => {
@@ -339,9 +385,11 @@ describeDb('Chat document refs integration', () => {
       mine.body.channels.map((c: { channelId: string }) => c.channelId),
     ).toEqual([design.id, secret.id, general.id]);
     expect(mine.body.channels[0].sharedAt).toBe(
-      (await prisma.chatDocumentRef.findFirstOrThrow({
-        where: { messageId: later.id },
-      })).createdAt.toISOString(),
+      (
+        await prisma.chatDocumentRef.findFirstOrThrow({
+          where: { messageId: later.id },
+        })
+      ).createdAt.toISOString(),
     );
 
     // Only channels the caller belongs to: not the private one, and not

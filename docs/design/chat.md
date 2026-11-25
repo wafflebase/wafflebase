@@ -791,7 +791,9 @@ sections above:
 - **`ChatDocumentRef` carries `channelId`** (no FK; the message cascade
   covers deletes) with an index on `(channelId, createdAt)`, so the Files
   list reads one index range. Links are accepted as root-relative paths or
-  absolute URLs on `FRONTEND_URL`'s origin and basename; at most 10 refs per
+  absolute URLs on `FRONTEND_URL`'s origin under any path prefix (the router
+  basename, which an origin-only `FRONTEND_URL` cannot carry since CORS
+  compares it with `Origin`); at most 10 refs per
   message. Title and type are read with the message, so a rename shows and a
   trashed or moved document drops out. A failed ref sync is logged, never a
   failed post. `GET …/channels/:cid/files` returns

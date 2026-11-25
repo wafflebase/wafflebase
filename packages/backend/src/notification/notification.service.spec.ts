@@ -648,6 +648,29 @@ describe('NotificationService', () => {
       });
     });
 
+    it('drops every mention row when the edit leaves no mention', async () => {
+      prisma.notification.findMany.mockResolvedValue([
+        { id: 'n-2', recipientId: 2 },
+      ]);
+
+      await service.syncChatMessage(edit({ recipients: [] }));
+
+      // No `notIn: []`: the filter is left out rather than trusted to
+      // match everything.
+      expect(prisma.notification.findMany).toHaveBeenCalledWith({
+        where: {
+          workspaceId: WORKSPACE,
+          threadId: 'ch-1',
+          commentId: 'msg-1',
+          type: 'chat_mention',
+        },
+        select: { id: true, recipientId: true },
+      });
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['n-2'] } },
+      });
+    });
+
     it('notifies people the edit mentions, keyed so existing rows stay', async () => {
       await service.syncChatMessage(edit({ recipients: [2, 3] }));
 
