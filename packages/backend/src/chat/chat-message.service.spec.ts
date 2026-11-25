@@ -206,12 +206,24 @@ describe('ChatMessageService', () => {
         },
       });
       await service.remove(AUTHOR, 'm1');
+      // The root is locked first, so the recount's own statement snapshot
+      // sees a reply a racing post committed while it held that lock.
+      const lock = tx.$queryRaw.mock.calls.find(([q]) =>
+        (q as TemplateStringsArray).join('?').includes('FOR UPDATE'),
+      ) as [TemplateStringsArray, ...unknown[]] | undefined;
+      expect(lock).toBeDefined();
+      expect(lock!.slice(1)).toEqual(['r1']);
       expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
       const [sql, ...values] = tx.$executeRaw.mock.calls[0] as [
         TemplateStringsArray,
         ...unknown[],
       ];
-      expect(sql.join('?')).toMatch(/"replyCount" = GREATEST/);
+      // A real recount of the replies still standing, not a decrement, so
+      // a count that ever drifted heals on the next delete.
+      const text = sql.join('?');
+      expect(text).not.toMatch(/GREATEST/);
+      expect(text).toMatch(/"replyCount" = \(\s*SELECT count\(\*\)/);
+      expect(text).toMatch(/"deletedAt" IS NULL/);
       expect(values).toEqual(['r1']);
     });
 

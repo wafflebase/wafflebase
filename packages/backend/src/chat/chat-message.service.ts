@@ -375,8 +375,8 @@ export class ChatMessageService {
    * the bell rows that quote it — a `chat_mention` or `chat_thread_reply`
    * carries a preview of the message in `commentId` — so the text is gone
    * from the database and not merely hidden. A deleted reply no longer
-   * counts on its root: `replyCount` drops by one and `lastReplyAt` falls
-   * back to the newest reply still standing.
+   * counts on its root: `replyCount` is recounted from the replies still
+   * standing and `lastReplyAt` falls back to the newest of them.
    */
   async remove(
     userId: number,
@@ -389,8 +389,8 @@ export class ChatMessageService {
       workspaceIdOrSlug,
     );
     await this.prisma.$transaction(async (tx) => {
-      // `deletedAt: null` under the write, so two racing deletes decrement
-      // the root once.
+      // `deletedAt: null` under the write, so of two racing deletes only
+      // one goes on to touch the root.
       const { count } = await tx.chatMessage.updateMany({
         where: { id: messageId, deletedAt: null },
         data: { body: '', deletedAt: new Date() },
@@ -404,9 +404,21 @@ export class ChatMessageService {
         },
       });
       if (message.threadRootId !== null) {
+        // Lock the root first, in its own statement: a racing reply holds
+        // this lock from its `replyCount` bump until it commits, and under
+        // READ COMMITTED only a statement started after the lock is granted
+        // sees that reply. A recount inside the locking UPDATE itself would
+        // read the older snapshot and miss it.
+        await tx.$queryRaw`
+          SELECT 1 FROM "ChatMessage"
+          WHERE id = ${message.threadRootId} FOR UPDATE`;
+        // A recount, not a decrement, so a count that ever drifted heals
+        // here rather than being carried forward.
         await tx.$executeRaw`
           UPDATE "ChatMessage" r
-          SET "replyCount" = GREATEST(r."replyCount" - 1, 0),
+          SET "replyCount" = (
+                SELECT count(*) FROM "ChatMessage" x
+                WHERE x."threadRootId" = r.id AND x."deletedAt" IS NULL),
               "lastReplyAt" = (
                 SELECT max(x."createdAt") FROM "ChatMessage" x
                 WHERE x."threadRootId" = r.id AND x."deletedAt" IS NULL)
