@@ -28,6 +28,10 @@ import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-p
 import { PreviewSurface } from "@/components/history/preview-surface";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
 import { BoardCollabProvider } from "./rituals/board-collab-context";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import {
   BoardCommentsPanel,
   BoardCommentsToggle,
@@ -72,7 +76,17 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const navigate = useNavigate();
   const doc = useBoardDocSelector((s) => s.doc);
 
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Comments, history and chat share the right-hand slot; see
+  // `useRightPanels`. Comments are drawn by `BoardCollabProvider`, which is
+  // handed its flag.
+  const {
+    commentsOpen,
+    setCommentsOpen,
+    historyOpen,
+    setHistoryOpen,
+    chatOpen,
+    setChatOpen,
+  } = useRightPanels(useIsMobile());
   // Header avatar click → follow that peer on the board.
   const [followBridge] = useState(createBoardFollowBridge);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
@@ -154,7 +168,9 @@ function BoardLayout({ documentId }: { documentId: string }) {
       documentId={documentId}
       workspaceId={documentData?.workspaceId}
       currentUser={currentUser}
+      panel={[commentsOpen, setCommentsOpen]}
     >
+    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -185,6 +201,8 @@ function BoardLayout({ documentId }: { documentId: string }) {
                 onPressedChange={setHistoryOpen}
               />
             ),
+            // Withheld during a preview, like comments.
+            chat: previewing ? null : <ChatPanelToggle />,
             share: <ShareDialog documentId={documentId} />,
             presence: (
               <UserPresence
@@ -234,9 +252,16 @@ function BoardLayout({ documentId }: { documentId: string }) {
             />
           )}
           {!previewing && <BoardCommentsPanel />}
+          {chatOpen && !previewing && documentData && (
+            <LazyChatPanel
+              workspaceId={documentData.workspaceId}
+              documentId={documentId}
+            />
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </ChatPanelProvider>
     </BoardCollabProvider>
   );
 }

@@ -58,13 +58,17 @@ vi.mock("@/api/download-file", () => ({
 }));
 
 // Chrome the layout mounts but this test is not about: the sidebar, the
-// notification bell (SSE), the share dialog, and the PDF collab stack (only
-// imported, never rendered for an image).
+// notification bell (SSE), the share dialog, the chat panel, and the PDF
+// collab stack (only imported, never rendered for an image).
 vi.mock("@/components/app-sidebar", () => ({ AppSidebar: () => null }));
 vi.mock("@/components/notifications/notification-bell", () => ({
   NotificationBell: () => null,
 }));
 vi.mock("@/components/share-dialog", () => ({ ShareDialog: () => null }));
+vi.mock("@/components/chat/chat-panel-slot", () => ({
+  ChatPanelToggle: () => null,
+  LazyChatPanel: () => null,
+}));
 vi.mock("@/app/files/pdf-collab", () => ({
   PdfCollabProvider: ({ children }: { children: React.ReactNode }) => children,
   PdfHeaderActions: () => null,

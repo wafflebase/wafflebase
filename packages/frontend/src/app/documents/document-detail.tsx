@@ -79,7 +79,9 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { useOnePanelOnMobile } from "@/components/side-panel-layout";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   EditingChrome,
@@ -152,7 +154,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(
     null,
   );
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  // Comments, history and chat share the right-hand slot; see
+  // `useRightPanels`.
+  const {
+    commentsOpen: commentsPanelOpen,
+    setCommentsOpen: setCommentsPanelOpen,
+    historyOpen,
+    setHistoryOpen,
+    chatOpen,
+    setChatOpen,
+  } = useRightPanels(useIsMobile());
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
   const [undoJumpTarget, setUndoJumpTarget] = useState<UndoJumpTarget | null>(null);
   const commentJumpSeq = useRef(0);
@@ -176,13 +187,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
-  const [historyOpen, setHistoryOpen] = useState(false);
-  // Both panels are bottom sheets on a phone; keep only the latest.
-  useOnePanelOnMobile(
-    useIsMobile(),
-    [commentsPanelOpen, setCommentsPanelOpen],
-    [historyOpen, setHistoryOpen],
-  );
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount the active tab's view, dropping its local
   // selection/caret state. `doc.clearHistory()` (below) separately drops the
@@ -732,6 +736,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
   return (
+    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -779,6 +784,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 pressed={historyOpen}
                 onPressedChange={setHistoryOpen}
               />
+            ),
+            // Withheld during a preview like comments: "Send to chat" reads
+            // the live selection the preview is covering.
+            chat: (
+              <EditingChrome previewing={previewing}>
+                <ChatPanelToggle />
+              </EditingChrome>
             ),
             share: <ShareDialog documentId={documentId} />,
             // Who is here is read-only, so the avatars stay. The *jump* is
@@ -916,6 +928,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               refreshKey={historyResetToken}
             />
           )}
+          {chatOpen && !previewing && documentData && (
+            <LazyChatPanel
+              workspaceId={documentData.workspaceId}
+              documentId={documentId}
+            />
+          )}
         </div>
       </SidebarInset>
 
@@ -973,6 +991,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         </ChunkBoundary>
       )}
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 

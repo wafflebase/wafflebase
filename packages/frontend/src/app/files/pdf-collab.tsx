@@ -95,12 +95,19 @@ export function PdfCollabStateProvider({
   readOnly,
   token,
   presenceUser,
+  panel,
   children,
 }: {
   documentId: string;
   readOnly: boolean;
   token?: string;
   presenceUser: PdfPresenceUser;
+  /**
+   * The comments panel's open flag, when the host keeps it — the `/f/:id`
+   * route does, in `useRightPanels`, so comments share the right-hand slot
+   * with chat. Kept here otherwise (a share-link viewer).
+   */
+  panel?: readonly [boolean, React.Dispatch<React.SetStateAction<boolean>>];
   children: ReactNode;
 }) {
   const { doc } = useDocument<YorkiePdfRoot, PdfPresence>();
@@ -111,7 +118,8 @@ export function PdfCollabStateProvider({
     store,
     documentId,
   );
-  const [panelOpen, setPanelOpen] = useState(false);
+  const localPanel = useState(false);
+  const [panelOpen, setPanelOpen] = panel ?? localPanel;
   const [creating, setCreating] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pending, setPending] = useState<PdfAnchor | null>(null);
@@ -184,12 +192,15 @@ export function PdfCollabProvider({
   readOnly,
   token,
   presenceUser,
+  panel,
   children,
 }: {
   documentId: string;
   readOnly: boolean;
   token?: string;
   presenceUser: PdfPresenceUser;
+  /** See `PdfCollabStateProvider`. */
+  panel?: readonly [boolean, React.Dispatch<React.SetStateAction<boolean>>];
   children: ReactNode;
 }) {
   const presence: PdfPresence = {
@@ -228,6 +239,7 @@ export function PdfCollabProvider({
         readOnly={readOnly}
         token={token}
         presenceUser={presenceUser}
+        panel={panel}
       >
         {children}
       </PdfCollabStateProvider>

@@ -25,7 +25,9 @@ import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { useOnePanelOnMobile } from "@/components/side-panel-layout";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   EditingChrome,
@@ -51,18 +53,20 @@ function DocsLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<EditorAPI | null>(null);
   const [editContext, setEditContext] = useState<EditContext>('body');
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
 
   const { doc } = useDocument<YorkieDocsRoot, DocsPresence>();
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
 
-  const [historyOpen, setHistoryOpen] = useState(false);
-  // Both panels are bottom sheets on a phone; keep only the latest.
-  useOnePanelOnMobile(
-    useIsMobile(),
-    [commentsPanelOpen, setCommentsPanelOpen],
-    [historyOpen, setHistoryOpen],
-  );
+  // Comments, history and chat share the right-hand slot; see
+  // `useRightPanels`.
+  const {
+    commentsOpen: commentsPanelOpen,
+    setCommentsOpen: setCommentsPanelOpen,
+    historyOpen,
+    setHistoryOpen,
+    chatOpen,
+    setChatOpen,
+  } = useRightPanels(useIsMobile());
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(
     null,
   );
@@ -181,6 +185,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const handleRenameDocument = useDocumentRename(documentId);
 
   return (
+    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -219,6 +224,13 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 pressed={historyOpen}
                 onPressedChange={setHistoryOpen}
               />
+            ),
+            // Withheld during a preview like comments: "Send to chat" reads
+            // the live selection the preview is covering.
+            chat: (
+              <EditingChrome previewing={previewing}>
+                <ChatPanelToggle />
+              </EditingChrome>
             ),
             export: (
               <DocsExportButton
@@ -302,10 +314,17 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 refreshKey={historyResetToken}
               />
             )}
+            {chatOpen && !previewing && documentData && (
+              <LazyChatPanel
+                workspaceId={documentData.workspaceId}
+                documentId={documentId}
+              />
+            )}
           </div>
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 
