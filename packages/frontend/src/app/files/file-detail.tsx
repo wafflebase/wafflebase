@@ -11,6 +11,9 @@ import { Loader } from "@/components/loader";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import type { User } from "@/types/users";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelToggle } from "@/components/chat/chat-panel-slot";
 import { FileShell } from "./file-shell";
 import { GenericFileView } from "./generic-file-view";
 import { ImageViewer } from "./image-viewer";
@@ -88,10 +91,13 @@ function PdfFileLayout({
   fileId?: string;
   currentUser: User;
 }) {
+  // The viewer's comments and the shell's chat share the right-hand slot.
+  const panels = useRightPanels(useIsMobile());
   return (
     <PdfCollabProvider
       documentId={documentId}
       readOnly={false}
+      panel={[panels.commentsOpen, panels.setCommentsOpen]}
       presenceUser={{
         userId: String(currentUser.id),
         username: currentUser.username,
@@ -101,9 +107,11 @@ function PdfFileLayout({
     >
       <FileShell
         documentId={documentId}
+        panels={panels}
         headerActions={
           <>
             <PdfHeaderActions />
+            <ChatPanelToggle />
             <DownloadFileButton
               documentId={documentId}
               title={title}
@@ -151,6 +159,7 @@ function ImageFileLayout({
       }
       headerActions={
         <>
+          <ChatPanelToggle />
           <DownloadFileButton
             documentId={documentId}
             title={title}
@@ -184,6 +193,7 @@ function GenericFileLayout({
       documentId={documentId}
       headerActions={
         <>
+          <ChatPanelToggle />
           <DownloadFileButton
             documentId={documentId}
             title={title}

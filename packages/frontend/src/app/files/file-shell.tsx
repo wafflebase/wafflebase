@@ -13,6 +13,10 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useRightPanels, type RightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useDocumentsPath } from "./use-documents-path";
 
 /**
@@ -20,19 +24,30 @@ import { useDocumentsPath } from "./use-documents-path";
  * sidebar, the editable title header, workspace nav, and the not-found
  * redirect. The Yorkie provider (if any) is supplied by the caller wrapping
  * this shell — image documents have none.
+ *
+ * It also hosts the chat panel, in the right-hand slot beside `children`;
+ * the caller puts `ChatPanelToggle` among its `headerActions`.
  */
 export function FileShell({
   documentId,
   headerActions,
   headerLeading,
+  panels: hostPanels,
   children,
 }: {
   documentId: string;
   headerActions: ReactNode;
   /** Optional header control rendered left of the title. */
   headerLeading?: ReactNode;
+  /**
+   * The right-hand slot's state, when the caller also draws a panel there
+   * (the PDF viewer's comments) and so has to share it. Kept here otherwise.
+   */
+  panels?: RightPanels;
   children: ReactNode;
 }) {
+  const ownPanels = useRightPanels(useIsMobile());
+  const { chatOpen, setChatOpen } = hostPanels ?? ownPanels;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -96,6 +111,7 @@ export function FileShell({
   );
 
   return (
+    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -113,10 +129,19 @@ export function FileShell({
         >
           <div className="flex items-center gap-2">{headerActions}</div>
         </SiteHeader>
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          {children}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col min-h-0 overflow-hidden">
+            {children}
+          </div>
+          {chatOpen && documentData && (
+            <LazyChatPanel
+              workspaceId={documentData.workspaceId}
+              documentId={documentId}
+            />
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
