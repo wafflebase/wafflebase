@@ -472,7 +472,6 @@ export default function ChatPage() {
                     <ChannelFilesButton
                       workspaceId={workspaceId}
                       channelId={channel.id}
-                      lastSeq={channel.lastSeq}
                     />
                   )}
                   {channel && channel.kind !== "dm" && (
