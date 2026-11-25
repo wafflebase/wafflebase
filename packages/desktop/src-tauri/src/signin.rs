@@ -365,6 +365,24 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
         }
         let state = app.state::<AppState>();
 
+        // The navigation hook already sends a plaintext remote backend to
+        // the system browser instead of here (`navigation::is_secure_origin`).
+        // Checked again at the one place that puts the verifier and the code
+        // on the wire, so no other caller — the debug smoke hook, a later
+        // entry point — can start a cleartext exchange.
+        if !crate::navigation::is_secure_origin(&backend) {
+            state.signin.fail(
+                generation,
+                format!(
+                    "{} is not a secure address: desktop sign-in needs https:// \
+                     (plain http:// works only for localhost). Ask its \
+                     administrator, or sign in from a web browser.",
+                    crate::server::origin_string(&backend)
+                ),
+            );
+            return;
+        }
+
         let checked = check_providers(&backend).await;
         dlog!(
             "providers checked: {}",

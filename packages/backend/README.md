@@ -97,6 +97,26 @@ COOKIE_SECURE=                          # Optional. Whether session and login
                                         # `NODE_ENV=production` with a
                                         # non-loopback `http://` callback URL
                                         # logs a warning for that reason.
+WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=      # Optional. The literal `false` —
+                                        # trimmed, case-insensitive — stops
+                                        # `POST /auth/desktop/session`
+                                        # accepting `http://tauri.localhost`,
+                                        # the origin the desktop app's webview
+                                        # has on Windows. Unlike
+                                        # `tauri://localhost`, that one is a
+                                        # name an ordinary browser can reach
+                                        # (Chrome and Firefox resolve
+                                        # `.localhost` to loopback, and
+                                        # `tauri.localhost` is also a real DNS
+                                        # name), so a local listener on port
+                                        # 80 — or a resolver that answers for
+                                        # it — can POST somebody else's login
+                                        # code with an `Origin` the allowlist
+                                        # trusts. Anything else, unset
+                                        # included, keeps it accepted, since
+                                        # dropping it costs the Windows app
+                                        # its in-webview sign-in. macOS and
+                                        # Linux are unaffected either way.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -490,7 +510,7 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 | `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
 | `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
 | `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google } }` — which sign-in buttons the login page should offer, and which the desktop app can run |
-| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost`, `http(s)://tauri.localhost` |
+| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |

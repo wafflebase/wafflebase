@@ -54,20 +54,58 @@ const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * The webview origins Tauri serves the desktop app's bundled pages from:
- * `tauri://localhost` on macOS and Linux, `http://tauri.localhost` on
- * Windows. `POST /auth/desktop/session` answers nothing else — see
- * `isDesktopOrigin`. `https://tauri.localhost` (Tauri's `useHttpsScheme`)
- * is left out because the app does not use it.
- *
- * These origins are not Wafflebase's alone: every Tauri app on the machine
- * serves its pages from them. The check stops web pages, not another
- * installed app, and the design doc lists that as an accepted risk.
+ * The webview origin Tauri serves the desktop app's bundled pages from on
+ * macOS and Linux. `https://tauri.localhost` (Tauri's `useHttpsScheme`) is
+ * not accepted in either direction, because the app does not use it.
  */
-export const DESKTOP_ORIGINS: ReadonlySet<string> = new Set([
-  'tauri://localhost',
-  'http://tauri.localhost',
-]);
+const DESKTOP_CUSTOM_ORIGIN = 'tauri://localhost';
+
+/**
+ * The same, on Windows — where the webview has no custom scheme and Tauri
+ * falls back to a plain `http://` origin.
+ *
+ * Unlike `tauri://localhost`, this one is a name an ordinary browser can
+ * reach: Chrome and Firefox resolve RFC 6761 `.localhost` to loopback, and
+ * `tauri.localhost` is also a real DNS name somebody else controls. So a
+ * process listening on the user's port 80, or a resolver that answers for
+ * the name, can serve a page whose `Origin` this allowlist trusts (login
+ * CSRF — `docs/design/desktop-app.md` § Risks). That is accepted so Windows
+ * can sign in, and `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false` is how a
+ * deployment with no Windows desktop users declines to accept it at all.
+ */
+const DESKTOP_WINDOWS_ORIGIN = 'http://tauri.localhost';
+
+/**
+ * Whether `http://tauri.localhost` is a trusted handoff origin on this
+ * deployment. The literal `false` — trimmed, case-insensitive, the same
+ * reading `YORKIE_AUTH_WEBHOOK_ENFORCE` gets — turns it off; anything else,
+ * unset included, leaves it on, so an existing install changes nothing.
+ *
+ * Turning it off costs the Windows app its in-webview sign-in (the handoff
+ * POST answers `403`); macOS and Linux keep theirs on `tauri://localhost`,
+ * which no browser can produce.
+ */
+function windowsDesktopOriginAllowed(): boolean {
+  return (
+    (process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN ?? '')
+      .trim()
+      .toLowerCase() !== 'false'
+  );
+}
+
+/**
+ * The origins `POST /auth/desktop/session` answers, in this deployment's
+ * configuration. These origins are not Wafflebase's alone: every Tauri app
+ * on the machine serves its pages from them. The check stops web pages, not
+ * another installed app, and the design doc lists that as an accepted risk.
+ */
+function desktopOrigins(): ReadonlySet<string> {
+  const origins = new Set([DESKTOP_CUSTOM_ORIGIN]);
+  if (windowsDesktopOriginAllowed()) {
+    origins.add(DESKTOP_WINDOWS_ORIGIN);
+  }
+  return origins;
+}
 
 /**
  * Whether a request's `Origin` is the desktop app's bundled handoff page.
@@ -83,7 +121,7 @@ export const DESKTOP_ORIGINS: ReadonlySet<string> = new Set([
  * (`a, b`) or as an array and matches nothing.
  */
 export function isDesktopOrigin(raw: unknown): boolean {
-  return typeof raw === 'string' && DESKTOP_ORIGINS.has(raw);
+  return typeof raw === 'string' && desktopOrigins().has(raw);
 }
 
 /**

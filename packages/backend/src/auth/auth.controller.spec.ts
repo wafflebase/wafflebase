@@ -1292,6 +1292,44 @@ describe('AuthController', () => {
       },
     );
 
+    it('refuses the Windows origin when the deployment opts out', async () => {
+      const previous = process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = 'false';
+      try {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await expect(
+          controller.desktopSession(
+            sessionRequest(
+              { origin: 'http://tauri.localhost' },
+              { code, verifier: CLI_VERIFIER },
+            ),
+            res,
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(res.cookie).not.toHaveBeenCalled();
+
+        // The custom-scheme origin still works: the switch is about the one
+        // origin a browser can reach.
+        const ok = createMockResponse();
+        await controller.desktopSession(
+          sessionRequest(
+            { origin: 'tauri://localhost' },
+            { code, verifier: CLI_VERIFIER },
+          ),
+          ok,
+        );
+        expect(ok.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      } finally {
+        if (previous === undefined) {
+          delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+        } else {
+          process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = previous;
+        }
+      }
+    });
+
     it('checks the Origin before the body, so a bad body is still a 403', async () => {
       await expect(
         controller.desktopSession(
@@ -1441,6 +1479,16 @@ describe('AuthController', () => {
 });
 
 describe('isDesktopOrigin', () => {
+  const windowsOrigin = process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+
+  afterEach(() => {
+    if (windowsOrigin === undefined) {
+      delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+    } else {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = windowsOrigin;
+    }
+  });
+
   it('accepts exactly the two Tauri webview origins the app uses', () => {
     expect(isDesktopOrigin('tauri://localhost')).toBe(true);
     expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
@@ -1448,6 +1496,24 @@ describe('isDesktopOrigin', () => {
     expect(isDesktopOrigin('null')).toBe(false);
     expect(isDesktopOrigin(undefined)).toBe(false);
     expect(isDesktopOrigin('https://tauri.localhost.example')).toBe(false);
+  });
+
+  it('drops the browser-reachable origin when the deployment opts out', () => {
+    for (const value of ['false', 'FALSE', '  False  ']) {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = value;
+      expect(isDesktopOrigin('http://tauri.localhost')).toBe(false);
+      // The custom scheme no browser can produce is never the one dropped.
+      expect(isDesktopOrigin('tauri://localhost')).toBe(true);
+    }
+  });
+
+  it('keeps the Windows origin for every other value of the switch', () => {
+    for (const value of ['', 'true', 'no', 'off', '0']) {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = value;
+      expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
+    }
+    delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+    expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
   });
 });
 

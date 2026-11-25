@@ -314,7 +314,9 @@ imports the full module set listed below.
   code, wrong or malformed verifier — is `303` to
   `FRONTEND_URL/login?error=desktop_session`. Rate-limited to 10 req/60s/IP.
 - `403` unless `Origin` is exactly `tauri://localhost` or
-  `http://tauri.localhost`, checked before the
+  `http://tauri.localhost` (the latter dropped when
+  `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`, since it is the only one of the
+  two a browser can reach), checked before the
   body is read or the code touched; missing and `null` are refused. Unlike
   `cli/exchange`, this endpoint signs in *the browser that sent it*, so from
   any other origin it would be login CSRF ([desktop-app.md](desktop-app.md)

@@ -87,6 +87,25 @@ pub fn is_web_github_sign_in(url: &Url) -> bool {
         && !url.query_pairs().any(|(key, _)| key == "mode")
 }
 
+/// Whether a URL's origin can carry the sign-in's secrets: `https://`, or
+/// `http://` on a loopback literal (`localhost`, `127.0.0.1`, `[::1]`).
+///
+/// The server picker applies this rule to the *frontend* origin
+/// (`server::parse_server_origin`), but the backend origin is a different
+/// one: it comes out of the login page's own sign-in link, which a
+/// deployment points wherever `VITE_BACKEND_API_URL` says. A desktop
+/// sign-in sends the PKCE verifier and the one-time code to that origin, so
+/// a plaintext remote one would hand both to anyone on the path, and the
+/// `Origin` check that guards the handoff POST is worth nothing against an
+/// attacker who can rewrite the response.
+pub fn is_secure_origin(url: &Url) -> bool {
+    match url.scheme() {
+        "https" => true,
+        "http" => crate::server::is_loopback_host(url.host()),
+        _ => false,
+    }
+}
+
 /// Whether `url` is the frontend's login route, the only page whose sign-in
 /// link the shell takes over.
 fn is_frontend_login(url: &Url, frontend: &Url) -> bool {
@@ -142,7 +161,11 @@ pub fn decide(url: &Url, request: Request, ctx: Context<'_>) -> Decision {
     if is_web_github_sign_in(url) {
         let from_login = request == Request::Navigate
             && matches!((ctx.current, ctx.frontend), (Some(c), Some(f)) if is_frontend_login(c, f));
-        if from_login {
+        // A plaintext remote backend is handed to the system browser like any
+        // other sign-in link instead: the shell will not run a PKCE exchange
+        // over cleartext (`is_secure_origin`), and a browser at least shows
+        // the user the address it is signing in against.
+        if from_login && is_secure_origin(url) {
             let backend = Url::parse(&url.origin().ascii_serialization())
                 .expect("an http(s) origin serializes to a valid URL");
             let return_to = url
@@ -453,6 +476,51 @@ mod tests {
                 return_to: Some("/w/1".into()),
             }
         );
+    }
+
+    #[test]
+    fn plaintext_backends_never_run_sign_in_in_the_app() {
+        let login = "https://app.example.com/login";
+        // http on anything but a loopback literal would send the PKCE
+        // verifier and the one-time code in the clear.
+        assert_eq!(
+            nav_from("http://api.example.com/auth/github", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("http://localhost.evil.example/auth/github", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("http://192.168.0.10:3000/auth/github", login),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            nav_from("http://127.0.0.2:3000/auth/github", login),
+            Decision::OpenExternal
+        );
+        // A loopback backend is the developer's own machine.
+        assert_eq!(
+            nav_from("http://127.0.0.1:3000/auth/github", login),
+            sign_in("http://127.0.0.1:3000")
+        );
+        assert_eq!(
+            nav_from("http://[::1]:3000/auth/github", login),
+            sign_in("http://[::1]:3000")
+        );
+    }
+
+    #[test]
+    fn secure_origin_is_https_or_loopback_http() {
+        assert!(is_secure_origin(&u("https://api.example.com")));
+        assert!(is_secure_origin(&u("https://api.example.com:8443/x")));
+        assert!(is_secure_origin(&u("http://localhost:3000")));
+        assert!(is_secure_origin(&u("http://127.0.0.1")));
+        assert!(is_secure_origin(&u("http://[::1]:3000")));
+        assert!(!is_secure_origin(&u("http://api.example.com")));
+        assert!(!is_secure_origin(&u("http://localhost.evil.example")));
+        assert!(!is_secure_origin(&u("http://127.0.0.2")));
+        assert!(!is_secure_origin(&u("tauri://localhost")));
     }
 
     #[test]

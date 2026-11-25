@@ -125,6 +125,13 @@ open one). If the backend's redirect leaves the chosen server (its
   accepted: a foreign link clicked just as the window itself moves to
   `/login` is taken over. The link cannot be required to be on the frontend
   origin, because the backend may have its own (`VITE_BACKEND_API_URL`).
+- **The backend origin has to be secure.** A sign-in sends the PKCE verifier
+  and the one-time code to the login link's origin, which the server picker
+  never saw (it validates the frontend URL). So `is_secure_origin` requires
+  `https://`, or `http://` on a loopback literal, the same rule the picker
+  applies: a plaintext remote backend's sign-in link goes to the system
+  browser instead, and `signin::start` refuses it again before the listener
+  opens, so no other caller can start a cleartext exchange.
 - **The handoff POST is one-shot.** The only other origin a window may load is
   `<backend>/auth/desktop/session`, once, in the window running the sign-in.
   If that window then finishes loading anything that is neither the frontend

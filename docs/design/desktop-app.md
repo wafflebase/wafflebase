@@ -184,11 +184,25 @@ uses only under `useHttpsScheme`, is not accepted because the app does not
 set it. `null` is not accepted, since a sandboxed iframe on any site can
 send it. These origins stop web pages, not other Tauri apps (see Risks).
 
+Of the two, only `http://tauri.localhost` is a name a browser can reach, so
+`WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false` drops it from the allowlist on a
+deployment with no Windows desktop users. That costs the Windows app its
+in-webview sign-in and nothing else; the default keeps it accepted, since
+most deployments would rather have Windows sign-in than close a hole that
+needs a hostile local listener (see Risks).
+
 The loopback listener's rules (127.0.0.1 only, single-use `/launch/<token>`,
 nonce compared in constant time, `Host` check, `GET` only, five-minute
 timeout) are those of [cli.md](cli.md) §3.1 and get no separate design here.
 A server on plain `http://` that is not loopback cannot offer desktop sign-in,
-for the same reason it cannot offer CLI sign-in.
+for the same reason it cannot offer CLI sign-in. The shell enforces that on
+the **backend** origin itself, not only on the frontend the picker validates:
+the login link's origin is a separate address (`VITE_BACKEND_API_URL`), and
+the sign-in puts the PKCE verifier and the one-time code on it. So
+`navigation::is_secure_origin` requires `https://`, or `http://` on a
+loopback literal, both in the navigation hook — where a plaintext remote
+backend's sign-in link goes to the system browser like any other foreign
+one — and again in `signin::start`, the one place that opens the listener.
 
 Sign-out and token refresh need no change: they are the frontend's existing
 `POST /auth/logout` and `POST /auth/refresh` calls, made from the webview with
@@ -304,10 +318,10 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
 | Signing certificates and their cost | Secrets scoped to tag-triggered jobs; Phase 1 builds are unsigned and internal |
-| Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the URL |
+| Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the frontend URL, and `navigation::is_secure_origin` applies the same rule to the backend origin the login link names, so no exchange runs over cleartext |
 | The window's URL is read after a `/auth/github` navigation is cancelled (client-side routing to `/login` fires no event), so a foreign sign-in link clicked just as the window itself moves to `/login` is taken over against the foreign origin | Accepted. The race needs the click and an app-driven route change within one main-thread turn. The foreign backend then holds that attempt's nonce, so it can cancel a real sign-in in progress or finish the attempt against itself, but its OAuth page opens in the system browser with an address bar, and its session POST sets no cookie on the chosen server. Requiring the link to be on the frontend origin is not an option: the backend may have its own (`VITE_BACKEND_API_URL`). Pinning the backend origin after the first sign-in is the follow-up if this needs closing |
 | Every Tauri app on the machine serves its bundled pages from the same origins (`tauri://localhost`, `http://tauri.localhost`), so another installed Tauri app, or one that renders untrusted HTML in its bundled origin, can POST an attacker's code with an allowed `Origin` (login CSRF) | Accepted. It needs a hostile or vulnerable app already on the machine. Tauri offers no per-app origin to check instead; binding the code to the app would need a secret the app holds and a page cannot read, which is a larger change than this risk warrants today |
-| `http://tauri.localhost` is reachable from an ordinary browser: Chrome and Firefox resolve `*.localhost` to loopback, so a process already listening on the user's port 80 or 443 could serve a page with an allowed `Origin` and replay an attacker's code (login CSRF) | Accepted. It needs a hostile local listener, and no remote site can produce these origins |
+| `http://tauri.localhost` is reachable from an ordinary browser in more than one way: Chrome and Firefox resolve RFC 6761 `*.localhost` to loopback, so a process already listening on the user's port 80 could serve a page with an allowed `Origin`; and `tauri.localhost` is also a real DNS name, so a browser that does not special-case `.localhost`, or a resolver that answers for it, can be pointed at a remote page that produces the origin | Accepted by default, because dropping it costs Windows users their sign-in. `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false` is the per-deployment opt-out; macOS and Linux keep theirs on `tauri://localhost`, which no browser can produce at all. The residual risk is a login CSRF, bounded by the code's 5-minute single-use lifetime |
 | A `mode=cli` or `mode=desktop` start that another site navigated the browser into is answered with the confirmation page, not refused. `CliLoginConfirmMiddleware` runs before the guard's `Sec-Fetch-Site` check, which therefore only ever sees the same-origin Continue click. This is inherited from the CLI flow | The confirmation click remains the gate. Enforcing the check in the middleware is a follow-up: first confirm what `Sec-Fetch-Site` browsers report after the loopback `/launch` redirect, so the fix does not refuse genuine sign-ins |
 
 ## Alternatives Considered

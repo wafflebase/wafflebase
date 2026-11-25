@@ -23,9 +23,11 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 - Shell loads its bundled handoff page, which top-level POSTs
   `application/x-www-form-urlencoded` `code`, `verifier` to
   `<backend>/auth/desktop/session`.
-- Backend: `403` unless `Origin` is `tauri://localhost`,
-  `http://tauri.localhost` or `https://tauri.localhost` (checked before the
-  code is consumed); bad code → `303 FRONTEND_URL/login?error=desktop_session`;
+- Backend: `403` unless `Origin` is `tauri://localhost` or
+  `http://tauri.localhost`, the two origins the app is served from (checked
+  before the code is consumed; `https://tauri.localhost` is Tauri's
+  `useHttpsScheme`, which this app does not set, so it is refused);
+  bad code → `303 FRONTEND_URL/login?error=desktop_session`;
   success → `setAuthCookies` + `303 FRONTEND_URL`.
 
 ## Backend (`packages/backend/src/auth/**`, owner: backend agent)
@@ -49,6 +51,11 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 - [x] Handoff page; `blob:` downloads saved to disk
 - [x] Menus (app + Edit), window-state, single-instance, opener
 - [x] `cargo test` and `tauri build --debug` green on macOS
+- [ ] A CI job that runs the crate's `cargo test`. `verify:self`'s
+      `desktop:check` lane reaches only what Node can see: the Ubuntu runner
+      has no WebKit/GTK development libraries, so the crate cannot compile
+      there, and the Rust suite is run by hand on macOS until a platform job
+      in `.github/workflows/ci.yml` takes it over
 
 Verified unattended on macOS: picker and IPC on bundled pages, remote origin
 refused every command, full sign-in against fake servers (smoke hooks in the
