@@ -1749,6 +1749,54 @@ describeDb('Chat integration', () => {
       expect(await rowsFor(peer.id, 'chat_mention')).toHaveLength(0);
     });
 
+    it('workspace removal takes their comment previews there too', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const elsewhere = await createWorkspace(prisma, peer.id);
+      const doc = await prisma.document.create({
+        data: { title: 'd', workspaceId: workspace.id, authorID: owner.id },
+      });
+      const other = await prisma.document.create({
+        data: { title: 'o', workspaceId: elsewhere.id, authorID: peer.id },
+      });
+      const row = (
+        workspaceId: string,
+        documentId: string,
+        type: string,
+        key: string,
+      ) => ({
+        recipientId: peer.id,
+        actorId: owner.id,
+        workspaceId,
+        documentId,
+        type,
+        threadId: 't',
+        commentId: key,
+        dedupeKey: key,
+        preview: 'quoted comment text',
+      });
+      await prisma.notification.createMany({
+        data: [
+          row(workspace.id, doc.id, 'comment_mention', 'm1'),
+          row(workspace.id, doc.id, 'comment_reply', 'r1'),
+          row(workspace.id, doc.id, 'thread_resolved', 't:resolved'),
+          row(elsewhere.id, other.id, 'comment_mention', 'm2'),
+        ],
+      });
+
+      await workspaces.removeMember(workspace.id, owner.id, peer.id);
+
+      // Every preview quoting the workspace they left is gone; their own
+      // workspace's is untouched.
+      const left = await prisma.notification.findMany({
+        where: { recipientId: peer.id },
+        select: { workspaceId: true, type: true },
+      });
+      expect(left).toEqual([
+        { workspaceId: elsewhere.id, type: 'comment_mention' },
+      ]);
+    });
+
     it('a group-DM mention notifies; a DM without one does not', async () => {
       const { owner, members, workspace } = await team(2);
       const [a, b] = members;

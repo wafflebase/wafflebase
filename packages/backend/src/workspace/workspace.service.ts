@@ -16,6 +16,19 @@ import { NotificationService } from '../notification/notification.service';
 import { stopQueuedDeliveries } from '../webhook/webhook-disable';
 import { WebhookEventService } from '../webhook/webhook-event.service';
 
+/**
+ * Notification types whose preview quotes workspace content — a chat
+ * message or a document comment — and so must not outlive the recipient's
+ * membership of that workspace (`removeMember`).
+ */
+export const WORKSPACE_CONTENT_NOTIFICATION_TYPES = [
+  'chat_mention',
+  'chat_thread_reply',
+  'comment_mention',
+  'comment_reply',
+  'thread_resolved',
+] as const;
+
 @Injectable()
 export class WorkspaceService {
   private readonly logger = new Logger(WorkspaceService.name);
@@ -186,13 +199,15 @@ export class WorkspaceService {
         await tx.chatChannelMember.deleteMany({
           where: { userId: targetUserId, channelId: { in: channelIds } },
         });
-        // Their chat bell rows here go too: every one quotes a channel of a
-        // workspace they can no longer read, public channels included.
+        // Their bell rows that quote this workspace go too: a chat row
+        // quotes a channel (public ones included) and a comment row quotes a
+        // document's comment thread, and they can read neither now. Rows
+        // without content (a join, their own template decisions) stay.
         await tx.notification.deleteMany({
           where: {
             recipientId: targetUserId,
             workspaceId,
-            type: { in: ['chat_mention', 'chat_thread_reply'] },
+            type: { in: [...WORKSPACE_CONTENT_NOTIFICATION_TYPES] },
           },
         });
         // A private channel this removal empties is deleted with it. Only

@@ -422,7 +422,7 @@ describe('WorkspaceService', () => {
       expect(payloads).toEqual([[CHAT_NOTIFY_CHANNEL, memPayload('pub')]]);
     });
 
-    it("drops the removed member's chat bell rows for the workspace", async () => {
+    it("drops the removed member's chat and comment bell rows there", async () => {
       prisma.workspaceMember.findUnique
         .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
         .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
@@ -430,12 +430,21 @@ describe('WorkspaceService', () => {
 
       await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
 
-      // Public channels included: none of the workspace is readable now.
+      // Public channels and document comments included: none of the
+      // workspace is readable now.
       expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
         where: {
           recipientId: 2,
           workspaceId: '11111111-1111-1111-1111-111111111111',
-          type: { in: ['chat_mention', 'chat_thread_reply'] },
+          type: {
+            in: [
+              'chat_mention',
+              'chat_thread_reply',
+              'comment_mention',
+              'comment_reply',
+              'thread_resolved',
+            ],
+          },
         },
       });
     });
