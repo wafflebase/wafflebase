@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationModule } from '../notification/notification.module';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
+import { ChatDocumentRefService } from './chat-document-refs';
 import { ChatController } from './chat.controller';
 import { ChatHub } from './chat-hub';
 import { ChatMessageService } from './chat-message.service';
@@ -22,6 +23,7 @@ import { ChatStreamController } from './chat-stream.controller';
     ChatBus,
     ChatHub,
     ChatChannelService,
+    ChatDocumentRefService,
     ChatMessageService,
     PrismaService,
   ],

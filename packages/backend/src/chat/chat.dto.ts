@@ -137,3 +137,18 @@ export class MarkReadDto {
   @Max(Number.MAX_SAFE_INTEGER)
   seq!: number;
 }
+
+/** `GET …/channels/:cid/files`. `before` is the previous page's `cursor`. */
+export class ListFilesQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  before?: string;
+}
