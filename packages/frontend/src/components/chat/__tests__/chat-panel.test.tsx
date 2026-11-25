@@ -13,24 +13,37 @@ vi.mock("@/api/chat", () => ({
   fetchChannels: vi.fn(),
   fetchDocumentSharedIn: vi.fn(),
 }));
-vi.mock("../conversation", () => ({
-  Conversation: ({
+let conversationMounts = 0;
+vi.mock("../conversation", async () => {
+  const { useState } = await import("react");
+  return { Conversation: MockConversation };
+  function MockConversation({
     channelId,
     placeholder,
     onOpenThread,
+    draftSeed,
   }: {
     channelId: string;
     placeholder: string;
     onOpenThread: (rootId: string) => void;
-  }) => (
-    <div data-testid="conversation" data-channel={channelId}>
+    draftSeed?: number;
+  }) {
+    const [mount] = useState(() => ++conversationMounts);
+    return (
+    <div
+      data-testid="conversation"
+      data-channel={channelId}
+      data-mount={mount}
+      data-draft-seed={draftSeed}
+    >
       <span data-testid="placeholder">{placeholder}</span>
       <button type="button" onClick={() => onOpenThread("root-1")}>
         Open thread
       </button>
     </div>
-  ),
-}));
+    );
+  }
+});
 vi.mock("../thread-view", () => ({
   ThreadView: ({ rootId }: { rootId: string }) => (
     <div data-testid="thread" data-root={rootId} />
@@ -108,6 +121,21 @@ describe("ChatPanel", () => {
       ),
     );
     expect(screen.getByRole("button", { name: /Channel: planning/ })).toBeTruthy();
+  });
+
+  it("hands a new draft to the shown conversation without remounting it", async () => {
+    renderPanel();
+    const conversation = await screen.findByTestId("conversation");
+    const mount = conversation.dataset.mount;
+    act(() => api.open({ draft: "See /s/doc-1" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation").dataset.draftSeed).toBe("1"),
+    );
+    act(() => api.open({ draft: "See /s/doc-1 again" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation").dataset.draftSeed).toBe("2"),
+    );
+    expect(screen.getByTestId("conversation").dataset.mount).toBe(mount);
   });
 
   it("follows ?chat= over the last opened channel", async () => {
