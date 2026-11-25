@@ -75,3 +75,14 @@
   added, `redactQueryString` now accepts a query with no leading `?`, and the
   span attribute pass extended to `contexts.trace.data`, `event.message` and
   `event.exception.values[].value`.
+- Panel round 5 (0441d974e): 3 blocking; the loop had spent its 3 fix
+  dispatches, so a maintainer took it. Two test-adequacy findings fixed:
+  `qrModulesPath` / the SVG export are now compared cell-for-cell with the
+  matrix (a transposed path was confirmed to fail them), and the Download PNG
+  and Copy image success paths are covered with the canvas stub. The third —
+  console breadcrumbs' `data.arguments` — is a pre-existing scrubber gap
+  unrelated to the QR code, moved to a follow-up issue rather than growing
+  this PR further.
+- **A test that compares an export with the function that produced it is
+  tautological.** Assert the output against the source of truth (the
+  matrix), not against a second call of the same code.

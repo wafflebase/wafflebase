@@ -14,6 +14,7 @@ import {
   encodeQr,
   qrCodePngBlob,
   qrCodeSvgDocument,
+  qrModulesPath,
   QR_EXPORT_SIZE,
   type QrMatrix,
 } from "@/lib/qr-code";
@@ -46,6 +47,59 @@ function readText(blob: Blob): Promise<string> {
     reader.readAsText(blob);
   });
 }
+
+type Rect = { x: number; y: number; w: number; h: number; fill: string };
+
+/**
+ * jsdom has no canvas, so the 2d context is stood in for and every
+ * `fillRect` recorded: the module arithmetic is the whole of what this
+ * export does, and nothing else can observe it.
+ */
+function stubCanvas(): Rect[] {
+  const rects: Rect[] = [];
+  const ctx = {
+    fillStyle: "",
+    fillRect: (x: number, y: number, w: number, h: number) =>
+      rects.push({ x, y, w, h, fill: ctx.fillStyle }),
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    ctx as unknown as CanvasRenderingContext2D,
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+    (callback) => callback(new Blob(["png"], { type: "image/png" })),
+  );
+  return rects;
+}
+
+/** The cells a `qrModulesPath` path paints, as "x,y". */
+function pathCells(d: string): Set<string> {
+  const cells = new Set<string>();
+  for (const m of d.matchAll(/M(\d+) (\d+)h1v1h-1z/g)) cells.add(`${m[1]},${m[2]}`);
+  return cells;
+}
+
+/** The matrix's dark cells, as "x,y". */
+function darkCells(m: QrMatrix): Set<string> {
+  const cells = new Set<string>();
+  m.rows.forEach((row, y) =>
+    row.forEach((on, x) => {
+      if (on) cells.add(`${x},${y}`);
+    }),
+  );
+  return cells;
+}
+
+describe("qrModulesPath", () => {
+  it("paints exactly the dark modules, one square each, x before y", () => {
+    const m = encodeQr(URL_VALUE);
+    const d = qrModulesPath(m);
+    // Nothing but module squares: a stray command would be unaccounted for.
+    expect(d.replace(/M\d+ \d+h1v1h-1z/g, "")).toBe("");
+    // Not symmetric under transpose, so a swapped x/y fails here.
+    expect(pathCells(d)).toEqual(darkCells(m));
+    expect(d.match(/M/g)).toHaveLength(darkCells(m).size);
+  });
+});
 
 describe("encodeQr", () => {
   const m = encodeQr(URL_VALUE);
@@ -109,33 +163,18 @@ describe("qrCodeSvgDocument", () => {
     expect(svg).toContain('fill="#fff"');
     expect(svg).toContain('fill="#000"');
     expect(svg.endsWith("</svg>")).toBe(true);
+    const d = svg.match(/<path fill="#000" d="([^"]*)"/)?.[1] ?? "";
+    expect(pathCells(d)).toEqual(darkCells(encodeQr(URL_VALUE)));
+  });
+
+  it("is the code QrCode renders on screen", () => {
+    const { container } = render(<QrCode value={URL_VALUE} />);
+    const d = container.querySelector("path")!.getAttribute("d")!;
+    expect(qrCodeSvgDocument(URL_VALUE)).toContain(`d="${d}"`);
   });
 });
 
 describe("qrCodePngBlob", () => {
-  type Rect = { x: number; y: number; w: number; h: number; fill: string };
-
-  /**
-   * jsdom has no canvas, so the 2d context is stood in for and every
-   * `fillRect` recorded: the module arithmetic is the whole of what this
-   * export does, and nothing else can observe it.
-   */
-  function stubCanvas(): Rect[] {
-    const rects: Rect[] = [];
-    const ctx = {
-      fillStyle: "",
-      fillRect: (x: number, y: number, w: number, h: number) =>
-        rects.push({ x, y, w, h, fill: ctx.fillStyle }),
-    };
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
-      ctx as unknown as CanvasRenderingContext2D,
-    );
-    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
-      (callback) => callback(new Blob(["png"], { type: "image/png" })),
-    );
-    return rects;
-  }
-
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -266,6 +305,50 @@ describe("QrCodePopover", () => {
     expect(saved[0].blob.type).toBe("image/svg+xml");
     expect(await readText(saved[0].blob)).toBe(qrCodeSvgDocument(URL_VALUE));
     expect(toast.success).toHaveBeenCalledWith("QR code downloaded");
+  });
+
+  it("downloads the PNG under the given name", async () => {
+    stubCanvas();
+    const user = await open();
+    await user.click(screen.getByRole("button", { name: "Download PNG" }));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].name).toBe("share-link-abc.png");
+    expect(saved[0].blob.type).toBe("image/png");
+    expect(toast.success).toHaveBeenCalledWith("QR code downloaded");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("copies the PNG to the clipboard and says so", async () => {
+    stubCanvas();
+    const written: Record<string, unknown>[] = [];
+    class FakeClipboardItem {
+      constructor(readonly types: Record<string, unknown>) {
+        written.push(types);
+      }
+    }
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+    const write = vi.fn(async (items: FakeClipboardItem[]) => {
+      await Promise.all(Object.values(items[0].types));
+    });
+
+    try {
+      const user = await open();
+      Object.defineProperty(navigator, "clipboard", {
+        value: { write },
+        configurable: true,
+      });
+      await user.click(screen.getByRole("button", { name: "Copy image" }));
+
+      expect(write).toHaveBeenCalledTimes(1);
+      const png = await (written[0]["image/png"] as Promise<Blob>);
+      expect(png.type).toBe("image/png");
+      expect(toast.success).toHaveBeenCalledWith("QR code copied to clipboard");
+      expect(toast.error).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   it("hands the clipboard a promise, keeping the click's user activation", async () => {
