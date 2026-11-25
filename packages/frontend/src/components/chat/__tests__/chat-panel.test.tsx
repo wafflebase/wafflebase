@@ -14,13 +14,28 @@ vi.mock("@/api/chat", () => ({
   fetchDocumentSharedIn: vi.fn(),
 }));
 vi.mock("../conversation", () => ({
-  Conversation: ({ channelId, placeholder }: { channelId: string; placeholder: string }) => (
+  Conversation: ({
+    channelId,
+    placeholder,
+    onOpenThread,
+  }: {
+    channelId: string;
+    placeholder: string;
+    onOpenThread: (rootId: string) => void;
+  }) => (
     <div data-testid="conversation" data-channel={channelId}>
-      {placeholder}
+      <span data-testid="placeholder">{placeholder}</span>
+      <button type="button" onClick={() => onOpenThread("root-1")}>
+        Open thread
+      </button>
     </div>
   ),
 }));
-vi.mock("../thread-view", () => ({ ThreadView: () => null }));
+vi.mock("../thread-view", () => ({
+  ThreadView: ({ rootId }: { rootId: string }) => (
+    <div data-testid="thread" data-root={rootId} />
+  ),
+}));
 
 import { fetchChannels, fetchDocumentSharedIn } from "@/api/chat";
 import { useChatPanel } from "../chat-panel-context";
@@ -86,7 +101,7 @@ describe("ChatPanel", () => {
     renderPanel();
     const conversation = await screen.findByTestId("conversation");
     expect(conversation.dataset.channel).toBe("planning");
-    expect(conversation.textContent).toBe("Message #planning");
+    expect(screen.getByTestId("placeholder").textContent).toBe("Message #planning");
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Open in Chat" }).getAttribute("href")).toBe(
         "/w/acme/chat/planning",
@@ -140,5 +155,18 @@ describe("ChatPanel", () => {
     vi.mocked(fetchDocumentSharedIn).mockRejectedValue(new Error("nope"));
     renderPanel();
     expect((await screen.findByTestId("conversation")).dataset.channel).toBe("general");
+  });
+
+  it("closes an open thread when the channel changes, for good", async () => {
+    renderPanel();
+    await screen.findByTestId("conversation");
+    act(() => screen.getByRole("button", { name: "Open thread" }).click());
+    expect((await screen.findByTestId("thread")).dataset.root).toBe("root-1");
+
+    act(() => api.open({ channelId: "planning" }));
+    expect((await screen.findByTestId("conversation")).dataset.channel).toBe("planning");
+    act(() => api.open({ channelId: "general" }));
+    expect((await screen.findByTestId("conversation")).dataset.channel).toBe("general");
+    expect(screen.queryByTestId("thread")).toBeNull();
   });
 });

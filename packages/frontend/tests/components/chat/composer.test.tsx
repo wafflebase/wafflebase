@@ -115,6 +115,28 @@ describe("Composer", () => {
     expect(box()).toHaveValue("private thought");
   });
 
+  it("keeps text typed before the signed-in user resolves", () => {
+    window.sessionStorage.setItem(
+      "wafflebase:chat-draft:1:c1",
+      "an older draft",
+    );
+    const view = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    type("typed while loading");
+    view.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("typed while loading");
+    // And it is now the user's draft, so it survives a remount.
+    view.unmount();
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("typed while loading");
+  });
+
+  it("loads the stored draft when the user resolves on an empty box", () => {
+    window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "saved");
+    const view = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    view.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("saved");
+  });
+
   it("measures the limit after picked mentions expand", async () => {
     render(
       <Composer

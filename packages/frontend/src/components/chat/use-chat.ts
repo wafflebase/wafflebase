@@ -179,11 +179,10 @@ export function useThreadMessages(
   const query = useQuery({
     queryKey: key,
     queryFn: () => {
+      // Read back to the oldest row already cached — the root, when the
+      // reader paged all the way up — so a refetch never drops it.
       const cached = queryClient.getQueryData<ChatMessageDto[]>(key);
-      const reached =
-        cached && !cached.some((m) => m.id === rootId)
-          ? (cached[0]?.seq ?? Infinity)
-          : Infinity;
+      const reached = cached?.[0]?.seq ?? Infinity;
       return readBack(undefined, THREAD_OPEN_PAGES, reached);
     },
   });

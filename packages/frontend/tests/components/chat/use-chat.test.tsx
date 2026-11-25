@@ -119,4 +119,24 @@ describe("useThreadMessages", () => {
     );
     expect(result.current.data!.length).toBeGreaterThanOrEqual(before + 1);
   });
+
+  it("keeps a thread read back to its root complete when it is refetched", async () => {
+    thread = threadOf(601);
+    const { result, queryClient } = renderThread();
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    for (let i = 0; i < 3; i++) await act(() => result.current.loadOlder());
+    expect(result.current.hasOlder).toBe(false);
+
+    thread = threadOf(602);
+    await act(() =>
+      queryClient.invalidateQueries({ queryKey: ["chat", "thread", "m1"] }),
+    );
+    await waitFor(() =>
+      expect(result.current.data!.at(-1)?.seq).toBe(602),
+    );
+    expect(result.current.data!.map((m) => m.seq)).toEqual(
+      thread.map((m) => m.seq),
+    );
+    expect(result.current.hasOlder).toBe(false);
+  });
 });

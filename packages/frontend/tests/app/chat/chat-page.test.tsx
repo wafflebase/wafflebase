@@ -539,6 +539,51 @@ describe("ChatPage cold load", () => {
   });
 });
 
+describe("ChatPage missing channel", () => {
+  it("says a channel absent from the loaded list is gone, with a way back", async () => {
+    renderAt("/w/team/chat/gone");
+
+    expect(
+      await screen.findByText(/doesn't exist, or you don't have access to it/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Loading channel…")).toBeNull();
+    expect(screen.queryByTestId("conversation")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Back to chat" }).getAttribute("href"),
+    ).toBe("/w/team/chat");
+  });
+
+  it("opens an unjoined public channel from the list as a preview", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1"),
+      channel("lobby", { isMember: false }),
+    ]);
+    renderAt("/w/team/chat/lobby");
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "lobby" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("conversation")).toBeInTheDocument();
+  });
+
+  it("offers a retry, not an endless skeleton, when the list fails", async () => {
+    // A phone shows the conversation alone, so the list's own error is not
+    // on screen to explain anything.
+    mobile.value = true;
+    fetchChannelsSpy.mockRejectedValueOnce(new Error("down"));
+    renderAt("/w/team/chat/c1");
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(screen.getByText("Couldn't load this channel.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading channel…")).toBeNull();
+
+    await userEvent.click(retry);
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "c1" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ChatPage thread column", () => {
   it("is one Thread landmark that does not repeat the channel beside it", async () => {
     renderAt("/w/team/chat/c1?thread=root1");

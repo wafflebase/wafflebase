@@ -662,6 +662,22 @@ describe('NotificationService', () => {
       });
     });
 
+    it('refreshes the badge of somebody edited out of the message', async () => {
+      const seen: unknown[] = [];
+      const sub = hub.subscribe(3).subscribe((s) => seen.push(s));
+      // The mention lookup answers with the dropped row first; later reads
+      // are the recipient's fresh summary, which no longer counts it.
+      prisma.notification.findMany
+        .mockResolvedValueOnce([{ id: 'n-3', recipientId: 3 }])
+        .mockResolvedValue([{ id: 'n-older' }]);
+      prisma.notification.count.mockResolvedValue(0);
+
+      await service.syncChatMessage(edit({ recipients: [2] }));
+
+      expect(seen).toEqual([{ unreadCount: 0, latestId: 'n-older' }]);
+      sub.unsubscribe();
+    });
+
     it('deletes nothing when every mention is still there', async () => {
       await service.syncChatMessage(edit());
 

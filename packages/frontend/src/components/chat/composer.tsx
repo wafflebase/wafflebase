@@ -112,14 +112,21 @@ export function Composer({
   const finalBody = mention.applyMentions(body).trim();
   const tooLong = finalBody.length > CHAT_BODY_MAX;
 
-  // A different channel, or a different signed-in user (the user is often
-  // still loading on the first render), is a different draft.
-  const currentKey = `${userId ?? ""}:${channelId}`;
-  const [draftKey, setDraftKey] = useState(currentKey);
-  if (draftKey !== currentKey) {
-    setDraftKey(currentKey);
-    setBody(draftStore.get(userId, channelId));
-    mention.reset();
+  // A different channel, or a different signed-in user, is a different
+  // draft. The user is often still loading on the first render, though: text
+  // typed in that window is the user's own, so it is kept and saved as their
+  // draft rather than replaced by whatever was stored.
+  const [draftFor, setDraftFor] = useState({ userId, channelId });
+  if (draftFor.userId !== userId || draftFor.channelId !== channelId) {
+    const resolved =
+      draftFor.userId === undefined && draftFor.channelId === channelId;
+    setDraftFor({ userId, channelId });
+    if (resolved && body) {
+      draftStore.set(userId, channelId, body);
+    } else {
+      setBody(draftStore.get(userId, channelId));
+      mention.reset();
+    }
   }
 
   useLayoutEffect(() => {

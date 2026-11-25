@@ -143,7 +143,7 @@ export class WorkspaceService {
     // chat stream fans out on `ChatChannelMember` rows alone, so a row that
     // outlived the workspace membership would keep delivering that
     // workspace's events to somebody who no longer belongs to it.
-    const { deleted, channelIds } = await this.prisma.$transaction(
+    const { deleted, announce } = await this.prisma.$transaction(
       async (tx) => {
         const deleted = await tx.workspaceMember.delete({
           where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
@@ -211,10 +211,24 @@ export class WorkspaceService {
             },
           });
         }
-        return { deleted, channelIds };
+        // A `mem` for any channel also evicts every hub's per-workspace
+        // reader set, which is who hears a public channel. Somebody in no
+        // channel row (a workspace from before #general) is announced
+        // through one of its public channels, or their open stream would
+        // keep hearing them until that cache expired.
+        const announce =
+          channelIds.length > 0
+            ? channelIds
+            : await tx.chatChannel
+                .findFirst({
+                  where: { workspaceId, kind: 'public' },
+                  select: { id: true },
+                })
+                .then((c) => (c ? [c.id] : []));
+        return { deleted, announce };
       },
     );
-    await this.announceChatMembership(channelIds);
+    await this.announceChatMembership(announce);
     return deleted;
   }
 
