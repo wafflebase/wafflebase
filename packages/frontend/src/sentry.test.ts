@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Event } from "@sentry/react";
 import { scrubCapabilityTokens } from "./sentry";
@@ -185,5 +187,26 @@ describe("scrubCapabilityTokens", () => {
   it("returns the same event object, as the hook contract requires", () => {
     const event = { transaction: "/shared/x" } as Event;
     expect(scrubCapabilityTokens(event)).toBe(event);
+  });
+});
+
+describe("sentry.ts build baseline", () => {
+  it("uses no RegExp lookbehind", () => {
+    // Not style, and not something a behavioral test can see: `vite.config.ts`
+    // pins no `build.target`, so Vite's default `baseline-widely-available`
+    // target includes Safari 16.0. Lookbehind landed in 16.4 and esbuild
+    // cannot transform regexp syntax, so such a literal ships verbatim — and a
+    // regex literal that does not parse is a SyntaxError at MODULE level.
+    // `main.tsx` imports this file before it renders anything, so the cost is
+    // a blank app on those browsers, not a missed redaction. Read the source
+    // rather than the pattern: the hazard is the literal existing at all.
+    const source = readFileSync(
+      path.resolve(__dirname, "./sentry.ts"),
+      "utf8",
+    );
+
+    // Skip the prose that explains the ban, which names the construct.
+    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    expect(code).not.toMatch(/\(\?<[=!]/);
   });
 });
