@@ -987,6 +987,61 @@ describeDb('Chat integration', () => {
       expect(Number(row.lastSeq)).toBe(20);
     });
 
+    it('a retried post with the same clientId returns the first message', async () => {
+      const { owner, workspace, channel } = await publicChannel();
+      const notify = jest.spyOn(bus, 'notifyMessage');
+      const url = `${base(workspace.id)}/channels/${channel.id}/messages`;
+      const send = () =>
+        as(owner).post(url).send({ body: 'once', clientId: 'send-1' });
+
+      // Two attempts racing (a retry while the first is still in flight),
+      // then a third after both answered.
+      const [a, b] = await Promise.all([send(), send()]);
+      const c = await send();
+
+      for (const res of [a, b, c]) expect(res.status).toBe(201);
+      expect(new Set([a.body.id, b.body.id, c.body.id]).size).toBe(1);
+      expect(
+        await prisma.chatMessage.count({ where: { channelId: channel.id } }),
+      ).toBe(1);
+      const row = await prisma.chatChannel.findUniqueOrThrow({
+        where: { id: channel.id },
+      });
+      expect(Number(row.lastSeq)).toBe(1);
+      expect(notify).toHaveBeenCalledTimes(1);
+
+      // A different clientId, or none, is a different message.
+      await as(owner).post(url).send({ body: 'once', clientId: 'send-2' });
+      await as(owner).post(url).send({ body: 'once' });
+      await as(owner).post(url).send({ body: 'once' });
+      expect(
+        await prisma.chatMessage.count({ where: { channelId: channel.id } }),
+      ).toBe(4);
+    });
+
+    it('a clientId is scoped to its author', async () => {
+      const { owner, members, workspace, channel } = await publicChannel();
+      const url = `${base(workspace.id)}/channels/${channel.id}/messages`;
+      const mine = await as(owner)
+        .post(url)
+        .send({ body: 'mine', clientId: 'same' })
+        .expect(201);
+      const theirs = await as(members[0])
+        .post(url)
+        .send({ body: 'theirs', clientId: 'same' })
+        .expect(201);
+      expect(theirs.body.id).not.toBe(mine.body.id);
+      expect(theirs.body.body).toBe('theirs');
+    });
+
+    it('refuses a malformed clientId', async () => {
+      const { owner, workspace, channel } = await publicChannel();
+      await as(owner)
+        .post(`${base(workspace.id)}/channels/${channel.id}/messages`)
+        .send({ body: 'x', clientId: 'has spaces' })
+        .expect(400);
+    });
+
     it('page before/after returns 50 in ascending order', async () => {
       const { owner, workspace, channel } = await publicChannel();
       await seed(channel.id, owner.id, 120);
