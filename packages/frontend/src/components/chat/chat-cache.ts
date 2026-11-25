@@ -1,6 +1,7 @@
 import type {
   ChannelSummary,
   ChatMessageDto,
+  StreamChannelEvent,
   StreamMessageEvent,
   StreamUpdateEvent,
 } from '@/api/chat';
@@ -61,13 +62,16 @@ export function applyChatEvent(
   const countsAsUnread = !isOpen && inChannel && e.authorId !== state.me;
 
   // `lastSeq` moves for every message, the open channel's included: a channel
-  // reopened later places its "New messages" divider up to it.
+  // reopened later places its "New messages" divider up to it. A public
+  // channel the reader has not joined has no read position, so nothing in
+  // it is unread to them (the server counts zero too).
   const channels = state.channels.map((c) =>
     c.id === e.channelId
       ? {
           ...c,
           lastSeq: Math.max(c.lastSeq, e.seq),
-          unreadCount: c.unreadCount + (countsAsUnread ? 1 : 0),
+          unreadCount:
+            c.unreadCount + (countsAsUnread && c.isMember ? 1 : 0),
         }
       : c,
   );
@@ -170,6 +174,22 @@ export function parseStreamUpdate(raw: string): StreamUpdateEvent | null {
 }
 
 /** Parse a `message` frame, or null for anything that is not one. */
+/** Parse a `channel` frame, or null for anything that is not one. */
+export function parseStreamChannel(raw: string): StreamChannelEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const { workspaceId, channelId } = parsed as Record<string, unknown>;
+  if (typeof workspaceId !== 'string' || typeof channelId !== 'string') {
+    return null;
+  }
+  return { workspaceId, channelId };
+}
+
 export function parseStreamMessage(raw: string): StreamMessageEvent | null {
   let parsed: unknown;
   try {

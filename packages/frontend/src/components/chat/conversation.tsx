@@ -585,7 +585,9 @@ function startsNewDay(groups: MessageGroup[], i: number): boolean {
 
 /**
  * Says so when messages are not arriving live. Sending still works over
- * plain HTTP either way, so this informs rather than blocks.
+ * plain HTTP either way, so this informs rather than blocks. A dropped
+ * stream is reopened on its own (`useChatStream`), and catches the open
+ * channel up when it is; only an ended session stops it for good.
  */
 function ConnectionNotice() {
   const connection = useChatConnection();
@@ -599,7 +601,8 @@ function ConnectionNotice() {
         'Reconnecting… New messages will appear once the connection is back.'
       ) : (
         <>
-          Live updates stopped. New messages won't appear until you reload.
+          Your session ended, so live updates stopped. Reload to sign in
+          again.
           <button
             type="button"
             onClick={() => window.location.reload()}
