@@ -34,6 +34,7 @@ import {
   ChannelSummary,
   ChatFileDto,
   ChatMessageDto,
+  ChatSharedInDto,
 } from './chat.types';
 
 /**
@@ -174,6 +175,27 @@ export class ChatController {
       workspaceId,
     );
     return this.documentRefs.files(channel, query);
+  }
+
+  /**
+   * The channels this document was shared in that the caller belongs to,
+   * most recent first: the editor's chat panel opens on the first one when
+   * nothing else names a channel (`docs/design/chat.md` § Chat panel).
+   */
+  @Get('documents/:documentId/channels')
+  async sharedIn(
+    @Param('workspaceId') workspaceId: string,
+    @Param('documentId') documentId: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ channels: ChatSharedInDto[] }> {
+    const userId = Number(req.user.id);
+    const { workspaceId: id } = await this.channels.assertWorkspaceMember(
+      userId,
+      workspaceId,
+    );
+    return {
+      channels: await this.documentRefs.sharedIn(userId, id, documentId),
+    };
   }
 
   /**

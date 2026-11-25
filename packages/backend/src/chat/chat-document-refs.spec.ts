@@ -1,4 +1,7 @@
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../database/prisma.service';
 import {
+  ChatDocumentRefService,
   extractDocumentLinks,
   frontendBase,
   MAX_REFS_PER_MESSAGE,
@@ -136,5 +139,40 @@ describe('toRefDtos', () => {
       { documentId: ID, type: 'sheet', title: 'Q4', anchor: null },
     ]);
     expect(toRefDtos(undefined, 'w1')).toEqual([]);
+  });
+});
+
+describe('ChatDocumentRefService.sharedIn', () => {
+  function service(rows: { channelId: string; sharedAt: Date }[]) {
+    const queryRaw = jest.fn().mockResolvedValue(rows);
+    const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+    const config = { get: () => undefined } as unknown as ConfigService;
+    return { svc: new ChatDocumentRefService(prisma, config), queryRaw };
+  }
+
+  it('scopes the query to the caller, workspace and document', async () => {
+    const { svc, queryRaw } = service([]);
+    await svc.sharedIn(7, 'ws-1', ID);
+    const [strings, ...values] = queryRaw.mock.calls[0] as [
+      TemplateStringsArray,
+      ...unknown[],
+    ];
+    const sql = strings.join('?');
+    expect(sql).toContain('cm."userId" = ?');
+    expect(sql).toContain('c."archivedAt" IS NULL');
+    expect(sql).toContain('m."deletedAt" IS NULL');
+    expect(sql).toContain('d."deletedAt" IS NULL');
+    expect(values).toEqual(expect.arrayContaining([7, 'ws-1', ID]));
+  });
+
+  it('answers ISO times in the order the query gives', async () => {
+    const { svc } = service([
+      { channelId: 'b', sharedAt: new Date('2026-11-25T10:00:00Z') },
+      { channelId: 'a', sharedAt: new Date('2026-11-24T10:00:00Z') },
+    ]);
+    await expect(svc.sharedIn(1, 'ws', ID)).resolves.toEqual([
+      { channelId: 'b', sharedAt: '2026-11-25T10:00:00.000Z' },
+      { channelId: 'a', sharedAt: '2026-11-24T10:00:00.000Z' },
+    ]);
   });
 });
