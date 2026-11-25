@@ -29,7 +29,7 @@ export interface ChatPanelState {
    */
   channelId: string | null;
   selectChannel: (channelId: string) => void;
-  /** A draft from `open({ draft })` without a channel, until one is chosen. */
+  /** Drafts from `open({ draft })` without a channel, one per line, until one is chosen. */
   pendingDraft: string | null;
   /** Seeds the pending draft into `channelId`'s composer. */
   takePendingDraft: (channelId: string) => void;

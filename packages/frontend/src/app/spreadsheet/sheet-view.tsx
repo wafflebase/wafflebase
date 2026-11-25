@@ -55,7 +55,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
 import { useSendToChat } from "@/components/chat/use-send-to-chat";
-import { sheetChatAnchor } from "./chat-anchor";
+import { sheetSendToChatAnchor } from "./chat-anchor";
 import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import {
@@ -920,22 +920,7 @@ export function SheetView({
   const sendToChat = useSendToChat("sheet", documentId);
   const handleSendToChat = useCallback(() => {
     if (!sendToChat) return;
-    const sheet = sheetRef.current;
-    const range = sheet?.getSelectionRangeOrActiveCell();
-    const root = doc?.getRoot();
-    const ws = root?.sheets[tabId];
-    const anchor =
-      sheet && range && root && ws
-        ? sheetChatAnchor({
-            tabId,
-            tabName: root.tabs[tabId]?.name ?? "",
-            range,
-            selectionType: sheet.getSelectionType(),
-            rowOrder: Array.from(ws.rowOrder ?? []),
-            colOrder: Array.from(ws.colOrder ?? []),
-          })
-        : null;
-    sendToChat(anchor);
+    sendToChat(sheetSendToChatAnchor(sheetRef.current, doc?.getRoot(), tabId));
   }, [sendToChat, doc, tabId]);
 
   // Open the comment popover/composer for the currently active cell,

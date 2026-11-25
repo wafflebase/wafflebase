@@ -3,9 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchDocumentSharedIn, type ChannelSummary } from "@/api/chat";
 
 import { chatKeys } from "./chat-cache";
-
-/** A channel the user can talk in: one they belong to, not archived. */
-const open = (c: ChannelSummary) => c.isMember && !c.archived;
+import { canTalkIn, landingChannelId } from "./last-channel";
 
 /**
  * The channels the panel's switcher offers: the ones the user belongs to,
@@ -20,7 +18,7 @@ export function panelChannels(
 ): ChannelSummary[] {
   const time = (c: ChannelSummary) =>
     c.lastMessageAt ? Date.parse(c.lastMessageAt) : 0;
-  const listed = channels.filter(open).sort((a, b) => time(b) - time(a));
+  const listed = channels.filter(canTalkIn).sort((a, b) => time(b) - time(a));
   const current = channels.find((c) => c.id === currentId);
   return current && !listed.includes(current) ? [current, ...listed] : listed;
 }
@@ -36,6 +34,9 @@ export function panelChannels(
  * 3. the user's last opened channel, while they are still in it;
  * 4. the workspace's default channel, else the most recently active one.
  *
+ * Rules 3 and 4 are the Chat page's own landing rule (`landingChannelId`);
+ * the panel adds the ones around it because it must always show something.
+ *
  * Null while there is nothing to show.
  */
 export function pickPanelChannel({
@@ -50,13 +51,12 @@ export function pickPanelChannel({
   last: string | null;
 }): string | null {
   if (requested && channels.some((c) => c.id === requested)) return requested;
-  for (const id of [sharedIn, last]) {
-    if (id && channels.some((c) => c.id === id && open(c))) return id;
+  if (sharedIn && channels.some((c) => c.id === sharedIn && canTalkIn(c))) {
+    return sharedIn;
   }
-  const fallback =
-    channels.find((c) => c.isDefault && open(c)) ??
-    panelChannels(channels, null)[0];
-  return fallback?.id ?? null;
+  return (
+    landingChannelId(channels, last) ?? panelChannels(channels, null)[0]?.id ?? null
+  );
 }
 
 /**

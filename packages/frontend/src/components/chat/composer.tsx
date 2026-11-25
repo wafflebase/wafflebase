@@ -72,10 +72,7 @@ export function Composer({
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const update = (value: string) => {
-    setBody(value);
-    draftStore.set(userId, channelId, value);
-  };
+  const update = (value: string) => setBody(value);
 
   const disabled = !!disabledReason || waiting;
   const trimmed = body.trim();
@@ -121,13 +118,19 @@ export function Composer({
     const resolved =
       draftFor.userId === undefined && draftFor.channelId === channelId;
     setDraftFor({ userId, channelId });
-    if (resolved && body) {
-      draftStore.set(userId, channelId, body);
-    } else {
+    if (!resolved || !body) {
       setBody(draftStore.get(userId, channelId));
       mention.reset();
     }
   }
+
+  // The box is saved as the draft of whoever and wherever it now belongs to,
+  // after the render commits: rendering only reads storage, since React may
+  // render and then discard (StrictMode, an interrupted concurrent render).
+  useEffect(() => {
+    draftStore.set(userId, channelId, body);
+  }, [userId, channelId, body]);
+  useEffect(() => draftStore.dropLegacy(channelId), [channelId]);
 
   useLayoutEffect(() => {
     const ta = textareaRef.current;

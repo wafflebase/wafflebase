@@ -389,6 +389,9 @@ export function useChatStream(enabled: boolean): void {
     let stopped = false;
     let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // A session check in flight: `online` and the tab being shown often
+    // arrive together, and one check answers both.
+    let checking = false;
 
     const connect = () => {
       source = new EventSource(chatStreamUrl(), { withCredentials: true });
@@ -407,9 +410,12 @@ export function useChatStream(enabled: boolean): void {
     // also announced (`online`, the tab shown again), which tries at once.
     const recover = async () => {
       retryTimer = null;
+      if (checking) return;
+      checking = true;
       try {
         await checkSession();
       } catch (err) {
+        checking = false;
         if (stopped) return;
         if (isAuthExpiredError(err)) {
           // Signed out; `fetchWithAuth` is already sending them to log in.
@@ -419,6 +425,7 @@ export function useChatStream(enabled: boolean): void {
         scheduleRecover();
         return;
       }
+      checking = false;
       if (stopped || source) return;
       connect();
     };
@@ -429,7 +436,7 @@ export function useChatStream(enabled: boolean): void {
       retryTimer = setTimeout(() => void recover(), delay);
     };
     const recoverNow = () => {
-      if (stopped || source) return;
+      if (stopped || source || checking) return;
       if (retryTimer) clearTimeout(retryTimer);
       attempt = 0;
       void recover();

@@ -94,3 +94,70 @@ describe("fetchChannelFiles against a backend without Files", () => {
     });
   });
 });
+
+describe("isUnknownClientIdRefusal", () => {
+  it("matches the exact answer Nest's ValidationPipe gives", async () => {
+    const { isUnknownClientIdRefusal } = await load();
+    expect(
+      await isUnknownClientIdRefusal(
+        badRequest(["property clientId should not exist"]),
+      ),
+    ).toBe(true);
+    // Alongside another refusal, and as a lone string.
+    expect(
+      await isUnknownClientIdRefusal(
+        badRequest(["body should not be empty", "property clientId should not exist"]),
+      ),
+    ).toBe(true);
+    expect(
+      await isUnknownClientIdRefusal(badRequest("property clientId should not exist")),
+    ).toBe(true);
+  });
+
+  it("leaves every other answer alone", async () => {
+    const { isUnknownClientIdRefusal } = await load();
+    const no = async (res: Response) =>
+      expect(await isUnknownClientIdRefusal(res)).toBe(false);
+    await no(badRequest(["property body should not exist"]));
+    await no(badRequest(["clientId must be a UUID"]));
+    await no(new Response("property clientId should not exist", { status: 400 }));
+    await no(
+      new Response(
+        JSON.stringify({ message: ["property clientId should not exist"] }),
+        { status: 422 },
+      ),
+    );
+    await no(okJson({ id: "m1" }));
+  });
+
+  it("does not consume the response it reads", async () => {
+    const { isUnknownClientIdRefusal } = await load();
+    const res = badRequest(["body must be shorter than or equal to 4000 characters"]);
+    await isUnknownClientIdRefusal(res);
+    await expect(res.json()).resolves.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe("fetchDocumentSharedIn", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it("asks the document's channels route and unwraps its list", async () => {
+    const { fetchDocumentSharedIn } = await load();
+    const channels = [{ channelId: "c1", sharedAt: "2026-11-25T00:00:00.000Z" }];
+    mockFetch.mockResolvedValueOnce(okJson({ channels }));
+    await expect(fetchDocumentSharedIn("w 1", "d/1")).resolves.toEqual(channels);
+    expect(mockFetch.mock.calls[0][0]).toMatch(
+      /\/workspaces\/w%201\/chat\/documents\/d%2F1\/channels$/,
+    );
+  });
+
+  it("fails loudly on an error answer", async () => {
+    const { fetchDocumentSharedIn } = await load();
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ statusCode: 500 }), { status: 500 }),
+    );
+    await expect(fetchDocumentSharedIn("w1", "d1")).rejects.toMatchObject({
+      status: 500,
+    });
+  });
+});

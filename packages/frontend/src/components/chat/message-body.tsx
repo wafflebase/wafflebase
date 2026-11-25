@@ -32,8 +32,14 @@ import {
 // `@wafflebase/core/document-link`. Trailing sentence punctuation is trimmed
 // off below, so "see https://x.test/a." links `https://x.test/a`, not the
 // period.
+//
+// The path's left boundary is captured (`lead`) rather than asserted with a
+// lookbehind: lookbehind is a SyntaxError before Safari 16.4, below the
+// build's browser floor, and this pattern is built at module scope, so one
+// would take the whole chat chunk down with it. `bodyLinks` steps over the
+// captured character. A lookahead is fine everywhere.
 const URL_RE = new RegExp(
-  `https?://[^\\s<>"]+|(?<=^|[\\s(<])${DOCUMENT_PATH_SOURCE}(?![0-9A-Za-z-])(?:[?#][^\\s<>"]*)?`,
+  `https?://[^\\s<>"]+|(?<lead>^|[\\s(<])${DOCUMENT_PATH_SOURCE}(?![0-9A-Za-z-])(?:[?#][^\\s<>"]*)?`,
   "g",
 );
 const TRAILING_PUNCTUATION = /[.,!?;:'")\]]+$/;
@@ -81,7 +87,7 @@ function InAppLink({
   tabIndex?: number;
 }) {
   const navigate = useNavigate();
-  // The router's basename, so `/app/w/1/chat` navigates to `/w/1/chat`.
+  // Cut off the basename, so `/app/w/1/chat` navigates to `/w/1/chat`.
   const base = routerBasename();
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
@@ -202,10 +208,12 @@ interface LinkContext {
 /** The links in `text`, trailing sentence punctuation trimmed off. */
 function* bodyLinks(text: string): Generator<{ start: number; url: string }> {
   for (const match of text.matchAll(URL_RE)) {
-    let url = match[0];
+    // The boundary character before a bare path is matched, not part of it.
+    const lead = match.groups?.lead?.length ?? 0;
+    let url = match[0].slice(lead);
     const trailing = TRAILING_PUNCTUATION.exec(url)?.[0] ?? "";
     if (trailing) url = url.slice(0, -trailing.length);
-    yield { start: match.index ?? 0, url };
+    yield { start: (match.index ?? 0) + lead, url };
   }
 }
 

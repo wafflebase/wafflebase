@@ -50,6 +50,7 @@ import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
 import { chatBadgeCount } from "@/components/chat/chat-cache";
 import {
   forgetLastChannel,
+  landingChannelId,
   readLastChannel,
   writeLastChannel,
 } from "@/components/chat/last-channel";
@@ -73,7 +74,6 @@ import {
   channelMenu,
   chatLayout,
   chatTitle,
-  landingChannelId,
 } from "./chat-layout";
 import {
   CHAT_SHORTCUT_CATEGORIES,

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "@/components/chat/composer";
 
@@ -128,6 +129,30 @@ describe("Composer", () => {
     view.unmount();
     render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
     expect(box()).toHaveValue("typed while loading");
+  });
+
+  it("touches storage only after a render commits, never while rendering", () => {
+    // A server render runs the render body and no effects: what it wrote
+    // is what a discarded render would have written.
+    window.sessionStorage.setItem("wafflebase:chat-draft:c1", "legacy");
+    window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "saved");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    try {
+      const html = renderToString(
+        <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+      );
+      expect(html).toContain("saved");
+      expect(setItem).not.toHaveBeenCalled();
+      expect(removeItem).not.toHaveBeenCalled();
+    } finally {
+      setItem.mockRestore();
+      removeItem.mockRestore();
+    }
+    // Mounted for real, the old unkeyed draft is dropped.
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    expect(box()).toHaveValue("saved");
   });
 
   it("loads the stored draft when the user resolves on an empty box", () => {

@@ -305,14 +305,42 @@ export async function fetchMessages(
  */
 let serverTakesClientId = true;
 
-/** The 400 a backend that predates `clientId` answers a post carrying it. */
-async function refusesClientId(res: Response): Promise<boolean> {
+/**
+ * The message Nest's `ValidationPipe` (`whitelist` + `forbidNonWhitelisted`,
+ * as `main.ts` configures it) gives for a body property the DTO does not
+ * declare.
+ */
+const UNKNOWN_CLIENT_ID = "property clientId should not exist";
+
+/**
+ * Whether `res` is a backend that predates `clientId` refusing a post that
+ * carries it. Nothing else such a backend says tells the two apart — it has
+ * no capability or version signal — so this reads its validation answer,
+ * whose exact shape is:
+ *
+ *   400 { "statusCode": 400, "message": ["property clientId should not exist", …], "error": "Bad Request" }
+ *
+ * matched on that one entry of `message` (a string or an array of them), so
+ * a 400 for any other reason stays the final failure it is. If a Nest
+ * upgrade rewords it, this stops matching and a skewed deployment's sends
+ * fail as 400s again — `api/chat.test.ts` pins the shape.
+ *
+ * Delete this, the flag above and the resend in `postMessage` once every
+ * deployment runs a backend that takes `clientId`.
+ */
+export async function isUnknownClientIdRefusal(res: Response): Promise<boolean> {
   if (res.status !== 400) return false;
-  const text = await res
-    .clone()
-    .text()
-    .catch(() => "");
-  return /property clientId should not exist/.test(text);
+  try {
+    const body: unknown = await res.clone().json();
+    const message =
+      body && typeof body === "object"
+        ? (body as { message?: unknown }).message
+        : undefined;
+    const messages = Array.isArray(message) ? message : [message];
+    return messages.includes(UNKNOWN_CLIENT_ID);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -337,7 +365,7 @@ export async function postMessage(
     url,
     json("POST", withId ? { ...rest, clientId } : rest),
   );
-  if (withId && (await refusesClientId(res))) {
+  if (withId && (await isUnknownClientIdRefusal(res))) {
     serverTakesClientId = false;
     res = await fetchWithAuth(url, json("POST", rest));
   }

@@ -274,5 +274,44 @@ describe("MessageBody", () => {
       renderRouted(`https://evil.test/s/${ID}`);
       expect(screen.getByRole("link")).not.toHaveAttribute("data-document-card");
     });
+
+    // The path's left boundary used to be a lookbehind; these pin what it
+    // decided now that the boundary character is matched and stepped over.
+    it.each([
+      ["at the start", `/s/${ID} first`, "", " first"],
+      ["after a space", `see /s/${ID}`, "see ", ""],
+      ["after a newline", `see\n/s/${ID}`, "see\n", ""],
+      ["after an open paren", `see (/s/${ID}) here`, "see (", ") here"],
+      ["after an angle bracket", `see </s/${ID}>`, "see <", ">"],
+    ])("cards a bare path %s, keeping the text around it", (_, body, before, after) => {
+      const { container } = renderRouted(body);
+      const card = screen.getByRole("link");
+      expect(card).toHaveAttribute("data-document-card", ID);
+      const p = container.querySelector("p")!;
+      expect(p.textContent).toBe(`${before}${card.textContent}${after}`);
+    });
+
+    it("cards two bare paths one space apart", () => {
+      const ID2 = "1c7a4d3f-9b5e-4a2f-8d8c-3e6f70819203";
+      renderRouted(`/s/${ID} /d/${ID2}`, [
+        ref,
+        { documentId: ID2, type: "doc", title: "Plan", anchor: null },
+      ]);
+      const cards = screen.getAllByRole("link");
+      expect(cards.map((c) => c.getAttribute("data-document-card"))).toEqual([
+        ID,
+        ID2,
+      ]);
+    });
+
+    it.each([
+      ["glued to a word", `x/s/${ID}`],
+      ["inside a longer path", `/a/s/${ID}`],
+      ["followed by more id characters", `/s/${ID}0`],
+    ])("leaves a bare path %s as text", (_, body) => {
+      renderRouted(body);
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.getByText(body)).toBeInTheDocument();
+    });
   });
 });

@@ -194,9 +194,9 @@ export function MobileSlidesView({
     "slides",
     !loading && snapshot.slideIds.length > 0,
     (anchor) => {
-      if (snapshot.slideIds.includes(anchor.slideId)) {
-        setCurrentSlideId(anchor.slideId);
-      }
+      if (!snapshot.slideIds.includes(anchor.slideId)) return false;
+      setCurrentSlideId(anchor.slideId);
+      return true;
     },
   );
 

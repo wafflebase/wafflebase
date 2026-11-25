@@ -1,6 +1,5 @@
 import {
   anchorToRef,
-  parseColumnLabel,
   toColumnLabel,
   toSref,
   type Range,
@@ -75,8 +74,49 @@ export function sheetChatAnchor({
     colId,
     rowSpan: Math.min(to.r - from.r + 1, MAX_ANCHOR_SPAN),
     colSpan: Math.min(to.c - from.c + 1, MAX_ANCHOR_SPAN),
+    // Absent means a cell range, so a plain range adds nothing to the URL.
+    ...(selectionType && selectionType !== "cell" ? { kind: selectionType } : {}),
     label: clip(`${sheetTabRef(tabName)}${where}`, MAX_ANCHOR_LABEL),
   };
+}
+
+/** What "Send to chat" reads off a live sheet editor. */
+export interface SheetSendSource {
+  getSelectionRangeOrActiveCell(): Range | undefined | null;
+  getSelectionType(): SelectionType | undefined;
+}
+
+/** The parts of a spreadsheet root "Send to chat" reads. */
+export interface SheetSendRoot {
+  tabs: Record<string, { name?: string } | undefined>;
+  sheets: Record<
+    string,
+    { rowOrder?: Iterable<string>; colOrder?: Iterable<string> } | undefined
+  >;
+}
+
+/**
+ * The anchor "Send to chat" sends from tab `tabId` of a live sheet: its
+ * selection (or active cell), labelled with that tab's name, its axis ids
+ * read from that tab's own row and column orders. Null when there is nothing
+ * to anchor to, and the link goes out document-level.
+ */
+export function sheetSendToChatAnchor(
+  sheet: SheetSendSource | null | undefined,
+  root: SheetSendRoot | null | undefined,
+  tabId: string,
+): SheetAnchor | null {
+  const range = sheet?.getSelectionRangeOrActiveCell();
+  const ws = root?.sheets[tabId];
+  if (!sheet || !range || !root || !ws) return null;
+  return sheetChatAnchor({
+    tabId,
+    tabName: root.tabs[tabId]?.name ?? "",
+    range,
+    selectionType: sheet.getSelectionType(),
+    rowOrder: Array.from(ws.rowOrder ?? []),
+    colOrder: Array.from(ws.colOrder ?? []),
+  });
 }
 
 /**
@@ -97,28 +137,12 @@ export function resolveSheetChatAnchor(
 }
 
 /**
- * Whether `anchor` was shared as whole rows, whole columns or a cell range.
- * The anchor schema carries only the top-left cell and spans, so this reads
- * the label `sheetChatAnchor` wrote ("Sheet1!3:5", "Sheet1!C:E") — and only
- * believes it when its count agrees with the spans, since a label is the
- * sender's to write. A whole-sheet share is restored as its cell range:
- * `applySelection` has no "all" of its own.
+ * Whether `anchor` was shared as whole rows, whole columns or a cell range,
+ * from its `kind`. A whole-sheet share, and an anchor without a kind, is
+ * restored as its cell range: `applySelection` has no "all" of its own.
  */
 export function sheetAnchorSelectionType(
   anchor: SheetAnchor,
 ): "cell" | "row" | "column" {
-  const spans = (from: number, to: number) =>
-    Math.min(to - from + 1, MAX_ANCHOR_SPAN);
-  const rows = /!(\d+):(\d+)$/.exec(anchor.label ?? "");
-  if (rows && spans(Number(rows[1]), Number(rows[2])) === anchor.rowSpan) {
-    return "row";
-  }
-  const cols = /!([A-Z]+):([A-Z]+)$/.exec(anchor.label ?? "");
-  if (
-    cols &&
-    spans(parseColumnLabel(cols[1]), parseColumnLabel(cols[2])) === anchor.colSpan
-  ) {
-    return "column";
-  }
-  return "cell";
+  return anchor.kind === "row" || anchor.kind === "column" ? anchor.kind : "cell";
 }

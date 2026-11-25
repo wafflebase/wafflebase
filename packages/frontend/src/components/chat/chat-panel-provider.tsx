@@ -59,7 +59,10 @@ export function ChatPanelProvider({
           seedChatDraft(userId, opts.channelId, opts.draft);
           setDraftSeed((n) => n + 1);
         } else {
-          setPendingDraft(opts.draft);
+          // Appended like a seeded draft: a second "Send to chat" while the
+          // panel is still choosing a channel must not drop the first.
+          const draft = opts.draft;
+          setPendingDraft((prev) => (prev === null ? draft : `${prev}\n${draft}`));
         }
       }
       onOpenChange(true);

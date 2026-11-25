@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+
+import { isMac } from "@/components/text-formatting/platform";
 import {
   Dialog,
   DialogContent,
@@ -32,11 +34,6 @@ interface ShortcutsHelpDialogProps {
   formatCombo: (combo: string, isMac: boolean) => string;
 }
 
-function isMacPlatform(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-}
-
 export function ShortcutsHelpDialog({
   open,
   onOpenChange,
@@ -45,7 +42,6 @@ export function ShortcutsHelpDialog({
   categoryOrder,
   formatCombo,
 }: ShortcutsHelpDialogProps) {
-  const isMac = useMemo(() => isMacPlatform(), []);
   const grouped = useMemo(() => groupByCategory(shortcuts), [shortcuts]);
 
   return (
