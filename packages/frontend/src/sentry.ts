@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { backendOrigin } from "@/api/images";
-import { redactCapabilityTokens } from "@/lib/redact-url";
+import { redactCapabilityTokens, redactUrlsInText } from "@/lib/redact-url";
 
 /**
  * Default share of transactions sampled for tracing. Deliberately not 1.0 —
@@ -147,7 +147,64 @@ export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
         crumb.data![key] = redactCapabilityTokens(value);
       }
     }
+
+    // Console instrumentation records the raw argument array beside the joined
+    // `message`: `{ data: { arguments: args, logger: "console" } }`. Those
+    // arguments are whatever a `console.error`/`console.warn` was handed, and
+    // several of this app's URLs carry a capability as `?token=` — `fileUrl()`
+    // in `api/files.ts`, the share-link image resolver in
+    // `spreadsheet/image-cache.ts`. So an argument holding one of those URLs
+    // ships the token with the next event. `crumb.message` — the joined form
+    // of these same values — is a separate field and is NOT reached by this
+    // hook yet; see the issue.
+    const args = crumb.data?.arguments;
+    if (Array.isArray(args)) {
+      crumb.data!.arguments = args.map(redactArgument);
+    }
   }
 
   return event;
+}
+
+/** How much of a console argument list is walked. See `redactArgument`. */
+const MAX_ARGUMENTS = 16;
+const MAX_ARGUMENT_FIELDS = 32;
+
+/**
+ * Redacts one console argument, one level deep and no further.
+ *
+ * Strings are rewritten; a plain object's own string-valued fields are
+ * rewritten in place. Anything else — a number, a nested object, a DOM node, a
+ * `Request` — is returned untouched, deliberately: serializing arbitrary
+ * values here would turn a send hook into a traversal of application state,
+ * and the SDK's own normalizer already decides what of it survives.
+ *
+ * The residual is therefore a token nested deeper than one level. That is the
+ * same defence-in-depth posture the rest of this hook has: it bounds the
+ * obvious paths rather than proving no path exists.
+ *
+ * Mutating the object is safe, and one level is not as shallow as it sounds,
+ * for the same reason: the SDK runs `normalizeEvent` over every breadcrumb's
+ * `data` BEFORE `beforeSend` (`@sentry/core`'s `prepareEvent`). So what
+ * arrives here is a plain clone at `normalizeDepth` 3, not the live
+ * application object the call site logged — an `Error` argument has already
+ * become `{ message, name, stack }`, and anything deeper than a field of an
+ * argument has already become the string `"[Object]"`.
+ */
+function redactArgument(arg: unknown, index: number): unknown {
+  if (index >= MAX_ARGUMENTS) return arg;
+  if (typeof arg === "string") return redactUrlsInText(arg);
+  if (arg === null || typeof arg !== "object" || Array.isArray(arg)) return arg;
+
+  const record = arg as Record<string, unknown>;
+  let fields = 0;
+  for (const key of Object.keys(record)) {
+    if (fields >= MAX_ARGUMENT_FIELDS) break;
+    fields += 1;
+    const value = record[key];
+    if (typeof value === "string") {
+      record[key] = redactUrlsInText(value);
+    }
+  }
+  return record;
 }

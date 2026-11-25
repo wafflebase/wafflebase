@@ -81,3 +81,49 @@ export function redactCapabilityTokens(url: string): string {
   // happens to contain the host string is not mangled.
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
+
+/**
+ * URL-shaped spans inside free text: an absolute `http(s)://…`, or a path
+ * beginning at a `/`. Stops at whitespace and at the characters that normally
+ * close a URL in prose or in serialized output — quotes, angle brackets,
+ * brackets, parentheses, commas — so `(/shared/abc)` yields `/shared/abc`.
+ */
+const URL_SPAN = /https?:\/\/[^\s"'`<>()[\]{},\\]*|\/[^\s"'`<>()[\]{},\\]+/gi;
+
+/**
+ * Free text is not a URL, so there is a ceiling on the work this does. Both
+ * limits sit far above any real log line; they exist so that a megabyte of
+ * accidentally-stringified state cannot make `beforeSend` the slow part of an
+ * error path.
+ */
+const MAX_TEXT_LENGTH = 8_192;
+const MAX_SPANS = 32;
+
+/**
+ * Returns `text` with any capability token inside a URL-shaped span replaced.
+ *
+ * `redactCapabilityTokens` above is a URL function: it parses its WHOLE input,
+ * so handing it `"load failed: /documents/x/file?token=t"` comes back with the
+ * prose percent-encoded. This finds the URL-ish parts and rewrites only those.
+ *
+ * A span is substituted only when its redaction actually changed something.
+ * Otherwise an ordinary `/w/jiyu` in a log line would still be rewritten — by
+ * `new URL()` normalization rather than by us — which is noise in the one
+ * field a human reads to understand the error.
+ *
+ * Text longer than `MAX_TEXT_LENGTH` is returned unchanged rather than
+ * truncated: this runs on data that is about to be sent, not stored, and
+ * silently shortening somebody's error message is worse than leaving it alone.
+ */
+export function redactUrlsInText(text: string): string {
+  if (!text || text.length > MAX_TEXT_LENGTH) return text;
+  if (!text.includes("/")) return text;
+
+  let spans = 0;
+  return text.replace(URL_SPAN, (span) => {
+    if (spans >= MAX_SPANS) return span;
+    spans += 1;
+    const redacted = redactCapabilityTokens(span);
+    return redacted.includes(PLACEHOLDER) ? redacted : span;
+  });
+}

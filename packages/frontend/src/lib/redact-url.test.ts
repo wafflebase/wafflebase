@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactCapabilityTokens } from "./redact-url";
+import { redactCapabilityTokens, redactUrlsInText } from "./redact-url";
 
 describe("redactCapabilityTokens", () => {
   it.each([
@@ -72,5 +72,53 @@ describe("redactCapabilityTokens", () => {
   it("does not treat a path that merely contains the word shared as one", () => {
     const url = "/documents/shared-notes";
     expect(redactCapabilityTokens(url)).toBe(url);
+  });
+});
+
+describe("redactUrlsInText", () => {
+  it("redacts a URL embedded in a sentence", () => {
+    expect(
+      redactUrlsInText("could not load /documents/x/file?token=secret twice"),
+    ).toBe("could not load /documents/x/file?token=__redacted__ twice");
+  });
+
+  it("redacts an absolute URL in prose", () => {
+    expect(
+      redactUrlsInText("GET https://wafflebase.io/shared/abc failed"),
+    ).toBe("GET https://wafflebase.io/shared/__redacted__ failed");
+  });
+
+  it("redacts more than one span", () => {
+    expect(redactUrlsInText("/shared/a -> /invite/b")).toBe(
+      "/shared/__redacted__ -> /invite/__redacted__",
+    );
+  });
+
+  it("stops a span at a closing bracket or quote", () => {
+    expect(redactUrlsInText('src="/shared/abc" (bad)')).toBe(
+      'src="/shared/__redacted__" (bad)',
+    );
+  });
+
+  it("leaves text with nothing to redact byte-for-byte identical", () => {
+    // Important: a span is substituted only when something was actually
+    // redacted, so an ordinary path is not rewritten by URL normalization.
+    const text = "navigated to /w/jiyu/documents?folderId=4 ok";
+    expect(redactUrlsInText(text)).toBe(text);
+  });
+
+  it("leaves text with no slash at all alone", () => {
+    expect(redactUrlsInText("something went wrong")).toBe(
+      "something went wrong",
+    );
+  });
+
+  it("passes an empty string straight through", () => {
+    expect(redactUrlsInText("")).toBe("");
+  });
+
+  it("returns very long text unchanged rather than truncating it", () => {
+    const long = `${"x".repeat(9000)} /shared/abc`;
+    expect(redactUrlsInText(long)).toBe(long);
   });
 });
