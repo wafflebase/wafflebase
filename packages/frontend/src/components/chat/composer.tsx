@@ -114,15 +114,25 @@ export function Composer({
   // typed in that window is the user's own, so it is kept and saved as their
   // draft rather than replaced by whatever was stored.
   const [draftFor, setDraftFor] = useState({ userId, channelId });
+  // Bumped when the box takes another draft; the mentions picked for the
+  // old one are dropped once that render commits.
+  const [draftSwaps, setDraftSwaps] = useState(0);
   if (draftFor.userId !== userId || draftFor.channelId !== channelId) {
     const resolved =
       draftFor.userId === undefined && draftFor.channelId === channelId;
     setDraftFor({ userId, channelId });
     if (!resolved || !body) {
       setBody(draftStore.get(userId, channelId));
-      mention.reset();
+      setDraftSwaps((n) => n + 1);
     }
   }
+  // Not while rendering: the picked mentions live in a ref, which a render
+  // React throws away would not roll back, leaving the kept draft's `@name`s
+  // to go out as plain text.
+  const resetMentions = mention.reset;
+  useEffect(() => {
+    if (draftSwaps > 0) resetMentions();
+  }, [draftSwaps, resetMentions]);
 
   // The box is saved as the draft of whoever and wherever it now belongs to,
   // after the render commits: rendering only reads storage, since React may

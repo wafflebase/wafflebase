@@ -24,7 +24,11 @@ function setup(url: string, ready = true, found: () => boolean = () => true) {
     },
     { wrapper, initialProps: { ready } },
   );
-  return { apply, hook, go: (to: string) => act(() => navigate(to)) };
+  return {
+    apply,
+    hook,
+    go: (to: string, replace = false) => act(() => navigate(to, { replace })),
+  };
 }
 
 describe("useAnchorParam", () => {
@@ -45,11 +49,22 @@ describe("useAnchorParam", () => {
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
-  it("applies a new value, not the same one again", () => {
+  it("applies a new value", () => {
     const { apply, go } = setup(`/p/d1?at=${slide("s2")}`);
     go(`/p/d1?at=${slide("s3")}&chat=c1`);
-    go(`/p/d1?at=${slide("s3")}`);
     expect(apply.mock.calls.map(([a]) => a.slideId)).toEqual(["s2", "s3"]);
+  });
+
+  it("applies the same anchor again when it is navigated to again", () => {
+    // Clicking the same card twice: the URL does not change, but the
+    // reader asked to be taken there again.
+    const url = `/p/d1?at=${slide("s2")}&chat=c1`;
+    const { apply, go, hook } = setup(url);
+    go(url);
+    hook.rerender({ ready: true });
+    // A `<Link>` to the current URL replaces the entry rather than pushing.
+    go(url, true);
+    expect(apply).toHaveBeenCalledTimes(3);
   });
 
   it("ignores garbage and another type's anchor", () => {

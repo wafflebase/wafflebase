@@ -201,8 +201,27 @@ describe("ThreadView scroll", () => {
   });
 
   it("offers Retry when the thread fails to load", () => {
+    threadData = [];
     threadState = { error: new Error("boom"), hasOlder: false };
     renderThread();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't load this thread.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retryThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the loaded replies when a background refresh fails", () => {
+    // React Query keeps `data` on a failed refetch and sets `error` beside
+    // it: the replies already read must stay, with a quiet way to retry.
+    threadState = { error: new Error("boom"), hasOlder: false };
+    renderThread();
+    for (const s of [2, 3, 4, 5, 6]) {
+      expect(document.getElementById(`chat-message-m${s}`)).toBeInTheDocument();
+    }
+    expect(screen.queryByText("Couldn't load this thread.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Couldn't refresh replies.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retryThread).toHaveBeenCalledTimes(1);
   });

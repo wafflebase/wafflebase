@@ -138,6 +138,34 @@ describe("isUnknownClientIdRefusal", () => {
   });
 });
 
+describe("fetchChannelFiles paging", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it("asks for the first page with no paging parameters", async () => {
+    const { fetchChannelFiles } = await load();
+    mockFetch.mockResolvedValueOnce(okJson({ files: [], cursor: null }));
+    await fetchChannelFiles("w1", "c1");
+    const url = new URL(mockFetch.mock.calls[0][0] as string);
+    expect(url.pathname).toMatch(/\/workspaces\/w1\/chat\/channels\/c1\/files$/);
+    expect([...url.searchParams.keys()]).toEqual([]);
+  });
+
+  it("sends limit and an opaque cursor, encoded", async () => {
+    const { fetchChannelFiles } = await load();
+    const page = { files: [], cursor: "next" };
+    mockFetch.mockResolvedValueOnce(okJson(page));
+    // A cursor is opaque: whatever it holds must arrive as it was handed out.
+    const before = "2026-11-25T00:00:00.000Z|a+b/c=&d";
+    await expect(
+      fetchChannelFiles("w1", "c1", { limit: 20, before }),
+    ).resolves.toEqual(page);
+    const url = new URL(mockFetch.mock.calls[0][0] as string);
+    expect(url.searchParams.get("limit")).toBe("20");
+    expect(url.searchParams.get("before")).toBe(before);
+    expect(url.search).not.toContain("a+b/c=&d");
+  });
+});
+
 describe("fetchDocumentSharedIn", () => {
   beforeEach(() => mockFetch.mockReset());
 

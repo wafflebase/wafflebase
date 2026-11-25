@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { startTransition, Suspense, useState } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "@/components/chat/composer";
@@ -153,6 +154,46 @@ describe("Composer", () => {
     render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
     expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
     expect(box()).toHaveValue("saved");
+  });
+
+  it("keeps picked mentions when a render switching drafts is discarded", async () => {
+    // A transition that suspends throws its render away: the box stays on
+    // c1, so the mention picked there must still expand when it is sent.
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const never = new Promise<never>(() => undefined);
+    let switchTo!: (channelId: string) => void;
+    function Suspends({ when }: { when: boolean }): null {
+      if (when) throw never;
+      return null;
+    }
+    function Host() {
+      const [channelId, setChannelId] = useState("c1");
+      switchTo = (next) => startTransition(() => setChannelId(next));
+      return (
+        <Suspense fallback={null}>
+          <Composer
+            channelId={channelId}
+            userId={1}
+            onSend={onSend}
+            members={[{ userId: "2", username: "minji" }]}
+          />
+          <Suspends when={channelId !== "c1"} />
+        </Suspense>
+      );
+    }
+    render(<Host />);
+    fireEvent.change(combo(), {
+      target: { value: "hi @min", selectionStart: 7 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
+    await act(async () => switchTo("c2"));
+    expect(combo()).toHaveValue("hi @minji ");
+    // Typing on renders afresh, reading the picked mentions again.
+    fireEvent.change(combo(), {
+      target: { value: "hi @minji !", selectionStart: 11 },
+    });
+    fireEvent.keyDown(combo(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("hi @[minji](2) !");
   });
 
   it("loads the stored draft when the user resolves on an empty box", () => {

@@ -766,8 +766,22 @@ describe("channel events and public channels the reader has not joined", () => {
   });
 
   it("ignores a malformed channel frame", () => {
-    const { source } = harness();
-    expect(() => source.emit("channel", { channelId: 4 })).not.toThrow();
+    const { queryClient, source } = harness();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    act(() => {
+      source.emit("channel", { channelId: "c1" });
+      source.emit("channel", { workspaceId: 4, channelId: "c1" });
+      source.emit("channel", { workspaceId: "w1", channelId: 4 });
+      source.emit("channel", null);
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // Positive control: the same listener does act on a well-formed frame.
+    act(() => source.emit("channel", { workspaceId: "w1", channelId: "c1" }));
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: chatKeys.channels("w1"),
+    });
   });
 
   it("a message in a channel the reader is previewing catches it up", async () => {

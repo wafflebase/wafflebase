@@ -202,6 +202,7 @@ export function ThreadView({
     onDiscard: sender.discard,
   };
 
+  const refreshFailed = !!thread.error && !!thread.data?.length;
   const checkboxId = `also-in-channel-${rootId}`;
   // An archived channel gets the composer anyway, disabled with its reason,
   // so a non-member previewing one is told why there is no reply box.
@@ -235,7 +236,7 @@ export function ThreadView({
         ) : null}
         {thread.isLoading ? (
           <p className="p-4 text-sm text-muted-foreground">Loading replies…</p>
-        ) : thread.error ? (
+        ) : thread.error && !thread.data?.length ? (
           <div className="flex flex-col items-start gap-3 p-4">
             <p role="alert" className="text-sm text-muted-foreground">
               {userFacingError(thread.error, "Couldn't load this thread.")}
@@ -281,6 +282,22 @@ export function ThreadView({
               ))}
             </ol>
           </>
+        )}
+        {refreshFailed && (
+          // A failed refetch keeps the replies React Query already holds;
+          // replacing them with the error state would throw away the
+          // reader's place for a background read they never asked for.
+          <div className="mx-4 mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Couldn't refresh replies.</span>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs pointer-coarse:min-h-11"
+              onClick={() => void thread.retry()}
+            >
+              Retry
+            </Button>
+          </div>
         )}
       </div>
       <span aria-live="polite" className="sr-only">
