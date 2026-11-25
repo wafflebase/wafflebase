@@ -83,7 +83,10 @@ import { useRightPanels } from "@/components/use-right-panels";
 import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
 import type { SheetAnchor } from "@/components/chat/document-link";
 import { useAnchorParam } from "@/components/chat/use-anchor-param";
-import { resolveSheetChatAnchor } from "@/app/spreadsheet/chat-anchor";
+import {
+  resolveSheetChatAnchor,
+  sheetAnchorSelectionType,
+} from "@/app/spreadsheet/chat-anchor";
 import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -403,7 +406,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         selection: {
           tabId: anchor.tabId,
           otherTab: false,
-          selectionType: "cell",
+          selectionType: sheetAnchorSelectionType(anchor),
           range,
         },
         requestId: undoJumpSeq.current,

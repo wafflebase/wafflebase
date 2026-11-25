@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import {
   anchorLabel,
   buildDocumentPath,
+  decodeAnchor,
   parseDocumentLink,
   routerBasename,
 } from "./document-link";
@@ -192,6 +193,65 @@ interface LinkContext {
   tabIndex: number | undefined;
   refs: ReadonlyMap<string, ChatDocumentRefDto>;
   channelId?: string;
+  /** Per document, which of its links (in body order) renders as the card. */
+  cardAt: ReadonlyMap<string, number>;
+  /** Per document, how many of its links have been rendered so far. */
+  seen: Map<string, number>;
+}
+
+/** The links in `text`, trailing sentence punctuation trimmed off. */
+function* bodyLinks(text: string): Generator<{ start: number; url: string }> {
+  for (const match of text.matchAll(URL_RE)) {
+    let url = match[0];
+    const trailing = TRAILING_PUNCTUATION.exec(url)?.[0] ?? "";
+    if (trailing) url = url.slice(0, -trailing.length);
+    yield { start: match.index ?? 0, url };
+  }
+}
+
+/** Key-order-insensitive JSON, since a stored anchor comes back from jsonb. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(record[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/**
+ * Which link to each referenced document is its card. The server keeps one
+ * ref per document, so a body that links one document twice has a single
+ * stored anchor; carding every link would label — and send — the second to
+ * the first's place. The card goes on the first link whose own `?at=`
+ * decodes to the stored anchor, else (the stored one matching none) on the
+ * first link; the rest stay plain links to where they say.
+ */
+function pickCards(
+  texts: string[],
+  refs: ReadonlyMap<string, ChatDocumentRefDto>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const matched = new Map<string, number>();
+  for (const text of texts) {
+    for (const { url } of bodyLinks(text)) {
+      const doc = parseDocumentLink(url);
+      const docRef = doc ? refs.get(doc.documentId) : undefined;
+      if (!doc || !docRef) continue;
+      const index = counts.get(doc.documentId) ?? 0;
+      counts.set(doc.documentId, index + 1);
+      if (
+        !matched.has(doc.documentId) &&
+        canonical(decodeAnchor(doc.at, docRef.type)) === canonical(docRef.anchor)
+      ) {
+        matched.set(doc.documentId, index);
+      }
+    }
+  }
+  return new Map([...counts.keys()].map((id) => [id, matched.get(id) ?? 0]));
 }
 
 function linkify(
@@ -201,16 +261,18 @@ function linkify(
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
-  for (const match of text.matchAll(URL_RE)) {
-    const start = match.index ?? 0;
-    let url = match[0];
-    const trailing = TRAILING_PUNCTUATION.exec(url)?.[0] ?? "";
-    if (trailing) url = url.slice(0, -trailing.length);
+  for (const { start, url } of bodyLinks(text)) {
     if (start > last) out.push(text.slice(last, start));
     const key = `${keyPrefix}-${start}`;
     const doc = parseDocumentLink(url);
     const docRef = doc ? ctx.refs.get(doc.documentId) : undefined;
+    let isCard = false;
     if (doc && docRef) {
+      const index = ctx.seen.get(doc.documentId) ?? 0;
+      ctx.seen.set(doc.documentId, index + 1);
+      isCard = ctx.cardAt.get(doc.documentId) === index;
+    }
+    if (isCard && docRef) {
       out.push(
         <DocumentCard
           key={key}
@@ -221,7 +283,8 @@ function linkify(
         />,
       );
     } else if (url.startsWith("/")) {
-      // A bare path names no document here: it stays text.
+      // A bare path names no document here, or is a second link to a
+      // carded one: it stays text.
       out.push(url);
     } else {
       out.push(<BodyLink key={key} url={url} tabIndex={ctx.tabIndex} />);
@@ -266,10 +329,17 @@ export function MessageBody({
   channelId,
 }: MessageBodyProps) {
   const tabIndex = tabbable ? undefined : -1;
+  const segments = parseMentionBody(body);
+  const refMap = new Map((refs ?? []).map((r) => [r.documentId, r]));
   const linkContext: LinkContext = {
     tabIndex,
-    refs: new Map((refs ?? []).map((r) => [r.documentId, r])),
+    refs: refMap,
     channelId,
+    cardAt: pickCards(
+      segments.flatMap((s) => (s.type === "text" ? [s.value] : [])),
+      refMap,
+    ),
+    seen: new Map(),
   };
   // Tokens carry the id as text.
   const self = me === undefined ? null : String(me);
@@ -302,7 +372,7 @@ export function MessageBody({
           measured && !expanded && "line-clamp-12",
         )}
       >
-        {parseMentionBody(body).map((segment, i) =>
+        {segments.map((segment, i) =>
           segment.type === "text" ? (
             <Fragment key={i}>
               {linkify(segment.value, String(i), linkContext)}

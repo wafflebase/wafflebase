@@ -44,7 +44,7 @@ function renderButton() {
             path="*"
             element={
               <>
-                <ChannelFilesButton workspaceId="w1" channelId="c1" lastSeq={4} />
+                <ChannelFilesButton workspaceId="w1" channelId="c1" />
                 <Where />
               </>
             }
@@ -60,11 +60,27 @@ describe("ChannelFilesButton", () => {
     fetchFilesSpy.mockReset();
   });
 
+  it("asks for nothing until it is opened, and again on every open", async () => {
+    fetchFilesSpy.mockResolvedValue({ files: [file()], cursor: null });
+    renderButton();
+    const trigger = screen.getByRole("button", { name: "Files" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchFilesSpy).not.toHaveBeenCalled();
+
+    await userEvent.click(trigger);
+    await screen.findByRole("link", { name: /Roadmap/ });
+    expect(fetchFilesSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "1 file" })).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "1 file" }));
+    await waitFor(() => expect(fetchFilesSpy).toHaveBeenCalledTimes(2));
+  });
+
   it("counts the files and lists them with who shared them", async () => {
     fetchFilesSpy.mockResolvedValue({ files: [file()], cursor: null });
     renderButton();
-    const trigger = await screen.findByRole("button", { name: "1 file" });
-    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("button", { name: "Files" }));
     const row = await screen.findByRole("link", { name: /Roadmap/ });
     expect(row).toHaveTextContent("Slide 3");
     expect(row).toHaveTextContent("minji");
@@ -80,7 +96,7 @@ describe("ChannelFilesButton", () => {
   it("says so when nothing has been shared", async () => {
     fetchFilesSpy.mockResolvedValue({ files: [], cursor: null });
     renderButton();
-    await userEvent.click(await screen.findByRole("button", { name: "0 files" }));
+    await userEvent.click(screen.getByRole("button", { name: "Files" }));
     expect(await screen.findByText(/No documents shared yet/)).toBeInTheDocument();
   });
 
@@ -91,7 +107,7 @@ describe("ChannelFilesButton", () => {
         : { files: [file()], cursor: "next" },
     );
     renderButton();
-    await userEvent.click(await screen.findByRole("button", { name: "1+ files" }));
+    await userEvent.click(screen.getByRole("button", { name: "Files" }));
     await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
     await waitFor(() =>
       expect(screen.getByRole("link", { name: /Older/ })).toBeInTheDocument(),

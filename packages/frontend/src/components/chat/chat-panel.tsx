@@ -249,9 +249,10 @@ export function ChatPanel({
         </section>
       ) : (
         <Conversation
-          // The seed remounts the composer so a draft put in the store by
+          key={channelId}
+          // Remounts the composer alone so a draft put in the store by
           // `open({ draft })` shows up.
-          key={`${channelId}:${state?.draftSeed ?? 0}`}
+          draftSeed={state?.draftSeed ?? 0}
           workspaceId={workspaceId}
           channelId={channelId}
           onOpenThread={(rootId) => setThread({ channelId, rootId })}

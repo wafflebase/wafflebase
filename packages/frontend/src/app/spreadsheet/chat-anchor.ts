@@ -1,5 +1,6 @@
 import {
   anchorToRef,
+  parseColumnLabel,
   toColumnLabel,
   toSref,
   type Range,
@@ -93,4 +94,31 @@ export function resolveSheetChatAnchor(
     from,
     { r: from.r + anchor.rowSpan - 1, c: from.c + anchor.colSpan - 1 },
   ];
+}
+
+/**
+ * Whether `anchor` was shared as whole rows, whole columns or a cell range.
+ * The anchor schema carries only the top-left cell and spans, so this reads
+ * the label `sheetChatAnchor` wrote ("Sheet1!3:5", "Sheet1!C:E") — and only
+ * believes it when its count agrees with the spans, since a label is the
+ * sender's to write. A whole-sheet share is restored as its cell range:
+ * `applySelection` has no "all" of its own.
+ */
+export function sheetAnchorSelectionType(
+  anchor: SheetAnchor,
+): "cell" | "row" | "column" {
+  const spans = (from: number, to: number) =>
+    Math.min(to - from + 1, MAX_ANCHOR_SPAN);
+  const rows = /!(\d+):(\d+)$/.exec(anchor.label ?? "");
+  if (rows && spans(Number(rows[1]), Number(rows[2])) === anchor.rowSpan) {
+    return "row";
+  }
+  const cols = /!([A-Z]+):([A-Z]+)$/.exec(anchor.label ?? "");
+  if (
+    cols &&
+    spans(parseColumnLabel(cols[1]), parseColumnLabel(cols[2])) === anchor.colSpan
+  ) {
+    return "column";
+  }
+  return "cell";
 }

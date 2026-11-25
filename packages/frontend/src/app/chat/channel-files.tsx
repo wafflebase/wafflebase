@@ -23,18 +23,18 @@ const SHARED_AT = new Intl.DateTimeFormat([], {
 });
 
 /**
- * The Files query. Keyed on the channel's `lastSeq` as well, so a new
- * message (which may carry a card) refetches it without this view having to
- * watch the message cache; an edit that adds a card shows on the next open,
- * which refetches.
+ * The Files query, asked only while the popover is open: every viewer of a
+ * busy channel would otherwise re-read it on each new message. Each open
+ * refetches it (the data is stale at once), so a card posted since the last
+ * look shows the next time somebody looks.
  */
 function useChannelFiles(
   workspaceId: string,
   channelId: string,
-  lastSeq: number,
+  enabled: boolean,
 ) {
   return useInfiniteQuery({
-    queryKey: ["chat", channelId, "files", lastSeq],
+    queryKey: ["chat", channelId, "files"],
     queryFn: ({ pageParam }) =>
       fetchChannelFiles(workspaceId, channelId, {
         limit: PAGE,
@@ -42,28 +42,27 @@ function useChannelFiles(
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.cursor,
-    placeholderData: (previous) => previous,
+    enabled,
   });
 }
 
 interface ChannelFilesButtonProps {
   workspaceId: string;
   channelId: string;
-  lastSeq: number;
 }
 
 /**
  * The channel header's Files: every document a message here links to, once,
  * newest share first (`docs/design/chat.md` § Surfaces). Each row opens the
- * document with the chat panel on this channel.
+ * document with the chat panel on this channel. The count appears once the
+ * list has been opened, and is as of that open.
  */
 export function ChannelFilesButton({
   workspaceId,
   channelId,
-  lastSeq,
 }: ChannelFilesButtonProps) {
   const [open, setOpen] = useState(false);
-  const files = useChannelFiles(workspaceId, channelId, lastSeq);
+  const files = useChannelFiles(workspaceId, channelId, open);
   const rows = files.data?.pages.flatMap((p) => p.files) ?? [];
   const more = files.hasNextPage;
   const count =
@@ -74,13 +73,7 @@ export function ChannelFilesButton({
       : `${count} ${rows.length === 1 && !more ? "file" : "files"}`;
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) void files.refetch();
-      }}
-    >
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"

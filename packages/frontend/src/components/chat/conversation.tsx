@@ -67,6 +67,12 @@ interface ConversationProps {
   highlightMessageId?: string | null;
   /** The composer's placeholder, e.g. "Message #general". */
   placeholder?: string;
+  /**
+   * Bumped when a draft was put in the draft store from outside (the editor
+   * panel's "Send to chat"): the composer alone remounts to read it, so the
+   * log keeps its scroll and roving position.
+   */
+  draftSeed?: number;
 }
 
 /**
@@ -93,6 +99,7 @@ export function Conversation({
   onOpenThread,
   highlightMessageId,
   placeholder,
+  draftSeed,
 }: ConversationProps) {
   const { data: me, isPending: mePending } = useQuery({
     queryKey: ['me'],
@@ -548,6 +555,7 @@ export function Conversation({
           </div>
         ) : (
           <Composer
+            key={draftSeed}
             channelId={channelId}
             userId={me?.id}
             onSend={send}

@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
 import { Conversation } from "@/components/chat/conversation";
+import { draftStore } from "@/components/chat/draft-store";
 
 const msg = (seq: number, authorId = 2): ChatMessageDto => ({
   id: `m${seq}`,
@@ -670,6 +671,35 @@ describe("Conversation", () => {
       fireEvent.click(screen.getByRole("button", { name: "Discard" }));
       expect(discardSend).toHaveBeenCalledWith("b");
     });
+  });
+
+  it("reloads only the composer when a new draft is seeded", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = (draftSeed: number) => (
+      <QueryClientProvider client={client}>
+        <Conversation
+          workspaceId="w1"
+          channelId="c1"
+          onOpenThread={openThread}
+          draftSeed={draftSeed}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(0));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox")).not.toBeDisabled(),
+    );
+    const before = log();
+    scrollTo(700);
+    draftStore.set(1, "c1", "See /s/doc-1");
+    rerender(view(1));
+    expect(screen.getByRole("textbox")).toHaveValue("See /s/doc-1");
+    // The log is the same node, where the reader left it.
+    expect(log()).toBe(before);
+    expect(log().scrollTop).toBe(700);
+    draftStore.set(1, "c1", "");
   });
 
   it("offers Retry when the messages fail to load", () => {
