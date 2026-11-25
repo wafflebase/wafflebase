@@ -1181,6 +1181,34 @@ describeDb('Chat integration', () => {
       expect(replies.map((m) => m.body)).toEqual(['', '', '']);
     });
 
+    it('a reply delete heals a replyCount that drifted', async () => {
+      // A recount, not a decrement: a count that went wrong once (a hand
+      // edit, a write outside this service) is corrected by the next delete
+      // instead of being carried forward.
+      const { owner, channel } = await publicChannel();
+      const root = await messages.post(owner.id, channel.id, { body: 'root' });
+      const first = await messages.post(owner.id, channel.id, {
+        body: 'first',
+        threadRootId: root.id,
+      });
+      const second = await messages.post(owner.id, channel.id, {
+        body: 'second',
+        threadRootId: root.id,
+      });
+      await prisma.chatMessage.update({
+        where: { id: root.id },
+        data: { replyCount: 9 },
+      });
+
+      await messages.remove(owner.id, second.id);
+      const [top] = await messages.page(owner.id, channel.id, {});
+      expect(top).toMatchObject({
+        id: root.id,
+        replyCount: 1,
+        lastReplyAt: first.createdAt,
+      });
+    });
+
     it('a reply to a reply or to another channel is 400', async () => {
       const { owner, workspace, channel } = await publicChannel();
       const other = await channels.create(owner.id, workspace.id, {
