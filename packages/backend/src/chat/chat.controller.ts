@@ -38,6 +38,17 @@ import {
 } from './chat.types';
 
 /**
+ * The per-user pace of every route that writes a message: post, edit and
+ * delete. Each route keeps its own bucket. An edit is not cheaper than a
+ * post — it rewrites bell previews and can add a mention
+ * (`NotificationService.syncChatMessage`) — so it gets the same bound rather
+ * than none. That also caps the one way an edit can ping somebody
+ * repeatedly, toggling a mention out and back in: each ping costs two edits,
+ * half the rate a plain post can already mention them at.
+ */
+const MESSAGE_WRITE_THROTTLE = { default: { ttl: 10_000, limit: 30 } };
+
+/**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
  * scoped by the `:workspaceId` in its path, which may be an id or a slug:
  * a caller outside the workspace, and a channel or message belonging to a
@@ -205,7 +216,7 @@ export class ChatController {
    */
   @Post('channels/:channelId/messages')
   @UseGuards(UserThrottlerGuard)
-  @Throttle({ default: { ttl: 10_000, limit: 30 } })
+  @Throttle(MESSAGE_WRITE_THROTTLE)
   async post(
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
@@ -239,7 +250,10 @@ export class ChatController {
     return this.messages.get(Number(req.user.id), messageId, workspaceId);
   }
 
+  /** Throttled per user like `post`; see `MESSAGE_WRITE_THROTTLE`. */
   @Patch('messages/:messageId')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(MESSAGE_WRITE_THROTTLE)
   edit(
     @Param('workspaceId') workspaceId: string,
     @Param('messageId') messageId: string,
@@ -254,8 +268,11 @@ export class ChatController {
     );
   }
 
+  /** Throttled per user like `post`; see `MESSAGE_WRITE_THROTTLE`. */
   @Delete('messages/:messageId')
   @HttpCode(204)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(MESSAGE_WRITE_THROTTLE)
   async remove(
     @Param('workspaceId') workspaceId: string,
     @Param('messageId') messageId: string,
