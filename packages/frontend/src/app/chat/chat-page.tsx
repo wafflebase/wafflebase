@@ -305,8 +305,13 @@ export default function ChatPage() {
     );
 
   const { show } = chatLayout({ isMobile, channelId, threadId });
+  // The channel is resolved from the list (an unjoined public channel is in
+  // it too), so an id the loaded list lacks is gone or not readable, and a
+  // list that failed leaves the channel unknown rather than loading.
   const unknownChannel =
     !!channelId && !!channelsQuery.data && !channel;
+  const channelLoadFailed =
+    !!channelId && channelsQuery.isError && !channelsQuery.data;
   const label = channel ? channelLabel(channel, meId) : "";
 
   // The tab says where you are and how much needs you. The page owns the
@@ -380,6 +385,18 @@ export default function ChatPage() {
                   New message
                 </Button>
               </div>
+            </div>
+          ) : channelLoadFailed ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+              <p className="text-sm font-medium text-foreground">
+                Couldn't load this channel.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => void channelsQuery.refetch()}
+              >
+                Retry
+              </Button>
             </div>
           ) : unknownChannel ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
