@@ -77,9 +77,12 @@ export function redactCapabilityTokens(url: string): string {
   }
 
   if (!relative) return parsed.toString();
+  // A protocol-relative reference names a host of its own, so dropping it would
+  // rewrite `//host/shared/tok` as a path on this origin. Keep it.
+  const authority = url.startsWith("//") ? `//${parsed.host}` : "";
   // Rebuild rather than slicing off the throwaway origin, so a pathname that
   // happens to contain the host string is not mangled.
-  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return `${authority}${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
 /**
@@ -87,17 +90,49 @@ export function redactCapabilityTokens(url: string): string {
  * beginning at a `/`. Stops at whitespace and at the characters that normally
  * close a URL in prose or in serialized output — quotes, angle brackets,
  * brackets, parentheses, commas — so `(/shared/abc)` yields `/shared/abc`.
+ *
+ * A backslash is deliberately INSIDE the span rather than a delimiter. Any
+ * serializer that escapes forward slashes (PHP's `json_encode` by default, log
+ * pipelines that re-escape an already-JSON string) writes a share link as
+ * `\/shared\/tok`; treating `\` as the end of a span would cut that into
+ * `\/shared` and `\/tok`, neither of which is a prefix followed by a token, and
+ * the capability would ship unredacted. `unescapeSlashes` below undoes the
+ * escaping before parsing, since `new URL()` reads `\` as an authority
+ * delimiter.
  */
-const URL_SPAN = /https?:\/\/[^\s"'`<>()[\]{},\\]*|\/[^\s"'`<>()[\]{},\\]+/gi;
+const URL_SPAN = /https?:\/\/[^\s"'`<>()[\]{},]*|[/\\][^\s"'`<>()[\]{},]+/gi;
 
 /**
- * Free text is not a URL, so there is a ceiling on the work this does. Both
- * limits sit far above any real log line; they exist so that a megabyte of
+ * Whether a span could possibly hold a capability at all — built from the two
+ * lists above so it cannot drift from them. `%` counts because a prefix or a
+ * parameter name may arrive percent-encoded (`/%73hared/…`), which only
+ * `redactCapabilityTokens`'s decode step resolves.
+ *
+ * This is what the span budget below is spent on. Without it, the budget was
+ * consumed by every `/` in the text — `2026/11/25`, `1/2`, `src/lib/x.ts` are
+ * all spans — so a line with a few dates ahead of the URL exhausted it before
+ * reaching the token.
+ */
+const CAPABILITY_HINT = new RegExp(
+  `%|[\\\\/](?:${CAPABILITY_PREFIXES.join("|")})[\\\\/]|[?&](?:${CAPABILITY_PARAMS.join(
+    "|"
+  )})=`,
+  "i"
+);
+
+/**
+ * How many capability-shaped spans are parsed before the rest are replaced
+ * wholesale. Free text is not a URL, so there is a ceiling on the work this
+ * does; it sits far above any real log line and exists so a megabyte of
  * accidentally-stringified state cannot make `beforeSend` the slow part of an
  * error path.
  */
-const MAX_TEXT_LENGTH = 8_192;
-const MAX_SPANS = 32;
+const MAX_SPANS = 256;
+
+/** `\/shared\/tok` → `/shared/tok`. See `URL_SPAN`. */
+function unescapeSlashes(span: string): string {
+  return span.replace(/\\\//g, "/");
+}
 
 /**
  * Returns `text` with any capability token inside a URL-shaped span replaced.
@@ -111,19 +146,29 @@ const MAX_SPANS = 32;
  * `new URL()` normalization rather than by us — which is noise in the one
  * field a human reads to understand the error.
  *
- * Text longer than `MAX_TEXT_LENGTH` is returned unchanged rather than
- * truncated: this runs on data that is about to be sent, not stored, and
- * silently shortening somebody's error message is worse than leaving it alone.
+ * There is no ceiling on the length of the text: a long string is scanned like
+ * any other, and only the number of capability-shaped spans that get PARSED is
+ * bounded. Past that bound a span is replaced in full rather than passed
+ * through, so exhausting the budget costs context and never a token — the
+ * length cap this used to have failed the other way, returning a megabyte of
+ * stringified state with its tokens intact.
  */
 export function redactUrlsInText(text: string): string {
-  if (!text || text.length > MAX_TEXT_LENGTH) return text;
+  if (!text) return text;
   if (!text.includes("/")) return text;
 
   let spans = 0;
   return text.replace(URL_SPAN, (span) => {
-    if (spans >= MAX_SPANS) return span;
+    if (!CAPABILITY_HINT.test(span)) return span;
+    if (spans >= MAX_SPANS) return PLACEHOLDER;
     spans += 1;
-    const redacted = redactCapabilityTokens(span);
-    return redacted.includes(PLACEHOLDER) ? redacted : span;
+    const escaped = span.includes("\\/");
+    const redacted = redactCapabilityTokens(
+      escaped ? unescapeSlashes(span) : span
+    );
+    if (!redacted.includes(PLACEHOLDER)) return span;
+    // Put the escaping back, so a redacted span still reads like the
+    // serialized form it came out of.
+    return escaped ? redacted.replace(/\//g, "\\/") : redacted;
   });
 }

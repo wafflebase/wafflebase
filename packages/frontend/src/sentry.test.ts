@@ -93,14 +93,54 @@ describe("scrubCapabilityTokens", () => {
       ],
     } as unknown as Event;
 
-    const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
-      ?.arguments as unknown[];
+    const scrubbed = scrubCapabilityTokens(event);
+    const args = scrubbed.breadcrumbs?.[0].data?.arguments as unknown[];
     expect(args[0]).toBe("image load failed");
     expect(args[1]).toBe("/documents/x/file?token=__redacted__");
     expect(args[2]).toEqual({
       src: "https://wafflebase.io/documents/x/file?token=__redacted__",
     });
     expect(args[3]).toBe(404);
+    // The joined form of those same arguments, and the field the Sentry UI
+    // displays. Redacting only `data.arguments` leaves the token right here.
+    expect(scrubbed.breadcrumbs?.[0].message).toBe(
+      "image load failed /documents/x/file?token=__redacted__",
+    );
+  });
+
+  it("redacts a console breadcrumb's message", () => {
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          level: "error",
+          message: "could not open https://wafflebase.io/shared/secret-token",
+        },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      "could not open https://wafflebase.io/shared/__redacted__",
+    );
+  });
+
+  it("redacts the string elements of an array console argument", () => {
+    // Sentry's `normalize()` returns primitives before it checks the depth it
+    // has reached, so an array's strings arrive here intact.
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          data: {
+            arguments: ["failed", ["/shared/secret-token", 404]],
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
+      ?.arguments as unknown[];
+    expect(args[1]).toEqual(["/shared/__redacted__", 404]);
   });
 
   it("redacts a token embedded in a console argument's prose", () => {
@@ -122,8 +162,9 @@ describe("scrubCapabilityTokens", () => {
     expect(args[0]).toBe("could not open /shared/__redacted__ (offline)");
   });
 
-  it("leaves non-string console arguments alone", () => {
-    // The SDK has already normalized these; re-serializing application state
+  it("reaches a nested string and leaves non-strings alone", () => {
+    // Strings are rewritten wherever the bounded walk finds them; anything
+    // else is returned as it came, since re-serializing application state
     // inside a send hook is not this function's job.
     const nested = { request: { url: "/shared/aaa" } };
     const event = {
@@ -134,7 +175,7 @@ describe("scrubCapabilityTokens", () => {
 
     const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
       ?.arguments as unknown[];
-    expect(args[0]).toEqual({ request: { url: "/shared/aaa" } });
+    expect(args[0]).toEqual({ request: { url: "/shared/__redacted__" } });
     expect(args[1]).toBeNull();
     expect(args[2]).toBeUndefined();
   });
