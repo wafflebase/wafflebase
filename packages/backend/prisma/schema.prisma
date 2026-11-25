@@ -537,8 +537,12 @@ model ChatMessage {
   deletedAt     DateTime?
   createdAt     DateTime    @default(now())
   refs          ChatDocumentRef[]
+  /// The poster's own id for this send. A retry carrying the same one gets
+  /// the message back instead of a second copy.
+  clientId      String?
 
   @@unique([channelId, seq])
+  @@unique([channelId, authorId, clientId])
   @@index([threadRootId, seq])
   @@index([channelId, threadRootId, seq])
 }

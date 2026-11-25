@@ -138,6 +138,15 @@ export interface StreamUpdateEvent {
   threadRootId: string | null;
 }
 
+/**
+ * The `channel` event of `GET /chat/stream`: a channel's name, topic or
+ * archive state changed. Ids only; the client refetches its channel list.
+ */
+export interface StreamChannelEvent {
+  workspaceId: string;
+  channelId: string;
+}
+
 /** One page of messages, as the server sizes it. */
 export const CHAT_PAGE_SIZE = 50;
 /** Longest body the server accepts. */
@@ -291,10 +300,20 @@ export async function fetchMessages(
   return res.json();
 }
 
+/**
+ * Post a message. `clientId` is the send's own id, the same on every retry,
+ * so a retry whose first attempt reached the server gets that message back
+ * instead of posting it twice.
+ */
 export async function postMessage(
   workspaceId: string,
   channelId: string,
-  input: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+  input: {
+    body: string;
+    threadRootId?: string;
+    alsoInChannel?: boolean;
+    clientId?: string;
+  },
 ): Promise<ChatMessageDto> {
   const res = await fetchWithAuth(
     `${channelBase(workspaceId, channelId)}/messages`,

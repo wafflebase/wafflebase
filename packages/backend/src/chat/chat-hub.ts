@@ -7,7 +7,12 @@ import {
 import { Observable, Subject, Subscription, concatMap } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
-import { ChatBusEvent, ChatHubEvent, ChatRoutedEvent } from './chat.types';
+import {
+  ChannelKind,
+  ChatBusEvent,
+  ChatHubEvent,
+  ChatRoutedEvent,
+} from './chat.types';
 
 /**
  * How long a cached member set is trusted. Eviction is `mem`-driven, and a
@@ -22,17 +27,34 @@ export const MEMBER_CACHE_TTL_MS = 60_000;
 const MEMBER_LOAD_ATTEMPTS = 3;
 
 /**
+ * Channels whose kind and workspace are remembered. Both are fixed for a
+ * channel's lifetime, so an entry never goes stale; the bound only keeps a
+ * long-lived replica from holding every channel it ever routed.
+ */
+const CHANNEL_CACHE_MAX = 10_000;
+
+type CachedSet = { set: Set<number>; loadedAt: number };
+
+/**
  * Per-replica routing from the chat bus to the SSE handlers connected here.
  *
- * Each `msg` and `upd` goes to the connected users who are members of its channel.
- * Member sets are cached per channel, loaded lazily on the first event a
- * channel sends while somebody is connected, and evicted by that channel's
- * `mem` event — so a member removed while their stream is open stops
- * receiving it from the next event on. An entry also expires after
- * `MEMBER_CACHE_TTL_MS`, in case its `mem` was never sent. A bus reconnect
- * evicts everything, since a `mem` sent during the outage never arrived, and
- * tells every open stream `ready` so its client catches up on what the
- * outage swallowed.
+ * Each `msg`, `upd` and `chn` goes to the connected users who can read its
+ * channel (`canRead`): for a private channel or a DM its members, for a
+ * public channel every member of its workspace — joined or not, since any of
+ * them may be previewing it, and its rename or archive changes the channel
+ * list each of them sees. The events are ids only, so the wider audience
+ * learns nothing a channel-list fetch would not tell it.
+ *
+ * Member sets are cached per channel, and workspace member sets per
+ * workspace, loaded lazily on the first event that needs one while somebody
+ * is connected. A channel's `mem` evicts its own set and every workspace
+ * set — removing somebody from a workspace announces `mem` for each channel
+ * they were in, #general at least, and does not say which workspace — so a
+ * member removed while their stream is open stops receiving from the next
+ * event on. An entry also expires after `MEMBER_CACHE_TTL_MS`, in case its
+ * `mem` was never sent. A bus reconnect evicts everything, since a `mem`
+ * sent during the outage never arrived, and tells every open stream `ready`
+ * so its client catches up on what the outage swallowed.
  *
  * Events are routed one at a time, in arrival order: a `mem` must take
  * effect before the `msg` behind it, and a channel's messages must not
@@ -42,9 +64,11 @@ const MEMBER_LOAD_ATTEMPTS = 3;
 export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatHub.name);
   private readonly subscribers = new Map<number, Set<Subject<ChatHubEvent>>>();
-  private readonly members = new Map<
+  private readonly members = new Map<string, CachedSet>();
+  private readonly workspaceMembers = new Map<string, CachedSet>();
+  private readonly channels = new Map<
     string,
-    { set: Set<number>; loadedAt: number }
+    { kind: ChannelKind; workspaceId: string }
   >();
   /** Bumped by every reset, so a load that straddles one is not trusted. */
   private generation = 0;
@@ -79,7 +103,8 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Message and update events for one user, across every workspace they belong to.
+   * Message, update and channel events for one user, across every workspace
+   * they belong to.
    * Registration happens on subscribe, with a subject per subscription, for
    * the same reasons as `NotificationHub.subscribe`.
    */
@@ -112,6 +137,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private reset(): void {
     this.generation += 1;
     this.members.clear();
+    this.workspaceMembers.clear();
     for (const set of this.subscribers.values()) {
       for (const subject of set) subject.next({ t: 'ready' });
     }
@@ -120,6 +146,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private async route(event: ChatBusEvent): Promise<void> {
     if (event.t === 'mem') {
       this.members.delete(event.c);
+      this.workspaceMembers.clear();
       return;
     }
     // An idle replica has nobody to deliver to; skip the database.
@@ -127,7 +154,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
 
     let members: Set<number>;
     try {
-      members = await this.membersOf(event);
+      members = await this.readersOf(event);
     } catch (err) {
       // Nothing is cached, so the channel's next event retries the load.
       this.logger.warn(
@@ -144,13 +171,65 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Who may read the event's channel. The channel's own workspace is used,
+   * not the one the event names, so a malformed event cannot widen a public
+   * channel's audience to another workspace. A channel that no longer exists
+   * has nobody.
+   */
+  private async readersOf(event: ChatRoutedEvent): Promise<Set<number>> {
+    let channel = this.channels.get(event.c);
+    if (!channel) {
+      const row = await this.prisma.chatChannel.findUnique({
+        where: { id: event.c },
+        select: { kind: true, workspaceId: true },
+      });
+      if (!row) return new Set();
+      channel = { kind: row.kind as ChannelKind, workspaceId: row.workspaceId };
+      if (this.channels.size >= CHANNEL_CACHE_MAX) this.channels.clear();
+      this.channels.set(event.c, channel);
+    }
+    if (channel.kind === 'public') {
+      return this.cachedLoad(
+        this.workspaceMembers,
+        channel.workspaceId,
+        async () =>
+          (
+            await this.prisma.workspaceMember.findMany({
+              where: { workspaceId: channel.workspaceId },
+              select: { userId: true },
+            })
+          ).map((row) => row.userId),
+      );
+    }
+    return this.membersOf(event.c, channel.workspaceId);
+  }
+
+  /**
    * The channel's members who still belong to its workspace. The second
    * condition is the policy's "workspace membership first": a channel row
    * that outlives the workspace membership grants nothing, here as in
    * `canRead`.
    */
-  private async membersOf(event: ChatRoutedEvent): Promise<Set<number>> {
-    const cached = this.members.get(event.c);
+  private membersOf(channelId: string, workspaceId: string) {
+    return this.cachedLoad(this.members, channelId, async () =>
+      (
+        await this.prisma.chatChannelMember.findMany({
+          where: {
+            channelId,
+            user: { workspaceMembers: { some: { workspaceId } } },
+          },
+          select: { userId: true },
+        })
+      ).map((row) => row.userId),
+    );
+  }
+
+  private async cachedLoad(
+    cache: Map<string, CachedSet>,
+    key: string,
+    load: () => Promise<number[]>,
+  ): Promise<Set<number>> {
+    const cached = cache.get(key);
     if (cached && Date.now() - cached.loadedAt < MEMBER_CACHE_TTL_MS) {
       return cached.set;
     }
@@ -160,16 +239,10 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
     // giving up drops this event, and the channel's next one loads again.
     for (let attempt = 0; attempt < MEMBER_LOAD_ATTEMPTS; attempt += 1) {
       const generation = this.generation;
-      const rows = await this.prisma.chatChannelMember.findMany({
-        where: {
-          channelId: event.c,
-          user: { workspaceMembers: { some: { workspaceId: event.w } } },
-        },
-        select: { userId: true },
-      });
+      const ids = await load();
       if (generation !== this.generation) continue;
-      const set = new Set(rows.map((row) => row.userId));
-      this.members.set(event.c, { set, loadedAt: Date.now() });
+      const set = new Set(ids);
+      cache.set(key, { set, loadedAt: Date.now() });
       return set;
     }
     throw new Error(

@@ -35,6 +35,14 @@ vi.mock("@/api/chat", () => ({
   fetchChannels: () => Promise.resolve([]),
 }));
 
+const fetchWithAuthSpy = vi.fn<(url: string) => Promise<Response>>();
+
+vi.mock("@/api/auth", () => ({
+  fetchWithAuth: (url: string) => fetchWithAuthSpy(url),
+  isAuthExpiredError: (e: unknown) =>
+    e instanceof Error && e.name === "AuthExpiredError",
+}));
+
 /** A stand-in `EventSource` the test can push named events through. */
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -116,6 +124,7 @@ function harness() {
 beforeEach(() => {
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);
+  fetchWithAuthSpy.mockResolvedValue(new Response("{}", { status: 200 }));
 });
 
 afterEach(() => {
@@ -125,28 +134,185 @@ afterEach(() => {
 });
 
 describe("chat connection state", () => {
-  it("is live after ready, reconnecting on a transient error, stopped when closed", () => {
-    const { source, view } = harness();
-    expect(getChatConnection()).toBe("connecting");
+  it("is live after ready, and reconnecting on a transient error or a close", () => {
+    vi.useFakeTimers();
+    try {
+      const { source, view } = harness();
+      expect(getChatConnection()).toBe("connecting");
 
-    act(() => source.emit("ready", {}));
-    expect(getChatConnection()).toBe("live");
+      act(() => source.emit("ready", {}));
+      expect(getChatConnection()).toBe("live");
 
-    // EventSource retries on its own while CONNECTING.
-    source.readyState = 0;
-    act(() => source.emit("error", {}));
-    expect(getChatConnection()).toBe("reconnecting");
+      // EventSource retries on its own while CONNECTING.
+      source.readyState = 0;
+      act(() => source.emit("error", {}));
+      expect(getChatConnection()).toBe("reconnecting");
 
-    act(() => source.emit("ready", {}));
-    expect(getChatConnection()).toBe("live");
+      act(() => source.emit("ready", {}));
+      expect(getChatConnection()).toBe("live");
 
-    // CLOSED means the browser gave up (e.g. a non-200 answer).
+      // CLOSED means the browser gave up; this hook opens a new stream.
+      source.readyState = FakeEventSource.CLOSED;
+      act(() => source.emit("error", {}));
+      expect(getChatConnection()).toBe("reconnecting");
+
+      view.unmount();
+      expect(getChatConnection()).toBe("connecting");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("stream recovery", () => {
+  const giveUp = (source: FakeEventSource) => {
     source.readyState = FakeEventSource.CLOSED;
     act(() => source.emit("error", {}));
-    expect(getChatConnection()).toBe("stopped");
+  };
 
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("reopens a stream the browser gave up on, once the session checks out", async () => {
+    // The scenario: the access cookie expired while the laptop slept, the
+    // browser's reconnect was answered 401, and EventSource stopped.
+    const { source } = harness();
+    act(() => source.emit("ready", {}));
+    giveUp(source);
+    expect(source.closed).toBe(true);
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    // `fetchWithAuth` is what refreshes an expired session.
+    expect(fetchWithAuthSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/me$/),
+    );
+    expect(FakeEventSource.instances).toHaveLength(2);
+    const next = FakeEventSource.instances[1];
+    expect(next.init).toEqual({ withCredentials: true });
+
+    act(() => next.emit("ready", {}));
+    expect(getChatConnection()).toBe("live");
+  });
+
+  it("the reopened stream catches the open channel up", async () => {
+    fetchMessagesSpy.mockResolvedValue([msg(1), msg(2)]);
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
+    giveUp(source);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    act(() => FakeEventSource.instances[1].emit("ready", {}));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(
+      queryClient
+        .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+        ?.map((m) => m.seq),
+    ).toEqual([1, 2]);
+  });
+
+  it("backs off while the session cannot be checked, capped", async () => {
+    fetchWithAuthSpy.mockRejectedValue(new TypeError("Failed to fetch"));
+    const { source } = harness();
+    giveUp(source);
+
+    const callsAfter = async (ms: number) => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+      return fetchWithAuthSpy.mock.calls.length;
+    };
+    expect(await callsAfter(999)).toBe(0);
+    expect(await callsAfter(1)).toBe(1); // 1 s
+    expect(await callsAfter(1999)).toBe(1);
+    expect(await callsAfter(1)).toBe(2); // 2 s later
+    expect(await callsAfter(4000)).toBe(3); // 4 s later
+    // Doubling stops at 30 s.
+    await callsAfter(8000 + 16_000);
+    const before = fetchWithAuthSpy.mock.calls.length;
+    expect(await callsAfter(30_000)).toBe(before + 1);
+    expect(await callsAfter(30_000)).toBe(before + 2);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(getChatConnection()).toBe("reconnecting");
+  });
+
+  it("stops for good when the session has expired", async () => {
+    const expired = new Error("Session expired");
+    expired.name = "AuthExpiredError";
+    fetchWithAuthSpy.mockRejectedValue(expired);
+    const { source } = harness();
+    giveUp(source);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(fetchWithAuthSpy).toHaveBeenCalledTimes(1);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(getChatConnection()).toBe("stopped");
+  });
+
+  it("tries at once when the browser comes back online", async () => {
+    fetchWithAuthSpy.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { source } = harness();
+    giveUp(source);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    // The next timed attempt is 2 s away; `online` does not wait for it.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("tries at once when the tab is shown again", async () => {
+    fetchWithAuthSpy.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { source } = harness();
+    giveUp(source);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("leaves a live stream alone when the tab is shown or goes online", async () => {
+    const { source } = harness();
+    act(() => source.emit("ready", {}));
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchWithAuthSpy).not.toHaveBeenCalled();
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it("stops trying once unmounted", async () => {
+    const { source, view } = harness();
+    giveUp(source);
     view.unmount();
-    expect(getChatConnection()).toBe("connecting");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchWithAuthSpy).not.toHaveBeenCalled();
+    expect(FakeEventSource.instances).toHaveLength(1);
   });
 });
 
@@ -551,5 +717,94 @@ describe("catch-up during the first load", () => {
     expect(takePendingCatchUp("c9")).toBe(true);
     expect(takePendingCatchUp("c9")).toBe(false);
     release([]);
+  });
+});
+
+describe("channel events and public channels the reader has not joined", () => {
+  it("a channel event refetches that workspace's channel list", async () => {
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.channels("w1"), [channel("c1")]);
+    queryClient.setQueryData(chatKeys.channels("w2"), [channel("c9")]);
+
+    act(() =>
+      source.emit("channel", { workspaceId: "w1", channelId: "c1" }),
+    );
+
+    expect(
+      queryClient.getQueryState(chatKeys.channels("w1"))?.isInvalidated,
+    ).toBe(true);
+    expect(
+      queryClient.getQueryState(chatKeys.channels("w2"))?.isInvalidated,
+    ).toBe(false);
+  });
+
+  it("ignores a malformed channel frame", () => {
+    const { source } = harness();
+    expect(() => source.emit("channel", { channelId: 4 })).not.toThrow();
+  });
+
+  it("a message in a channel the reader is previewing catches it up", async () => {
+    fetchMessagesSpy.mockResolvedValue([msg(2)]);
+    const { queryClient, source } = harness();
+    queryClient.setQueryData(chatKeys.channels("w1"), [
+      channel("c1", { isMember: false, lastReadSeq: null }),
+    ]);
+    queryClient.setQueryData(chatKeys.messages("c1"), [msg(1)]);
+    setOpenChatChannel({ workspaceId: "w1", channelId: "c1" });
+
+    act(() =>
+      source.emit("message", {
+        workspaceId: "w1",
+        channelId: "c1",
+        seq: 2,
+        threadRootId: null,
+        authorId: 2,
+        alsoInChannel: false,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<ChatMessageDto[]>(chatKeys.messages("c1"))
+          ?.map((m) => m.seq),
+      ).toEqual([1, 2]),
+    );
+  });
+
+  it("a message in an unjoined public channel not on screen counts nothing and refetches nothing", () => {
+    vi.useFakeTimers();
+    try {
+      const { queryClient, source } = harness();
+      queryClient.setQueryData(chatKeys.channels("w1"), [
+        channel("c1", { isMember: false, lastReadSeq: null }),
+      ]);
+
+      act(() =>
+        source.emit("message", {
+          workspaceId: "w1",
+          channelId: "c1",
+          seq: 5,
+          threadRootId: null,
+          authorId: 2,
+          alsoInChannel: false,
+        }),
+      );
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      const [row] = queryClient.getQueryData<ChannelSummary[]>(
+        chatKeys.channels("w1"),
+      )!;
+      expect(row.unreadCount).toBe(0);
+      expect(row.lastSeq).toBe(5);
+      expect(
+        queryClient.getQueryState(chatKeys.channels("w1"))?.isInvalidated,
+      ).toBe(false);
+      expect(fetchMessagesSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

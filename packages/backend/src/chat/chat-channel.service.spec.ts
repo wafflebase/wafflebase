@@ -91,7 +91,13 @@ function setup(
     },
     $transaction: jest.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
   };
-  const bus = { notifyMembership: jest.fn().mockResolvedValue(undefined) };
+  Object.assign(prisma.chatChannel, {
+    update: jest.fn().mockResolvedValue({}),
+  });
+  const bus = {
+    notifyMembership: jest.fn().mockResolvedValue(undefined),
+    notifyChannel: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new ChatChannelService(
     prisma as unknown as PrismaService,
     bus as unknown as ChatBus,
@@ -298,5 +304,47 @@ describe('ChatChannelService.openDm', () => {
       ],
       skipDuplicates: true,
     });
+  });
+});
+
+describe('ChatChannelService.update', () => {
+  function updating(opts: Parameters<typeof setup>[0] = {}) {
+    const h = setup(opts);
+    jest.spyOn(h.service, 'summaryOf').mockResolvedValue({ id: 'c1' } as never);
+    return h;
+  }
+
+  it.each([
+    ['a rename', { name: 'renamed' }],
+    ['a topic', { topic: 'new topic' }],
+    ['an archive', { archived: true }],
+    ['an unarchive', { archived: false }],
+  ])('announces %s to every replica after it commits', async (_label, data) => {
+    const { service, prisma, bus } = updating();
+    await service.update(CALLER, 'c1', data);
+    expect(
+      (prisma.chatChannel as unknown as { update: jest.Mock }).update,
+    ).toHaveBeenCalled();
+    expect(bus.notifyChannel).toHaveBeenCalledWith({
+      t: 'chn',
+      c: 'c1',
+      w: 'w1',
+    });
+  });
+
+  it('announces nothing when the update is refused', async () => {
+    const { service, bus } = updating({ createdBy: 99, role: 'member' });
+    await expect(
+      service.update(CALLER, 'c1', { name: 'renamed' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bus.notifyChannel).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds when the channel notify fails', async () => {
+    const { service, bus } = updating();
+    bus.notifyChannel.mockRejectedValue(new Error('bus down'));
+    await expect(service.update(CALLER, 'c1', { topic: 't' })).resolves.toEqual(
+      { id: 'c1' },
+    );
   });
 });

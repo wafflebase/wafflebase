@@ -19,6 +19,7 @@ const PROBE_TIMEOUT_MS = 5_000;
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
 type UpdEvent = Extract<ChatBusEvent, { t: 'upd' }>;
+type ChnEvent = Extract<ChatBusEvent, { t: 'chn' }>;
 
 /**
  * Narrow an untrusted NOTIFY payload to a `ChatBusEvent`. Anybody with a
@@ -57,6 +58,9 @@ export function parsePayload(
     (o.r === null || typeof o.r === 'string')
   ) {
     return { t: 'upd', c: o.c, w: o.w, id: o.id, r: o.r };
+  }
+  if (o.t === 'chn' && typeof o.w === 'string') {
+    return { t: 'chn', c: o.c, w: o.w };
   }
   return null;
 }
@@ -183,6 +187,11 @@ export class ChatBus implements OnModuleInit, OnModuleDestroy {
   /** A message was edited or deleted. Ids only, like `notifyMessage`. */
   async notifyUpdate(e: UpdEvent): Promise<void> {
     await this.send({ t: 'upd', c: e.c, w: e.w, id: e.id, r: e.r });
+  }
+
+  /** A channel was renamed, re-topicked, archived or unarchived. */
+  async notifyChannel(e: ChnEvent): Promise<void> {
+    await this.send({ t: 'chn', c: e.c, w: e.w });
   }
 
   async notifyMembership(channelId: string): Promise<void> {

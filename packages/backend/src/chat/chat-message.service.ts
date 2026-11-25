@@ -48,6 +48,12 @@ type MessageRow = ChatMessage & {
   channel?: { workspaceId: string };
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+  );
+}
+
 function toDto(m: MessageRow): ChatMessageDto {
   return {
     id: m.id,
@@ -108,14 +114,32 @@ export class ChatMessageService {
    * since replying in a thread is not reading the channel. Only after
    * it commits do other replicas hear of it, so nobody is told about a
    * message they cannot fetch yet.
+   *
+   * A `clientId` makes the post idempotent per author and channel: a retry
+   * whose first attempt did reach the server — the response was lost, or a
+   * reload cut it off — gets that message back, with no second `seq`, event
+   * or notification. Two attempts racing both miss the lookup; the unique
+   * index lets one insert win and the other reads the winner.
    */
   async post(
     userId: number,
     channelId: string,
-    data: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+    data: {
+      body: string;
+      threadRootId?: string;
+      alsoInChannel?: boolean;
+      clientId?: string;
+    },
   ): Promise<ChatMessageDto> {
     checkBody(data.body);
     const { channel, ctx } = await this.channels.resolve(userId, channelId);
+    const clientId = data.clientId ?? null;
+    if (clientId !== null) {
+      // Before the archive check: a send that landed just before the
+      // channel was archived still reports success on retry.
+      const earlier = await this.findByClientId(userId, channelId, clientId);
+      if (earlier) return toDto(earlier);
+    }
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
     const body = await this.canonicalBody(data.body, channel);
 
@@ -135,7 +159,7 @@ export class ChatMessageService {
     // "Also send to channel" only means something for a reply.
     const alsoInChannel = threadRootId !== null && data.alsoInChannel === true;
 
-    const created = await this.prisma.$transaction(async (tx) => {
+    const inserting = this.prisma.$transaction(async (tx) => {
       // The archive check is repeated here, under the lock, so a channel
       // archived after `resolve` cannot take one more message.
       const allocated = await tx.$queryRaw<{ lastSeq: bigint }[]>`
@@ -157,6 +181,7 @@ export class ChatMessageService {
           body,
           threadRootId,
           alsoInChannel,
+          clientId,
         },
         include: { author: AUTHOR },
       });
@@ -192,6 +217,14 @@ export class ChatMessageService {
       }
       return message;
     }, POST_TRANSACTION);
+    let duplicate: MessageRow | null = null;
+    const created = await inserting.catch(async (err: unknown) => {
+      if (clientId === null || !isUniqueViolation(err)) throw err;
+      duplicate = await this.findByClientId(userId, channelId, clientId);
+      if (!duplicate) throw err;
+      return duplicate;
+    });
+    if (duplicate) return toDto(duplicate);
 
     const dto = toDto(created);
     dto.refs = await this.documentRefs.sync(dto.id, channel, body);
@@ -218,6 +251,19 @@ export class ChatMessageService {
     }
     await this.afterPost(dto, channel, ctx);
     return dto;
+  }
+
+  /** The message this author already posted to the channel under `clientId`. */
+  private findByClientId(
+    userId: number,
+    channelId: string,
+    clientId: string,
+  ): Promise<MessageRow | null> {
+    return this.prisma.chatMessage.findFirst({
+      where: { channelId, authorId: userId, clientId },
+      // The earlier send's cards come back with it.
+      include: MESSAGE_INCLUDE,
+    });
   }
 
   /**

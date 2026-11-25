@@ -118,8 +118,9 @@ export interface ChatFileDto extends ChatDocumentRefDto {
  * message content — and short keys, since a NOTIFY payload is capped at 8 kB.
  * `msg`: channel, workspace, seq, thread root, author, and whether a reply
  * was also sent to the channel (so it counts as unread there). `upd`: a message
- * was edited or deleted — channel, workspace, message id, thread root. `mem`:
- * a channel's membership changed, so cached member sets for it are stale.
+ * was edited or deleted — channel, workspace, message id, thread root. `chn`:
+ * a channel's metadata (name, topic, archive state) changed. `mem`: a
+ * channel's membership changed, so cached member sets for it are stale.
  */
 export type ChatBusEvent =
   | {
@@ -132,10 +133,17 @@ export type ChatBusEvent =
       i: boolean;
     }
   | { t: 'upd'; c: string; w: string; id: string; r: string | null }
+  | { t: 'chn'; c: string; w: string }
   | { t: 'mem'; c: string };
 
-/** The bus events `ChatHub` routes to a channel's connected members. */
-export type ChatRoutedEvent = Extract<ChatBusEvent, { t: 'msg' | 'upd' }>;
+/**
+ * The bus events `ChatHub` routes to a channel's readers: its members, or
+ * for a public channel every member of its workspace.
+ */
+export type ChatRoutedEvent = Extract<
+  ChatBusEvent,
+  { t: 'msg' | 'upd' | 'chn' }
+>;
 
 /**
  * What `ChatHub` hands one user's streams: their channels' routed events,
@@ -163,4 +171,13 @@ export interface StreamUpdateEvent {
   channelId: string;
   messageId: string;
   threadRootId: string | null;
+}
+
+/**
+ * The `channel` event of `GET /chat/stream`: a channel's name, topic or
+ * archive state changed. Ids only; the client refetches its channel list.
+ */
+export interface StreamChannelEvent {
+  workspaceId: string;
+  channelId: string;
 }

@@ -291,20 +291,30 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
             className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs"
           >
             <span className="font-medium text-destructive">Not sent</span>
+            {message.failure?.reason && (
+              <span className="text-muted-foreground">
+                {message.failure.reason}
+              </span>
+            )}
             <span aria-hidden className="text-muted-foreground">
               ·
             </span>
-            <button
-              type="button"
-              tabIndex={tabIndex}
-              onClick={() => host.onRetry?.(message.clientId!)}
-              className="rounded-sm font-medium text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
-            >
-              Retry
-            </button>
-            <span aria-hidden className="text-muted-foreground">
-              ·
-            </span>
+            {/* A refusal the server will repeat (a 400/404/409) offers no Retry. */}
+            {message.failure?.retryable !== false && (
+              <>
+                <button
+                  type="button"
+                  tabIndex={tabIndex}
+                  onClick={() => host.onRetry?.(message.clientId!)}
+                  className="rounded-sm font-medium text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+                >
+                  Retry
+                </button>
+                <span aria-hidden className="text-muted-foreground">
+                  ·
+                </span>
+              </>
+            )}
             <button
               type="button"
               tabIndex={tabIndex}
