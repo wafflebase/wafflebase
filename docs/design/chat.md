@@ -386,6 +386,8 @@ client: GET /chat/stream (EventSource)
   made). The client fetches what it shows.
 - Membership for fan-out is cached per replica and invalidated by a second
   NOTIFY on membership changes.
+- A public channel's events go to every connected member of its workspace;
+  private channels and DMs to their members (see *P2 as built*).
 - **Catch-up**: on (re)connect the client re-reads unread counts and fetches
   `after=<lastSeenSeq>` for the open channel, so a dropped connection or a
   missed NOTIFY self-corrects.
@@ -552,9 +554,12 @@ and the panel; only the chrome around them differs.
    DMs / threads / edit / delete / unread, mentions into the bell, mobile
    list → conversation. Document URLs render as plain links. Deviations from
    this document are listed under *P1 as built* below.
-2. **P2 — The joins.** Document cards + `ChatDocumentRef` + Files list, anchors,
-   editor chat panel, "Send to chat" in the sheets/docs/slides context menus,
-   mobile bottom sheet.
+2. **P2 — The joins. Shipped** (branch `chat-review-hardening`; plan
+   [`20261125-chat-review-hardening-todo.md`](../tasks/active/20261125-chat-review-hardening-todo.md)),
+   together with the fixes a review of P1 found. Document cards +
+   `ChatDocumentRef` + Files list, anchors, editor chat panel, "Send to chat"
+   in the sheets/docs/slides context menus, mobile bottom sheet. Deviations
+   are listed under *P2 as built* below.
 3. **P3 — Agents and search.** Bot members (model, settings UI, login
    refusal, lifecycle), `/api/v1` mirror, CLI verbs incl. `chat inbox`, Bot /
    via API labels, plugin guard table, `pg_trgm` search.
@@ -723,6 +728,94 @@ say:
   rather than in a new tab. The tab title carries the Chat badge count and
   the channel, e.g. `(3) #q4-planning · Chat`.
 - **Search is not in P1.** `GET …/chat/search` moves with `pg_trgm` to P3.
+
+#### P2 as built
+
+The P2 joins shipped with a pass over P1 that a design critique and a
+functional review of it found. Where it departs from, or settles, the
+sections above:
+
+- **Public channel events reach the workspace.** `ChatHub` sends a public
+  channel's `message` / `update` / `channel` events to every connected
+  member of the channel's workspace, not only to its members, so a reader
+  previewing a channel they have not joined (where a mention deep link
+  lands) sees it live. `canRead` already lets every workspace member read a
+  public channel and the events carry ids only, so nothing new is
+  disclosed; private channels and DMs still go to their members only. The
+  channel's kind and workspace come from its row, never the payload.
+  Workspace member sets are cached per replica with the same 60 s TTL and
+  `mem` eviction as channel sets. The cost is one small frame per public
+  message to every connected workspace member; the client counts unread
+  only for channels the reader belongs to. A per-connection "watch" was
+  rejected: the watch request can land on another replica than the stream.
+- **Channel edits are pushed.** Rename, topic, archive and unarchive send a
+  `channel` stream event (`{ workspaceId, channelId }`, bus `{t:'chn'}`)
+  after commit, best effort; clients refetch the channel list, so an
+  archive turns a peer's composer read-only without a reload.
+- **The stream recovers.** When the browser gives up on the EventSource
+  (`CLOSED`), the client checks the session through `/auth/me` (which
+  refreshes a stale access cookie), then reopens the stream with capped
+  backoff (1 s → 30 s), and at once on `online` or the tab becoming visible.
+  The new stream's `ready` catches the open channel up. "Stopped" now means
+  only that the session ended.
+- **Posts are idempotent.** A post may carry `clientId`
+  (`[A-Za-z0-9_-]{1,64}`); `(channelId, authorId, clientId)` is unique, and
+  a repeat returns the first message with no new `seq`, notify or
+  notification. The client mints one per send and reuses it on retry,
+  including for sends restored after a reload. Refusals that cannot change
+  (400 / 404 / 409) show their reason without Retry; 408 / 429 / network /
+  5xx keep it.
+- **Edits keep the bell honest.** An edit rewrites the preview of the
+  message's `chat_mention` / `chat_thread_reply` rows, deletes mention rows
+  for people edited out, and notifies people edited in, with the post's
+  recipient rule. Leaving a private channel, or being removed from it or
+  from the workspace, deletes the person's chat rows for what they can no
+  longer read; leaving a public channel keeps them.
+- **Mentions only reach readers.** In a private channel or DM, a token
+  naming someone outside the channel is flattened to `@name`, and the
+  composer offers only the channel's members. Composer and edit-box length
+  are checked on the expanded body, the one the server checks. The mention
+  count matches the canonical `@[name](id)` token by regex, not a
+  `](id)` substring.
+- **A DM restore starts at the tail.** Re-opening a DM restores a returning
+  member with `lastReadSeq = lastSeq`: they can scroll the history (a DM's
+  membership is fixed), but nothing from while they were gone is unread.
+- **Thread bookkeeping.** Deleting a reply recounts the root's `replyCount`
+  and `lastReplyAt`; replying to a deleted root is `409`. A thread reads
+  back from its newest reply and loads older ones on demand ("Show earlier
+  replies") instead of dropping what is past ten pages.
+- **Drafts are keyed by user** (`wafflebase:chat-draft:<userId>:<channelId>`),
+  as pending sends are.
+- **`ChatDocumentRef` carries `channelId`** (no FK; the message cascade
+  covers deletes) with an index on `(channelId, createdAt)`, so the Files
+  list reads one index range. Links are accepted as root-relative paths or
+  absolute URLs on `FRONTEND_URL`'s origin and basename; at most 10 refs per
+  message. Title and type are read with the message, so a rename shows and a
+  trashed or moved document drops out. A failed ref sync is logged, never a
+  failed post. `GET …/channels/:cid/files` returns
+  `{ files: [{ documentId, type, title, anchor, messageId, sharedBy,
+  sharedAt }], cursor }`, newest share first, one row per document.
+- **Anchors carry a `label`.** Chat cannot turn axis or slide ids into
+  "Sheet1!C3:E7" without loading the document, so every anchor type has an
+  optional `label` (≤80 chars) written by whoever builds the link, and the
+  card shows it.
+- **The chat panel.** `useRightPanels` holds chat / comments / history for
+  sheet, docs, notes, board and the file viewers; slides, which already
+  kept one right panel in a `rightPanel` union, gained `"chat"` there. Board
+  and PDF comments, which lived in their collab providers, take the page's
+  pair, so board comments and history now collapse to one panel on a phone
+  as the others do. The panel picks `?chat=` / an explicit request, then the
+  channel this document was most recently shared in, then the last opened
+  channel, then the default channel; a thread opens in place with Back. It
+  is lazy-loaded so editor chunks do not grow. On a phone it sits in the
+  header `⋮` menu and opens as a bottom sheet; the file viewers keep their
+  free-form header row.
+- **Chat page finish.** A loading channel shows a header skeleton and a
+  disabled composer labelled "Message"; a thread load error has Retry; a
+  coarse pointer gets a visible actions trigger on a tapped row, besides
+  long-press; "Jump to… ⌘K" heads the channel list and Mod+/ opens a
+  shortcut sheet (the board's `ShortcutsHelpDialog`). The site header's
+  "Chat" is the page's one `h1`; day and unread dividers are not headings.
 
 ### Testing
 
