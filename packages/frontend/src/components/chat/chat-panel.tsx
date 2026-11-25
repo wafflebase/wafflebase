@@ -97,6 +97,9 @@ export function ChatPanel({
   const [thread, setThread] = useState<{ channelId: string; rootId: string } | null>(
     null,
   );
+  // Cleared, not just hidden: coming back to the channel shows its
+  // conversation, not the thread left open in it.
+  if (thread && thread.channelId !== channelId) setThread(null);
   const threadId = thread && thread.channelId === channelId ? thread.rootId : null;
 
   // A draft from `open({ draft })` without a channel goes to whichever one
