@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { backendOrigin } from "@/api/images";
-import { redactCapabilityTokens } from "@/lib/redact-url";
+import { redactCapabilityTokens, redactUrlsInText } from "@/lib/redact-url";
 
 /**
  * Default share of transactions sampled for tracing. Deliberately not 1.0 —
@@ -147,7 +147,72 @@ export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
         crumb.data![key] = redactCapabilityTokens(value);
       }
     }
+
+    // Console instrumentation records the joined `message` AND the raw
+    // argument array beside it: `{ message: safeJoin(args, " "), data: {
+    // arguments: args, logger: "console" } }`. Both carry whatever a
+    // `console.error`/`console.warn` was handed, and several of this app's URLs
+    // carry a capability as `?token=` — `fileUrl()` in `api/files.ts`, the
+    // share-link image resolver in `spreadsheet/image-cache.ts`. So either
+    // field alone ships the token with the next event, and `message` is the one
+    // the Sentry UI actually displays. Every crumb's message goes through the
+    // same scan: a `navigation` or `ui.click` message costs nothing to check
+    // and there is no reason to trust it either.
+    if (typeof crumb.message === "string") {
+      crumb.message = redactUrlsInText(crumb.message);
+    }
+
+    const args = crumb.data?.arguments;
+    if (Array.isArray(args)) {
+      crumb.data!.arguments = redactValue(args, MAX_DEPTH);
+    }
   }
 
   return event;
+}
+
+/**
+ * How deep the console-argument walk goes. The SDK runs `normalizeEvent` over
+ * every breadcrumb's `data` BEFORE `beforeSend` (`@sentry/core`'s
+ * `prepareEvent`), so what arrives here is a plain clone at `normalizeDepth`
+ * 3 — an `Error` argument has already become `{ message, name, stack }`, and
+ * anything below that depth is already the literal string `"[Object]"`. One
+ * level of slack over that, and the cap is also what makes the walk safe on a
+ * structure the normalizer did not in fact flatten.
+ */
+const MAX_DEPTH = 4;
+
+/**
+ * Redacts one console argument, in place, down to `MAX_DEPTH`.
+ *
+ * Every string reachable within that depth is rewritten — including the
+ * elements of an array argument, which normalization leaves as strings: Sentry's
+ * `normalize()` returns primitives early, before it ever looks at the depth it
+ * has reached, so `console.error("failed", [url])` arrives here with the URL
+ * intact at depth 1. Non-strings are returned as they came: serializing
+ * arbitrary values inside a send hook is not this function's job, and the SDK's
+ * own normalizer has already decided what of them survives.
+ *
+ * There is no budget on breadth. One that passed over-budget entries through
+ * would fail open — the argument holding the token is as likely to be the
+ * seventeenth as the first — and the normalizer has already bounded how much
+ * there is to walk (`normalizeMaxBreadth`), so the cost here is one scan of
+ * data that is about to be JSON-serialized anyway.
+ */
+function redactValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") return redactUrlsInText(value);
+  if (value === null || typeof value !== "object" || depth <= 0) return value;
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      value[i] = redactValue(value[i], depth - 1);
+    }
+    return value;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    record[key] = redactValue(record[key], depth - 1);
+  }
+  return record;
 }
