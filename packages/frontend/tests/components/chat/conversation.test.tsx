@@ -90,6 +90,9 @@ vi.mock("@/api/chat", () => ({
 vi.mock("@/components/comments/use-workspace-members", () => ({
   useWorkspaceMembers: () => [],
 }));
+vi.mock("@/components/chat/use-mentionable-members", () => ({
+  useMentionableMembers: () => [],
+}));
 vi.mock("@/components/chat/use-chat-stream", () => ({
   setOpenChatChannel: vi.fn(),
 }));

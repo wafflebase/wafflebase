@@ -81,19 +81,59 @@ describe("Composer", () => {
   });
 
   it("restores the draft on remount", () => {
-    const first = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
     type("half a thought");
     first.unmount();
-    render(<Composer channelId="c1" onSend={vi.fn()} />);
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
     expect(box()).toHaveValue("half a thought");
   });
 
   it("keeps drafts apart per channel", () => {
-    const first = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
     type("for c1");
     first.unmount();
-    render(<Composer channelId="c2" onSend={vi.fn()} />);
+    render(<Composer channelId="c2" userId={1} onSend={vi.fn()} />);
     expect(box()).toHaveValue("");
+  });
+
+  it("never shows one user's draft to another in the same tab", () => {
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
+    type("private thought");
+    first.unmount();
+    const second = render(
+      <Composer channelId="c1" userId={2} onSend={vi.fn()} />,
+    );
+    expect(box()).toHaveValue("");
+    // The user resolving after the first render loads their own draft.
+    second.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("private thought");
+  });
+
+  it("measures the limit after picked mentions expand", async () => {
+    render(
+      <Composer
+        channelId="c1"
+        onSend={vi.fn()}
+        members={[{ userId: "123456", username: "minji" }]}
+      />,
+    );
+    // `@minji` (6) becomes `@[minji](123456)` (16) on send.
+    const prefix = "x".repeat(4000 - 7);
+    fireEvent.change(combo(), {
+      target: { value: `${prefix} @min`, selectionStart: prefix.length + 5 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
+    // As typed it is exactly the limit; as sent it is ten over.
+    expect(screen.getByText(/characters over the/)).toHaveTextContent(
+      "10 characters over the",
+    );
+    expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
   });
 
   it("is disabled with its reason", () => {
@@ -132,7 +172,7 @@ describe("Composer", () => {
     type("gone");
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(box()).toHaveValue("");
-    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
     done();
     await vi.waitFor(() => expect(box()).toHaveValue(""));
   });

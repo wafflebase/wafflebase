@@ -15,7 +15,6 @@ import { toast } from 'sonner';
 import { fetchMe } from '@/api/auth';
 import { userFacingError } from '@/api/http-error';
 import { Button } from '@/components/ui/button';
-import { useWorkspaceMembers } from '@/components/comments/use-workspace-members';
 import { withPending } from './chat-cache';
 import { useChatConnection } from './chat-connection';
 import { Composer } from './composer';
@@ -43,6 +42,7 @@ import {
 } from './use-chat';
 import { useRovingMessages } from './use-roving-messages';
 import { setOpenChatChannel } from './use-chat-stream';
+import { useMentionableMembers } from './use-mentionable-members';
 
 /** Within this many pixels of the end counts as "at the bottom". */
 const BOTTOM_SLACK_PX = 48;
@@ -115,7 +115,7 @@ export function Conversation({
   const meId = me?.id ?? -1;
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
-  const members = useWorkspaceMembers(workspaceId);
+  const members = useMentionableMembers(workspaceId, channel);
   const {
     messages,
     isLoading,
@@ -560,6 +560,7 @@ export function Conversation({
         ) : (
           <Composer
             channelId={channelId}
+            userId={me?.id}
             onSend={send}
             onArrowUpWhenEmpty={editLast}
             members={members}

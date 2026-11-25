@@ -21,6 +21,8 @@ const MAX_TEXTAREA_HEIGHT_PX = 200;
 interface ComposerProps {
   /** Keys the draft; a thread passes its own key so drafts stay apart. */
   channelId: string;
+  /** The signed-in user, who owns the draft; none stores no draft. */
+  userId?: number;
   /** Sends the body; must not reject (see the component's note). */
   onSend: (body: string) => void | Promise<void>;
   members?: MentionMember[];
@@ -50,6 +52,7 @@ interface ComposerProps {
  */
 export function Composer({
   channelId,
+  userId,
   onSend,
   members,
   placeholder = "Message",
@@ -58,19 +61,18 @@ export function Composer({
   autoFocus = false,
   onArrowUpWhenEmpty,
 }: ComposerProps) {
-  const [body, setBody] = useState(() => draftStore.get(channelId));
+  const [body, setBody] = useState(() => draftStore.get(userId, channelId));
   const [sending, setSending] = useState(false);
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const update = (value: string) => {
     setBody(value);
-    draftStore.set(channelId, value);
+    draftStore.set(userId, channelId, value);
   };
 
   const disabled = !!disabledReason;
   const trimmed = body.trim();
-  const tooLong = body.length > CHAT_BODY_MAX;
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -99,11 +101,18 @@ export function Composer({
     onKeyDown: handleKey,
   });
 
-  // A different channel is a different draft.
-  const [draftKey, setDraftKey] = useState(channelId);
-  if (draftKey !== channelId) {
-    setDraftKey(channelId);
-    setBody(draftStore.get(channelId));
+  // What is sent, and what the server measures: a picked `@name` grows into
+  // its `@[name](id)` token, so the limit is checked after that expansion.
+  const finalBody = mention.applyMentions(body).trim();
+  const tooLong = finalBody.length > CHAT_BODY_MAX;
+
+  // A different channel, or a different signed-in user (the user is often
+  // still loading on the first render), is a different draft.
+  const currentKey = `${userId ?? ""}:${channelId}`;
+  const [draftKey, setDraftKey] = useState(currentKey);
+  if (draftKey !== currentKey) {
+    setDraftKey(currentKey);
+    setBody(draftStore.get(userId, channelId));
     mention.reset();
   }
 
@@ -132,7 +141,6 @@ export function Composer({
   // (`useSendMessage` queues them per channel), not here.
   const send = async () => {
     if (!trimmed || sending || disabled || tooLong) return;
-    const finalBody = mention.applyMentions(body).trim();
     setSending(true);
     update("");
     mention.reset();
@@ -200,7 +208,7 @@ export function Composer({
           <span id={`${channelId}-composer-reason`}>{disabledReason}</span>
         ) : tooLong ? (
           <span className="text-destructive">
-            {body.length - CHAT_BODY_MAX} characters over the{" "}
+            {finalBody.length - CHAT_BODY_MAX} characters over the{" "}
             {CHAT_BODY_MAX.toLocaleString()} limit
           </span>
         ) : (

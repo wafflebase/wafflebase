@@ -39,6 +39,9 @@ vi.mock("@/api/chat", () => ({
 vi.mock("@/components/comments/use-workspace-members", () => ({
   useWorkspaceMembers: () => [],
 }));
+vi.mock("@/components/chat/use-mentionable-members", () => ({
+  useMentionableMembers: () => [],
+}));
 vi.mock("@/components/chat/use-chat", () => ({
   useChannels: () => ({ data: [channel] }),
   useThreadMessages: () => ({ data: threadData, isLoading: false, error: null }),
