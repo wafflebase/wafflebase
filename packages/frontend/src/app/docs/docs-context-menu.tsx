@@ -63,8 +63,10 @@ interface OpenState {
  * Unified context menu for body (non-table) text: spell suggestions,
  * clipboard actions (cut/copy/paste), and insert actions (link + comment).
  *
- * In-table right-clicks are handled by DocsTableContextMenu and are
- * passed through here without interception (isInTable() guard).
+ * In-table right-clicks in an editable document are handled by
+ * DocsTableContextMenu and are passed through here without interception
+ * (isInTable() guard). A read-only editor has no table menu — every row of
+ * it is an edit — so there this menu takes in-table right-clicks too.
  *
  * Plain positioned overlay — Radix ContextMenu blocks Canvas pointer
  * events, so we replicate the same pattern used by DocsTableContextMenu
@@ -93,7 +95,7 @@ export function DocsContextMenu({
   const handleContextMenu = useCallback(
     (e: MouseEvent) => {
       if (!editor) return;
-      if (editor.isInTable()) return;
+      if (!readOnly && editor.isInTable()) return;
       e.preventDefault();
 
       const spellErr = readOnly
