@@ -243,16 +243,22 @@ impl SignIn {
     /// in a window an earlier, superseded attempt ran in must not cancel the
     /// attempt running in another one.
     pub fn cancel_in(&self, label: &str) -> bool {
-        if self.lock().window.as_deref() != Some(label) {
+        // One guard for the check and the cancel: released in between, a
+        // `begin` in another window could slip in and be the one cancelled.
+        let mut inner = self.lock();
+        if inner.window.as_deref() != Some(label) {
             return false;
         }
-        self.cancel();
+        Self::cancel_locked(&mut inner);
         true
     }
 
     /// Cancel the running sign-in, if any. Returns the window it ran in.
     pub fn cancel(&self) -> Option<String> {
-        let mut inner = self.lock();
+        Self::cancel_locked(&mut self.lock())
+    }
+
+    fn cancel_locked(inner: &mut Inner) -> Option<String> {
         inner.generation += 1;
         if let Some(c) = inner.canceller.take() {
             c.cancel();
