@@ -47,6 +47,13 @@
   `http.query` attributes, and share-scoped image and file requests put the
   raw token in `?token=` — so a sampled transaction shipped it even with the
   transaction name clean.
+- **One URL sits in a span's attributes under several names at once.** The
+  SDK's fetch and XHR instrumentation writes a bare `url` beside `http.url`,
+  the root span of a pageload is not in `spans` at all (its attributes are in
+  `contexts.trace.data`), and `url.query` arrives in the OpenTelemetry
+  spelling without the leading `?` that `http.query` carries. An allow-list
+  of attribute keys has to be checked against what the instrumentation
+  actually sets, not against the semantic-convention names.
 
 ## Review rounds
 
@@ -63,3 +70,8 @@
   Fix round: `URL_IN_TEXT` rewritten without a lookbehind, and
   `scrubCapabilityTokens` extended to `event.spans[]` (description plus the
   URL/query attributes).
+- Panel round 3 (9ddd3e904): 1 blocking — the span attribute allow-list
+  omitted the bare `url` the fetch/XHR instrumentation sets. Fix round: `url`
+  added, `redactQueryString` now accepts a query with no leading `?`, and the
+  span attribute pass extended to `contexts.trace.data`, `event.message` and
+  `event.exception.values[].value`.

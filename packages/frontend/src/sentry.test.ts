@@ -144,6 +144,98 @@ describe("scrubCapabilityTokens", () => {
     expect(scrubbed.spans?.[1].data["url.query"]).toBe("");
   });
 
+  it("redacts the bare `url` attribute the fetch/XHR instrumentation sets", () => {
+    // `instrumentFetchRequest` writes BOTH `http.url` and a bare `url` holding
+    // the URL as the caller passed it, so an allow-list with only the
+    // namespaced spelling still ships the raw `?token=`.
+    const event = {
+      type: "transaction",
+      spans: [
+        {
+          op: "http.client",
+          data: {
+            url: "https://wafflebase.io/images/y?token=aaa",
+            "http.url": "https://wafflebase.io/images/y?token=aaa",
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const scrubbed = scrubCapabilityTokens(event);
+    expect(scrubbed.spans?.[0].data["url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+  });
+
+  it("redacts a query attribute written without the leading `?`", () => {
+    // The OpenTelemetry spelling of `url.query` omits it, and such a value used
+    // to fall through to the free-text pass, which matches URL-shaped runs
+    // only — so `token=<secret>` went out verbatim.
+    const event = {
+      type: "transaction",
+      spans: [
+        { op: "http.client", data: { "url.query": "a=1&token=aaa&b=2" } },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).spans?.[0].data["url.query"]).toBe(
+      "a=1&token=__redacted__&b=2",
+    );
+  });
+
+  it("redacts the root span's attributes in the trace context", () => {
+    // A pageload/navigation transaction has no entry in `spans` for itself —
+    // the root span's attributes are serialized into `contexts.trace.data`.
+    const event = {
+      type: "transaction",
+      contexts: {
+        trace: {
+          op: "pageload",
+          data: {
+            "url.full": "https://wafflebase.io/shared/aaa?token=bbb",
+            "http.query": "?token=bbb",
+          },
+        },
+      },
+    } as unknown as Event;
+
+    const data = scrubCapabilityTokens(event).contexts?.trace?.data;
+    expect(data?.["url.full"]).toBe(
+      "https://wafflebase.io/shared/__redacted__?token=__redacted__",
+    );
+    expect(data?.["http.query"]).toBe("?token=__redacted__");
+  });
+
+  it("redacts a URL quoted inside an exception message", () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch /images/y?token=aaa",
+          },
+        ],
+      },
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).exception?.values?.[0].value).toBe(
+      "Failed to fetch /images/y?token=__redacted__",
+    );
+  });
+
+  it("redacts a URL inside event.message", () => {
+    const event = {
+      message: "could not load https://wafflebase.io/shared/aaa",
+    } as Event;
+
+    expect(scrubCapabilityTokens(event).message).toBe(
+      "could not load https://wafflebase.io/shared/__redacted__",
+    );
+  });
+
   it("survives a span with no data or description", () => {
     const event = {
       type: "transaction",
