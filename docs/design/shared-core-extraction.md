@@ -170,10 +170,13 @@ subpaths under classic resolution, so `packages/backend/tsconfig.json` maps
 `@wafflebase/core/*` → `../core/src/*` (source), alongside the existing
 sheets/docs/slides source paths, and the backend's jest `moduleNameMapper`
 maps it the same way. The backend's *build* clears `paths`
-(`tsconfig.build.json`), so core also carries a `typesVersions` map that
-points each subpath at its `dist` declarations — what a classic resolver
-reads in place of `exports`. At runtime Node honours `exports` and loads
-`dist/cjs`.
+(`tsconfig.build.json`) so engines come from their built `dist`; it keeps
+one mapping, `@wafflebase/core/*` → `../core/dist/*/index.d.ts`, because a
+classic resolver ignores `exports` and would otherwise find no declarations.
+At runtime Node honours `exports` and loads `dist/cjs`. A `typesVersions`
+map in core's `package.json` would do the same, but the agent jobs' install
+refuses manifest fields it does not know ([agent-install.md](agent-pipeline/agent-install.md)),
+so the mapping lives in the backend's build config instead.
 
 Alternatives considered:
 - **Keep `tokens` a separate leaf next to `core`** — the original plan; the user

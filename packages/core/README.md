@@ -33,11 +33,12 @@ import { rectsIntersect, type Rect } from '@wafflebase/core/geometry';
 import { isSafeUrl } from '@wafflebase/core/url';
 ```
 
-Classic CJS resolvers ignore the `exports` map, so a new subpath also needs a
-`typesVersions` entry in this package's `package.json` (what the backend's
-build, which clears `paths`, reads its declarations through). The backend's
-`tsconfig.json` paths and jest `moduleNameMapper` map `@wafflebase/core/*` to
-source by wildcard, so they need nothing. The backend's runtime image copies
+Classic CJS resolvers ignore the `exports` map. The backend's build
+(`tsconfig.build.json`) maps `@wafflebase/core/*` to `dist/*/index.d.ts`, and
+its `tsconfig.json` paths and jest `moduleNameMapper` map it to source, all by
+wildcard, so a new subpath needs nothing there — only an `exports` entry here.
+Do not add a `typesVersions` map instead: the agent jobs' install refuses
+`package.json` fields it does not know. The backend's runtime image copies
 `dist/` (see the root `Dockerfile`).
 
 ## Build

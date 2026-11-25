@@ -41,25 +41,6 @@
       "default": "./dist/url/index.js"
     }
   },
-  "typesVersions": {
-    "*": {
-      "document-link": [
-        "./dist/document-link/index.d.ts"
-      ],
-      "geometry": [
-        "./dist/geometry/index.d.ts"
-      ],
-      "image": [
-        "./dist/image/index.d.ts"
-      ],
-      "tokens": [
-        "./dist/tokens/index.d.ts"
-      ],
-      "url": [
-        "./dist/url/index.d.ts"
-      ]
-    }
-  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\" && tsx scripts/build-css.ts",
     "typecheck": "tsc --noEmit",
