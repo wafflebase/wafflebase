@@ -86,8 +86,14 @@ mention source.
   comment thread. Scrolling to a thread requires touching all four comment
   controllers (docs, sheets, pdf, board) and is deferred.
 - **Content verification of comment events.** See Authorization depth below.
-- **Retention/cleanup.** No age-based cleanup job in v1. Rows *are* deleted,
-  but only by cascade — with their document, workspace, or recipient.
+- **Retention/cleanup.** No age-based cleanup job in v1. Rows are deleted by
+  cascade — with their document, workspace, or recipient — and when a member
+  is removed from a workspace: their rows there that quote content
+  (`comment_mention`, `comment_reply`, `thread_resolved`, `chat_mention`,
+  `chat_thread_reply`) go in the removal's transaction, since the person can
+  no longer read what the preview quotes. Rows that quote nothing (a join,
+  their own template decisions, webhook notices) stay. Edits and channel
+  access trim chat rows too; see [chat.md](chat.md) § P2 as built.
 - **"Document shared with you".** No such event exists — see below.
 
 ### Why there is no "shared with you" notification

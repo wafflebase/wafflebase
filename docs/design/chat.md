@@ -777,9 +777,10 @@ sections above:
 - **Edits keep the bell honest.** An edit rewrites the preview of the
   message's `chat_mention` / `chat_thread_reply` rows, deletes mention rows
   for people edited out, and notifies people edited in, with the post's
-  recipient rule. Leaving a private channel, or being removed from it or
-  from the workspace, deletes the person's chat rows for what they can no
-  longer read; leaving a public channel keeps them.
+  recipient rule. Leaving a private channel, or being removed from it,
+  deletes the person's chat rows for it; leaving a public channel keeps
+  them. Removal from the workspace deletes every row of theirs there that
+  quotes content, comment previews included (see notifications.md).
 - **Mentions only reach readers.** In a private channel or DM, a token
   naming someone outside the channel is flattened to `@name`, and the
   composer offers only the channel's members. Composer and edit-box length

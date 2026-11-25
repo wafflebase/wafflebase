@@ -834,7 +834,7 @@ one they are not in, any channel once they leave the workspace — answers
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel?, clientId? }`; 30 per 10 s per user. A repeated `clientId` returns the first message; a reply to a deleted root is `409` |
 | `GET` | `/workspaces/:wid/chat/documents/:documentId/channels` | Channels the caller is in where the document was most recently shared (≤20), for the editor chat panel |
-| `GET` | `/workspaces/:wid/chat/channels/:cid/files` | Documents linked in the channel, newest share first, one row per document (`?limit=` 1–100, `?before=<cursor>`) |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/files` | Documents linked in the channel, newest share first, one row per document (`?limit=` 1–100, `?before=<cursor>`); 120 per minute per user, as is the shared-in read |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |
 | `GET` | `/workspaces/:wid/chat/messages/:mid` | One message (a bell deep link learns whether it is a thread reply) |
 | `PATCH` | `/workspaces/:wid/chat/messages/:mid` | Edit one's own message (`{ body }`) |

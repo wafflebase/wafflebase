@@ -602,11 +602,17 @@ describe("Conversation", () => {
     it("↑ in the empty composer edits my last message, and Esc comes back", async () => {
       state = { ...state, messages: [msg(1), msg(2, 1), msg(3)] };
       renderConversation();
-      // Who "me" is arrives with the auth query.
-      await act(() => new Promise((r) => setTimeout(r, 0)));
       const composer = screen.getByRole("textbox");
-      composer.focus();
-      fireEvent.keyDown(composer, { key: "ArrowUp" });
+      // Who "me" is arrives with the auth query, and ↑ means nothing until
+      // it has: press it until the edit box opens rather than sleeping one
+      // tick, which a loaded machine does not always resolve the query in.
+      await waitFor(() => {
+        composer.focus();
+        fireEvent.keyDown(composer, { key: "ArrowUp" });
+        expect(
+          screen.getByRole("textbox", { name: "Edit message" }),
+        ).toBeInTheDocument();
+      });
       const edit = screen.getByRole("textbox", { name: "Edit message" });
       expect(row("m2")).toContainElement(edit);
       expect(edit).toHaveFocus();
