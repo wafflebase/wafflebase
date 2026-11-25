@@ -1005,6 +1005,12 @@ Keeping a service-level publish path beside the UI one was rejected for the
 reason `publish()` itself gives: it would be a second, unguarded way to swap an
 approved gallery card.
 
+> **Proposed revision:** [template-catalog-scaling.md](template-catalog-scaling.md)
+> §3 re-examines this for an *in-process operator command* that calls only the
+> guarded `TemplateService` methods and passes an offline-rendered
+> `thumbnailId` into `publish()`, and proposes `sync:templates` to replace
+> this Playwright path. The rejection stands for any network-reachable path.
+
 The catalogue lives in `packages/backend/src/template/seed/catalog/` as
 TypeScript rather than JSON or binaries, so it typechecks against the real
 document models and can reference `BUILT_IN_LAYOUTS` / `DEFAULT_MASTER` instead
@@ -1016,8 +1022,9 @@ from them may be seeded.
 Operational preconditions, and the one ordering trap, are in
 [`packages/backend/README.md`](../../packages/backend/README.md) — in
 particular that `register:templates` requires the Yorkie auth webhook to be
-enforced while `seed:templates` writes with a tokenless Yorkie client, so the
-documents must be seeded before those webhook methods are registered.
+enforced, while `seed:templates` needs no such ordering: it writes through
+`YorkieService`, which authenticates to the webhook as this backend
+(`src/yorkie/yorkie-service-token.ts`).
 
 ### Returning a visitor after login
 

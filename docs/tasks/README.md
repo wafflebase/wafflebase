@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| template catalog scaling (2026-11-25) | [20261125-template-catalog-scaling-todo.md](./active/20261125-template-catalog-scaling-todo.md) | [20261125-template-catalog-scaling-lessons.md](./active/20261125-template-catalog-scaling-lessons.md) |
 | chat usability pass (2026-11-22) | [20261122-chat-usability-pass-todo.md](./active/20261122-chat-usability-pass-todo.md) | [20261122-chat-usability-pass-lessons.md](./active/20261122-chat-usability-pass-lessons.md) |
 | chat default general (2026-11-21) | [20261121-chat-default-general-todo.md](./active/20261121-chat-default-general-todo.md) | [20261121-chat-default-general-lessons.md](./active/20261121-chat-default-general-lessons.md) |
 | datasources in settings (2026-11-21) | [20261121-datasources-in-settings-todo.md](./active/20261121-datasources-in-settings-todo.md) | [20261121-datasources-in-settings-lessons.md](./active/20261121-datasources-in-settings-lessons.md) |
@@ -84,4 +85,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 649
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: chat usability pass (2026-11-22)
+Latest active task: template catalog scaling (2026-11-25)
