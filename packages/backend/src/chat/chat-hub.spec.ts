@@ -452,6 +452,24 @@ describe('ChatHub', () => {
     expect(removed.seen).toEqual([msg('pub', 1), msg('pub', 2)]);
   });
 
+  it('forgets cached workspace readers when the bus reconnects', async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    const removed = h.collect(2);
+    h.events.next(msg('pub', 1));
+    await flush();
+
+    // Removed from the workspace while the LISTEN connection was down, so
+    // the `mem` that would have evicted the set never arrives.
+    h.workspacesOf.set(2, ['other']);
+    h.resets.next();
+    h.events.next(msg('pub', 2));
+    await flush();
+
+    expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(2);
+    expect(removed.seen).toEqual([msg('pub', 1), { t: 'ready' }]);
+  });
+
   it('expires cached workspace readers', async () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     try {
