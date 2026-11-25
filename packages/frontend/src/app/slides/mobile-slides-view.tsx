@@ -192,7 +192,7 @@ export function MobileSlidesView({
   // above so its pick of the first slide cannot override this one.
   useAnchorParam<SlidesAnchor>(
     "slides",
-    snapshot.slideIds.length > 0,
+    !loading && snapshot.slideIds.length > 0,
     (anchor) => {
       if (snapshot.slideIds.includes(anchor.slideId)) {
         setCurrentSlideId(anchor.slideId);

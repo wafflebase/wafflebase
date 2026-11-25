@@ -244,7 +244,7 @@ export function SlidesView({
   const [liveEditor, setLiveEditor] = useState<SlidesEditor | null>(null);
   // A document card's `?at=`: select that slide. One deleted since the link
   // was sent leaves the deck where it opened.
-  useAnchorParam<SlidesAnchor>("slides", liveEditor !== null, (anchor) => {
+  useAnchorParam<SlidesAnchor>("slides", !loading && liveEditor !== null, (anchor) => {
     const store = storeRef.current;
     if (!liveEditor || !store) return;
     if (!store.read().slides.some((slide) => slide.id === anchor.slideId)) return;

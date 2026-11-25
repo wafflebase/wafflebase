@@ -272,7 +272,7 @@ export function DocsView({
   // link was sent leaves the editor where it opened. The caret is placed
   // without focusing the editor, which would pull focus from the chat panel
   // the same link opens.
-  useAnchorParam<DocAnchor>("doc", !!mountedEditor && !previewing, (anchor) => {
+  useAnchorParam<DocAnchor>("doc", !loading && !!mountedEditor && !previewing, (anchor) => {
     const editor = mountedEditor;
     if (!editor || !editor.getDoc().findBlock(anchor.blockId)) return;
     const pos = { blockId: anchor.blockId, offset: 0 };

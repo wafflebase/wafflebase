@@ -146,7 +146,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const {
+    doc,
+    root: docRoot,
+    loading: docLoading,
+  } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
   const [showLakehouseSelector, setShowLakehouseSelector] = useState(false);
@@ -369,12 +373,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   // A document card's `?at=`: switch to its tab and select its range, through
   // the same two-step hand-off an undo into another tab uses (the target
   // tab's engine does not exist until the switch has rendered). Waits for the
-  // first tab to be resolved so that resolution cannot overwrite the switch.
+  // document to finish loading — before that the root is still the empty
+  // initial one, with no tab to find — and for the first tab to be resolved
+  // so that resolution cannot overwrite the switch.
   // A tab, row or column deleted since the link was sent leaves the editor
   // where it opened.
   useAnchorParam<SheetAnchor>(
     "sheet",
-    !!docRoot && activeTabId !== null,
+    !docLoading && !!docRoot && activeTabId !== null,
     (anchor) => {
       const root = doc?.getRoot();
       if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return;
