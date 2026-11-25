@@ -86,3 +86,12 @@
 - **A test that compares an export with the function that produced it is
   tautological.** Assert the output against the source of truth (the
   matrix), not against a second call of the same code.
+- CI round (ddc12a569): `frontend:test` red on a test this branch never
+  touched — `tests/components/chat/conversation.test.tsx`'s ↑-edits-my-last-
+  message case waited a single macrotask tick for the `me` auth query, and on
+  a loaded runner the query had not settled, so `meId` was still -1 and ↑ did
+  nothing. Reproduced by delaying the mocked `fetchMe`; fixed by retrying the
+  key inside `waitFor` until the edit box opens.
+- **A fixed tick is not a wait.** `await act(() => new Promise(r =>
+  setTimeout(r, 0)))` asserts how many turns of the loop a query takes to
+  settle. Wait for the state the test needs instead.

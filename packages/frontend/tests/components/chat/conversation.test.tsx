@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import {
   afterAll,
@@ -570,11 +570,18 @@ describe("Conversation", () => {
     it("↑ in the empty composer edits my last message, and Esc comes back", async () => {
       state = { ...state, messages: [msg(1), msg(2, 1), msg(3)] };
       renderConversation();
-      // Who "me" is arrives with the auth query.
-      await act(() => new Promise((r) => setTimeout(r, 0)));
       const composer = screen.getByRole("textbox");
       composer.focus();
-      fireEvent.keyDown(composer, { key: "ArrowUp" });
+      // Who "me" is arrives with the auth query, and until it has, `meId` is
+      // -1, `lastOwnMessage` finds nothing and ↑ is a silent no-op. Waiting a
+      // fixed tick for that query bets on how many turns of the loop it takes
+      // to settle and re-render, which is exactly what varies under a loaded
+      // CI runner — so the key is pressed again until the box opens, and the
+      // test waits for the state it needs rather than for a clock.
+      await waitFor(() => {
+        fireEvent.keyDown(composer, { key: "ArrowUp" });
+        screen.getByRole("textbox", { name: "Edit message" });
+      });
       const edit = screen.getByRole("textbox", { name: "Edit message" });
       expect(row("m2")).toContainElement(edit);
       expect(edit).toHaveFocus();
