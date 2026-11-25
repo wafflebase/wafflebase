@@ -34,15 +34,18 @@ export interface DocumentLink {
 }
 
 /**
- * The frontend's public base — origin plus router basename, no trailing
- * slash — from `FRONTEND_URL`, or undefined when it is unset or not http(s).
+ * The frontend's public origin from `FRONTEND_URL`, or undefined when it is
+ * unset or not http(s). Only the origin: CORS compares `FRONTEND_URL` with
+ * the browser's `Origin` header (`main.ts`), so a working deployment never
+ * sets a path there, and the router basename its links carry
+ * (`VITE_FRONTEND_BASENAME`) is not known to the backend.
  */
-export function frontendBase(raw: string | undefined): string | undefined {
+export function frontendOrigin(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   try {
     const url = new URL(raw);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+    return url.origin;
   } catch {
     return undefined;
   }
@@ -55,17 +58,21 @@ function escapeRegExp(s: string): string {
 /**
  * Document links in `body`, first occurrence of each document only, in body
  * order, at most `MAX_REFS_PER_MESSAGE`. Two shapes count: an absolute URL on
- * this deployment's frontend (`base`, which may carry a basename), and a
- * root-relative path standing on its own (`/s/<id>` at the start of the body
- * or after whitespace or an opening bracket). Any other origin is somebody
- * else's site — its `/s/<id>` names nothing here.
+ * this deployment's frontend `origin`, under any path prefix (the router
+ * basename, which the backend does not know), and a root-relative path
+ * standing on its own (`/s/<id>` at the start of the body or after
+ * whitespace or an opening bracket). Any other origin is somebody else's
+ * site — its `/s/<id>` names nothing here. A prefix accepts no more than an
+ * origin-only rule would: the id is still looked up, in this workspace.
  */
 export function extractDocumentLinks(
   body: string,
-  base: string | undefined,
+  origin: string | undefined,
 ): DocumentLink[] {
-  const prefix = base
-    ? `(?:${escapeRegExp(base)}|(?<=^|[\\s(<]))`
+  // Whole path segments after the origin, so `:port`, `@host` or `.host`
+  // right after it never pass, and the shortest prefix wins.
+  const prefix = origin
+    ? `(?:${escapeRegExp(origin)}(?:/[^\\s<>"?#/]+)*?|(?<=^|[\\s(<]))`
     : '(?<=^|[\\s(<])';
   const re = new RegExp(
     `${prefix}${DOCUMENT_PATH_SOURCE}(?![0-9A-Za-z-])([?#][^\\s<>"]*)?`,
@@ -81,7 +88,7 @@ export function extractDocumentLinks(
     // `https://evil.test/https://ours.test/s/…`, is matched from its tail;
     // refuse when the match is glued to the text before it.
     const start = match.index ?? 0;
-    if (base && start > 0 && match[0].startsWith(base)) {
+    if (origin && start > 0 && match[0].startsWith(origin)) {
       if (!/[\s(<]/.test(body[start - 1])) continue;
     }
     seen.add(documentId);
@@ -143,13 +150,13 @@ const SHARED_IN_LIMIT = 20;
 @Injectable()
 export class ChatDocumentRefService {
   private readonly logger = new Logger(ChatDocumentRefService.name);
-  private readonly base: string | undefined;
+  private readonly origin: string | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    this.base = frontendBase(config.get<string>('FRONTEND_URL'));
+    this.origin = frontendOrigin(config.get<string>('FRONTEND_URL'));
   }
 
   /**
@@ -157,7 +164,9 @@ export class ChatDocumentRefService {
    * live document of `channel`'s workspace. Run after a post or an edit has
    * committed. A failure is logged and answers no refs — the message stands
    * and its links render as plain links, which is what a retry would not
-   * improve on.
+   * improve on. The stored refs are cleared to match, best effort, so an
+   * edit whose sync failed does not keep a card (or a Files entry) for a
+   * link its new body may no longer name.
    */
   async sync(
     messageId: string,
@@ -165,7 +174,7 @@ export class ChatDocumentRefService {
     body: string,
   ): Promise<ChatDocumentRefDto[]> {
     try {
-      const links = extractDocumentLinks(body, this.base);
+      const links = extractDocumentLinks(body, this.origin);
       const docs =
         links.length === 0
           ? []
@@ -187,8 +196,13 @@ export class ChatDocumentRefService {
       });
       const keep = refs.map((r) => r.doc.id);
       await this.prisma.$transaction([
+        // An empty keep-list clears every row, said outright rather than
+        // left to how an empty `notIn` compiles.
         this.prisma.chatDocumentRef.deleteMany({
-          where: { messageId, documentId: { notIn: keep } },
+          where:
+            keep.length === 0
+              ? { messageId }
+              : { messageId, documentId: { notIn: keep } },
         }),
         // An edit that keeps a link keeps its `createdAt`, so the Files list
         // does not move a document to the top for a typo fix.
@@ -218,6 +232,13 @@ export class ChatDocumentRefService {
       this.logger.warn(
         `chat refs sync failed for ${messageId}: ${describeError(err)}`,
       );
+      try {
+        await this.prisma.chatDocumentRef.deleteMany({ where: { messageId } });
+      } catch (clearErr) {
+        this.logger.warn(
+          `chat refs clear failed for ${messageId}: ${describeError(clearErr)}`,
+        );
+      }
       return [];
     }
   }
@@ -256,7 +277,8 @@ export class ChatDocumentRefService {
           r."documentId", r."messageId", r.anchor, r."createdAt",
           m."authorId", d.title, d.type
         FROM "ChatDocumentRef" r
-        JOIN "ChatMessage" m ON m.id = r."messageId"
+        JOIN "ChatMessage" m
+          ON m.id = r."messageId" AND m."channelId" = r."channelId"
         JOIN "Document" d ON d.id = r."documentId"
         WHERE r."channelId" = ${channel.id}
           AND m."deletedAt" IS NULL
@@ -321,7 +343,8 @@ export class ChatDocumentRefService {
     >`
       SELECT r."channelId", MAX(r."createdAt") AS "sharedAt"
       FROM "ChatDocumentRef" r
-      JOIN "ChatMessage" m ON m.id = r."messageId"
+      JOIN "ChatMessage" m
+        ON m.id = r."messageId" AND m."channelId" = r."channelId"
       JOIN "ChatChannel" c ON c.id = r."channelId"
       JOIN "ChatChannelMember" cm
         ON cm."channelId" = c.id AND cm."userId" = ${userId}
@@ -343,13 +366,20 @@ export class ChatDocumentRefService {
 }
 
 /** An error's class, plus its `code` when it has one — never its message. */
-function describeError(err: unknown): string {
+export function describeError(err: unknown): string {
   if (!(err instanceof Error)) return typeof err;
   const code = (err as { code?: unknown }).code;
   return typeof code === 'string' ? `${err.name} ${code}` : err.name;
 }
 
 const DOCUMENT_ID = new RegExp(`^${DOCUMENT_ID_SOURCE}$`);
+
+/**
+ * The instant shape `Date.toISOString` issues for a four-digit year. A cursor
+ * is only ever one the server wrote, and the bound matters: JS dates reach
+ * years Postgres's `timestamp` refuses, which would answer a 500.
+ */
+const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /** `<ISO time>_<documentId>`, or undefined when absent or malformed. */
 export function parseCursor(
@@ -358,6 +388,7 @@ export function parseCursor(
   if (!raw) return undefined;
   const i = raw.indexOf('_');
   if (i <= 0) return undefined;
+  if (!CURSOR_TIME.test(raw.slice(0, i))) return undefined;
   const at = new Date(raw.slice(0, i));
   const documentId = raw.slice(i + 1);
   if (Number.isNaN(at.getTime()) || !DOCUMENT_ID.test(documentId)) {

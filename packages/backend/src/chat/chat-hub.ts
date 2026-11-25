@@ -19,7 +19,11 @@ import {
  * `mem` NOTIFY is best effort (`ChatBus.send` logs and swallows a failure),
  * so a lost one must not keep routing a removed member's channel events to
  * them indefinitely. The age bounds that; the events are ids only, and every
- * fetch they prompt re-checks access.
+ * fetch they prompt re-checks access. Since a public channel's readers are
+ * its whole workspace, a lost `mem` after a workspace removal
+ * (`WorkspaceService.removeMember` announces one) lets the removed member
+ * hear every public channel's ids for up to this long, not only those of the
+ * channels they had joined.
  */
 export const MEMBER_CACHE_TTL_MS = 60_000;
 
@@ -27,13 +31,21 @@ export const MEMBER_CACHE_TTL_MS = 60_000;
 const MEMBER_LOAD_ATTEMPTS = 3;
 
 /**
- * Channels whose kind and workspace are remembered. Both are fixed for a
- * channel's lifetime, so an entry never goes stale; the bound only keeps a
- * long-lived replica from holding every channel it ever routed.
+ * Channels whose kind and workspace are remembered. Nothing writes either
+ * after creation today, but the kind decides how wide a channel's events fan
+ * out, so an entry is not trusted on that alone: it expires with the member
+ * sets, is dropped on the channel's own `chn` or `mem` and on a bus reset.
+ * The bound only keeps a long-lived replica from holding every channel it
+ * ever routed.
  */
 const CHANNEL_CACHE_MAX = 10_000;
 
 type CachedSet = { set: Set<number>; loadedAt: number };
+type CachedChannel = {
+  kind: ChannelKind;
+  workspaceId: string;
+  loadedAt: number;
+};
 
 /**
  * Per-replica routing from the chat bus to the SSE handlers connected here.
@@ -66,10 +78,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private readonly subscribers = new Map<number, Set<Subject<ChatHubEvent>>>();
   private readonly members = new Map<string, CachedSet>();
   private readonly workspaceMembers = new Map<string, CachedSet>();
-  private readonly channels = new Map<
-    string,
-    { kind: ChannelKind; workspaceId: string }
-  >();
+  private readonly channels = new Map<string, CachedChannel>();
   /** Bumped by every reset, so a load that straddles one is not trusted. */
   private generation = 0;
   private subscription: Subscription | null = null;
@@ -138,6 +147,7 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
     this.generation += 1;
     this.members.clear();
     this.workspaceMembers.clear();
+    this.channels.clear();
     for (const set of this.subscribers.values()) {
       for (const subject of set) subject.next({ t: 'ready' });
     }
@@ -146,9 +156,13 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
   private async route(event: ChatBusEvent): Promise<void> {
     if (event.t === 'mem') {
       this.members.delete(event.c);
+      this.channels.delete(event.c);
       this.workspaceMembers.clear();
       return;
     }
+    // A channel's metadata changed: route this event, and those after it, by
+    // what the channel is now.
+    if (event.t === 'chn') this.channels.delete(event.c);
     // An idle replica has nobody to deliver to; skip the database.
     if (this.subscribers.size === 0) return;
 
@@ -178,13 +192,17 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
    */
   private async readersOf(event: ChatRoutedEvent): Promise<Set<number>> {
     let channel = this.channels.get(event.c);
-    if (!channel) {
+    if (!channel || Date.now() - channel.loadedAt >= MEMBER_CACHE_TTL_MS) {
       const row = await this.prisma.chatChannel.findUnique({
         where: { id: event.c },
         select: { kind: true, workspaceId: true },
       });
       if (!row) return new Set();
-      channel = { kind: row.kind as ChannelKind, workspaceId: row.workspaceId };
+      channel = {
+        kind: row.kind as ChannelKind,
+        workspaceId: row.workspaceId,
+        loadedAt: Date.now(),
+      };
       if (this.channels.size >= CHANNEL_CACHE_MAX) this.channels.clear();
       this.channels.set(event.c, channel);
     }

@@ -387,7 +387,7 @@ describe('ChatHub', () => {
     h.kinds.set('dm', 'dm');
     h.members.set('priv', [1]);
     h.members.set('dm', [1]);
-    h.collect(1);
+    const member = h.collect(1);
     const outsider = h.collect(2);
 
     h.events.next(msg('priv', 1));
@@ -395,6 +395,13 @@ describe('ChatHub', () => {
     h.events.next({ t: 'chn', c: 'priv', w: 'w1' });
     await flush();
 
+    // The member did get all three, so the outsider's silence is withholding,
+    // not a router that delivers to nobody.
+    expect(member.seen).toEqual([
+      msg('priv', 1),
+      msg('dm', 1),
+      { t: 'chn', c: 'priv', w: 'w1' },
+    ]);
     expect(outsider.seen).toEqual([]);
     expect(h.findWorkspaceMembers).not.toHaveBeenCalled();
   });
@@ -422,12 +429,65 @@ describe('ChatHub', () => {
     h.kinds.set('pub', 'public');
     h.workspaceUsers.add(9);
     h.workspacesOf.set(9, ['other']);
+    const reader = h.collect(1);
     const outsider = h.collect(9);
 
     h.events.next({ ...msg('pub', 1), w: 'other' });
     await flush();
 
+    expect(reader.seen).toEqual([{ ...msg('pub', 1), w: 'other' }]);
     expect(outsider.seen).toEqual([]);
+    expect(h.findWorkspaceMembers.mock.calls[0][0].where).toEqual({
+      workspaceId: 'w1',
+    });
+  });
+
+  it("re-reads a channel's kind on `chn`, on a reset, and after the TTL", async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const h = harness();
+      h.kinds.set('c', 'public');
+      const previewer = h.collect(2);
+
+      h.events.next(msg('c', 1));
+      await flush();
+      expect(previewer.seen).toEqual([msg('c', 1)]);
+
+      // Were a channel ever made private, its `chn` must stop the
+      // workspace-wide fan-out from that event on.
+      h.kinds.set('c', 'private');
+      h.events.next({ t: 'chn', c: 'c', w: 'w1' });
+      h.events.next(msg('c', 2));
+      await flush();
+      expect(previewer.seen).toEqual([msg('c', 1)]);
+      expect(h.findChannel).toHaveBeenCalledTimes(2);
+
+      // A reset forgets the kind as it forgets member sets.
+      h.kinds.set('c', 'public');
+      h.resets.next();
+      h.events.next(msg('c', 3));
+      await flush();
+      expect(previewer.seen).toEqual([
+        msg('c', 1),
+        { t: 'ready' },
+        msg('c', 3),
+      ]);
+      expect(h.findChannel).toHaveBeenCalledTimes(3);
+
+      // And an entry ages out, in case neither arrives.
+      h.kinds.set('c', 'private');
+      now.mockReturnValue(1_000_000 + MEMBER_CACHE_TTL_MS + 1);
+      h.events.next(msg('c', 4));
+      await flush();
+      expect(previewer.seen).toEqual([
+        msg('c', 1),
+        { t: 'ready' },
+        msg('c', 3),
+      ]);
+      expect(h.findChannel).toHaveBeenCalledTimes(4);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('caches workspace readers until any membership changes', async () => {

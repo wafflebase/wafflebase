@@ -1451,6 +1451,26 @@ describeDb('Chat integration', () => {
       ]);
     });
 
+    it('an edit that removes every mention drops its notifications', async () => {
+      const { owner, members, workspace, channel } = await publicChannel();
+      const [peer] = members;
+      const posted = await messages.post(owner.id, channel.id, {
+        body: `ping @[${peer.username}](${peer.id})`,
+      });
+      const mentions = () =>
+        prisma.notification.count({
+          where: { commentId: posted.id, type: 'chat_mention' },
+        });
+      expect(await mentions()).toBe(1);
+
+      await as(owner)
+        .patch(`${base(workspace.id)}/messages/${posted.id}`)
+        .send({ body: 'never mind' })
+        .expect(200);
+
+      expect(await mentions()).toBe(0);
+    });
+
     it('a mention of someone outside a private channel is flattened', async () => {
       const { owner, members, workspace } = await team(2);
       const [insider, outsider] = members;

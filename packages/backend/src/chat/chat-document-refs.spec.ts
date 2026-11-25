@@ -1,10 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   ChatDocumentRefService,
   extractDocumentLinks,
-  frontendBase,
+  frontendOrigin,
   MAX_REFS_PER_MESSAGE,
   parseCursor,
   toRefDtos,
@@ -18,16 +19,18 @@ function at(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-describe('frontendBase', () => {
-  it('keeps origin and basename, trims the trailing slash', () => {
-    expect(frontendBase('https://x.test/app/')).toBe('https://x.test/app');
-    expect(frontendBase('http://localhost:5173')).toBe('http://localhost:5173');
+describe('frontendOrigin', () => {
+  it('keeps the origin only', () => {
+    expect(frontendOrigin('https://x.test/app/')).toBe('https://x.test');
+    expect(frontendOrigin('http://localhost:5173')).toBe(
+      'http://localhost:5173',
+    );
   });
 
   it('refuses unset and non-http values', () => {
-    expect(frontendBase(undefined)).toBeUndefined();
-    expect(frontendBase('ftp://x.test')).toBeUndefined();
-    expect(frontendBase('not a url')).toBeUndefined();
+    expect(frontendOrigin(undefined)).toBeUndefined();
+    expect(frontendOrigin('ftp://x.test')).toBeUndefined();
+    expect(frontendOrigin('not a url')).toBeUndefined();
   });
 });
 
@@ -64,10 +67,22 @@ describe('extractDocumentLinks', () => {
     expect(extractDocumentLinks(`${BASE}/s/${ID}x`, BASE)).toEqual([]);
   });
 
-  it('honors the basename', () => {
-    const base = 'https://x.test/app';
-    expect(extractDocumentLinks(`${base}/s/${ID}`, base)).toHaveLength(1);
-    expect(extractDocumentLinks(`https://x.test/s/${ID}`, base)).toEqual([]);
+  it('reads a link under any router basename on this origin', () => {
+    // `FRONTEND_URL` is origin-only (CORS compares it to `Origin`), so the
+    // basename the frontend writes into its links is not known here.
+    const a = at({ slideId: 'x' });
+    expect(extractDocumentLinks(`${BASE}/app/p/${ID}?at=${a}`, BASE)).toEqual([
+      { documentId: ID, at: a },
+    ]);
+    expect(extractDocumentLinks(`${BASE}/a/b-c/s/${ID}`, BASE)).toEqual([
+      { documentId: ID, at: null },
+    ]);
+    expect(extractDocumentLinks(`${BASE}:8443/app/s/${ID}`, BASE)).toEqual([]);
+    expect(extractDocumentLinks(`${BASE}@evil.test/s/${ID}`, BASE)).toEqual([]);
+    expect(extractDocumentLinks(`${BASE}.evil.test/app/s/${ID}`, BASE)).toEqual(
+      [],
+    );
+    expect(extractDocumentLinks(`${BASE}/app/x/${ID}`, BASE)).toEqual([]);
   });
 
   it('takes ?at=, dropping trailing punctuation, and dedupes by document', () => {
@@ -129,6 +144,7 @@ describe('ChatDocumentRefService.sharedIn', () => {
     expect(sql).toContain('c."archivedAt" IS NULL');
     expect(sql).toContain('m."deletedAt" IS NULL');
     expect(sql).toContain('d."deletedAt" IS NULL');
+    expect(sql).toContain('m."channelId" = r."channelId"');
     expect(values).toEqual(expect.arrayContaining([7, 'ws-1', ID]));
   });
 
@@ -217,8 +233,29 @@ describe('ChatDocumentRefService.sync', () => {
     );
     await expect(svc.sync('m-1', channel, 'no links')).resolves.toEqual([]);
     expect(findMany).not.toHaveBeenCalled();
-    expect(deleteMany).toHaveBeenCalledWith({
-      where: { messageId: 'm-1', documentId: { notIn: [] } },
+    // No `notIn: []`: the filter is left out rather than trusted to match
+    // everything.
+    expect(deleteMany).toHaveBeenCalledWith({ where: { messageId: 'm-1' } });
+  });
+
+  it('clears every ref when no named document is live here', async () => {
+    const { svc, findMany, deleteMany } = service(
+      jest.fn().mockResolvedValue([]),
+    );
+    findMany.mockResolvedValue([]);
+    await expect(svc.sync('m-1', channel, `/s/${ID2}`)).resolves.toEqual([]);
+    expect(deleteMany).toHaveBeenCalledWith({ where: { messageId: 'm-1' } });
+  });
+
+  it('clears the stored refs after a failure, so they match the answer', async () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { svc, deleteMany } = service(
+      jest.fn().mockRejectedValue(new Error('boom')),
+    );
+    await expect(svc.sync('m-1', channel, `/d/${ID}`)).resolves.toEqual([]);
+    // Once inside the failed transaction, once more on its own.
+    expect(deleteMany).toHaveBeenLastCalledWith({
+      where: { messageId: 'm-1' },
     });
   });
 
@@ -281,6 +318,11 @@ describe('parseCursor', () => {
     expect(
       parseCursor(`2026-11-25T10:00:00.000Z_${'a'.repeat(200)}`),
     ).toBeUndefined();
+    // JS-valid but outside Postgres's timestamp range, or not the shape the
+    // server issues.
+    expect(parseCursor(`-271821-04-20_${ID}`)).toBeUndefined();
+    expect(parseCursor(`+275760-09-13T00:00:00.000Z_${ID}`)).toBeUndefined();
+    expect(parseCursor(`1700000000000_${ID}`)).toBeUndefined();
   });
 });
 
@@ -322,10 +364,39 @@ describe('ChatDocumentRefService.files', () => {
     expect(userFindMany).not.toHaveBeenCalled();
   });
 
-  it('pages from the start on a malformed cursor', async () => {
+  /** The fragment sent in the cursor's slot, between workspace and limit. */
+  function sentCursor(queryRaw: jest.Mock): unknown {
+    const values = (queryRaw.mock.calls[0] as unknown[]).slice(1);
+    return values[values.length - 2];
+  }
+
+  it.each([
+    'garbage',
+    `-271821-04-20_${ID}`,
+    `+275760-09-13T00:00:00.000Z_${ID}`,
+    `2026-11-25_${ID}`,
+  ])('pages from the start on a malformed cursor %p', async (before) => {
     const { svc, queryRaw } = service();
-    await svc.files({ id: 'ch', workspaceId: 'ws' }, { before: 'garbage' });
+    await svc.files({ id: 'ch', workspaceId: 'ws' }, { before });
+    expect(sentCursor(queryRaw)).toBe(Prisma.empty);
+  });
+
+  it('pages after a well-formed cursor', async () => {
+    const { svc, queryRaw } = service();
+    await svc.files(
+      { id: 'ch', workspaceId: 'ws' },
+      { before: `2026-11-25T10:00:00.000Z_${ID}` },
+    );
+    const sql = sentCursor(queryRaw) as Prisma.Sql;
+    expect(sql).not.toBe(Prisma.empty);
+    expect(sql.sql).toContain('x."createdAt", x."documentId") <');
+    expect(sql.values).toEqual([new Date('2026-11-25T10:00:00.000Z'), ID]);
+  });
+
+  it("authorizes on the message's channel as well as the ref's", async () => {
+    const { svc, queryRaw } = service();
+    await svc.files({ id: 'ch', workspaceId: 'ws' }, {});
     const [strings] = queryRaw.mock.calls[0] as [TemplateStringsArray];
-    expect(strings.join('?')).not.toContain('x."createdAt", x."documentId") <');
+    expect(strings.join('?')).toContain('m."channelId" = r."channelId"');
   });
 });

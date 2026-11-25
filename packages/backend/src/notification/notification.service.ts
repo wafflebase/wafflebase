@@ -446,7 +446,11 @@ export class NotificationService {
       where: {
         ...quoting,
         type: 'chat_mention',
-        recipientId: { notIn: input.recipients },
+        // No mention left drops every row: said outright rather than left
+        // to how an empty `notIn` compiles.
+        ...(input.recipients.length > 0 && {
+          recipientId: { notIn: input.recipients },
+        }),
       },
       select: { id: true, recipientId: true },
     });

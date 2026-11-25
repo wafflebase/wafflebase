@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
@@ -107,6 +108,37 @@ describe('ChatMessageService.post idempotency', () => {
     expect(tx.chatMessage.create).not.toHaveBeenCalled();
     expect(bus.notifyMessage).not.toHaveBeenCalled();
     expect(notifications.createChatMention).not.toHaveBeenCalled();
+  });
+
+  it('refuses a retry of a send that was since deleted', async () => {
+    const { service, prisma, tx, bus } = setup();
+    prisma.chatMessage.findFirst.mockResolvedValue(
+      row({ body: '', deletedAt: new Date('2026-11-25T01:00:00Z') }),
+    );
+
+    // A 409 is a refusal the client shows and does not retry; answering the
+    // blank row as a success would land it in the log as if just sent.
+    await expect(
+      service.post(AUTHOR, 'c1', { body: 'hello', clientId: 'k1' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.chatMessage.create).not.toHaveBeenCalled();
+    expect(bus.notifyMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a racing retry whose winner was since deleted', async () => {
+    const { service, prisma } = setup();
+    prisma.chatMessage.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(row({ body: '', deletedAt: new Date() }));
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    await expect(
+      service.post(AUTHOR, 'c1', { body: 'hello', clientId: 'k1' }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('returns the winner when a concurrent retry loses the unique index', async () => {
