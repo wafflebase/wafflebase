@@ -6,13 +6,28 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { useHref, useInRouterContext, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useHref,
+  useInRouterContext,
+  useNavigate,
+} from "react-router-dom";
+import type { ChatDocumentRefDto } from "@/api/chat";
+import { typeMeta } from "@/app/documents/document-type-meta";
 import { parseMentionBody } from "@/components/comments/mentions";
 import { cn } from "@/lib/utils";
+import {
+  anchorLabel,
+  buildDocumentPath,
+  parseDocumentLink,
+} from "./document-link";
 
-// A bare http(s) URL. Trailing sentence punctuation is trimmed off below, so
-// "see https://x.test/a." links `https://x.test/a`, not the period.
-const URL_RE = /https?:\/\/[^\s<>"]+/g;
+// A bare http(s) URL, or a root-relative document path standing on its own
+// (`/s/<id>`), which the server also reads as a card. Trailing sentence
+// punctuation is trimmed off below, so "see https://x.test/a." links
+// `https://x.test/a`, not the period.
+const URL_RE =
+  /https?:\/\/[^\s<>"]+|(?<=^|[\s(<])\/[sdpnbf]\/[0-9a-fA-F-]{36}(?:[?#][^\s<>"]*)?/g;
 const TRAILING_PUNCTUATION = /[.,!?;:'")\]]+$/;
 
 /** Bodies collapse past this many lines behind "Show more". */
@@ -102,10 +117,79 @@ function BodyLink({ url, tabIndex }: { url: string; tabIndex?: number }) {
   );
 }
 
+/**
+ * A link the server resolved to a document of this workspace: type icon in
+ * its hue, title, and the anchor's label. It opens the document in place
+ * with the chat panel on `channelId`, carrying the link's own `?at=`. The
+ * raw URL stays reachable as the tooltip.
+ */
+function DocumentCard({
+  url,
+  docRef,
+  at,
+  channelId,
+  tabIndex,
+}: {
+  url: string;
+  docRef: ChatDocumentRefDto;
+  at: string | null;
+  channelId?: string;
+  tabIndex?: number;
+}) {
+  const routed = useInRouterContext();
+  const { Icon, color } = typeMeta(docRef.type);
+  const label = anchorLabel(docRef.anchor);
+  const path = buildDocumentPath(
+    { id: docRef.documentId, type: docRef.type },
+    { chat: channelId, at },
+  );
+  const className =
+    "my-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 align-middle text-sm text-foreground no-underline outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50";
+  const content = (
+    <>
+      <Icon className={cn("size-4 shrink-0", color)} aria-hidden="true" />
+      <span className="min-w-0 truncate font-medium">{docRef.title}</span>
+      {label && (
+        <span className="min-w-0 truncate text-muted-foreground">
+          <span aria-hidden="true">· </span>
+          {label}
+        </span>
+      )}
+    </>
+  );
+  return routed ? (
+    <Link
+      to={path}
+      title={url}
+      tabIndex={tabIndex}
+      data-document-card={docRef.documentId}
+      className={className}
+    >
+      {content}
+    </Link>
+  ) : (
+    <a
+      href={url}
+      title={url}
+      tabIndex={tabIndex}
+      data-document-card={docRef.documentId}
+      className={className}
+    >
+      {content}
+    </a>
+  );
+}
+
+interface LinkContext {
+  tabIndex: number | undefined;
+  refs: ReadonlyMap<string, ChatDocumentRefDto>;
+  channelId?: string;
+}
+
 function linkify(
   text: string,
   keyPrefix: string,
-  tabIndex: number | undefined,
+  ctx: LinkContext,
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
@@ -115,9 +199,26 @@ function linkify(
     const trailing = TRAILING_PUNCTUATION.exec(url)?.[0] ?? "";
     if (trailing) url = url.slice(0, -trailing.length);
     if (start > last) out.push(text.slice(last, start));
-    out.push(
-      <BodyLink key={`${keyPrefix}-${start}`} url={url} tabIndex={tabIndex} />,
-    );
+    const key = `${keyPrefix}-${start}`;
+    const doc = parseDocumentLink(url);
+    const docRef = doc ? ctx.refs.get(doc.documentId) : undefined;
+    if (doc && docRef) {
+      out.push(
+        <DocumentCard
+          key={key}
+          url={url}
+          docRef={docRef}
+          at={doc.at}
+          channelId={ctx.channelId}
+          tabIndex={ctx.tabIndex}
+        />,
+      );
+    } else if (url.startsWith("/")) {
+      // A bare path names no document here: it stays text.
+      out.push(url);
+    } else {
+      out.push(<BodyLink key={key} url={url} tabIndex={ctx.tabIndex} />);
+    }
     last = start + url.length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -133,20 +234,36 @@ interface MessageBodyProps {
    * stop, and only the message it rests on is tabbable inside.
    */
   tabbable?: boolean;
+  /** The message's document refs: a link naming one renders as a card. */
+  refs?: ChatDocumentRefDto[];
+  /** The channel a card's document should open its chat panel on. */
+  channelId?: string;
 }
 
 /**
  * A chat message body: plain text with line breaks kept, `@[username](id)`
  * tokens as mention chips, and bare URLs as links — this app's own open in
- * place, others in a new tab. Everything renders as text nodes; nothing in a
- * body becomes markup.
+ * place, others in a new tab. A link the server resolved to a document of
+ * this workspace (`refs`) renders as a document card. Everything renders as
+ * text nodes; nothing in a body becomes markup.
  *
  * A mention is a neutral chip, and the reader's own is the butter selected
  * wash: syrup already marks the "New messages" divider, the unread badges
  * and Send. A body past twelve lines collapses behind "Show more".
  */
-export function MessageBody({ body, me, tabbable = true }: MessageBodyProps) {
+export function MessageBody({
+  body,
+  me,
+  tabbable = true,
+  refs,
+  channelId,
+}: MessageBodyProps) {
   const tabIndex = tabbable ? undefined : -1;
+  const linkContext: LinkContext = {
+    tabIndex,
+    refs: new Map((refs ?? []).map((r) => [r.documentId, r])),
+    channelId,
+  };
   // Tokens carry the id as text.
   const self = me === undefined ? null : String(me);
   const ref = useRef<HTMLParagraphElement>(null);
@@ -181,7 +298,7 @@ export function MessageBody({ body, me, tabbable = true }: MessageBodyProps) {
         {parseMentionBody(body).map((segment, i) =>
           segment.type === "text" ? (
             <Fragment key={i}>
-              {linkify(segment.value, String(i), tabIndex)}
+              {linkify(segment.value, String(i), linkContext)}
             </Fragment>
           ) : (
             <span

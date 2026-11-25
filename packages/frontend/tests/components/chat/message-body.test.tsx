@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { MessageBody } from "@/components/chat/message-body";
@@ -115,6 +115,83 @@ describe("MessageBody", () => {
     it("leaves a short body alone", () => {
       render(<MessageBody body="short" />);
       expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    });
+  });
+
+  describe("document cards", () => {
+    const ID = "0b6f3c2e-8a4d-4f1e-9c7b-2d5e6f708192";
+    const ref = {
+      documentId: ID,
+      type: "sheet",
+      title: "Q4 budget",
+      anchor: {
+        tabId: "t",
+        rowId: "r",
+        colId: "c",
+        rowSpan: 2,
+        colSpan: 3,
+        label: "Sheet1!C3:E7",
+      },
+    };
+    function Where() {
+      const loc = useLocation();
+      return <span data-testid="where">{loc.pathname + loc.search}</span>;
+    }
+    function renderRouted(body: string, refs = [ref]) {
+      return render(
+        <MemoryRouter initialEntries={["/start"]}>
+          <Routes>
+            <Route
+              path="*"
+              element={
+                <>
+                  <MessageBody body={body} refs={refs} channelId="c1" />
+                  <Where />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    it("renders a resolved link as a card that opens the document with ?chat=", () => {
+      const url = `${window.location.origin}/s/${ID}?at=abc`;
+      renderRouted(`look ${url}.`);
+      const card = screen.getByRole("link");
+      expect(card).toHaveAttribute("data-document-card", ID);
+      expect(card).toHaveAttribute("title", url);
+      expect(card).toHaveTextContent("Q4 budget");
+      expect(card).toHaveTextContent("Sheet1!C3:E7");
+      expect(card.querySelector("svg")?.getAttribute("class")).toMatch(
+        /text-type-sheet/,
+      );
+      fireEvent.click(card);
+      expect(screen.getByTestId("where")).toHaveTextContent(
+        `/s/${ID}?chat=c1&at=abc`,
+      );
+    });
+
+    it("renders a root-relative path with a ref as a card, and leaves one without as text", () => {
+      renderRouted(`/s/${ID}`);
+      expect(screen.getByRole("link")).toHaveTextContent("Q4 budget");
+      cleanup();
+      renderRouted(`/s/${ID}`, []);
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.getByText(`/s/${ID}`)).toBeInTheDocument();
+    });
+
+    it("keeps a document link without a ref a plain link", () => {
+      const url = `${window.location.origin}/s/${ID}`;
+      renderRouted(url, []);
+      const link = screen.getByRole("link");
+      expect(link).not.toHaveAttribute("data-document-card");
+      expect(link).toHaveTextContent(url);
+    });
+
+    it("does not card another origin's link even when the id matches", () => {
+      renderRouted(`https://evil.test/s/${ID}`);
+      expect(screen.getByRole("link")).not.toHaveAttribute("data-document-card");
     });
   });
 });

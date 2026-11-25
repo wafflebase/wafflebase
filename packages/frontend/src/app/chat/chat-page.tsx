@@ -71,6 +71,7 @@ import { chatShortcut, modalSurfaceOpen } from "./chat-shortcuts";
 import { adjacentChannelId, channelLabel } from "./group-channels";
 import { LeaveChannelDialog } from "./leave-channel-dialog";
 import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
+import { ChannelFilesButton } from "./channel-files";
 import {
   ChannelMembersButton,
   ChannelMembersDialog,
@@ -448,6 +449,13 @@ export default function ChatPage() {
                   </span>
                 )}
                 <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {channel && (
+                    <ChannelFilesButton
+                      workspaceId={workspaceId}
+                      channelId={channel.id}
+                      lastSeq={channel.lastSeq}
+                    />
+                  )}
                   {channel && channel.kind !== "dm" && (
                     <ChannelMembersButton
                       workspaceId={workspaceId}

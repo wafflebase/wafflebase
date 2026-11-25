@@ -74,6 +74,46 @@ export interface ChatMessageDto {
   editedAt: string | null;
   deleted: boolean;
   createdAt: string;
+  /**
+   * Document cards: links in `body` naming a live document of this channel's
+   * workspace, in body order. Absent on a message this client has not had
+   * back from the server yet (an optimistic send).
+   */
+  refs?: ChatDocumentRefDto[];
+}
+
+/**
+ * Where a card points inside its document (`docs/design/chat.md` § Document
+ * Cards and Anchors). `label` is the sender's display snapshot, such as
+ * `Sheet1!C3:E7`: axis and slide ids cannot be named without loading the
+ * document.
+ */
+export type SheetAnchor = {
+  tabId: string;
+  rowId: string;
+  colId: string;
+  rowSpan: number;
+  colSpan: number;
+  label?: string;
+};
+export type DocAnchor = { blockId: string; excerpt?: string; label?: string };
+export type SlidesAnchor = { slideId: string; label?: string };
+export type ChatDocumentAnchor = SheetAnchor | DocAnchor | SlidesAnchor;
+
+export interface ChatDocumentRefDto {
+  documentId: string;
+  /** The document's type (`sheet`, `doc`, `slides`, …), as a plain string. */
+  type: string;
+  title: string;
+  anchor: ChatDocumentAnchor | null;
+}
+
+/** A row of a channel's Files list: a document at its latest share. */
+export interface ChatFileDto extends ChatDocumentRefDto {
+  messageId: string;
+  /** Null once the sharer's account is deleted. */
+  sharedBy: ChatUserSummary | null;
+  sharedAt: string;
 }
 
 /** The `message` event of `GET /chat/stream`. Carries no body. */
@@ -320,5 +360,22 @@ export async function fetchMessage(
   );
   if (res.status === 404) return null;
   await assertOk(res, "Couldn't load the message");
+  return res.json();
+}
+
+/**
+ * A channel's Files: each document its messages link to, once, newest share
+ * first. `cursor` is the `before` of the next page, null on the last.
+ */
+export async function fetchChannelFiles(
+  workspaceId: string,
+  channelId: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<{ files: ChatFileDto[]; cursor: string | null }> {
+  const url = new URL(`${channelBase(workspaceId, channelId)}/files`);
+  if (opts.limit !== undefined) url.searchParams.set("limit", String(opts.limit));
+  if (opts.before) url.searchParams.set("before", opts.before);
+  const res = await fetchWithAuth(url.toString());
+  await assertOk(res, "Couldn't load the channel's files");
   return res.json();
 }
