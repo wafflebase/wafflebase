@@ -797,6 +797,11 @@ sections above:
   failed post. `GET …/channels/:cid/files` returns
   `{ files: [{ documentId, type, title, anchor, messageId, sharedBy,
   sharedAt }], cursor }`, newest share first, one row per document.
+  The header control reads "Files" and is fetched only when opened (a count
+  appears after the first open), so a busy channel does not re-run the list
+  on every message. When one message links the same document twice, the
+  card goes to the link whose `?at=` matches the stored ref; the others stay
+  plain in-app links.
 - **Anchors carry a `label`.** Chat cannot turn axis or slide ids into
   "Sheet1!C3:E7" without loading the document, so every anchor type has an
   optional `label` (≤80 chars) written by whoever builds the link, and the
