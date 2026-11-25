@@ -9,7 +9,10 @@ vi.mock("@/api/auth", () => ({ fetchMe: vi.fn(async () => ({ id: 1 })) }));
 vi.mock("@/api/workspaces", () => ({
   fetchWorkspaces: vi.fn(async () => [{ id: "w1", slug: "acme", name: "Acme" }]),
 }));
-vi.mock("@/api/chat", () => ({ fetchChannels: vi.fn() }));
+vi.mock("@/api/chat", () => ({
+  fetchChannels: vi.fn(),
+  fetchDocumentSharedIn: vi.fn(),
+}));
 vi.mock("../conversation", () => ({
   Conversation: ({ channelId, placeholder }: { channelId: string; placeholder: string }) => (
     <div data-testid="conversation" data-channel={channelId}>
@@ -19,7 +22,7 @@ vi.mock("../conversation", () => ({
 }));
 vi.mock("../thread-view", () => ({ ThreadView: () => null }));
 
-import { fetchChannels } from "@/api/chat";
+import { fetchChannels, fetchDocumentSharedIn } from "@/api/chat";
 import { useChatPanel } from "../chat-panel-context";
 import { ChatPanel } from "../chat-panel";
 import { ChatPanelProvider } from "../chat-panel-provider";
@@ -73,7 +76,9 @@ describe("ChatPanel", () => {
     vi.mocked(fetchChannels).mockResolvedValue([
       channel("general", { isDefault: true }),
       channel("planning"),
+      channel("design"),
     ]);
+    vi.mocked(fetchDocumentSharedIn).mockResolvedValue([]);
   });
 
   it("shows the last opened channel with a link to it on the Chat page", async () => {
@@ -101,5 +106,39 @@ describe("ChatPanel", () => {
     await screen.findByTestId("conversation");
     act(() => api.open({ draft: "See /s/doc-1" }));
     await waitFor(() => expect(draftStore.get(1, "general")).toBe("See /s/doc-1"));
+  });
+
+  it("opens on the channel the document was last shared in over the last opened", async () => {
+    writeLastChannel("w1", "planning");
+    vi.mocked(fetchDocumentSharedIn).mockResolvedValue([
+      { channelId: "design", sharedAt: "2026-11-25T00:00:00Z" },
+      { channelId: "general", sharedAt: "2026-11-24T00:00:00Z" },
+    ]);
+    renderPanel();
+    expect((await screen.findByTestId("conversation")).dataset.channel).toBe("design");
+    expect(fetchDocumentSharedIn).toHaveBeenCalledWith("w1", "doc-1");
+  });
+
+  it("waits for where the document was shared before placing a draft", async () => {
+    let answer!: (v: { channelId: string; sharedAt: string }[]) => void;
+    vi.mocked(fetchDocumentSharedIn).mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    renderPanel();
+    act(() => api.open({ draft: "See /s/doc-1" }));
+    await waitFor(() => expect(fetchChannels).toHaveBeenCalled());
+    expect(screen.queryByTestId("conversation")).toBeNull();
+    await act(async () => answer([{ channelId: "design", sharedAt: "2026-11-25T00:00:00Z" }]));
+    expect((await screen.findByTestId("conversation")).dataset.channel).toBe("design");
+    expect(draftStore.get(1, "design")).toBe("See /s/doc-1");
+    expect(draftStore.get(1, "general")).toBe("");
+  });
+
+  it("falls back when asking where the document was shared fails", async () => {
+    vi.mocked(fetchDocumentSharedIn).mockRejectedValue(new Error("nope"));
+    renderPanel();
+    expect((await screen.findByTestId("conversation")).dataset.channel).toBe("general");
   });
 });

@@ -1,4 +1,8 @@
-import type { ChannelSummary } from "@/api/chat";
+import { useQuery } from "@tanstack/react-query";
+
+import { fetchDocumentSharedIn, type ChannelSummary } from "@/api/chat";
+
+import { chatKeys } from "./chat-cache";
 
 /** A channel the user can talk in: one they belong to, not archived. */
 const open = (c: ChannelSummary) => c.isMember && !c.archived;
@@ -57,17 +61,27 @@ export function pickPanelChannel({
 
 /**
  * The channel `documentId` was most recently shared in, among the ones the
- * user belongs to — rule 2 of `pickPanelChannel`.
+ * user belongs to — rule 2 of `pickPanelChannel` — from the document's
+ * `ChatDocumentRef`s. `undefined` while that is still being asked, so the
+ * panel can wait rather than settle on a fallback and then jump (taking a
+ * "Send to chat" draft into the wrong channel); null when there is none or
+ * the question failed.
  *
- * Hook point: it answers null until document cards record which channels a
- * document was posted in (`ChatDocumentRef`, chat-hardening stream D). Fill
- * it from that data; the panel already consults it.
+ * Read once per document visit: a share made while the panel is open must
+ * not move the conversation the user is looking at.
  */
 export function useDocumentSharedChannelId(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _workspaceId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _documentId: string,
-): string | null {
-  return null;
+  workspaceId: string,
+  documentId: string,
+): string | null | undefined {
+  const { data, isError } = useQuery({
+    queryKey: [...chatKeys.all, "shared-in", workspaceId, documentId],
+    queryFn: () => fetchDocumentSharedIn(workspaceId, documentId),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  if (isError) return null;
+  if (data === undefined) return undefined;
+  return data[0]?.channelId ?? null;
 }

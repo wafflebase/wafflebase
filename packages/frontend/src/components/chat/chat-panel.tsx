@@ -80,7 +80,9 @@ export function ChatPanel({
   const sharedIn = useDocumentSharedChannelId(workspaceId, documentId);
 
   const requested = state?.channelId ?? null;
-  const channelId = channels
+  // Waits for `sharedIn` as well as the list: picking a fallback first and
+  // switching once it arrives would move the conversation under the user.
+  const channelId = channels && sharedIn !== undefined
     ? pickPanelChannel({
         channels,
         requested,
@@ -210,7 +212,7 @@ export function ChatPanel({
         </Button>
       </header>
 
-      {!channels ? (
+      {!channels || sharedIn === undefined ? (
         channelsQuery.isError ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm text-muted-foreground">
