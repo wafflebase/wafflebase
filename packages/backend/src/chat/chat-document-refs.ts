@@ -3,6 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { ChatChannel, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
+  decodeAnchor,
+  DOCUMENT_ID_SOURCE,
+  DOCUMENT_PATH_SOURCE,
+} from '@wafflebase/core/document-link';
+import {
   ChatDocumentAnchor,
   ChatDocumentRefDto,
   ChatFileDto,
@@ -19,19 +24,8 @@ import {
  * exist stays a plain link.
  */
 
-/** The editor routes in `packages/frontend/src/App.tsx`. */
-const ROUTE_PREFIXES = 's|d|p|n|b|f';
-/** Document ids are uuids; anything else is not looked up. */
-const UUID =
-  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 /** A body names at most this many cards; the rest stay plain links. */
 export const MAX_REFS_PER_MESSAGE = 10;
-/** An `?at=` longer than this is not decoded. */
-const MAX_ANCHOR_PARAM = 2_048;
-const MAX_ID = 128;
-const MAX_EXCERPT = 200;
-const MAX_LABEL = 80;
-const MAX_SPAN = 100_000;
 
 export interface DocumentLink {
   documentId: string;
@@ -74,14 +68,14 @@ export function extractDocumentLinks(
     ? `(?:${escapeRegExp(base)}|(?<=^|[\\s(<]))`
     : '(?<=^|[\\s(<])';
   const re = new RegExp(
-    `${prefix}/(?:${ROUTE_PREFIXES})/(${UUID})(?![0-9A-Za-z-])([?#][^\\s<>"]*)?`,
+    `${prefix}${DOCUMENT_PATH_SOURCE}(?![0-9A-Za-z-])([?#][^\\s<>"]*)?`,
     'g',
   );
   const out: DocumentLink[] = [];
   const seen = new Set<string>();
   for (const match of body.matchAll(re)) {
     // Ids are stored lowercase (Prisma's `uuid()`); compare that way.
-    const documentId = match[1].toLowerCase();
+    const documentId = match[2].toLowerCase();
     if (seen.has(documentId)) continue;
     // An absolute URL whose host merely ends like ours, e.g.
     // `https://evil.test/https://ours.test/s/…`, is matched from its tail;
@@ -91,7 +85,7 @@ export function extractDocumentLinks(
       if (!/[\s(<]/.test(body[start - 1])) continue;
     }
     seen.add(documentId);
-    out.push({ documentId, at: atParam(match[2]) });
+    out.push({ documentId, at: atParam(match[3]) });
     if (out.length === MAX_REFS_PER_MESSAGE) break;
   }
   return out;
@@ -103,90 +97,6 @@ function atParam(tail: string | undefined): string | null {
   // Trailing sentence punctuation is not part of the link.
   const params = new URLSearchParams(query.replace(/[.,!?;:'")\]]+$/, ''));
   return params.get('at');
-}
-
-/** base64url (no padding) of UTF-8 JSON, as the frontend writes it. */
-function decodeAt(raw: string): unknown {
-  if (raw.length > MAX_ANCHOR_PARAM || !/^[A-Za-z0-9_-]+$/.test(raw)) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
-function isId(v: unknown): v is string {
-  return typeof v === 'string' && v.length > 0 && v.length <= MAX_ID;
-}
-
-function isSpan(v: unknown): v is number {
-  return (
-    typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_SPAN
-  );
-}
-
-function optionalText(v: unknown, max: number): string | undefined | null {
-  if (v === undefined) return undefined;
-  if (typeof v !== 'string' || v.length > max) return null;
-  return v;
-}
-
-/**
- * The anchor stored for a document of `type`, or null. Only the fields the
- * type defines are kept, each checked, so a stored anchor is always one the
- * frontend can apply; anything malformed is a document-level link rather
- * than a refused message. `label` is an optional display snapshot taken by
- * the sender (`Sheet1!C3:E7`, `Slide 3`) — the chat cannot resolve axis ids
- * or slide ids to names without loading the document.
- */
-export function parseAnchor(
-  raw: string | null,
-  type: string,
-): ChatDocumentAnchor | null {
-  if (raw === null) return null;
-  const v = decodeAt(raw);
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-  const a = v as Record<string, unknown>;
-  const label = optionalText(a.label, MAX_LABEL);
-  if (label === null) return null;
-  const withLabel = <T extends object>(o: T) =>
-    label === undefined ? o : { ...o, label };
-  switch (type) {
-    case 'sheet':
-      if (
-        !isId(a.tabId) ||
-        !isId(a.rowId) ||
-        !isId(a.colId) ||
-        !isSpan(a.rowSpan) ||
-        !isSpan(a.colSpan)
-      ) {
-        return null;
-      }
-      return withLabel({
-        tabId: a.tabId,
-        rowId: a.rowId,
-        colId: a.colId,
-        rowSpan: a.rowSpan,
-        colSpan: a.colSpan,
-      });
-    case 'doc': {
-      if (!isId(a.blockId)) return null;
-      const excerpt = optionalText(a.excerpt, MAX_EXCERPT);
-      if (excerpt === null) return null;
-      return withLabel(
-        excerpt === undefined
-          ? { blockId: a.blockId }
-          : { blockId: a.blockId, excerpt },
-      );
-    }
-    case 'slides':
-      if (!isId(a.slideId)) return null;
-      return withLabel({ slideId: a.slideId });
-    default:
-      return null;
-  }
 }
 
 /** The ref relation a message read includes, live documents only. */
@@ -271,7 +181,9 @@ export class ChatDocumentRefService {
       const refs = links.flatMap((link) => {
         const doc = byId.get(link.documentId);
         if (!doc) return [];
-        return [{ doc, anchor: parseAnchor(link.at, doc.type) }];
+        // An `?at=` that is malformed, or not this type's shape, makes a
+        // document-level card rather than a refused message.
+        return [{ doc, anchor: decodeAnchor(link.at, doc.type) }];
       });
       const keep = refs.map((r) => r.doc.id);
       await this.prisma.$transaction([
@@ -300,8 +212,11 @@ export class ChatDocumentRefService {
         anchor,
       }));
     } catch (err) {
+      // The class and code only: a Prisma validation error renders the
+      // arguments it was given, and those carry the anchor — a doc excerpt
+      // of up to 200 characters of document content.
       this.logger.warn(
-        `chat refs sync failed for ${messageId}: ${String(err)}`,
+        `chat refs sync failed for ${messageId}: ${describeError(err)}`,
       );
       return [];
     }
@@ -427,8 +342,17 @@ export class ChatDocumentRefService {
   }
 }
 
+/** An error's class, plus its `code` when it has one — never its message. */
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return typeof err;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? `${err.name} ${code}` : err.name;
+}
+
+const DOCUMENT_ID = new RegExp(`^${DOCUMENT_ID_SOURCE}$`);
+
 /** `<ISO time>_<documentId>`, or undefined when absent or malformed. */
-function parseCursor(
+export function parseCursor(
   raw: string | undefined,
 ): { at: Date; documentId: string } | undefined {
   if (!raw) return undefined;
@@ -436,6 +360,8 @@ function parseCursor(
   if (i <= 0) return undefined;
   const at = new Date(raw.slice(0, i));
   const documentId = raw.slice(i + 1);
-  if (Number.isNaN(at.getTime()) || !isId(documentId)) return undefined;
+  if (Number.isNaN(at.getTime()) || !DOCUMENT_ID.test(documentId)) {
+    return undefined;
+  }
   return { at, documentId };
 }

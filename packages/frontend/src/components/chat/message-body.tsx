@@ -8,10 +8,13 @@ import {
 } from "react";
 import {
   Link,
-  useHref,
   useInRouterContext,
   useNavigate,
 } from "react-router-dom";
+import {
+  DOCUMENT_PATH_SOURCE,
+  DOCUMENT_ROUTE_LETTERS,
+} from "@wafflebase/core/document-link";
 import type { ChatDocumentRefDto } from "@/api/chat";
 import { typeMeta } from "@/app/documents/document-type-meta";
 import { parseMentionBody } from "@/components/comments/mentions";
@@ -20,14 +23,18 @@ import {
   anchorLabel,
   buildDocumentPath,
   parseDocumentLink,
+  routerBasename,
 } from "./document-link";
 
 // A bare http(s) URL, or a root-relative document path standing on its own
-// (`/s/<id>`), which the server also reads as a card. Trailing sentence
-// punctuation is trimmed off below, so "see https://x.test/a." links
-// `https://x.test/a`, not the period.
-const URL_RE =
-  /https?:\/\/[^\s<>"]+|(?<=^|[\s(<])\/[sdpnbf]\/[0-9a-fA-F-]{36}(?:[?#][^\s<>"]*)?/g;
+// (`/s/<id>`), which the server also reads as a card — by the same grammar,
+// `@wafflebase/core/document-link`. Trailing sentence punctuation is trimmed
+// off below, so "see https://x.test/a." links `https://x.test/a`, not the
+// period.
+const URL_RE = new RegExp(
+  `https?://[^\\s<>"]+|(?<=^|[\\s(<])${DOCUMENT_PATH_SOURCE}(?![0-9A-Za-z-])(?:[?#][^\\s<>"]*)?`,
+  "g",
+);
 const TRAILING_PUNCTUATION = /[.,!?;:'")\]]+$/;
 
 /** Bodies collapse past this many lines behind "Show more". */
@@ -47,8 +54,9 @@ const LINK_CLASS = "text-link underline-offset-2 break-all hover:underline";
  * the docs site under `/docs`, the API, images — so a same-origin link is
  * routed in place only when its path (after the basename) is one of these.
  */
-const IN_APP_PATH =
-  /^\/(?:(?:w|d|p|s|f|n|b|shared|t|invite)\/|(?:documents|templates|settings)(?:[/?#]|$))/;
+const IN_APP_PATH = new RegExp(
+  `^/(?:(?:w|${DOCUMENT_ROUTE_LETTERS.join("|")}|shared|t|invite)/|(?:documents|templates|settings)(?:[/?#]|$))`,
+);
 
 /** Whether `url` is this app's own origin, and so opens in this tab. */
 function isSameOrigin(url: string): boolean {
@@ -73,7 +81,7 @@ function InAppLink({
 }) {
   const navigate = useNavigate();
   // The router's basename, so `/app/w/1/chat` navigates to `/w/1/chat`.
-  const base = useHref("/").replace(/\/$/, "");
+  const base = routerBasename();
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
       return;
@@ -120,19 +128,19 @@ function BodyLink({ url, tabIndex }: { url: string; tabIndex?: number }) {
 /**
  * A link the server resolved to a document of this workspace: type icon in
  * its hue, title, and the anchor's label. It opens the document in place
- * with the chat panel on `channelId`, carrying the link's own `?at=`. The
- * raw URL stays reachable as the tooltip.
+ * with the chat panel on `channelId`, at the anchor the server validated and
+ * stored — the one the label describes — never the body's raw `?at=`, which
+ * the sender is free to make say something else. The raw URL stays
+ * reachable as the tooltip.
  */
 function DocumentCard({
   url,
   docRef,
-  at,
   channelId,
   tabIndex,
 }: {
   url: string;
   docRef: ChatDocumentRefDto;
-  at: string | null;
   channelId?: string;
   tabIndex?: number;
 }) {
@@ -141,7 +149,7 @@ function DocumentCard({
   const label = anchorLabel(docRef.anchor);
   const path = buildDocumentPath(
     { id: docRef.documentId, type: docRef.type },
-    { chat: channelId, at },
+    { chat: channelId, at: docRef.anchor },
   );
   const className =
     "my-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 align-middle text-sm text-foreground no-underline outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -208,7 +216,6 @@ function linkify(
           key={key}
           url={url}
           docRef={docRef}
-          at={doc.at}
           channelId={ctx.channelId}
           tabIndex={ctx.tabIndex}
         />,

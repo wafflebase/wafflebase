@@ -1,3 +1,5 @@
+import type { ChatDocumentAnchor } from '@wafflebase/core/document-link';
+
 /**
  * Shared chat contracts. The REST DTOs here are mirrored by the frontend
  * (`packages/frontend/src/api/chat.ts`); `seq` travels as a JSON `number`
@@ -81,21 +83,10 @@ export interface ChatMessageDto {
 
 /**
  * Where a card points inside its document, per type (`docs/design/chat.md`
- * § Document Cards and Anchors). `label` is the sender's display snapshot
- * (`Sheet1!C3:E7`, `Slide 3`): ids alone cannot be named without loading the
- * document.
+ * § Document Cards and Anchors). Shared with the frontend, which writes and
+ * applies it, so both validate it by one rule.
  */
-export type ChatDocumentAnchor = (
-  | {
-      tabId: string;
-      rowId: string;
-      colId: string;
-      rowSpan: number;
-      colSpan: number;
-    }
-  | { blockId: string; excerpt?: string }
-  | { slideId: string }
-) & { label?: string };
+export type { ChatDocumentAnchor };
 
 export interface ChatDocumentRefDto {
   documentId: string;

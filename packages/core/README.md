@@ -16,6 +16,8 @@ exactly the leaf you need so bundlers tree-shake the rest.
 | `@wafflebase/core/tokens.css` | Generated CSS custom properties for the tokens (built by `scripts/build-css.ts`) |
 | `@wafflebase/core/geometry` | `Point` / `Rect` / `Size` types, bounding-box math, hit-testing |
 | `@wafflebase/core/url` | Safe-protocol hyperlink gating (`SAFE_PROTOCOLS`, `isSafeUrl`) shared by every renderer/exporter across sheets and docs |
+| `@wafflebase/core/image` | `loadImage`, the CORS-then-plain-retry image loader the engines' image caches share |
+| `@wafflebase/core/document-link` | The document-URL grammar (type → route letter, uuid id rule, path parse) and the chat `?at=` anchor types, limits and codec — read by the backend's chat ref sync and the frontend alike |
 
 `@wafflebase/tokens` is folded into this package as the `./tokens` subpath.
 
@@ -32,7 +34,11 @@ import { isSafeUrl } from '@wafflebase/core/url';
 ```
 
 Classic CJS resolvers ignore the `exports` map, so a new subpath also needs a
-matching `@wafflebase/core/*` path entry in `packages/backend/tsconfig.json`.
+`typesVersions` entry in this package's `package.json` (what the backend's
+build, which clears `paths`, reads its declarations through). The backend's
+`tsconfig.json` paths and jest `moduleNameMapper` map `@wafflebase/core/*` to
+source by wildcard, so they need nothing. The backend's runtime image copies
+`dist/` (see the root `Dockerfile`).
 
 ## Build
 

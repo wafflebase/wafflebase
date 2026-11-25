@@ -79,6 +79,7 @@ WORKDIR /app
 # Copy workspace manifests
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
+COPY packages/core/package.json ./packages/core/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
 COPY packages/slides/package.json ./packages/slides/
@@ -111,6 +112,10 @@ RUN npx prisma@6.6.0 generate
 # `yorkie/slide-ops.ts` (`MemSlidesStore`), which `api/v1/slides.controller.ts`
 # pulls into that graph, so the missing dist became a boot crash.
 # `test/smoke-workspace-deps.cjs` now asserts this in CI.
+# `core` is subpath-only and the backend imports it directly
+# (`@wafflebase/core/document-link`, the chat document-link grammar), so its
+# CommonJS build has to be here too; the engines bundle what they use of it.
+COPY --from=builder /app/packages/core/dist /app/packages/core/dist
 COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
 COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
 COPY --from=builder /app/packages/slides/dist /app/packages/slides/dist

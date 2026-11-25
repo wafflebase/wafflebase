@@ -9,6 +9,12 @@
     "dist"
   ],
   "exports": {
+    "./document-link": {
+      "types": "./dist/document-link/index.d.ts",
+      "import": "./dist/document-link/index.js",
+      "require": "./dist/cjs/document-link/index.js",
+      "default": "./dist/document-link/index.js"
+    },
     "./geometry": {
       "types": "./dist/geometry/index.d.ts",
       "import": "./dist/geometry/index.js",
@@ -33,6 +39,25 @@
       "import": "./dist/url/index.js",
       "require": "./dist/cjs/url/index.js",
       "default": "./dist/url/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "document-link": [
+        "./dist/document-link/index.d.ts"
+      ],
+      "geometry": [
+        "./dist/geometry/index.d.ts"
+      ],
+      "image": [
+        "./dist/image/index.d.ts"
+      ],
+      "tokens": [
+        "./dist/tokens/index.d.ts"
+      ],
+      "url": [
+        "./dist/url/index.d.ts"
+      ]
     }
   },
   "scripts": {

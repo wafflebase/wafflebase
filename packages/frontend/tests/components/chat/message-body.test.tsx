@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { encodeAnchor } from "@/components/chat/document-link";
 import { MessageBody } from "@/components/chat/message-body";
 
 describe("MessageBody", () => {
@@ -54,6 +55,28 @@ describe("MessageBody", () => {
     expect(link).not.toHaveAttribute("target");
     fireEvent.click(link);
     expect(screen.getByTestId("where")).toHaveTextContent("/w/w1/chat/c2?message=m9");
+  });
+
+  it("cuts the router basename off an in-app link before routing it", () => {
+    vi.stubEnv("VITE_FRONTEND_BASENAME", "/app/");
+    try {
+      const url = `${window.location.origin}/app/w/w1/chat/c2`;
+      function Where() {
+        const loc = useLocation();
+        return <span data-testid="where">{loc.pathname}</span>;
+      }
+      render(
+        <MemoryRouter initialEntries={["/start"]}>
+          <Routes>
+            <Route path="*" element={<><MessageBody body={`see ${url}`} /><Where /></>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByRole("link"));
+      expect(screen.getByTestId("where")).toHaveTextContent("/w/w1/chat/c2");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("leaves same-origin pages the router does not own to the browser", () => {
@@ -156,7 +179,7 @@ describe("MessageBody", () => {
     }
 
     it("renders a resolved link as a card that opens the document with ?chat=", () => {
-      const url = `${window.location.origin}/s/${ID}?at=abc`;
+      const url = `${window.location.origin}/s/${ID}?at=${encodeAnchor(ref.anchor)}`;
       renderRouted(`look ${url}.`);
       const card = screen.getByRole("link");
       expect(card).toHaveAttribute("data-document-card", ID);
@@ -168,8 +191,29 @@ describe("MessageBody", () => {
       );
       fireEvent.click(card);
       expect(screen.getByTestId("where")).toHaveTextContent(
-        `/s/${ID}?chat=c1&at=abc`,
+        `/s/${ID}?chat=c1&at=${encodeAnchor(ref.anchor)}`,
       );
+    });
+
+    it("navigates to the anchor the server stored, not the body's ?at=", () => {
+      // The body says one place, the stored (validated) anchor another: the
+      // card is labelled from the stored one, so it must go there too.
+      const other = encodeAnchor({ ...ref.anchor, tabId: "elsewhere", label: "Other!A1" });
+      renderRouted(`${window.location.origin}/s/${ID}?at=${other}`);
+      const card = screen.getByRole("link");
+      expect(card).toHaveTextContent("Sheet1!C3:E7");
+      fireEvent.click(card);
+      expect(screen.getByTestId("where")).toHaveTextContent(
+        `/s/${ID}?chat=c1&at=${encodeAnchor(ref.anchor)}`,
+      );
+    });
+
+    it("drops an ?at= the server refused", () => {
+      renderRouted(`${window.location.origin}/s/${ID}?at=garbage`, [
+        { ...ref, anchor: null },
+      ]);
+      fireEvent.click(screen.getByRole("link"));
+      expect(screen.getByTestId("where").textContent).toBe(`/s/${ID}?chat=c1`);
     });
 
     it("renders a root-relative path with a ref as a card, and leaves one without as text", () => {

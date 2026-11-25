@@ -1,3 +1,7 @@
+import {
+  DOCUMENT_ROUTES,
+  type DocumentRouteLetter,
+} from "@wafflebase/core/document-link";
 import { formatDistanceToNow } from "date-fns";
 
 import type { DateDisplayFormat } from "@/lib/date-format-preference";
@@ -146,28 +150,21 @@ export function formatListDate(
     : formatRelativeTime(value);
 }
 
-/** Maps a document to its editor/viewer route by type. */
+/**
+ * Maps a document to its editor/viewer route by type. The type → letter
+ * table is `@wafflebase/core/document-link`'s, which the chat's link
+ * grammar on both ends is built from; indexing it by `DocumentType` makes a
+ * new type without a route a compile error rather than a sheet link. A
+ * missing type (older rows), or one the server knows and this build does
+ * not, opens as a sheet, the original document type.
+ */
 export function getDocumentPath(doc: {
   id: number | string;
   type?: DocumentType;
 }): string {
-  switch (doc.type) {
-    case "doc":
-      return `/d/${doc.id}`;
-    case "slides":
-      return `/p/${doc.id}`;
-    case "pdf":
-    case "image":
-    case "file":
-      return `/f/${doc.id}`;
-    case "note":
-      return `/n/${doc.id}`;
-    case "board":
-      return `/b/${doc.id}`;
-    case "sheet":
-    default:
-      return `/s/${doc.id}`;
-  }
+  const route: DocumentRouteLetter | undefined =
+    DOCUMENT_ROUTES[doc.type ?? "sheet"];
+  return `/${route ?? "s"}/${doc.id}`;
 }
 
 /**

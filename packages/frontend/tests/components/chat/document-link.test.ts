@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   anchorLabel,
   buildDocumentPath,
@@ -6,6 +6,7 @@ import {
   decodeAnchor,
   encodeAnchor,
   parseDocumentLink,
+  routerBasename,
 } from "@/components/chat/document-link";
 
 const ID = "0b6f3c2e-8a4d-4f1e-9c7b-2d5e6f708192";
@@ -38,6 +39,29 @@ describe("parseDocumentLink", () => {
       parseDocumentLink(`${ORIGIN}/app/d/${ID.toUpperCase()}`, ORIGIN, "/app")
         ?.documentId,
     ).toBe(ID);
+  });
+});
+
+describe("the router basename default", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is empty when unset", () => {
+    vi.stubEnv("VITE_FRONTEND_BASENAME", "");
+    expect(routerBasename()).toBe("");
+  });
+
+  it("reads VITE_FRONTEND_BASENAME without its trailing slash", () => {
+    vi.stubEnv("VITE_FRONTEND_BASENAME", "/app/");
+    expect(routerBasename()).toBe("/app");
+  });
+
+  it("is what parseDocumentLink strips and buildDocumentUrl adds", () => {
+    vi.stubEnv("VITE_FRONTEND_BASENAME", "/app");
+    const url = buildDocumentUrl({ id: ID, type: "doc" }, {}, ORIGIN);
+    expect(url).toBe(`${ORIGIN}/app/d/${ID}`);
+    expect(parseDocumentLink(url, ORIGIN)?.documentId).toBe(ID);
+    // Off the basename is not this app's document route.
+    expect(parseDocumentLink(`${ORIGIN}/other/d/${ID}`, ORIGIN)).toBeNull();
   });
 });
 

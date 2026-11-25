@@ -1,13 +1,18 @@
-import type {
-  ChatDocumentAnchor,
-  DocAnchor,
-  SheetAnchor,
-  SlidesAnchor,
-} from "@/api/chat";
+import {
+  decodeAnchor,
+  encodeAnchor,
+  parseDocumentPath,
+  type ChatDocumentAnchor,
+  type DocAnchor,
+  type DocumentRouteLetter,
+  type SheetAnchor,
+  type SlidesAnchor,
+} from "@wafflebase/core/document-link";
 import { getDocumentPath } from "@/app/documents/document-list-utils";
 import type { DocumentType } from "@/types/documents";
 
 export type { ChatDocumentAnchor, DocAnchor, SheetAnchor, SlidesAnchor };
+export { decodeAnchor, encodeAnchor };
 
 /*
  * Document links as chat carries them (`docs/design/chat.md` § Document
@@ -15,37 +20,27 @@ export type { ChatDocumentAnchor, DocAnchor, SheetAnchor, SlidesAnchor };
  * `/n/:id`, `/b/:id`, `/f/:id`) plus two optional query parameters —
  * `?chat=<channelId>` opens the editor's chat panel on that channel, and
  * `?at=<anchor>` is base64url (no padding) of the anchor's compact JSON.
- * The backend's `chat-document-refs.ts` parses the same shape; keep the two
- * in step.
+ * The route grammar and the anchor codec are `@wafflebase/core/document-link`,
+ * the same module the backend's `chat-document-refs.ts` reads them with.
  */
-
-/** The editor route letters, in `App.tsx`. */
-const ROUTE_PREFIXES = "sdpnbf";
-const UUID =
-  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
-const DOCUMENT_PATH = new RegExp(
-  `^/([${ROUTE_PREFIXES}])/(${UUID})/?$`,
-);
-
-const MAX_ANCHOR_PARAM = 2048;
-const MAX_ID = 128;
-const MAX_EXCERPT = 200;
-const MAX_LABEL = 80;
-const MAX_SPAN = 100_000;
 
 export interface DocumentLink {
   /** Lowercase, as the server stores ids. */
   documentId: string;
   /** The route letter the link used (`s`, `d`, …). */
-  route: string;
+  route: DocumentRouteLetter;
   /** `?chat=`, or null. */
   chat: string | null;
   /** The raw, undecoded `?at=`, or null. */
   at: string | null;
 }
 
-/** The router basename, without a trailing slash. */
-function basename(): string {
+/**
+ * The router basename, without a trailing slash: what `App.tsx` mounts the
+ * router under. Every chat link reads it from here, so the URL a message
+ * carries and the path the router is handed are cut at the same place.
+ */
+export function routerBasename(): string {
   return (import.meta.env.VITE_FRONTEND_BASENAME ?? "").replace(/\/+$/, "");
 }
 
@@ -57,7 +52,7 @@ function basename(): string {
 export function parseDocumentLink(
   raw: string,
   origin: string = window.location.origin,
-  base: string = basename(),
+  base: string = routerBasename(),
 ): DocumentLink | null {
   let url: URL;
   try {
@@ -71,11 +66,11 @@ export function parseDocumentLink(
   let path = url.pathname;
   // A root-relative path in a message is written without the basename.
   if (base && path.startsWith(`${base}/`)) path = path.slice(base.length);
-  const match = DOCUMENT_PATH.exec(path);
+  const match = parseDocumentPath(path);
   if (!match) return null;
   return {
-    documentId: match[2].toLowerCase(),
-    route: match[1],
+    documentId: match.documentId,
+    route: match.route,
     chat: url.searchParams.get("chat"),
     at: url.searchParams.get("at"),
   };
@@ -106,105 +101,7 @@ export function buildDocumentUrl(
   opts: { chat?: string | null; at?: ChatDocumentAnchor | string | null } = {},
   origin: string = window.location.origin,
 ): string {
-  return `${origin}${basename()}${buildDocumentPath(doc, opts)}`;
-}
-
-function toBase64Url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(raw: string): Uint8Array | null {
-  if (raw.length > MAX_ANCHOR_PARAM || !/^[A-Za-z0-9_-]+$/.test(raw)) {
-    return null;
-  }
-  try {
-    const bin = atob(raw.replace(/-/g, "+").replace(/_/g, "/"));
-    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
-
-/** `?at=` for an anchor: base64url of its UTF-8 JSON, unpadded. */
-export function encodeAnchor(anchor: ChatDocumentAnchor): string {
-  return toBase64Url(new TextEncoder().encode(JSON.stringify(anchor)));
-}
-
-function isId(v: unknown): v is string {
-  return typeof v === "string" && v.length > 0 && v.length <= MAX_ID;
-}
-
-function isSpan(v: unknown): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= MAX_SPAN;
-}
-
-/** undefined when absent, null when present but invalid. */
-function optionalText(v: unknown, max: number): string | undefined | null {
-  if (v === undefined) return undefined;
-  return typeof v === "string" && v.length <= max ? v : null;
-}
-
-/**
- * The anchor `raw` encodes for a document of `type`, or null when it is
- * absent, malformed, or not this type's shape. Only the type's own fields
- * are kept. Mirrors the server's `parseAnchor`, so an `?at=` typed into an
- * address bar is held to the same rules as a stored one.
- */
-export function decodeAnchor(
-  raw: string | null | undefined,
-  type: string,
-): ChatDocumentAnchor | null {
-  if (!raw) return null;
-  const bytes = fromBase64Url(raw);
-  if (!bytes) return null;
-  let v: unknown;
-  try {
-    v = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  } catch {
-    return null;
-  }
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
-  const a = v as Record<string, unknown>;
-  const label = optionalText(a.label, MAX_LABEL);
-  if (label === null) return null;
-  const withLabel = <T extends object>(o: T): T & { label?: string } =>
-    label === undefined ? o : { ...o, label };
-  switch (type) {
-    case "sheet":
-      if (
-        !isId(a.tabId) ||
-        !isId(a.rowId) ||
-        !isId(a.colId) ||
-        !isSpan(a.rowSpan) ||
-        !isSpan(a.colSpan)
-      ) {
-        return null;
-      }
-      return withLabel({
-        tabId: a.tabId,
-        rowId: a.rowId,
-        colId: a.colId,
-        rowSpan: a.rowSpan,
-        colSpan: a.colSpan,
-      });
-    case "doc": {
-      if (!isId(a.blockId)) return null;
-      const excerpt = optionalText(a.excerpt, MAX_EXCERPT);
-      if (excerpt === null) return null;
-      return withLabel(
-        excerpt === undefined
-          ? { blockId: a.blockId }
-          : { blockId: a.blockId, excerpt },
-      );
-    }
-    case "slides":
-      if (!isId(a.slideId)) return null;
-      return withLabel({ slideId: a.slideId });
-    default:
-      return null;
-  }
+  return `${origin}${routerBasename()}${buildDocumentPath(doc, opts)}`;
 }
 
 /**
