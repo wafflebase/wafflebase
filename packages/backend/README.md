@@ -418,6 +418,11 @@ docker compose up -d              # Start PostgreSQL + Yorkie
 # Run database migrations:
 pnpm backend migrate
 
+# Build the workspace packages the backend loads at runtime (Node resolves
+# them to their built dist, not to source; re-run after pulling changes to
+# packages/core or an engine, or `nest start` fails with "Cannot find module"):
+pnpm core build && pnpm --filter @wafflebase/docs build && pnpm sheets build && pnpm slides build
+
 # Start dev server:
 pnpm dev                          # Starts frontend (:5173) + backend (:3000)
 

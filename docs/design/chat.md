@@ -855,7 +855,9 @@ sections above:
   receive each other's NOTIFY — the multi-replica claim, asserted.
 - Frontend: shared state survives page → panel → page (draft, scroll, read
   position); anchor application per editor type.
-- Browser lane: send-to-chat round trip in sheets.
+- Browser lane: send-to-chat round trip in sheets. *Not yet written:* P2
+  covers it with rendered detail-page tests (`tests/app/editor-chat/`) and
+  the per-editor anchor tests, not a browser run.
 
 ## Risks and Mitigation
 
@@ -868,6 +870,16 @@ sections above:
 - **Fan-out cost.** Each replica checks membership per event; cached per
   channel and bounded by connected users. Large deployments would move to a
   bus, out of scope here.
+- **Workspace reader cache churn.** Any `mem` event clears every workspace's
+  cached reader set, not only the affected workspace's, so each join or
+  leave costs one reload per active workspace on its next public event.
+  Cheap at today's scale; key the eviction by workspace if it shows up.
+- **Deploy skew.** The frontend ships on merge; the backend image is pinned
+  by hand later. A request field the old backend does not know is a `400`
+  under `forbidNonWhitelisted`, so a new post field must be tolerated by the
+  client until the backend catches up: a post whose `clientId` is refused
+  is resent without it, and the client stops sending it for the session.
+  New read routes degrade by answering `404`, which the UI treats as empty.
 - **Noise.** Thread-reply notifications are deduped hourly; a DM or channel
   message reaches the bell only when it mentions you.
 - **Content injection.** Bodies are plain text rendered as text nodes; only

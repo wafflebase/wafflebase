@@ -40,7 +40,7 @@ its own branch; the branches are merged here.
 ## Wave 1 (parallel)
 
 ### A. Live reliability
-- [x] Stream recovers after EventSource `CLOSED` (refresh auth, recreate with backoff; polling fallback while down)
+- [x] Stream recovers after EventSource `CLOSED` (refresh auth, recreate with backoff). No polling fallback: the reopened stream's `ready` catch-up replaces it (see chat.md § P2 as built)
 - [x] `channel` stream event on rename / topic / archive / unarchive; peers' composer reflects archive
 - [x] Non-member previewing a public channel receives `message`/`update` for it
 - [x] `clientId` idempotent post; retry and reload-recovered pending sends reuse it
