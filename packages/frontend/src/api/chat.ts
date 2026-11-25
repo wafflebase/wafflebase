@@ -76,8 +76,8 @@ export interface ChatMessageDto {
   createdAt: string;
   /**
    * Document cards: links in `body` naming a live document of this channel's
-   * workspace, in body order. Absent on a message this client has not had
-   * back from the server yet (an optimistic send).
+   * workspace, one per document; match by `documentId`. Absent on a message
+   * this client has not had back from the server yet (an optimistic send).
    */
   refs?: ChatDocumentRefDto[];
 }

@@ -72,8 +72,9 @@ export interface ChatMessageDto {
   createdAt: string;
   /**
    * Document cards: the links in `body` that name a live document of this
-   * channel's workspace, in body order. Title and type are read when the
-   * message is, so a rename shows; a trashed document drops out.
+   * channel's workspace, one per document (match by `documentId`). Title
+   * and type are read when the message is, so a rename shows; a trashed
+   * document drops out.
    */
   refs: ChatDocumentRefDto[];
 }
