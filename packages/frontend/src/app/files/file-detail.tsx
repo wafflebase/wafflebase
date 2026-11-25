@@ -7,13 +7,14 @@ import { fetchMe } from "@/api/auth";
 import { fetchDocument } from "@/api/documents";
 import { downloadDocumentFile } from "@/api/download-file";
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { useHeaderPlacement } from "@/components/header-placement";
 import { Loader } from "@/components/loader";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import type { User } from "@/types/users";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRightPanels } from "@/components/use-right-panels";
-import { ChatPanelToggle } from "@/components/chat/chat-panel-slot";
 import { FileShell } from "./file-shell";
 import { GenericFileView } from "./generic-file-view";
 import { ImageViewer } from "./image-viewer";
@@ -24,7 +25,11 @@ import {
   PdfCollabBody,
 } from "./pdf-collab";
 
-/** Header icon button that saves a blob-backed document to disk. */
+/**
+ * Header icon button that saves a blob-backed document to disk. It fills
+ * the header's `export` slot, which a phone moves into the More menu, where
+ * it is a menu row instead.
+ */
 function DownloadFileButton({
   documentId,
   title,
@@ -36,19 +41,33 @@ function DownloadFileButton({
   fileId?: string;
   label: string;
 }) {
+  const download = async () => {
+    try {
+      await downloadDocumentFile({ id: documentId, title, fileId });
+    } catch {
+      toast.error("Couldn't download the file");
+    }
+  };
+  if (useHeaderPlacement() === "menu") {
+    // Inset so the row lines up with the checked panel rows above it.
+    return (
+      <DropdownMenuItem
+        className="cursor-pointer"
+        inset
+        onSelect={() => void download()}
+      >
+        <Download className="h-4 w-4" />
+        {label}
+      </DropdownMenuItem>
+    );
+  }
   return (
     <Button
       variant="ghost"
       size="icon"
       aria-label={label}
       title={label}
-      onClick={async () => {
-        try {
-          await downloadDocumentFile({ id: documentId, title, fileId });
-        } catch {
-          toast.error("Couldn't download the file");
-        }
-      }}
+      onClick={() => void download()}
     >
       <Download className="h-4 w-4" />
     </Button>
@@ -108,20 +127,19 @@ function PdfFileLayout({
       <FileShell
         documentId={documentId}
         panels={panels}
-        headerActions={
-          <>
-            <PdfHeaderActions />
-            <ChatPanelToggle />
+        headerActions={{
+          comments: <PdfHeaderActions />,
+          export: (
             <DownloadFileButton
               documentId={documentId}
               title={title}
               fileId={fileId}
               label="Download PDF"
             />
-            <ShareDialog documentId={documentId} />
-            <UserPresence />
-          </>
-        }
+          ),
+          share: <ShareDialog documentId={documentId} />,
+          presence: <UserPresence />,
+        }}
       >
         <PdfCollabBody />
       </FileShell>
@@ -157,18 +175,17 @@ function ImageFileLayout({
       headerLeading={
         <BackToDocumentsButton onClick={close} disabled={!documentsPath} />
       }
-      headerActions={
-        <>
-          <ChatPanelToggle />
+      headerActions={{
+        export: (
           <DownloadFileButton
             documentId={documentId}
             title={title}
             fileId={fileId}
             label="Download image"
           />
-          <ShareDialog documentId={documentId} />
-        </>
-      }
+        ),
+        share: <ShareDialog documentId={documentId} />,
+      }}
     >
       <ImageViewer documentId={documentId} onClose={close} />
     </FileShell>
@@ -191,18 +208,17 @@ function GenericFileLayout({
   return (
     <FileShell
       documentId={documentId}
-      headerActions={
-        <>
-          <ChatPanelToggle />
+      headerActions={{
+        export: (
           <DownloadFileButton
             documentId={documentId}
             title={title}
             fileId={fileId}
             label="Download file"
           />
-          <ShareDialog documentId={documentId} />
-        </>
-      }
+        ),
+        share: <ShareDialog documentId={documentId} />,
+      }}
     >
       <GenericFileView
         title={title}

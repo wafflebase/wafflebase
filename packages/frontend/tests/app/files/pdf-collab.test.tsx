@@ -57,6 +57,12 @@ import {
   PdfCollabBody,
 } from '@/app/files/pdf-collab';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { HeaderPlacementContext } from '@/components/header-placement';
 
 // The route composes PdfHeaderActions (top bar) + PdfCollabBody (viewer) under
 // PdfCollabProvider; here we mount PdfCollabStateProvider directly (it consumes
@@ -339,5 +345,37 @@ describe('PdfCollab', () => {
     expect(detail.tagName).toBe('ASIDE');
     expect(screen.getByLabelText('Comment body')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Resolve thread' })).toBeDefined();
+  });
+
+  // The owned route puts these in the header's `comments` slot, which a
+  // phone moves into the More menu: there they must be menu rows, since a
+  // toggle button inside a menu is neither a row the menu's keys reach nor
+  // one it can close on.
+  it('draws the header controls as checked rows in the header menu', async () => {
+    render(
+      <TooltipProvider>
+        <PdfCollabStateProvider
+          documentId="doc1"
+          readOnly={false}
+          presenceUser={presenceUser}
+        >
+          <DropdownMenu open>
+            <DropdownMenuTrigger>More</DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <HeaderPlacementContext.Provider value="menu">
+                <PdfHeaderActions />
+              </HeaderPlacementContext.Provider>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </PdfCollabStateProvider>
+      </TooltipProvider>,
+    );
+    expect(
+      await screen.findByRole('menuitemcheckbox', { name: 'Comment on a region' }),
+    ).toHaveAttribute('aria-checked', 'false');
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Comments' }),
+    ).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByRole('button', { name: /comments/i })).toBeNull();
   });
 });

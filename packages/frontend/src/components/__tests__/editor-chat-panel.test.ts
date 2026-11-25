@@ -11,7 +11,7 @@ const appDir = path.resolve(here, '../../app');
  * Every document detail page offers the chat panel (chat.md § Chat panel —
  * in every editor): a provider wired to the page's right-slot state, the
  * header toggle, and the panel itself. The file viewers get all three from
- * `FileShell`, with the toggle placed by each viewer.
+ * `FileShell`.
  */
 const EDITORS = [
   'documents/document-detail.tsx',
@@ -37,11 +37,6 @@ describe('editor chat panel', () => {
       expect(/chat:\s*(\(|previewing \? null : )?\s*(<EditingChrome[^>]*>\s*)?<ChatPanelToggle/.test(read(file)), file).toBe(true);
     },
   );
-
-  it('each file viewer places the Chat toggle', () => {
-    const source = read('files/file-detail.tsx');
-    expect(source.match(/<ChatPanelToggle \/>/g)?.length).toBe(3);
-  });
 
   it.each([
     'documents/document-detail.tsx',
