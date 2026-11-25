@@ -262,8 +262,10 @@ model ChatMessage {
   deletedAt    DateTime?   // soft delete; body cleared
   createdAt    DateTime    @default(now())
   refs         ChatDocumentRef[]
+  clientId     String?     // the poster's id for a send; a retry returns the first copy
 
   @@unique([channelId, seq])
+  @@unique([channelId, authorId, clientId])
   @@index([threadRootId, seq])
 }
 
@@ -272,11 +274,13 @@ model ChatDocumentRef {
   message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
   documentId String
   document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  anchor     Json?       // per-type, see Anchors
+  channelId  String      // the message's channel, denormalized for the Files list
+  anchor     Json?       // per-type, see Anchors; carries a display `label`
   createdAt  DateTime    @default(now())
 
   @@id([messageId, documentId])
   @@index([documentId, createdAt])
+  @@index([channelId, createdAt])
 }
 ```
 
@@ -458,7 +462,9 @@ Web routes (JWT) under `/workspaces/:wid/chat/…`, mirrored on `/api/v1`
 | `DELETE` | `…/chat/channels/:cid/members/me` | Leave |
 | `DELETE` | `…/chat/channels/:cid/members/:uid` | Remove someone else (`canRemove`: creator or workspace owner; not a DM or the default channel) |
 | `GET` | `…/chat/channels/:cid/messages` | `?before=<seq>` / `?after=<seq>`, `?thread=<id>`, page size 50 |
-| `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }` |
+| `POST` | `…/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel?, clientId? }`; a repeated `clientId` returns the first message |
+| `GET` | `…/chat/channels/:cid/files` | Documents linked in the channel, newest share first, one row per document (`?limit=`, `?before=<cursor>`) |
+| `GET` | `…/chat/documents/:documentId/channels` | Channels the caller is in where the document was most recently shared (≤20) |
 | `GET` | `…/chat/messages/:mid` | One message, for a bell deep link that must learn whether it is a thread reply; 404 unless its channel is readable |
 | `PATCH` / `DELETE` | `…/chat/messages/:mid` | Edit / delete own |
 | `POST` | `…/chat/channels/:cid/read` | `{ seq }` advance read position (never moves backwards) |
@@ -476,8 +482,9 @@ so the two are not confused.
 The Claude Code plugin's guard table gains these verbs (posting asks, like
 other writes).
 
-Posting is throttled per user (`UserThrottlerGuard`, e.g. 30 messages / 10 s)
-in addition to the global per-IP bucket.
+Posting, editing and deleting are each throttled per user
+(`UserThrottlerGuard`, 30 / 10 s; an edit can add a mention, so it is a
+notification path too) in addition to the global per-IP bucket.
 
 ### Bot Members
 
@@ -815,8 +822,10 @@ sections above:
   channel this document was most recently shared in, then the last opened
   channel, then the default channel; a thread opens in place with Back. It
   is lazy-loaded so editor chunks do not grow. On a phone it sits in the
-  header `⋮` menu and opens as a bottom sheet; the file viewers keep their
-  free-form header row.
+  header `⋮` menu and opens as a bottom sheet. The file viewers' header
+  moved to the slotted `SiteHeader` actions in the same change (`FileShell`
+  fills the `chat` slot; PDF comments, export and share are slotted too), so
+  Chat folds into the phone menu there as well.
 - **Send to chat opens the panel with a link.** The sheets cell menu, the
   docs body menu and the slides canvas/element menus (and the mobile slides
   long-press menu) build the document URL with `?at=` from the live

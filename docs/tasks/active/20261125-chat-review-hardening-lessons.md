@@ -37,3 +37,20 @@
   detail-page tests and editor wiring; chat UI correctness). The "bundles P2
   with the P1 pass" design-fit minor is the user's explicit one-PR choice,
   recorded as a known limitation.
+- Round 2's first panel run crashed in every lens (`spawn Unknown system
+  error -88`) while `verify:self` ran beside it: an infra failure, not a
+  verdict. It was rerun in place with `--round 2` rather than spending the
+  bound. Never run the panel next to a full verify lane.
+- Round 2's design-fit pass (`superpowers:requesting-code-review`) found
+  what the panel had not: a deploy-skew Critical. The frontend ships on
+  merge, the backend is pinned later, and `forbidNonWhitelisted` turns a new
+  post field into a `400` the client classified as final, so every send
+  would have failed until the backend deployed. Fixed by resending without
+  `clientId` once the server names it. Rule: any new request field needs a
+  client that tolerates the previous backend. It also found unthrottled
+  edits (now a notification path), a Files query on every message, and a
+  duplicate-link card pointing at the wrong anchor; all fixed in two
+  parallel streams.
+- The `typesVersions` map added to `@wafflebase/core` failed `scripts:tests`:
+  the agent jobs' install allow-lists `package.json` fields. The backend
+  build's own `paths` maps core's declarations instead.
