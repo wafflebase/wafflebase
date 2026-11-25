@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import {
   IconCopy,
   IconDots,
@@ -148,8 +154,10 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
   const active = host.activeId === undefined || host.activeId === message.id;
   const tabIndex = active ? undefined : -1;
   // A finger has no hover, so a touch screen gets no hover toolbar: the
-  // actions open from a press-and-hold on the message (or its screen-reader
-  // and keyboard trigger) as a sheet, the way Slack and Google Chat do it.
+  // actions open as a sheet, from a press-and-hold on the message the way
+  // Slack and Google Chat do it, or from a "⋯" that a tap on the message
+  // shows — the tap is to a finger what hovering is to a mouse, and nobody
+  // has to know about the hold.
   const coarse = useCoarsePointer();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [byGesture, setByGesture] = useState(false);
@@ -159,15 +167,33 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
     setSheetOpen(true);
   }, touchActions);
   const authorName = author?.username ?? UNKNOWN_AUTHOR;
+  // A tap on the message itself, not on a link or button in it, selects the
+  // row: focus lands on it and its "⋯" shows (`focus-within`).
+  const selectOnTap = (e: MouseEvent<HTMLDivElement>) => {
+    const hit = (e.target as Element).closest(
+      "a, button, input, textarea, label, [role='button']",
+    );
+    if (hit && e.currentTarget.contains(hit)) return;
+    e.currentTarget.focus({ preventScroll: true });
+  };
 
   return (
     <div
       id={`chat-message-${message.id}`}
       data-message-id={message.id}
       {...{ [ROW_ATTR]: message.id }}
-      tabIndex={host.activeId === undefined ? undefined : active ? 0 : -1}
+      tabIndex={
+        host.activeId === undefined
+          ? touchActions
+            ? -1
+            : undefined
+          : active
+            ? 0
+            : -1
+      }
       aria-busy={local === "pending" || undefined}
       {...longPress}
+      onClick={touchActions ? selectOnTap : undefined}
       className={cn(
         "group/message relative flex gap-3 px-4 py-1 outline-none hover:bg-muted/60",
         "focus-visible:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
@@ -176,7 +202,8 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
         highlighted(host, message) && "bg-selected hover:bg-selected",
         showHeader && "mt-2 pt-2",
         // The hold is ours, not the browser's text-selection callout.
-        touchActions && "select-none [-webkit-touch-callout:none]",
+        touchActions &&
+          "select-none [-webkit-touch-callout:none] focus-within:bg-muted/60",
         sheetOpen && "bg-muted/60",
       )}
     >
@@ -456,8 +483,9 @@ const SHEET_ITEM =
 
 /**
  * A message's actions on a touch screen: a bottom sheet opened by a
- * press-and-hold, or by a trigger that stays invisible until focused so a
- * screen reader or a keyboard reaches the same actions without a gesture.
+ * press-and-hold, or by a "⋯" trigger that shows while the row holds focus
+ * — after a tap on it, or a keyboard landing there. Hidden, it stays in the
+ * accessibility tree, so a screen reader reaches it without a gesture.
  */
 function TouchActions({
   message,
@@ -499,13 +527,15 @@ function TouchActions({
           type="button"
           tabIndex={tabIndex}
           aria-label="Message actions"
+          data-touch-actions-trigger
           className={cn(
-            "sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-0 focus-visible:right-2",
-            "focus-visible:inline-flex focus-visible:size-11 focus-visible:items-center focus-visible:justify-center",
-            "rounded-md border bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            "absolute top-0 right-3 inline-flex size-11 -translate-y-1/4 items-center justify-center",
+            "rounded-md border bg-background text-muted-foreground shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            // Shown on the selected row only; invisible, it takes no taps.
+            "pointer-events-none opacity-0 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100 data-[state=open]:opacity-100",
           )}
         >
-          <IconDots className="size-5" />
+          <IconDots aria-hidden className="size-5" />
         </button>
       </SheetTrigger>
       <SheetContent

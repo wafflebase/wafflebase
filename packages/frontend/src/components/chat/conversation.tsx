@@ -19,6 +19,7 @@ import { useWorkspaceMembers } from '@/components/comments/use-workspace-members
 import { withPending } from './chat-cache';
 import { useChatConnection } from './chat-connection';
 import { Composer } from './composer';
+import { dayLabel } from './format-time';
 import {
   groupMessages,
   lastOwnMessage,
@@ -66,21 +67,6 @@ interface ConversationProps {
   highlightMessageId?: string | null;
   /** The composer's placeholder, e.g. "Message #general". */
   placeholder?: string;
-}
-
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString([], {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric',
-  });
 }
 
 /**
@@ -469,15 +455,18 @@ export function Conversation({
               <ol className="flex flex-col">
                 {groups.map((g, i) => (
                   <Fragment key={g.first.id}>
-                    {/* Headings, not separators: a separator's text is not
-                        reliably read, and a heading is one a screen-reader
-                        user can jump between. */}
+                    {/* Plain text in its own item, not a heading (the log is
+                        not an outline, and a 12px "h2" broke the page's) and
+                        not a separator (whose text is not reliably read). */}
                     {startsNewDay(groups, i) && (
-                      <li className="mx-4 mt-4 flex items-center gap-3">
+                      <li
+                        data-day-divider
+                        className="mx-4 mt-4 flex items-center gap-3"
+                      >
                         <span aria-hidden className="h-px flex-1 bg-border" />
-                        <h2 className="text-xs font-medium text-muted-foreground">
+                        <span className="text-xs font-medium text-muted-foreground">
                           {dayLabel(g.first.createdAt)}
-                        </h2>
+                        </span>
                         <span aria-hidden className="h-px flex-1 bg-border" />
                       </li>
                     )}
@@ -488,9 +477,9 @@ export function Conversation({
                         className="mx-4 mt-3 flex items-center gap-3"
                       >
                         <span aria-hidden className="h-px flex-1 bg-primary" />
-                        <h2 className="text-xs font-medium text-primary">
+                        <span className="text-xs font-medium text-primary">
                           New messages
-                        </h2>
+                        </span>
                       </li>
                     )}
                     <MessageGroupView
@@ -565,6 +554,8 @@ export function Conversation({
             members={members}
             placeholder={placeholder}
             autoFocus
+            // Until the channel is known, nothing about it can be said.
+            waiting={!channel}
             disabledReason={
               channel?.archived
                 ? 'This channel is archived. You can read it, but not post.'

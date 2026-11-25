@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import {
   afterAll,
@@ -315,6 +315,31 @@ describe("Conversation", () => {
     expect(screen.queryByText(/This channel is archived\. Its history/)).toBeNull();
   });
 
+  it("holds the composer inert, labelled only Message, until the channel is known", () => {
+    channels = [];
+    const view = renderConversation();
+    const box = screen.getByRole("textbox", { name: "Message" });
+    expect(box).toBeDisabled();
+    expect(box).not.toHaveFocus();
+    // No reason line: nothing is wrong, the channel is only loading.
+    expect(screen.queryByText(/archived/)).toBeNull();
+
+    channels = [channel()];
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <Conversation
+          workspaceId="w1"
+          channelId="c1"
+          onOpenThread={openThread}
+          placeholder="Message #general"
+        />
+      </QueryClientProvider>,
+    );
+    const ready = screen.getByRole("textbox", { name: "Message #general" });
+    expect(ready).toBeEnabled();
+    expect(ready).toHaveFocus();
+  });
+
   it("shows the composer to a member", () => {
     renderConversation();
     expect(screen.getByRole("textbox")).toBeInTheDocument();
@@ -322,9 +347,11 @@ describe("Conversation", () => {
   });
   describe("unread orientation", () => {
     const divider = () =>
-      screen.queryByRole("heading", { name: "New messages" })?.closest("li") ?? null;
-    const findDivider = async () =>
-      (await screen.findByRole("heading", { name: "New messages" })).closest("li")!;
+      document.querySelector<HTMLLIElement>("[data-unread-divider]");
+    const findDivider = async () => {
+      await waitFor(() => expect(divider()).not.toBeNull());
+      return divider()!;
+    };
 
     it("draws no divider when nothing was unread", async () => {
       renderConversation();
@@ -523,9 +550,10 @@ describe("Conversation", () => {
       expect(line.querySelector(".sr-only")).toHaveTextContent(/^user2, .+:/);
     });
 
-    it("marks days with headings", () => {
+    it("marks days with plain labels, not headings", () => {
       renderConversation();
-      expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThan(0);
+      expect(document.querySelector("[data-day-divider]")).not.toBeNull();
+      expect(screen.queryAllByRole("heading")).toHaveLength(0);
     });
   });
 

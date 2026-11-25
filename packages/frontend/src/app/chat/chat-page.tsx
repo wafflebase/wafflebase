@@ -31,6 +31,7 @@ import { fetchMe } from "@/api/auth";
 import { fetchMessage, type ChannelSummary } from "@/api/chat";
 import { userFacingError } from "@/api/http-error";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,6 +45,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
 import { chatBadgeCount } from "@/components/chat/chat-cache";
 import { Conversation } from "@/components/chat/conversation";
 import { ThreadView } from "@/components/chat/thread-view";
@@ -67,7 +70,13 @@ import {
   chatTitle,
   landingChannelId,
 } from "./chat-layout";
-import { chatShortcut, modalSurfaceOpen } from "./chat-shortcuts";
+import {
+  CHAT_SHORTCUT_CATEGORIES,
+  CHAT_SHORTCUTS,
+  chatShortcut,
+  formatChatCombo,
+  modalSurfaceOpen,
+} from "./chat-shortcuts";
 import { adjacentChannelId, channelLabel } from "./group-channels";
 import { LeaveChannelDialog } from "./leave-channel-dialog";
 import { NewChannelDialog, type ChannelDialogTab } from "./new-channel-dialog";
@@ -272,8 +281,10 @@ export default function ChatPage() {
     c.kind === "private" ? setConfirmLeave(c) : leaveChannel(c);
 
   // Alt+↑/↓ walk the list, Alt+Shift+↑/↓ the unread part of it, Mod+K opens
-  // the switcher. Read through a ref so the listener is bound once.
+  // the switcher, Mod+/ the shortcut sheet. Read through a ref so the
+  // listener is bound once.
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const keysRef = useRef({ channels, channelId, hrefFor, navigate });
   keysRef.current = { channels, channelId, hrefFor, navigate };
   useEffect(() => {
@@ -287,6 +298,11 @@ export default function ChatPage() {
         // A second Mod+K closes it, as in Slack; any other dialog keeps it shut.
         e.preventDefault();
         setSwitcherOpen((open) => (open ? false : !modalSurfaceOpen()));
+        return;
+      }
+      if (action === "help") {
+        e.preventDefault();
+        setHelpOpen((open) => (open ? false : !modalSurfaceOpen()));
         return;
       }
       if (modalSurfaceOpen()) return;
@@ -359,6 +375,8 @@ export default function ChatPage() {
             onNewChannel={() => openChannelDialog("create")}
             onBrowse={() => openChannelDialog("browse")}
             onNewMessage={() => setNewDmOpen(true)}
+            onJumpTo={() => setSwitcherOpen(true)}
+            onShowShortcuts={() => setHelpOpen(true)}
           />
         </aside>
       )}
@@ -408,16 +426,24 @@ export default function ChatPage() {
                     <IconChevronLeft />
                   </Button>
                 )}
-                {channel?.kind === "private" ? (
+                {!channel ? (
+                  // The list has not answered yet: hold the name's place
+                  // rather than show a header with no name in it.
+                  <>
+                    <Skeleton aria-hidden className="h-4 w-32" />
+                    <span className="sr-only">Loading channel…</span>
+                  </>
+                ) : channel.kind === "private" ? (
                   <IconLock className="size-4 shrink-0 text-muted-foreground" />
-                ) : channel?.kind === "public" ? (
+                ) : channel.kind === "public" ? (
                   <IconHash className="size-4 shrink-0 text-muted-foreground" />
                 ) : null}
+                {/* An h2: the site header's "Chat" is the page's one h1. */}
                 {channel?.topic ? (
                   // Name over topic on a phone, side by side on desktop. The
                   // topic truncates either way, so it opens in full on a tap.
                   <div className="flex min-w-0 flex-col md:flex-row md:items-center md:gap-2">
-                    <h1 className="truncate text-sm font-semibold">{label}</h1>
+                    <h2 className="truncate text-sm font-semibold">{label}</h2>
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
@@ -439,13 +465,13 @@ export default function ChatPage() {
                       </PopoverContent>
                     </Popover>
                   </div>
-                ) : (
-                  <h1 className="truncate text-sm font-semibold">{label}</h1>
-                )}
+                ) : channel ? (
+                  <h2 className="truncate text-sm font-semibold">{label}</h2>
+                ) : null}
                 {channel?.archived && (
-                  <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  <Badge variant="secondary" className="font-normal">
                     Archived
-                  </span>
+                  </Badge>
                 )}
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   {channel && channel.kind !== "dm" && (
@@ -533,10 +559,14 @@ export default function ChatPage() {
                 channelId={channelId}
                 onOpenThread={openThread}
                 highlightMessageId={conversationHighlight}
+                // Until the channel is known the composer says only
+                // "Message", never "Message #" with no name after it.
                 placeholder={
-                  channel?.kind === "dm"
-                    ? `Message ${label}`
-                    : `Message #${label}`
+                  !channel
+                    ? undefined
+                    : channel.kind === "dm"
+                      ? `Message ${label}`
+                      : `Message #${label}`
                 }
               />
             </>
@@ -565,7 +595,9 @@ export default function ChatPage() {
               </Button>
             )}
             <h2 className="text-sm font-semibold">Thread</h2>
-            {label && (
+            {/* On a phone the thread replaces the conversation, so it says
+                where it is; beside the conversation that is already shown. */}
+            {isMobile && label && (
               <span className="truncate text-sm text-muted-foreground">
                 {channel?.kind === "dm" ? label : `#${label}`}
               </span>
@@ -610,6 +642,14 @@ export default function ChatPage() {
         channels={channels}
         me={meId}
         onPick={(id) => navigate(hrefFor(id))}
+      />
+      <ShortcutsHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        title="Chat keyboard shortcuts"
+        shortcuts={CHAT_SHORTCUTS}
+        categoryOrder={CHAT_SHORTCUT_CATEGORIES}
+        formatCombo={formatChatCombo}
       />
       <LeaveChannelDialog
         channel={confirmLeave}

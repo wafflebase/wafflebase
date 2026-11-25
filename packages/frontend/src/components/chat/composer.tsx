@@ -27,6 +27,11 @@ interface ComposerProps {
   placeholder?: string;
   /** Set when the channel cannot take messages; shown in place of sending. */
   disabledReason?: string;
+  /**
+   * The channel is not known yet: the box is inert, says nothing, and takes
+   * `autoFocus` only once this clears.
+   */
+  waiting?: boolean;
   /** Controls under the box, such as "Also send to channel". */
   footer?: ReactNode;
   autoFocus?: boolean;
@@ -54,6 +59,7 @@ export function Composer({
   members,
   placeholder = "Message",
   disabledReason,
+  waiting = false,
   footer,
   autoFocus = false,
   onArrowUpWhenEmpty,
@@ -68,7 +74,7 @@ export function Composer({
     draftStore.set(channelId, value);
   };
 
-  const disabled = !!disabledReason;
+  const disabled = !!disabledReason || waiting;
   const trimmed = body.trim();
   const tooLong = body.length > CHAT_BODY_MAX;
 
@@ -146,7 +152,7 @@ export function Composer({
   // Shift+Enter is invisible until explained; a touch keyboard has its own
   // return key, so the hint is for fine pointers only.
   const showHint = focused && !!trimmed && !disabled && !tooLong;
-  const hasFooterContent = disabled || tooLong || !!footer;
+  const hasFooterContent = !!disabledReason || tooLong || !!footer;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -154,7 +160,7 @@ export function Composer({
         className={cn(
           "relative flex items-end gap-1 rounded-md border border-input-border bg-background p-1 transition-[color,box-shadow]",
           "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-          disabled && "opacity-60",
+          disabledReason && "opacity-60",
         )}
       >
         <textarea
@@ -168,7 +174,9 @@ export function Composer({
           placeholder={placeholder}
           aria-label={placeholder}
           aria-invalid={tooLong || undefined}
-          aria-describedby={disabled ? `${channelId}-composer-reason` : undefined}
+          aria-describedby={
+            disabledReason ? `${channelId}-composer-reason` : undefined
+          }
           // 16px below `md` so iOS does not zoom the page on focus.
           className="caret-primary placeholder:text-muted-foreground min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-base outline-none disabled:cursor-not-allowed md:text-sm"
         />
@@ -196,7 +204,7 @@ export function Composer({
           !hasFooterContent && "pointer-coarse:hidden",
         )}
       >
-        {disabled ? (
+        {disabledReason ? (
           <span id={`${channelId}-composer-reason`}>{disabledReason}</span>
         ) : tooLong ? (
           <span className="text-destructive">

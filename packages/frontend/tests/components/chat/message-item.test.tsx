@@ -188,3 +188,24 @@ describe("MessageLine on a coarse pointer", () => {
     expect(screen.getByRole("group", { name: "Confirm delete" })).toBeInTheDocument();
   });
 });
+
+describe("MessageLine tap to select on a coarse pointer", () => {
+  beforeEach(() => setPointer(true));
+
+  it("selects the row on a tap, which shows its actions trigger", () => {
+    const { line } = renderLine(msg());
+    const trigger = screen.getByRole("button", { name: "Message actions" });
+    // Not sr-only: a sighted finger has to be able to find it.
+    expect(trigger).not.toHaveClass("sr-only");
+    expect(trigger).toHaveClass("group-focus-within/message:opacity-100");
+    fireEvent.click(line.querySelector("p, span, div")!);
+    expect(line).toHaveFocus();
+  });
+
+  it("leaves a tap on a control in the row to that control", () => {
+    const { line, onOpenThread } = renderLine(msg({ replyCount: 2 }));
+    fireEvent.click(screen.getByRole("button", { name: /2 replies/ }));
+    expect(onOpenThread).toHaveBeenCalledWith("m1");
+    expect(line).not.toHaveFocus();
+  });
+});
