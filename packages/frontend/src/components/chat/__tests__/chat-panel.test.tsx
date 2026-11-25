@@ -100,6 +100,6 @@ describe("ChatPanel", () => {
     renderPanel();
     await screen.findByTestId("conversation");
     act(() => api.open({ draft: "See /s/doc-1" }));
-    await waitFor(() => expect(draftStore.get("general")).toBe("See /s/doc-1"));
+    await waitFor(() => expect(draftStore.get(1, "general")).toBe("See /s/doc-1"));
   });
 });

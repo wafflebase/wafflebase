@@ -70,6 +70,47 @@ export interface ChatMessageDto {
   editedAt: string | null;
   deleted: boolean;
   createdAt: string;
+  /**
+   * Document cards: the links in `body` that name a live document of this
+   * channel's workspace, one per document (match by `documentId`). Title
+   * and type are read when the message is, so a rename shows; a trashed
+   * document drops out.
+   */
+  refs: ChatDocumentRefDto[];
+}
+
+/**
+ * Where a card points inside its document, per type (`docs/design/chat.md`
+ * § Document Cards and Anchors). `label` is the sender's display snapshot
+ * (`Sheet1!C3:E7`, `Slide 3`): ids alone cannot be named without loading the
+ * document.
+ */
+export type ChatDocumentAnchor = (
+  | {
+      tabId: string;
+      rowId: string;
+      colId: string;
+      rowSpan: number;
+      colSpan: number;
+    }
+  | { blockId: string; excerpt?: string }
+  | { slideId: string }
+) & { label?: string };
+
+export interface ChatDocumentRefDto {
+  documentId: string;
+  /** The document's type (`sheet`, `doc`, `slides`, …). */
+  type: string;
+  title: string;
+  anchor: ChatDocumentAnchor | null;
+}
+
+/** A row of a channel's Files list: a document at its latest share. */
+export interface ChatFileDto extends ChatDocumentRefDto {
+  messageId: string;
+  /** Null once the sharer's account is deleted. */
+  sharedBy: ChatUserSummary | null;
+  sharedAt: string;
 }
 
 /**

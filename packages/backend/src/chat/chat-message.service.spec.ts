@@ -5,6 +5,7 @@ import { AccessContext } from './chat-access';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { ChatMessageService } from './chat-message.service';
+import { ChatDocumentRefService } from './chat-document-refs';
 
 const AUTHOR = 1;
 
@@ -97,6 +98,7 @@ function setup(
       ),
     },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    chatDocumentRef: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const prisma = {
     chatMessage: {
@@ -142,11 +144,13 @@ function setup(
     createChatThreadReply: jest.fn().mockResolvedValue({ created: 0 }),
     syncChatMessage: jest.fn().mockResolvedValue(undefined),
   };
+  const documentRefs = { sync: jest.fn().mockResolvedValue([]) };
   const service = new ChatMessageService(
     prisma as unknown as PrismaService,
     channels as unknown as ChatChannelService,
     bus as unknown as ChatBus,
     notifications as unknown as NotificationService,
+    documentRefs as unknown as ChatDocumentRefService,
   );
   return { service, prisma, tx, notifications };
 }

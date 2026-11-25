@@ -14,6 +14,12 @@ import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { canonicalMentions } from './chat-mentions';
 import { MAX_BODY_LENGTH } from './chat.dto';
+import {
+  ChatDocumentRefService,
+  REFS_INCLUDE,
+  RefRow,
+  toRefDtos,
+} from './chat-document-refs';
 import { ChatMessageDto, ChatUserSummary } from './chat.types';
 
 export const PAGE_SIZE = 50;
@@ -29,7 +35,18 @@ const DELETED_ROOT = 'That message was deleted, so it cannot be replied to';
 
 const AUTHOR = { select: { id: true, username: true, photo: true } } as const;
 
-type MessageRow = ChatMessage & { author: ChatUserSummary | null };
+/** What a message read includes: its author and its document cards. */
+const MESSAGE_INCLUDE = {
+  author: AUTHOR,
+  refs: REFS_INCLUDE,
+  channel: { select: { workspaceId: true } },
+} as const;
+
+type MessageRow = ChatMessage & {
+  author: ChatUserSummary | null;
+  refs?: RefRow[];
+  channel?: { workspaceId: string };
+};
 
 function toDto(m: MessageRow): ChatMessageDto {
   return {
@@ -45,6 +62,8 @@ function toDto(m: MessageRow): ChatMessageDto {
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     deleted: m.deletedAt !== null,
     createdAt: m.createdAt.toISOString(),
+    refs:
+      m.deletedAt || !m.channel ? [] : toRefDtos(m.refs, m.channel.workspaceId),
   };
 }
 
@@ -77,6 +96,7 @@ export class ChatMessageService {
     private readonly channels: ChatChannelService,
     private readonly bus: ChatBus,
     private readonly notifications: NotificationService,
+    private readonly documentRefs: ChatDocumentRefService,
   ) {}
 
   /**
@@ -174,6 +194,7 @@ export class ChatMessageService {
     }, POST_TRANSACTION);
 
     const dto = toDto(created);
+    dto.refs = await this.documentRefs.sync(dto.id, channel, body);
     try {
       await this.bus.notifyMessage({
         t: 'msg',
@@ -238,7 +259,7 @@ export class ChatMessageService {
       where,
       orderBy: { seq: forward ? 'asc' : 'desc' },
       take: PAGE_SIZE,
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     if (!forward) rows.reverse();
     return rows.map(toDto);
@@ -257,7 +278,7 @@ export class ChatMessageService {
   ): Promise<ChatMessageDto> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     if (!message) throw new NotFoundException('Message not found');
     await this.channels.resolve(userId, message.channelId, workspaceIdOrSlug);
@@ -291,9 +312,10 @@ export class ChatMessageService {
       data: { body: text, editedAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('Message not found');
+    await this.documentRefs.sync(messageId, channel, text);
     const updated = await this.prisma.chatMessage.findUniqueOrThrow({
       where: { id: messageId },
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     await this.announceUpdate(message, channel);
     const dto = toDto(updated);
@@ -328,6 +350,7 @@ export class ChatMessageService {
         data: { body: '', deletedAt: new Date() },
       });
       if (count === 0) throw new NotFoundException('Message not found');
+      await tx.chatDocumentRef.deleteMany({ where: { messageId } });
       await tx.notification.deleteMany({
         where: {
           commentId: messageId,

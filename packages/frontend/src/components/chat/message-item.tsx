@@ -271,7 +271,13 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
               local === "pending" && "opacity-60",
             )}
           >
-            <MessageBody body={message.body} me={me} tabbable={active} />
+            <MessageBody
+              body={message.body}
+              me={me}
+              tabbable={active}
+              refs={message.refs}
+              channelId={message.channelId}
+            />
             {message.editedAt && (
               <span className="text-xs text-muted-foreground">(edited)</span>
             )}

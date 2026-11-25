@@ -33,7 +33,10 @@ if (typeof window.matchMedia !== "function") {
 
 const toastError = vi.fn();
 vi.mock("sonner", () => ({ toast: { error: (m: string) => toastError(m) } }));
-vi.mock("@/api/auth", () => ({ isAuthExpiredError: () => false }));
+vi.mock("@/api/auth", () => ({
+  isAuthExpiredError: () => false,
+  fetchMe: vi.fn(async () => ({ id: 1 })),
+}));
 vi.mock("@/api/documents", () => ({
   fetchDocument: vi.fn(),
   renameDocument: vi.fn(async () => {}),

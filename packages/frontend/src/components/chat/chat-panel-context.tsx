@@ -48,9 +48,17 @@ const INERT: ChatPanelApi = {
  * rather than replacing, so a half-written message is never lost to a
  * "Send to chat".
  */
-export function seedChatDraft(channelId: string, text: string): void {
-  const existing = draftStore.get(channelId);
-  draftStore.set(channelId, existing.trim() ? `${existing}\n${text}` : text);
+export function seedChatDraft(
+  userId: number,
+  channelId: string,
+  text: string,
+): void {
+  const existing = draftStore.get(userId, channelId);
+  draftStore.set(
+    userId,
+    channelId,
+    existing.trim() ? `${existing}\n${text}` : text,
+  );
 }
 
 /**

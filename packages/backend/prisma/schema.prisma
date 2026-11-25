@@ -134,6 +134,7 @@ model Document {
   notifications Notification[]
   templateListing TemplateListing?
   webhookContentPending WebhookContentPending?
+  chatRefs  ChatDocumentRef[]
 
   // Trash. Null = live; set = moved to the trash at that time. A trashed
   // document is invisible everywhere a live one is visible — reads go through
@@ -535,10 +536,32 @@ model ChatMessage {
   editedAt      DateTime?
   deletedAt     DateTime?
   createdAt     DateTime    @default(now())
+  refs          ChatDocumentRef[]
 
   @@unique([channelId, seq])
   @@index([threadRootId, seq])
   @@index([channelId, threadRootId, seq])
+}
+
+/// A document card: a Wafflebase document URL in a message body that names a
+/// live document of the channel's workspace. Written on post and edit from
+/// the body, cleared on delete. Title and type are read from the document at
+/// read time, so a rename shows and a trashed document drops out.
+/// `channelId` is denormalized off the message so the channel's Files list is
+/// one index range. See `docs/design/chat.md` § Document Cards and Anchors.
+model ChatDocumentRef {
+  messageId  String
+  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  channelId  String
+  /// The parsed `?at=` anchor, or null for a document-level link.
+  anchor     Json?
+  createdAt  DateTime    @default(now())
+
+  @@id([messageId, documentId])
+  @@index([documentId, createdAt])
+  @@index([channelId, createdAt])
 }
 
 /// Owner-managed outbound subscription for one workspace. Disabled, never

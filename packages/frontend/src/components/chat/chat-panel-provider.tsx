@@ -5,7 +5,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+
+import { fetchMe } from "@/api/auth";
 
 import {
   ChatPanelContext,
@@ -37,13 +40,17 @@ export function ChatPanelProvider({
   const [channelId, setChannelId] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<string | null>(null);
   const [draftSeed, setDraftSeed] = useState(0);
+  // Drafts are keyed by user, so a draft asked for before the signed-in user
+  // is known waits as pending rather than being stored under nobody.
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const userId = me?.id;
 
   const openPanel = useCallback(
     (opts?: ChatPanelOpenOptions) => {
       if (opts?.channelId) setChannelId(opts.channelId);
       if (opts?.draft) {
-        if (opts.channelId) {
-          seedChatDraft(opts.channelId, opts.draft);
+        if (opts.channelId && userId !== undefined) {
+          seedChatDraft(userId, opts.channelId, opts.draft);
           setDraftSeed((n) => n + 1);
         } else {
           setPendingDraft(opts.draft);
@@ -51,7 +58,7 @@ export function ChatPanelProvider({
       }
       onOpenChange(true);
     },
-    [onOpenChange],
+    [onOpenChange, userId],
   );
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
@@ -65,12 +72,12 @@ export function ChatPanelProvider({
 
   const takePendingDraft = useCallback(
     (target: string) => {
-      if (pendingDraft === null) return;
-      seedChatDraft(target, pendingDraft);
+      if (pendingDraft === null || userId === undefined) return;
+      seedChatDraft(userId, target, pendingDraft);
       setPendingDraft(null);
       setDraftSeed((n) => n + 1);
     },
-    [pendingDraft],
+    [pendingDraft, userId],
   );
 
   const api = useMemo<ChatPanelApi>(

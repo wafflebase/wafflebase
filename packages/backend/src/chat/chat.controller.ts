@@ -17,17 +17,24 @@ import { AuthenticatedRequest } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserThrottlerGuard } from '../notification/user-throttler.guard';
 import { ChatChannelService } from './chat-channel.service';
+import { ChatDocumentRefService } from './chat-document-refs';
 import { ChatMessageService } from './chat-message.service';
 import {
   AddMembersDto,
   CreateChannelDto,
   EditMessageDto,
+  ListFilesQueryDto,
   ListMessagesQueryDto,
   MarkReadDto,
   PostMessageDto,
   UpdateChannelDto,
 } from './chat.dto';
-import { ChannelMember, ChannelSummary, ChatMessageDto } from './chat.types';
+import {
+  ChannelMember,
+  ChannelSummary,
+  ChatFileDto,
+  ChatMessageDto,
+} from './chat.types';
 
 /**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
@@ -41,6 +48,7 @@ export class ChatController {
   constructor(
     private readonly channels: ChatChannelService,
     private readonly messages: ChatMessageService,
+    private readonly documentRefs: ChatDocumentRefService,
   ) {}
 
   @Get('channels')
@@ -147,6 +155,25 @@ export class ChatController {
     const userId = Number(req.user.id);
     await this.channels.resolve(userId, channelId, workspaceId);
     return this.messages.page(userId, channelId, query);
+  }
+
+  /**
+   * The channel's Files: every live document a message in it links to,
+   * once, newest share first. Readable by exactly who can read the messages.
+   */
+  @Get('channels/:channelId/files')
+  async files(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Req() req: AuthenticatedRequest,
+    @Query() query: ListFilesQueryDto,
+  ): Promise<{ files: ChatFileDto[]; cursor: string | null }> {
+    const { channel } = await this.channels.resolve(
+      Number(req.user.id),
+      channelId,
+      workspaceId,
+    );
+    return this.documentRefs.files(channel, query);
   }
 
   /**

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -7,6 +8,8 @@ import { useRightPanels } from "@/components/use-right-panels";
 import { useChatPanel, useChatPanelState } from "../chat-panel-context";
 import { ChatPanelProvider } from "../chat-panel-provider";
 import { draftStore } from "../draft-store";
+
+const ME = 1;
 
 /**
  * An editor in miniature: the page's `useRightPanels` feeding the provider,
@@ -22,10 +25,16 @@ function harness(url = "/s/doc-1") {
       </ChatPanelProvider>
     );
   }
+  // Drafts are keyed by user; the signed-in user is already cached, as it
+  // is in any editor.
+  const client = new QueryClient();
+  client.setQueryData(["me"], { id: ME });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <MemoryRouter initialEntries={[url]}>
-      <Page>{children}</Page>
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[url]}>
+        <Page>{children}</Page>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   const hook = renderHook(
     () => ({ api: useChatPanel(), state: useChatPanelState() }),
@@ -60,10 +69,10 @@ describe("useChatPanel", () => {
 
   it("seeds a draft into that channel's composer, after what is there", () => {
     const { result } = harness();
-    draftStore.set("c-2", "Half a thought");
+    draftStore.set(ME, "c-2", "Half a thought");
     const seed = result.current.state!.draftSeed;
     act(() => result.current.api.open({ channelId: "c-2", draft: "/s/doc-1" }));
-    expect(draftStore.get("c-2")).toBe("Half a thought\n/s/doc-1");
+    expect(draftStore.get(ME, "c-2")).toBe("Half a thought\n/s/doc-1");
     // The panel remounts its composer to read it.
     expect(result.current.state!.draftSeed).toBe(seed + 1);
   });
@@ -74,7 +83,7 @@ describe("useChatPanel", () => {
     expect(result.current.state?.pendingDraft).toBe("Look at this");
 
     act(() => result.current.state!.takePendingDraft("c-9"));
-    expect(draftStore.get("c-9")).toBe("Look at this");
+    expect(draftStore.get(ME, "c-9")).toBe("Look at this");
     expect(result.current.state?.pendingDraft).toBeNull();
   });
 
