@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -5,7 +6,7 @@ import {
   extractDocumentLinks,
   frontendBase,
   MAX_REFS_PER_MESSAGE,
-  parseAnchor,
+  parseCursor,
   toRefDtos,
 } from './chat-document-refs';
 
@@ -94,40 +95,6 @@ describe('extractDocumentLinks', () => {
   });
 });
 
-describe('parseAnchor', () => {
-  const sheet = { tabId: 't', rowId: 'r', colId: 'c', rowSpan: 3, colSpan: 2 };
-
-  it('keeps a well-formed anchor of the document type, and its label', () => {
-    expect(parseAnchor(at(sheet), 'sheet')).toEqual(sheet);
-    expect(
-      parseAnchor(at({ ...sheet, label: 'Sheet1!C3:E7' }), 'sheet'),
-    ).toEqual({ ...sheet, label: 'Sheet1!C3:E7' });
-    expect(parseAnchor(at({ blockId: 'b', excerpt: 'hi' }), 'doc')).toEqual({
-      blockId: 'b',
-      excerpt: 'hi',
-    });
-    expect(parseAnchor(at({ slideId: 's', extra: 1 }), 'slides')).toEqual({
-      slideId: 's',
-    });
-  });
-
-  it('stores null for garbage, a mismatched type, or a type with no anchors', () => {
-    expect(parseAnchor(null, 'sheet')).toBeNull();
-    expect(parseAnchor('!!!', 'sheet')).toBeNull();
-    expect(parseAnchor('bm90IGpzb24', 'sheet')).toBeNull(); // "not json"
-    expect(parseAnchor(at([1, 2]), 'sheet')).toBeNull();
-    expect(parseAnchor(at({ slideId: 's' }), 'sheet')).toBeNull();
-    expect(parseAnchor(at({ ...sheet, rowSpan: 0 }), 'sheet')).toBeNull();
-    expect(parseAnchor(at({ ...sheet, rowSpan: 1.5 }), 'sheet')).toBeNull();
-    expect(
-      parseAnchor(at({ blockId: 'b', excerpt: 'x'.repeat(201) }), 'doc'),
-    ).toBeNull();
-    expect(parseAnchor(at({ slideId: 's', label: 7 }), 'slides')).toBeNull();
-    expect(parseAnchor(at(sheet), 'note')).toBeNull();
-    expect(parseAnchor('A'.repeat(4000), 'sheet')).toBeNull();
-  });
-});
-
 describe('toRefDtos', () => {
   it('drops a document that has moved to another workspace', () => {
     const row = (workspaceId: string) => ({
@@ -174,5 +141,191 @@ describe('ChatDocumentRefService.sharedIn', () => {
       { channelId: 'b', sharedAt: '2026-11-25T10:00:00.000Z' },
       { channelId: 'a', sharedAt: '2026-11-24T10:00:00.000Z' },
     ]);
+  });
+});
+
+describe('ChatDocumentRefService.sync', () => {
+  const channel = { id: 'ch-1', workspaceId: 'ws-1' };
+  const excerpt = 'quarterly numbers nobody outside the workspace should see';
+
+  function service(transaction: jest.Mock) {
+    const findMany = jest
+      .fn()
+      .mockResolvedValue([{ id: ID, type: 'doc', title: 'Plan' }]);
+    const deleteMany = jest.fn((args: unknown) => ({ op: 'deleteMany', args }));
+    const upsert = jest.fn((args: unknown) => ({ op: 'upsert', args }));
+    const prisma = {
+      document: { findMany },
+      chatDocumentRef: { deleteMany, upsert },
+      $transaction: transaction,
+    } as unknown as PrismaService;
+    const config = { get: () => BASE } as unknown as ConfigService;
+    return {
+      svc: new ChatDocumentRefService(prisma, config),
+      findMany,
+      deleteMany,
+      upsert,
+    };
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('stores the live documents a body names, with their decoded anchors', async () => {
+    const transaction = jest.fn().mockResolvedValue([]);
+    const { svc, findMany, deleteMany, upsert } = service(transaction);
+    const body = `see ${BASE}/d/${ID}?at=${at({ blockId: 'b', excerpt })} and /s/${ID2}`;
+    await expect(svc.sync('m-1', channel, body)).resolves.toEqual([
+      {
+        documentId: ID,
+        type: 'doc',
+        title: 'Plan',
+        anchor: { blockId: 'b', excerpt },
+      },
+    ]);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: [ID, ID2] },
+          workspaceId: 'ws-1',
+          deletedAt: null,
+        },
+      }),
+    );
+    // Refs the body no longer names are dropped; the kept one is upserted.
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { messageId: 'm-1', documentId: { notIn: [ID] } },
+    });
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect((transaction.mock.calls[0] as unknown[][])[0]).toHaveLength(2);
+  });
+
+  it('keeps a document-level card for an anchor of the wrong shape', async () => {
+    const { svc } = service(jest.fn().mockResolvedValue([]));
+    const refs = await svc.sync(
+      'm-1',
+      channel,
+      `${BASE}/d/${ID}?at=${at({ slideId: 's' })}`,
+    );
+    expect(refs).toEqual([
+      { documentId: ID, type: 'doc', title: 'Plan', anchor: null },
+    ]);
+  });
+
+  it('clears every ref when the body names none, without a lookup', async () => {
+    const { svc, findMany, deleteMany } = service(
+      jest.fn().mockResolvedValue([]),
+    );
+    await expect(svc.sync('m-1', channel, 'no links')).resolves.toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { messageId: 'm-1', documentId: { notIn: [] } },
+    });
+  });
+
+  it('swallows a failure and logs no document content', async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    // A Prisma validation error renders the arguments it was handed.
+    const err = Object.assign(
+      new Error(`Invalid upsert({ anchor: { excerpt: "${excerpt}" } })`),
+      { name: 'PrismaClientValidationError' },
+    );
+    const { svc } = service(jest.fn().mockRejectedValue(err));
+    await expect(
+      svc.sync(
+        'm-1',
+        channel,
+        `${BASE}/d/${ID}?at=${at({ blockId: 'b', excerpt })}`,
+      ),
+    ).resolves.toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0][0]);
+    expect(line).toContain('m-1');
+    expect(line).toContain('PrismaClientValidationError');
+    expect(line).not.toContain(excerpt);
+  });
+
+  it("logs a known request error's code", async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const err = Object.assign(new Error('details'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2003',
+    });
+    const { svc } = service(jest.fn().mockRejectedValue(err));
+    await svc.sync('m-2', channel, `/d/${ID}`);
+    expect(String(warn.mock.calls[0][0])).toBe(
+      'chat refs sync failed for m-2: PrismaClientKnownRequestError P2003',
+    );
+  });
+});
+
+describe('parseCursor', () => {
+  it('reads a cursor the server issued', () => {
+    expect(parseCursor(`2026-11-25T10:00:00.000Z_${ID}`)).toEqual({
+      at: new Date('2026-11-25T10:00:00.000Z'),
+      documentId: ID,
+    });
+  });
+
+  it('refuses a malformed one', () => {
+    expect(parseCursor(undefined)).toBeUndefined();
+    expect(parseCursor('')).toBeUndefined();
+    expect(parseCursor(ID)).toBeUndefined(); // no separator
+    expect(parseCursor(`_${ID}`)).toBeUndefined(); // no time
+    expect(parseCursor(`yesterday_${ID}`)).toBeUndefined();
+    expect(parseCursor('2026-11-25T10:00:00.000Z_')).toBeUndefined();
+    expect(parseCursor('2026-11-25T10:00:00.000Z_not-a-uuid')).toBeUndefined();
+    expect(
+      parseCursor(`2026-11-25T10:00:00.000Z_${'a'.repeat(200)}`),
+    ).toBeUndefined();
+  });
+});
+
+describe('ChatDocumentRefService.files', () => {
+  function service() {
+    const queryRaw = jest.fn().mockResolvedValue([]);
+    const userFindMany = jest.fn();
+    const prisma = {
+      $queryRaw: queryRaw,
+      user: { findMany: userFindMany },
+    } as unknown as PrismaService;
+    const config = { get: () => undefined } as unknown as ConfigService;
+    return {
+      svc: new ChatDocumentRefService(prisma, config),
+      queryRaw,
+      userFindMany,
+    };
+  }
+
+  /** The `LIMIT` the query was sent: the page size plus one lookahead row. */
+  function sentLimit(queryRaw: jest.Mock): unknown {
+    const values = (queryRaw.mock.calls[0] as unknown[]).slice(1);
+    return values[values.length - 1];
+  }
+
+  it.each([
+    [undefined, 51],
+    [0, 2],
+    [-5, 2],
+    [1, 2],
+    [100, 101],
+    [1000, 101],
+  ])('clamps limit %p into [1, 100]', async (limit, sent) => {
+    const { svc, queryRaw, userFindMany } = service();
+    await expect(
+      svc.files({ id: 'ch', workspaceId: 'ws' }, { limit }),
+    ).resolves.toEqual({ files: [], cursor: null });
+    expect(sentLimit(queryRaw)).toBe(sent);
+    expect(userFindMany).not.toHaveBeenCalled();
+  });
+
+  it('pages from the start on a malformed cursor', async () => {
+    const { svc, queryRaw } = service();
+    await svc.files({ id: 'ch', workspaceId: 'ws' }, { before: 'garbage' });
+    const [strings] = queryRaw.mock.calls[0] as [TemplateStringsArray];
+    expect(strings.join('?')).not.toContain('x."createdAt", x."documentId") <');
   });
 });
