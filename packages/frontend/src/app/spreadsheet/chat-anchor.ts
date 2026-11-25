@@ -5,12 +5,13 @@ import {
   type Range,
   type SelectionType,
 } from "@wafflebase/sheets";
+import {
+  MAX_ANCHOR_LABEL,
+  MAX_ANCHOR_SPAN,
+  type SheetAnchor,
+} from "@wafflebase/core/document-link";
 
-import type { SheetAnchor } from "@/components/chat/document-link";
-import { clip, MAX_LABEL } from "@/components/chat/send-to-chat";
-
-/** The span `decodeAnchor` and the server accept. */
-const MAX_SPAN = 100_000;
+import { clip } from "@/components/chat/send-to-chat";
 
 /**
  * A tab name as a formula would write it before `!`: bare when it is a
@@ -71,9 +72,9 @@ export function sheetChatAnchor({
     tabId,
     rowId,
     colId,
-    rowSpan: Math.min(to.r - from.r + 1, MAX_SPAN),
-    colSpan: Math.min(to.c - from.c + 1, MAX_SPAN),
-    label: clip(`${sheetTabRef(tabName)}${where}`, MAX_LABEL),
+    rowSpan: Math.min(to.r - from.r + 1, MAX_ANCHOR_SPAN),
+    colSpan: Math.min(to.c - from.c + 1, MAX_ANCHOR_SPAN),
+    label: clip(`${sheetTabRef(tabName)}${where}`, MAX_ANCHOR_LABEL),
   };
 }
 

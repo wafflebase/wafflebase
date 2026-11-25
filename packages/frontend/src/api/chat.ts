@@ -1,3 +1,4 @@
+import type { ChatDocumentAnchor } from "@wafflebase/core/document-link";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 import { seg } from "./url";
@@ -84,21 +85,15 @@ export interface ChatMessageDto {
 
 /**
  * Where a card points inside its document (`docs/design/chat.md` § Document
- * Cards and Anchors). `label` is the sender's display snapshot, such as
- * `Sheet1!C3:E7`: axis and slide ids cannot be named without loading the
- * document.
+ * Cards and Anchors). The shapes and the rule that validates them are shared
+ * with the backend through `@wafflebase/core/document-link`.
  */
-export type SheetAnchor = {
-  tabId: string;
-  rowId: string;
-  colId: string;
-  rowSpan: number;
-  colSpan: number;
-  label?: string;
-};
-export type DocAnchor = { blockId: string; excerpt?: string; label?: string };
-export type SlidesAnchor = { slideId: string; label?: string };
-export type ChatDocumentAnchor = SheetAnchor | DocAnchor | SlidesAnchor;
+export type {
+  ChatDocumentAnchor,
+  DocAnchor,
+  SheetAnchor,
+  SlidesAnchor,
+} from "@wafflebase/core/document-link";
 
 export interface ChatDocumentRefDto {
   documentId: string;
