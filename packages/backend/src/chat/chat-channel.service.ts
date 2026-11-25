@@ -471,6 +471,7 @@ export class ChatChannelService {
       }
       throw err;
     }
+    await this.announceChannel(channel);
     return this.summaryOf(userId, channelId);
   }
 
@@ -697,6 +698,25 @@ export class ChatChannelService {
       mentionCount: r.mentionCount,
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
     }));
+  }
+
+  /**
+   * Tells the channel's readers that its name, topic or archive state
+   * changed, so their channel lists — and an open conversation's composer —
+   * follow without a reload. Best effort, like `announceMembership`.
+   */
+  private async announceChannel(channel: ChatChannel): Promise<void> {
+    try {
+      await this.bus.notifyChannel({
+        t: 'chn',
+        c: channel.id,
+        w: channel.workspaceId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `chat channel notify failed for ${channel.id}: ${String(err)}`,
+      );
+    }
   }
 
   /**

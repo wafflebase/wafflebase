@@ -55,6 +55,17 @@ describe('chatStream', () => {
     });
   });
 
+  it('maps a channel metadata change to a channel event with ids only', () => {
+    const h = harness();
+
+    h.hub.next({ t: 'chn', c: 'c1', w: 'w1' });
+
+    expect(h.seen[1]).toEqual({
+      type: 'channel',
+      data: { workspaceId: 'w1', channelId: 'c1' },
+    });
+  });
+
   it('passes a hub resync on as another ready', () => {
     const h = harness();
 

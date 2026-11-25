@@ -727,8 +727,10 @@ describeDb('Chat integration', () => {
         name: 'general',
       });
       const url = `${base(workspace.id)}/channels/${channel.id}`;
+      const announce = jest.spyOn(bus, 'notifyChannel');
 
       await as(other).patch(url).send({ topic: 'nope' }).expect(403);
+      expect(announce).not.toHaveBeenCalled();
       const renamed = await as(creator)
         .patch(url)
         .send({ name: 'Town Hall', topic: 'all hands' })
@@ -742,6 +744,13 @@ describeDb('Chat integration', () => {
         .send({ archived: true })
         .expect(200);
       expect(archived.body.archived).toBe(true);
+      // Each change is announced so peers' lists and composers follow.
+      expect(announce).toHaveBeenCalledTimes(2);
+      expect(announce).toHaveBeenLastCalledWith({
+        t: 'chn',
+        c: channel.id,
+        w: workspace.id,
+      });
     });
 
     it('removing a workspace member drops their channel memberships', async () => {
