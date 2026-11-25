@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelSummary } from "@/api/chat";
 import { panelChannels, pickPanelChannel } from "../chat-panel-channel";
+import { landingChannelId } from "../last-channel";
 
 function channel(over: Partial<ChannelSummary> & { id: string }): ChannelSummary {
   return {
@@ -83,5 +84,21 @@ describe("panelChannels", () => {
       "design",
       "general",
     ]);
+  });
+});
+
+describe("landingChannelId", () => {
+  it("lands on the last channel while the user can still talk in it", () => {
+    expect(landingChannelId(channels, "planning")).toBe("planning");
+  });
+
+  it("falls back to the default channel past one left or archived", () => {
+    expect(landingChannelId(channels, "random")).toBe("general");
+    expect(landingChannelId(channels, "old")).toBe("general");
+    expect(landingChannelId(channels, null)).toBe("general");
+  });
+
+  it("is null without a default channel to land on", () => {
+    expect(landingChannelId([planning], "gone")).toBeNull();
   });
 });

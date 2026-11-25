@@ -79,12 +79,6 @@ export const CHAT_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
   { category: "Help", keys: ["Mod+/"], description: "Show keyboard shortcuts" },
 ];
 
-/** Whether this is a Mac, where Mod is ⌘. */
-export function isMacPlatform(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-}
-
 /** "Mod+Shift+K" as the platform writes it: "⌘⇧K" or "Ctrl+Shift+K". */
 export function formatChatCombo(combo: string, isMac: boolean): string {
   return combo

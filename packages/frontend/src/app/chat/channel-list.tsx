@@ -17,7 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import { cn } from "@/lib/utils";
-import { formatChatCombo, isMacPlatform } from "./chat-shortcuts";
+import { isMac } from "@/components/text-formatting/platform";
+
+import { formatChatCombo } from "./chat-shortcuts";
 import {
   browsableChannels,
   channelLabel,
@@ -225,7 +227,6 @@ function JumpTo({
   onJumpTo: () => void;
   onShowShortcuts?: () => void;
 }) {
-  const isMac = isMacPlatform();
   return (
     <div className="flex shrink-0 items-center gap-1 px-2 pt-3">
       <button

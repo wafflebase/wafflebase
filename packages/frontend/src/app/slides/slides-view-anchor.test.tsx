@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { Document } from '@yorkie-js/sdk';
@@ -13,7 +13,7 @@ import type { SlidesPresence } from '@/types/users';
  */
 
 let mockDoc: Document<YorkieSlidesRoot, SlidesPresence> | undefined;
-let setCurrentSlide: ReturnType<typeof vi.fn>;
+let setCurrentSlide: Mock<(id: string) => void>;
 
 vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
@@ -85,7 +85,7 @@ beforeEach(() => {
     store.addSlide('title-slide');
   });
   slideIds = store.read().slides.map((s) => s.id);
-  setCurrentSlide = vi.fn();
+  setCurrentSlide = vi.fn<(id: string) => void>();
   vi.stubGlobal('requestAnimationFrame', () => 0);
   vi.stubGlobal('cancelAnimationFrame', () => {});
   Element.prototype.scrollIntoView = () => {};
