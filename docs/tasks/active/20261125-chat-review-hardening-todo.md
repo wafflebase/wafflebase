@@ -83,9 +83,30 @@ its own branch; the branches are merged here.
 
 ## Integration
 - [x] Merge stream branches, resolve conflicts
-- [ ] `pnpm verify:fast`, `pnpm verify:self`
-- [ ] `/self-review` rounds
+- [x] `pnpm verify:fast`, `pnpm verify:self`
+- [x] `/self-review` rounds
 - [x] Update `docs/design/chat.md` (P2 as built), backend README
-- [ ] PR with Before → After for mobile chat
+- [x] PR with Before → After for mobile chat
 
 ## Review
+
+PR #1201. Six feature streams (A–F) and seven review-fix streams
+(G–O) worked in parallel worktrees and merged into
+`chat-review-hardening`. Three self-review rounds plus a
+`requesting-code-review` pass:
+
+- **Round 1:** blocked on a duplicated anchor codec and a grep-only test.
+- **Round 2:**
+  - The code-review pass found a deploy-skew Critical, fixed by the
+    old-backend `clientId` fallback.
+  - Four panel blockers fixed: empty `notIn`, a vacuous test, basename
+    links, and a regex lookbehind.
+- **Round 3:** one rebuttal upheld; two blockers fixed after the round.
+  No fourth round.
+
+Final checks:
+- `verify:self` green on all lanes; serial backend e2e 191 passed.
+- Chunk budget 263 → 270 chunks, none eager.
+- Before → After for four phone surfaces.
+
+Known limitations are listed in the PR body.
