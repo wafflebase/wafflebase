@@ -269,12 +269,12 @@ export function DocsView({
 
   // A document card's `?at=`: caret at the start of its block, scrolled into
   // view. Presence follows, as for any caret move. A block deleted since the
-  // link was sent leaves the editor where it opened. The caret is placed
-  // without focusing the editor, which would pull focus from the chat panel
-  // the same link opens.
+  // link was sent (still missing after the retry window) leaves the editor
+  // where it opened. The caret is placed without focusing the editor, which
+  // would pull focus from the chat panel the same link opens.
   useAnchorParam<DocAnchor>("doc", !loading && !!mountedEditor && !previewing, (anchor) => {
     const editor = mountedEditor;
-    if (!editor || !editor.getDoc().findBlock(anchor.blockId)) return;
+    if (!editor || !editor.getDoc().findBlock(anchor.blockId)) return false;
     const pos = { blockId: anchor.blockId, offset: 0 };
     editor.restoreLocalCursor(pos, null);
     editor.render();
@@ -284,6 +284,7 @@ export function DocsView({
     requestAnimationFrame(() => {
       if (!editor.isDisposed()) editor.scrollToPosition(pos);
     });
+    return true;
   });
 
   const peerLabelTimers = useRef<Map<string, number>>(new Map());

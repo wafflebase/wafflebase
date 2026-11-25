@@ -87,6 +87,18 @@ describe("useChatPanel", () => {
     expect(result.current.state?.pendingDraft).toBeNull();
   });
 
+  it("keeps every draft asked for before the panel picks a channel", () => {
+    const { result } = harness();
+    act(() => result.current.api.open({ draft: "/s/doc-1?at=one" }));
+    act(() => result.current.api.open({ draft: "/s/doc-1?at=two" }));
+    expect(result.current.state?.pendingDraft).toBe(
+      "/s/doc-1?at=one\n/s/doc-1?at=two",
+    );
+
+    act(() => result.current.state!.takePendingDraft("c-9"));
+    expect(draftStore.get(ME, "c-9")).toBe("/s/doc-1?at=one\n/s/doc-1?at=two");
+  });
+
   it("opens on ?chat=<channelId> when the editor loads", () => {
     const { result } = harness("/d/doc-1?chat=c-7");
     expect(result.current.api.isOpen).toBe(true);

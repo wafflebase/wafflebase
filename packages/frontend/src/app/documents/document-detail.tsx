@@ -391,15 +391,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     !docLoading && !!docRoot && activeTabId !== null && !previewing,
     (anchor) => {
       const root = doc?.getRoot();
-      if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return;
+      if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return false;
       const ws = root.sheets?.[anchor.tabId];
-      if (!ws) return;
+      if (!ws) return false;
       const range = resolveSheetChatAnchor(
         anchor,
         Array.from(ws.rowOrder ?? []) as string[],
         Array.from(ws.colOrder ?? []) as string[],
       );
-      if (!range) return;
+      if (!range) return false;
       undoJumpSeq.current += 1;
       setActiveTabId(anchor.tabId);
       setUndoJumpTarget({
@@ -411,6 +411,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         },
         requestId: undoJumpSeq.current,
       });
+      return true;
     },
   );
 

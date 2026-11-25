@@ -32,6 +32,7 @@ describe("draftStore", () => {
   it("never adopts a draft saved before drafts were keyed by user, and drops it", () => {
     window.sessionStorage.setItem("wafflebase:chat-draft:c1", "whose?");
     expect(draftStore.get(1, "c1")).toBe("");
+    draftStore.dropLegacy("c1");
     expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
   });
 
@@ -55,5 +56,6 @@ describe("draftStore", () => {
     expect(() => draftStore.set(1, "c1", "x")).not.toThrow();
     expect(draftStore.get(1, "c1")).toBe("");
     expect(() => draftStore.clear(1, "c1")).not.toThrow();
+    expect(() => draftStore.dropLegacy("c1")).not.toThrow();
   });
 });

@@ -246,9 +246,12 @@ export function SlidesView({
   // was sent leaves the deck where it opened.
   useAnchorParam<SlidesAnchor>("slides", !loading && liveEditor !== null, (anchor) => {
     const store = storeRef.current;
-    if (!liveEditor || !store) return;
-    if (!store.read().slides.some((slide) => slide.id === anchor.slideId)) return;
+    if (!liveEditor || !store) return false;
+    if (!store.read().slides.some((slide) => slide.id === anchor.slideId)) {
+      return false;
+    }
     liveEditor.setCurrentSlide(anchor.slideId);
+    return true;
   });
 
   const onToastRef = useRef((msg: string) => toast.info(msg));

@@ -292,6 +292,33 @@ describe("stream recovery", () => {
     expect(FakeEventSource.instances).toHaveLength(2);
   });
 
+  it("checks the session once when online and the tab being shown coincide", async () => {
+    fetchWithAuthSpy.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { source } = harness();
+    giveUp(source);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchWithAuthSpy).toHaveBeenCalledTimes(1);
+
+    let answer!: (r: Response) => void;
+    fetchWithAuthSpy.mockImplementationOnce(
+      () => new Promise<Response>((r) => (answer = r)),
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchWithAuthSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      answer(new Response("{}", { status: 200 }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
   it("leaves a live stream alone when the tab is shown or goes online", async () => {
     const { source } = harness();
     act(() => source.emit("ready", {}));
