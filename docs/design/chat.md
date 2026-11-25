@@ -196,8 +196,10 @@ The page and the panel are two views of one client-side model:
    (range selected, block scrolled into view, slide selected) with the chat
    panel open on the same channel → reply from the panel.
 3. **Document → chat.** Select a range / text / slide → context menu **Send to
-   chat** → channel picker (recent channels first) → optional message → posts
-   a card carrying the anchor.
+   chat** → the editor's chat panel opens with a link carrying the anchor in
+   its composer, on the channel the document was last shared in (the panel's
+   switcher picks another) → optional message → send posts a card carrying
+   the anchor.
 4. **Agent at work.** A member DMs `@report-agent` or mentions it in a
    channel → the agent, polling `wafflebase chat inbox`, picks the request up
    → posts its result as a message with a document card, under its own name
