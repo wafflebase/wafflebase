@@ -378,9 +378,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   // so that resolution cannot overwrite the switch.
   // A tab, row or column deleted since the link was sent leaves the editor
   // where it opened.
+  // Not while a revision preview is open, either: `SheetView` drops (and
+  // marks handled) a jump that arrives then, which is right for an undo step
+  // the preview may outlive but would lose an anchor that still names a
+  // place in the live document. Held back here, it is resolved against the
+  // document the preview closes onto — including one a restore replaced.
   useAnchorParam<SheetAnchor>(
     "sheet",
-    !docLoading && !!docRoot && activeTabId !== null,
+    !docLoading && !!docRoot && activeTabId !== null && !previewing,
     (anchor) => {
       const root = doc?.getRoot();
       if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return;

@@ -53,6 +53,7 @@ vi.mock("@/app/spreadsheet/sheet-view", () => ({
 }));
 
 import { act, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { DocumentDetail } from "@/app/documents/document-detail";
@@ -146,5 +147,30 @@ describe("sheet ?at= anchor", () => {
     await act(async () => {});
     expect(view).toHaveAttribute("data-tab", "tab-1");
     expect(view).toHaveAttribute("data-jump", "");
+  });
+
+  // The jump channel drops what arrives during a preview, which is right for
+  // an undo step but not for a card: the anchor still names a place in the
+  // live document, so it waits for the preview to close.
+  it("applies an anchor followed during a revision preview once it closes", async () => {
+    mountAt(
+      "",
+      at({ tabId: "tab-1", rowId: "r3", colId: "c1", rowSpan: 1, colSpan: 1 }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Show version history" }),
+    );
+    await userEvent.click(await screen.findByText("Preview revision"));
+    await screen.findByTestId("revision-preview");
+
+    await userEvent.click(screen.getByText("Follow card"));
+    await act(async () => {});
+    expect(await sheetView()).toHaveAttribute("data-jump", "");
+
+    await userEvent.click(screen.getByText("Close preview"));
+    expect((await jumpedTo()).range).toEqual([
+      { r: 3, c: 1 },
+      { r: 3, c: 1 },
+    ]);
   });
 });
