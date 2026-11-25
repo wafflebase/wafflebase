@@ -98,12 +98,19 @@ export function QrCodePopover({
 
   const handleCopyImage = async () => {
     try {
-      const blob = await qrCodePngBlob(url);
-      if (!blob || typeof ClipboardItem === "undefined") {
+      if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
         throw new Error("no image clipboard");
       }
+      // The blob is handed over as a *promise*, not awaited first: WebKit
+      // requires the write to be issued in the same task as the click, and an
+      // intervening await spends the user activation — which is why
+      // `ClipboardItem` accepts a promise for its data in the first place.
+      const png = qrCodePngBlob(url).then((blob) => {
+        if (!blob) throw new Error("no PNG");
+        return blob;
+      });
       await navigator.clipboard.write([
-        new ClipboardItem({ "image/png": blob }),
+        new ClipboardItem({ "image/png": png }),
       ]);
       toast.success("QR code copied to clipboard");
     } catch {

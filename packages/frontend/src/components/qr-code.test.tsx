@@ -10,7 +10,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { encodeQr, qrCodeSvgDocument, type QrMatrix } from "@/lib/qr-code";
+import {
+  encodeQr,
+  qrCodePngBlob,
+  qrCodeSvgDocument,
+  QR_EXPORT_SIZE,
+  type QrMatrix,
+} from "@/lib/qr-code";
 import { QrCode, QrCodePopover } from "./qr-code";
 
 vi.mock("sonner", () => ({
@@ -106,6 +112,96 @@ describe("qrCodeSvgDocument", () => {
   });
 });
 
+describe("qrCodePngBlob", () => {
+  type Rect = { x: number; y: number; w: number; h: number; fill: string };
+
+  /**
+   * jsdom has no canvas, so the 2d context is stood in for and every
+   * `fillRect` recorded: the module arithmetic is the whole of what this
+   * export does, and nothing else can observe it.
+   */
+  function stubCanvas(): Rect[] {
+    const rects: Rect[] = [];
+    const ctx = {
+      fillStyle: "",
+      fillRect: (x: number, y: number, w: number, h: number) =>
+        rects.push({ x, y, w, h, fill: ctx.fillStyle }),
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      ctx as unknown as CanvasRenderingContext2D,
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback) => callback(new Blob(["png"], { type: "image/png" })),
+    );
+    return rects;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("paints exactly the dark modules of the matrix, on a white plate", async () => {
+    const rects = stubCanvas();
+    const blob = await qrCodePngBlob(URL_VALUE);
+    expect(blob?.type).toBe("image/png");
+
+    const matrix = encodeQr(URL_VALUE);
+    const scale = Math.floor(QR_EXPORT_SIZE / matrix.size);
+    const offset = Math.floor((QR_EXPORT_SIZE - scale * matrix.size) / 2);
+
+    // The plate is painted first, over the whole image.
+    expect(rects[0]).toEqual({
+      x: 0,
+      y: 0,
+      w: QR_EXPORT_SIZE,
+      h: QR_EXPORT_SIZE,
+      fill: "#fff",
+    });
+
+    const dark = rects.slice(1);
+    expect(dark.every((r) => r.fill === "#000")).toBe(true);
+
+    // Each dark rect is one module square, aligned to the grid and inside
+    // the image — a centring or scale regression breaks one of the three.
+    for (const r of dark) {
+      expect([r.w, r.h]).toEqual([scale, scale]);
+      expect([(r.x - offset) % scale, (r.y - offset) % scale]).toEqual([0, 0]);
+      expect(r.x).toBeGreaterThanOrEqual(offset);
+      expect(r.x + r.w).toBeLessThanOrEqual(QR_EXPORT_SIZE - offset);
+      expect(r.y + r.h).toBeLessThanOrEqual(QR_EXPORT_SIZE - offset);
+    }
+
+    // …and the painted cells are the matrix's dark cells, no more, no fewer.
+    const painted = new Set(
+      dark.map((r) => `${(r.x - offset) / scale},${(r.y - offset) / scale}`),
+    );
+    const expected = new Set<string>();
+    matrix.rows.forEach((row, y) =>
+      row.forEach((on, x) => {
+        if (on) expected.add(`${x},${y}`);
+      }),
+    );
+    expect(painted).toEqual(expected);
+    expect(dark).toHaveLength(expected.size);
+  });
+
+  it("leaves the quiet zone of the exported image white", async () => {
+    const rects = stubCanvas();
+    await qrCodePngBlob(URL_VALUE);
+
+    const matrix = encodeQr(URL_VALUE);
+    const scale = Math.floor(QR_EXPORT_SIZE / matrix.size);
+    const offset = Math.floor((QR_EXPORT_SIZE - scale * matrix.size) / 2);
+    const quiet = offset + QUIET * scale;
+    for (const r of rects.slice(1)) {
+      expect(r.x).toBeGreaterThanOrEqual(quiet);
+      expect(r.y).toBeGreaterThanOrEqual(quiet);
+      expect(r.x + r.w).toBeLessThanOrEqual(QR_EXPORT_SIZE - quiet);
+      expect(r.y + r.h).toBeLessThanOrEqual(QR_EXPORT_SIZE - quiet);
+    }
+  });
+});
+
 describe("QrCodePopover", () => {
   let saved: { blob: Blob; name: string }[];
 
@@ -170,6 +266,45 @@ describe("QrCodePopover", () => {
     expect(saved[0].blob.type).toBe("image/svg+xml");
     expect(await readText(saved[0].blob)).toBe(qrCodeSvgDocument(URL_VALUE));
     expect(toast.success).toHaveBeenCalledWith("QR code downloaded");
+  });
+
+  it("hands the clipboard a promise, keeping the click's user activation", async () => {
+    // WebKit requires `clipboard.write` in the same task as the gesture, so
+    // the blob must NOT be awaited first — hence `ClipboardItem`'s promise
+    // form. Awaiting it would skip the write entirely here (no canvas in
+    // jsdom), which is what makes `write` being called the assertion.
+    const written: Record<string, unknown>[] = [];
+    class FakeClipboardItem {
+      constructor(readonly types: Record<string, unknown>) {
+        written.push(types);
+      }
+    }
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+    const write = vi.fn(async (items: FakeClipboardItem[]) => {
+      await Promise.all(Object.values(items[0].types));
+    });
+
+    try {
+      const user = await open();
+      // After `open()`: userEvent.setup() installs a clipboard stub of its
+      // own, so defining ours first would be overwritten.
+      Object.defineProperty(navigator, "clipboard", {
+        value: { write },
+        configurable: true,
+      });
+      await user.click(screen.getByRole("button", { name: "Copy image" }));
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(written).toHaveLength(1);
+      const png = written[0]["image/png"] as PromiseLike<Blob>;
+      expect(typeof png?.then).toBe("function");
+      // jsdom renders no PNG, so that promise rejects and the write fails.
+      expect(toast.error).toHaveBeenCalledTimes(1);
+      expect(toast.success).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   it("reports, rather than throws, when no PNG can be rendered", async () => {
