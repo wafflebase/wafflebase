@@ -49,6 +49,17 @@ import {
 const MESSAGE_WRITE_THROTTLE = { default: { ttl: 10_000, limit: 30 } };
 
 /**
+ * The per-user pace of the reads that scan a channel's or a document's
+ * whole ref set (`files`, `sharedIn`): each page of Files re-sorts every
+ * ref in the channel. A person opens the popover, pages it, opens an editor;
+ * 120 a minute is far past that. It equals the global per-IP bucket on
+ * purpose: `@Throttle` overrides the limit for that bucket too, and a
+ * shorter window here (say 60 per 10 s) would *loosen* the per-IP bound to
+ * 360 a minute while adding the per-user one.
+ */
+const REF_READ_THROTTLE = { default: { ttl: 60_000, limit: 120 } };
+
+/**
  * Workspace chat routes (`docs/design/chat.md` § REST). Every route is
  * scoped by the `:workspaceId` in its path, which may be an id or a slug:
  * a caller outside the workspace, and a channel or message belonging to a
@@ -174,6 +185,8 @@ export class ChatController {
    * once, newest share first. Readable by exactly who can read the messages.
    */
   @Get('channels/:channelId/files')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(REF_READ_THROTTLE)
   async files(
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
@@ -194,6 +207,8 @@ export class ChatController {
    * nothing else names a channel (`docs/design/chat.md` § Chat panel).
    */
   @Get('documents/:documentId/channels')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(REF_READ_THROTTLE)
   async sharedIn(
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,

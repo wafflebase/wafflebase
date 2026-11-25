@@ -310,6 +310,18 @@ describeDb('Chat document refs integration', () => {
     expect(second.body.cursor).toBeNull();
   });
 
+  it('refuses a Files limit outside 1..100 at the boundary', async () => {
+    const { owner, workspace, general } = await setup();
+    const url = filesUrl(workspace.id, general.id);
+    // The DTO, not the service's clamp, decides: out of range is a 400.
+    for (const limit of ['0', '-5', '101', '1000', 'abc']) {
+      await as(owner).get(`${url}?limit=${limit}`).expect(400);
+    }
+    for (const limit of ['1', '100']) {
+      await as(owner).get(`${url}?limit=${limit}`).expect(200);
+    }
+  });
+
   it('gates Files like messages', async () => {
     const { owner, outsider, workspace, general, doc } = await setup();
     const member = await createUser();
