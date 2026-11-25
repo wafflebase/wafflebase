@@ -1,4 +1,5 @@
 import {
+  getBlockText,
   getTheme,
   initialize,
   type EditorAPI,
@@ -26,6 +27,11 @@ import { DocsFindBar } from "./docs-find-bar";
 import { DocsShortcutsHelp } from "./docs-shortcuts-help";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
 import { DocsContextMenu } from "./docs-context-menu";
+import { extractAnchorContext } from "./comments/docs-anchor";
+import type { DocAnchor } from "@/components/chat/document-link";
+import { docChatAnchor } from "@/components/chat/send-to-chat";
+import { useAnchorParam } from "@/components/chat/use-anchor-param";
+import { useSendToChat } from "@/components/chat/use-send-to-chat";
 import { DocsCommentPopover } from "./comments/DocsCommentPopover";
 import { useDocsComments } from "./comments/docs-comments-controller";
 import {
@@ -236,6 +242,48 @@ export function DocsView({
     documentId,
     panelOpen: commentsPanelOpen,
     onPanelOpenChange: onCommentsPanelOpenChange,
+  });
+
+  // "Send to chat": the first block of the selection plus an excerpt of it
+  // (chat.md: a text range is reduced to its first block). With only a caret,
+  // the block right-clicked and its own text.
+  const sendToChat = useSendToChat("doc", documentId);
+  const handleSendToChat = useCallback(
+    (point: { x: number; y: number }) => {
+      const editor = mountedEditor;
+      if (!sendToChat || !editor) return;
+      const sel = editor.getActiveSelection();
+      let anchor: DocAnchor | null = null;
+      if (sel) {
+        const ctx = extractAnchorContext(editor.getDoc().document, sel);
+        anchor = docChatAnchor(ctx.blockId, ctx.quotedText);
+      } else {
+        const pos = editor.positionAtClientPoint(point.x, point.y);
+        const block = pos ? editor.getDoc().findBlock(pos.blockId) : undefined;
+        if (pos && block) anchor = docChatAnchor(pos.blockId, getBlockText(block));
+      }
+      sendToChat(anchor);
+    },
+    [sendToChat, mountedEditor],
+  );
+
+  // A document card's `?at=`: caret at the start of its block, scrolled into
+  // view. Presence follows, as for any caret move. A block deleted since the
+  // link was sent leaves the editor where it opened. The caret is placed
+  // without focusing the editor, which would pull focus from the chat panel
+  // the same link opens.
+  useAnchorParam<DocAnchor>("doc", !loading && !!mountedEditor && !previewing, (anchor) => {
+    const editor = mountedEditor;
+    if (!editor || !editor.getDoc().findBlock(anchor.blockId)) return;
+    const pos = { blockId: anchor.blockId, offset: 0 };
+    editor.restoreLocalCursor(pos, null);
+    editor.render();
+    storeRef.current?.updateCursorPos(pos, null);
+    // `scrollToPosition` is a no-op until the first paint has measured the
+    // canvas, which a freshly mounted editor may not have done yet.
+    requestAnimationFrame(() => {
+      if (!editor.isDisposed()) editor.scrollToPosition(pos);
+    });
   });
 
   const peerLabelTimers = useRef<Map<string, number>>(new Map());
@@ -767,6 +815,7 @@ export function DocsView({
           onInsertComment={() => {
             comments.beginCompose();
           }}
+          onSendToChat={sendToChat ? handleSendToChat : undefined}
         />
       )}
       {comments.active && !previewing && (

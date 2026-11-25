@@ -15,6 +15,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('@yorkie-js/react', () => ({
   useDocument: () => ({ doc: fakeDoc, loading: false, error: undefined }),
@@ -138,9 +139,11 @@ function tree(previewing: boolean) {
   });
   return (
     <QueryClientProvider client={client}>
-      <TooltipProvider>
-        <DocsView previewing={previewing} />
-      </TooltipProvider>
+      <MemoryRouter>
+        <TooltipProvider>
+          <DocsView previewing={previewing} />
+        </TooltipProvider>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }

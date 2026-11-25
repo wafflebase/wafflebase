@@ -382,6 +382,28 @@ export async function fetchMessage(
   return res.json();
 }
 
+/** A channel a document was shared in, at its latest share there. */
+export interface ChatSharedIn {
+  channelId: string;
+  sharedAt: string;
+}
+
+/**
+ * The channels `documentId` was shared in that the caller belongs to, most
+ * recent first.
+ */
+export async function fetchDocumentSharedIn(
+  workspaceId: string,
+  documentId: string,
+): Promise<ChatSharedIn[]> {
+  const res = await fetchWithAuth(
+    `${chatBase(workspaceId)}/documents/${seg(documentId)}/channels`,
+  );
+  await assertOk(res, "Couldn't load where this document was shared");
+  const body: { channels: ChatSharedIn[] } = await res.json();
+  return body.channels;
+}
+
 /**
  * A channel's Files: each document its messages link to, once, newest share
  * first. `cursor` is the `before` of the next page, null on the last.

@@ -114,6 +114,15 @@ export interface ChatFileDto extends ChatDocumentRefDto {
 }
 
 /**
+ * A channel a document was shared in, at its latest share there: what the
+ * editor's chat panel opens on when nothing else asks for a channel.
+ */
+export interface ChatSharedInDto {
+  channelId: string;
+  sharedAt: string;
+}
+
+/**
  * What crosses replicas on the `chat` NOTIFY channel. Ids only — never
  * message content — and short keys, since a NOTIFY payload is capped at 8 kB.
  * `msg`: channel, workspace, seq, thread root, author, and whether a reply

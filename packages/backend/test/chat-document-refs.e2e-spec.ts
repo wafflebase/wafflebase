@@ -288,4 +288,81 @@ describeDb('Chat document refs integration', () => {
     // A public channel reads for any workspace member, joined or not.
     await as(member).get(filesUrl(workspace.id, general.id)).expect(200);
   });
+
+  const sharedInUrl = (wid: string, did: string) =>
+    `/workspaces/${wid}/chat/documents/${did}/channels`;
+
+  it('lists the channels a document was shared in, most recent first', async () => {
+    const { owner, outsider, workspace, general, doc } = await setup();
+    const member = await createUser();
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
+    });
+    const mkChannel = (name: string, kind: string, userIds: number[]) =>
+      prisma.chatChannel.create({
+        data: {
+          workspaceId: workspace.id,
+          kind,
+          name,
+          createdBy: owner.id,
+          members: { create: userIds.map((userId) => ({ userId })) },
+        },
+      });
+    const design = await mkChannel('design', 'public', [owner.id, member.id]);
+    const secret = await mkChannel('secret', 'private', [owner.id]);
+    const archived = await mkChannel('old', 'public', [owner.id, member.id]);
+    const a = await doc('A');
+    const b = await doc('B');
+
+    await messages.post(owner.id, general.id, { body: `/s/${a.id}` });
+    await messages.post(owner.id, secret.id, { body: `/s/${a.id}` });
+    await messages.post(owner.id, archived.id, { body: `/s/${a.id}` });
+    await prisma.chatChannel.update({
+      where: { id: archived.id },
+      data: { archivedAt: new Date() },
+    });
+    const later = await messages.post(owner.id, design.id, {
+      body: `/s/${a.id}`,
+    });
+    // Another document's share says nothing about this one.
+    await messages.post(owner.id, general.id, { body: `/s/${b.id}` });
+    // A deleted message no longer counts as a share.
+    const gone = await messages.post(owner.id, general.id, {
+      body: `again /s/${a.id}`,
+    });
+    await messages.remove(owner.id, gone.id);
+
+    const mine = await as(owner)
+      .get(sharedInUrl(workspace.id, a.id))
+      .expect(200);
+    expect(
+      mine.body.channels.map((c: { channelId: string }) => c.channelId),
+    ).toEqual([design.id, secret.id, general.id]);
+    expect(mine.body.channels[0].sharedAt).toBe(
+      (await prisma.chatDocumentRef.findFirstOrThrow({
+        where: { messageId: later.id },
+      })).createdAt.toISOString(),
+    );
+
+    // Only channels the caller belongs to: not the private one, and not
+    // #general, which this member never joined.
+    const theirs = await as(member)
+      .get(sharedInUrl(workspace.id, a.id))
+      .expect(200);
+    expect(
+      theirs.body.channels.map((c: { channelId: string }) => c.channelId),
+    ).toEqual([design.id]);
+
+    // A trashed document answers nothing rather than leaking its shares.
+    await prisma.document.update({
+      where: { id: a.id },
+      data: { deletedAt: new Date() },
+    });
+    const trashed = await as(owner)
+      .get(sharedInUrl(workspace.id, a.id))
+      .expect(200);
+    expect(trashed.body.channels).toEqual([]);
+
+    await as(outsider).get(sharedInUrl(workspace.id, b.id)).expect(404);
+  });
 });

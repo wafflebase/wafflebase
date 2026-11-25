@@ -406,7 +406,11 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   }, [store, editor, uploadFn, workspaceId]);
 
   return (
-    <ChatPanelProvider open={rightPanel === "chat"} onOpenChange={setChatOpen}>
+    <ChatPanelProvider
+      open={rightPanel === "chat"}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider
       open={sidebar.open}
       onOpenChange={sidebar.onOpenChange}
@@ -862,6 +866,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
           />
           <MobileSlidesView
             mode="edit"
+            documentId={documentId}
             onStoreReady={setStore}
             onEditorReady={setEditor}
           />

@@ -185,7 +185,11 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const handleRenameDocument = useDocumentRename(documentId);
 
   return (
-    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"

@@ -6,6 +6,7 @@ import {
   ChatDocumentAnchor,
   ChatDocumentRefDto,
   ChatFileDto,
+  ChatSharedInDto,
   ChatUserSummary,
 } from './chat.types';
 
@@ -226,6 +227,8 @@ export function toRefDtos(
 
 const FILES_DEFAULT_LIMIT = 50;
 const FILES_MAX_LIMIT = 100;
+/** More channels than a switcher would ever weigh. */
+const SHARED_IN_LIMIT = 20;
 
 @Injectable()
 export class ChatDocumentRefService {
@@ -382,6 +385,45 @@ export class ChatDocumentRefService {
           ? `${last.createdAt.toISOString()}_${last.documentId}`
           : null,
     };
+  }
+
+  /**
+   * The channels `documentId` was shared in that `userId` belongs to, each at
+   * its latest share, most recent first. Membership is the whole gate past
+   * the workspace check the caller makes: a channel member can read it, and a
+   * public channel the user never joined is not "theirs" to open on. Archived
+   * channels are left out — the panel cannot post in them — and so is a
+   * document that is trashed or not in `workspaceId`, so the answer never
+   * says more than the channel's own Files list would.
+   */
+  async sharedIn(
+    userId: number,
+    workspaceId: string,
+    documentId: string,
+  ): Promise<ChatSharedInDto[]> {
+    const rows = await this.prisma.$queryRaw<
+      { channelId: string; sharedAt: Date }[]
+    >`
+      SELECT r."channelId", MAX(r."createdAt") AS "sharedAt"
+      FROM "ChatDocumentRef" r
+      JOIN "ChatMessage" m ON m.id = r."messageId"
+      JOIN "ChatChannel" c ON c.id = r."channelId"
+      JOIN "ChatChannelMember" cm
+        ON cm."channelId" = c.id AND cm."userId" = ${userId}
+      JOIN "Document" d ON d.id = r."documentId"
+      WHERE r."documentId" = ${documentId}
+        AND c."workspaceId" = ${workspaceId}
+        AND c."archivedAt" IS NULL
+        AND m."deletedAt" IS NULL
+        AND d."workspaceId" = ${workspaceId}
+        AND d."deletedAt" IS NULL
+      GROUP BY r."channelId"
+      ORDER BY "sharedAt" DESC, r."channelId"
+      LIMIT ${SHARED_IN_LIMIT}`;
+    return rows.map((r) => ({
+      channelId: r.channelId,
+      sharedAt: r.sharedAt.toISOString(),
+    }));
   }
 }
 

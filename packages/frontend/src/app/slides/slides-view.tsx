@@ -41,6 +41,10 @@ import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 import { needsForcedRepaintAfterRefit } from "./refit-repaint";
 import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
+import type { SlidesAnchor } from "@/components/chat/document-link";
+import { useAnchorParam } from "@/components/chat/use-anchor-param";
+import { useSendToChat } from "@/components/chat/use-send-to-chat";
+import { sendToChatMenuItems } from "./send-to-chat-items";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -230,6 +234,23 @@ export function SlidesView({
 
   // Stable ref for the toast callback — wired into the editor at mount time.
   // Using sonner's toast.info directly; the ref prevents stale closure issues.
+  // "Send to chat" from the canvas and element menus. The editor reads its
+  // host menu items when a menu opens, from options captured at mount, so
+  // the current sender is kept in a ref rather than remounting the editor.
+  const sendToChat = useSendToChat("slides", documentId);
+  const sendToChatRef = useRef(sendToChat);
+  sendToChatRef.current = sendToChat;
+  // The mounted editor as state, for the `?at=` effect below to wait on.
+  const [liveEditor, setLiveEditor] = useState<SlidesEditor | null>(null);
+  // A document card's `?at=`: select that slide. One deleted since the link
+  // was sent leaves the deck where it opened.
+  useAnchorParam<SlidesAnchor>("slides", !loading && liveEditor !== null, (anchor) => {
+    const store = storeRef.current;
+    if (!liveEditor || !store) return;
+    if (!store.read().slides.some((slide) => slide.id === anchor.slideId)) return;
+    liveEditor.setCurrentSlide(anchor.slideId);
+  });
+
   const onToastRef = useRef((msg: string) => toast.info(msg));
   onToastRef.current = (msg: string) => toast.info(msg);
 
@@ -718,6 +739,12 @@ export function SlidesView({
     // installed by the time the event arrives.
     let thumbHandle: ThumbnailPanelHandle | null = null;
     let notesHandle: NotesPanelHandle | null = null;
+    const chatItems = () =>
+      sendToChatMenuItems(
+        editorRef.current,
+        () => store.read().slides.map((slide) => slide.id),
+        sendToChatRef.current,
+      );
     const editor = initializeEditor({
       canvas,
       overlay,
@@ -746,6 +773,8 @@ export function SlidesView({
       // main canvas; we also repaint already-painted thumbnails so
       // their pre-font-load fallback widths stop showing through.
       onFontsLoaded: () => thumbHandle?.refreshContent(),
+      hostCanvasMenuItems: () => chatItems(),
+      hostElementMenuItems: () => chatItems(),
       // onLinkRequest is still intentionally unwired — the link popover
       // needs an on-canvas anchor (it positions off DOM rects, which a
       // text box inside the slide canvas has none of) before it can
@@ -761,6 +790,7 @@ export function SlidesView({
       // text box's `removeLink()`.
     });
     editorRef.current = editor;
+    setLiveEditor(editor);
     onEditorReady?.(editor);
     onStoreReady?.(store);
 
@@ -1215,6 +1245,7 @@ export function SlidesView({
       editor.detach();
       store.dispose();
       editorRef.current = null;
+      setLiveEditor(null);
       onEditorReady?.(null);
       onStoreReady?.(null);
       style.remove();
