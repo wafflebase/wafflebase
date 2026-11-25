@@ -132,6 +132,28 @@ describe('DocsContextMenu', () => {
     expect(screen.queryByText('Add link')).toBeNull();
   });
 
+  // A read-only editor has no table menu (every row of it is an edit), so a
+  // right-click in a table is this menu's: without it, Copy and Send to chat
+  // were unreachable there and the right-click opened nothing at all.
+  it('(c2) readOnly + isInTable(): opens with Copy and Send to chat', () => {
+    const editor = makeEditor({
+      isInTable: vi.fn(() => true),
+      ...withSelection(),
+    });
+    const onSendToChat = vi.fn();
+    render(<Wrapper editor={editor} readOnly onSendToChat={onSendToChat} />);
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), {
+      clientX: 5,
+      clientY: 6,
+    });
+
+    expect(screen.getByText('Copy')).toBeDefined();
+    expect(screen.queryByText('Paste')).toBeNull();
+    fireEvent.click(screen.getByText('Send to chat'));
+    expect(onSendToChat).toHaveBeenCalledWith({ x: 5, y: 6 });
+  });
+
   // A read-only editor still constructs its TextEditor and hidden textarea,
   // so `editor.copy()` works there — the menu used to hide Copy anyway.
   it('(d) readOnly + selection: offers Copy but not Cut or Paste', () => {

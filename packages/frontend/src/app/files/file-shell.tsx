@@ -11,12 +11,15 @@ import { fetchDocument, renameDocument } from "@/api/documents";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader, type HeaderActions } from "@/components/site-header";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRightPanels, type RightPanels } from "@/components/use-right-panels";
 import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
-import { LazyChatPanel } from "@/components/chat/chat-panel-slot";
+import {
+  ChatPanelToggle,
+  LazyChatPanel,
+} from "@/components/chat/chat-panel-slot";
 import { useDocumentsPath } from "./use-documents-path";
 
 /**
@@ -25,8 +28,11 @@ import { useDocumentsPath } from "./use-documents-path";
  * redirect. The Yorkie provider (if any) is supplied by the caller wrapping
  * this shell — image documents have none.
  *
- * It also hosts the chat panel, in the right-hand slot beside `children`;
- * the caller puts `ChatPanelToggle` among its `headerActions`.
+ * It also hosts the chat panel, in the right-hand slot beside `children`,
+ * and puts its toggle in the header's `chat` slot itself. The header is
+ * slotted like every editor's, so on a phone the panel toggles and the
+ * download move into the More menu the same way — each viewer's controls
+ * read `useHeaderPlacement()` for that.
  */
 export function FileShell({
   documentId,
@@ -36,7 +42,8 @@ export function FileShell({
   children,
 }: {
   documentId: string;
-  headerActions: ReactNode;
+  /** The viewer's header controls, by slot; `chat` is the shell's own. */
+  headerActions: Omit<HeaderActions, "chat">;
   /** Optional header control rendered left of the title. */
   headerLeading?: ReactNode;
   /**
@@ -126,9 +133,8 @@ export function FileShell({
           editable
           onRename={handleRenameDocument}
           leading={headerLeading}
-        >
-          <div className="flex items-center gap-2">{headerActions}</div>
-        </SiteHeader>
+          actions={{ ...headerActions, chat: <ChatPanelToggle /> }}
+        />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <div className="flex min-w-0 flex-1 flex-col min-h-0 overflow-hidden">
             {children}

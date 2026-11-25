@@ -804,6 +804,7 @@ export function DocsView({
           onInsertComment={() => {
             comments.beginCompose();
           }}
+          onSendToChat={sendToChat ? handleSendToChat : undefined}
         />
       )}
       {!previewing && (
