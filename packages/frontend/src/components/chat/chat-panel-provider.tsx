@@ -31,10 +31,16 @@ import {
 export function ChatPanelProvider({
   open,
   onOpenChange,
+  available = true,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * False while the page withholds the panel — a revision preview, since
+   * "Send to chat" reads the live selection the preview covers.
+   */
+  available?: boolean;
   children: ReactNode;
 }) {
   const [channelId, setChannelId] = useState<string | null>(null);
@@ -87,13 +93,14 @@ export function ChatPanelProvider({
   const value = useMemo<ChatPanelState>(
     () => ({
       api,
+      available,
       channelId,
       selectChannel: setChannelId,
       pendingDraft,
       takePendingDraft,
       draftSeed,
     }),
-    [api, channelId, pendingDraft, takePendingDraft, draftSeed],
+    [api, available, channelId, pendingDraft, takePendingDraft, draftSeed],
   );
 
   return (

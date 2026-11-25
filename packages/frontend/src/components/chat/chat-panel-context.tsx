@@ -19,6 +19,11 @@ export interface ChatPanelApi {
 export interface ChatPanelState {
   api: ChatPanelApi;
   /**
+   * Whether an editor may offer "Send to chat" right now: false while the
+   * page withholds the panel (a revision preview).
+   */
+  available: boolean;
+  /**
    * The channel asked for — a `?chat=` link, `open({ channelId })`, or the
    * panel's own switcher. Null lets the panel choose.
    */
@@ -67,6 +72,15 @@ export function seedChatDraft(
  */
 export function useChatPanel(): ChatPanelApi {
   return useContext(ChatPanelContext)?.api ?? INERT;
+}
+
+/**
+ * Whether this editor can hand anything to its chat panel: inside a
+ * `ChatPanelProvider` that is not withheld. False for a share-link viewer,
+ * who has no panel, so "Send to chat" is hidden rather than inert.
+ */
+export function useChatPanelAvailable(): boolean {
+  return useContext(ChatPanelContext)?.available ?? false;
 }
 
 /** The panel's own view of the state; null outside a `ChatPanelProvider`. */

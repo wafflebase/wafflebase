@@ -22,6 +22,10 @@ import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
 import { TOUCH_HANDLE_TOLERANCE } from "@/hooks/use-coarse-pointer";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
+import type { SlidesAnchor } from "@/components/chat/document-link";
+import { useAnchorParam } from "@/components/chat/use-anchor-param";
+import { useSendToChat } from "@/components/chat/use-send-to-chat";
+import { sendToChatMenuItems } from "./send-to-chat-items";
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
@@ -82,6 +86,11 @@ interface MobileSlidesViewProps {
    * — view mode mounts a `SlideRenderer` directly, not an editor.
    */
   onEditorReady?: (editor: SlidesEditor | null) => void;
+  /**
+   * The deck's document id, for "Send to chat" in the editor's long-press
+   * menu. Omitted (a share-link mount) means no such entry.
+   */
+  documentId?: string;
 }
 
 /**
@@ -100,6 +109,7 @@ export function MobileSlidesView({
   mode = "edit",
   onStoreReady,
   onEditorReady,
+  documentId,
 }: MobileSlidesViewProps) {
   const { doc, loading, error } = useDocument<
     YorkieSlidesRoot,
@@ -177,6 +187,24 @@ export function MobileSlidesView({
       snapshot.slideIds.includes(id) ? id : snapshot.slideIds[0],
     );
   }, [snapshot.slideIds]);
+
+  // A document card's `?at=`: show that slide. Declared after the effect
+  // above so its pick of the first slide cannot override this one.
+  useAnchorParam<SlidesAnchor>(
+    "slides",
+    snapshot.slideIds.length > 0,
+    (anchor) => {
+      if (snapshot.slideIds.includes(anchor.slideId)) {
+        setCurrentSlideId(anchor.slideId);
+      }
+    },
+  );
+
+  // "Send to chat" in the editor's long-press menu; read when the menu
+  // opens, through a ref, like the desktop view.
+  const sendToChat = useSendToChat("slides", documentId);
+  const sendToChatRef = useRef(sendToChat);
+  sendToChatRef.current = sendToChat;
 
   const currentIndex = useMemo(
     () => snapshot.slideIds.indexOf(currentSlideId),
@@ -361,6 +389,12 @@ export function MobileSlidesView({
     // for share-link *editors*; read-only viewers get `mode="view"`
     // (the read-only `SlideRenderer` path above), so this editor mount
     // is never read-only and needs no `readOnly` plumbing here.
+    const chatItems = () =>
+      sendToChatMenuItems(
+        editorRef.current,
+        () => store.read().slides.map((slide) => slide.id),
+        sendToChatRef.current,
+      );
     const editor = initializeEditor({
       canvas,
       overlay,
@@ -369,6 +403,8 @@ export function MobileSlidesView({
       hostHeight: hostH,
       dpr,
       touchHandleTolerance: TOUCH_HANDLE_TOLERANCE,
+      hostCanvasMenuItems: () => chatItems(),
+      hostElementMenuItems: () => chatItems(),
     });
     editorRef.current = editor;
     onEditorReadyRef.current?.(editor);

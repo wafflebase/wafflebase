@@ -81,6 +81,9 @@ import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { useRightPanels } from "@/components/use-right-panels";
 import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import type { SheetAnchor } from "@/components/chat/document-link";
+import { useAnchorParam } from "@/components/chat/use-anchor-param";
+import { resolveSheetChatAnchor } from "@/app/spreadsheet/chat-anchor";
 import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -362,6 +365,40 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     );
     if (next !== activeTabId) setActiveTabId(next);
   }, [docRoot, activeTabId]);
+
+  // A document card's `?at=`: switch to its tab and select its range, through
+  // the same two-step hand-off an undo into another tab uses (the target
+  // tab's engine does not exist until the switch has rendered). Waits for the
+  // first tab to be resolved so that resolution cannot overwrite the switch.
+  // A tab, row or column deleted since the link was sent leaves the editor
+  // where it opened.
+  useAnchorParam<SheetAnchor>(
+    "sheet",
+    !!docRoot && activeTabId !== null,
+    (anchor) => {
+      const root = doc?.getRoot();
+      if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return;
+      const ws = root.sheets?.[anchor.tabId];
+      if (!ws) return;
+      const range = resolveSheetChatAnchor(
+        anchor,
+        Array.from(ws.rowOrder ?? []) as string[],
+        Array.from(ws.colOrder ?? []) as string[],
+      );
+      if (!range) return;
+      undoJumpSeq.current += 1;
+      setActiveTabId(anchor.tabId);
+      setUndoJumpTarget({
+        selection: {
+          tabId: anchor.tabId,
+          otherTab: false,
+          selectionType: "cell",
+          range,
+        },
+        requestId: undoJumpSeq.current,
+      });
+    },
+  );
 
   // Backfill old documents that may already contain duplicate tab names.
   useEffect(() => {
@@ -736,7 +773,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
   return (
-    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
