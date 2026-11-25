@@ -233,6 +233,43 @@ describe("MessageBody", () => {
       expect(link).toHaveTextContent(url);
     });
 
+    it("cards only the link whose anchor the server stored when one document is linked twice", () => {
+      const at = encodeAnchor(ref.anchor);
+      const other = encodeAnchor({ ...ref.anchor, rowId: "r2", label: "Sheet1!A1" });
+      const first = `${window.location.origin}/s/${ID}?at=${other}`;
+      const second = `${window.location.origin}/s/${ID}?at=${at}`;
+      // The server keeps one ref per document — here, the second link's.
+      renderRouted(`${first} and ${second}`);
+      const [a, b] = screen.getAllByRole("link");
+      expect(a).not.toHaveAttribute("data-document-card");
+      expect(a).toHaveTextContent(first);
+      expect(b).toHaveAttribute("data-document-card", ID);
+      fireEvent.click(a);
+      expect(screen.getByTestId("where")).toHaveTextContent(
+        `/s/${ID}?at=${other}`,
+      );
+    });
+
+    it("cards the first of two links to one document when both share the anchor", () => {
+      const url = `${window.location.origin}/s/${ID}?at=${encodeAnchor(ref.anchor)}`;
+      renderRouted(`${url} again ${url}`);
+      const [a, b] = screen.getAllByRole("link");
+      expect(a).toHaveAttribute("data-document-card", ID);
+      expect(b).not.toHaveAttribute("data-document-card");
+    });
+
+    it("compares anchors regardless of key order", () => {
+      const { label, ...rest } = ref.anchor;
+      const reordered = { label, ...rest };
+      const url = `${window.location.origin}/s/${ID}?at=${encodeAnchor(ref.anchor)}`;
+      renderRouted(`${window.location.origin}/s/${ID} then ${url}`, [
+        { ...ref, anchor: reordered },
+      ]);
+      const [a, b] = screen.getAllByRole("link");
+      expect(a).not.toHaveAttribute("data-document-card");
+      expect(b).toHaveAttribute("data-document-card", ID);
+    });
+
     it("does not card another origin's link even when the id matches", () => {
       renderRouted(`https://evil.test/s/${ID}`);
       expect(screen.getByRole("link")).not.toHaveAttribute("data-document-card");
