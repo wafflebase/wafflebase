@@ -129,6 +129,7 @@ packages/core/
       index.ts palette.ts semantic.ts radius.ts typography.ts contrast.ts
     geometry/index.ts     → @wafflebase/core/geometry     (Point/Rect/Size, bbox, hit-test)
     url/index.ts          → @wafflebase/core/url           (SAFE_PROTOCOLS, isSafeUrl, seg)  [shipped]
+    document-link/index.ts → @wafflebase/core/document-link (route letters, id rule, ?at= anchor codec)  [shipped]
     canvas/index.ts       → @wafflebase/core/canvas        (DPR ctx setup, drawRoundedRect, offscreen)
     ooxml/
       index.ts            → @wafflebase/core/ooxml         (zip · xml · rels · units · escape)
@@ -167,7 +168,12 @@ docs ← slides   (rich-text, unchanged)
 Node/CommonJS consumers (backend jest via ts-jest) don't honour `exports`
 subpaths under classic resolution, so `packages/backend/tsconfig.json` maps
 `@wafflebase/core/*` → `../core/src/*` (source), alongside the existing
-sheets/docs/slides source paths.
+sheets/docs/slides source paths, and the backend's jest `moduleNameMapper`
+maps it the same way. The backend's *build* clears `paths`
+(`tsconfig.build.json`), so core also carries a `typesVersions` map that
+points each subpath at its `dist` declarations — what a classic resolver
+reads in place of `exports`. At runtime Node honours `exports` and loads
+`dist/cjs`.
 
 Alternatives considered:
 - **Keep `tokens` a separate leaf next to `core`** — the original plan; the user
@@ -181,12 +187,16 @@ Alternatives considered:
 ### Rollout — Tier A in one package, three shippable PRs
 
 > **Status (as of v0.6.x):** the package exists with `./tokens`, `./geometry`,
-> `./url`, and `./image` subpaths shipped (`./url` — safe-protocol hyperlink
+> `./url`, `./image` and `./document-link` subpaths shipped (`./url` — safe-protocol hyperlink
 > gating, `SAFE_PROTOCOLS`/`isSafeUrl`, shared by the sheets and docs auto-link
 > renderers; added with #537. `./image` — `loadImage`, the CORS-then-plain-retry
 > loader that the Slides, Docs and Sheets image caches share so a canvas holding one of
 > our own images stays readable, per
-> [template-gallery.md](template-gallery.md)). `./canvas`,
+> [template-gallery.md](template-gallery.md). `./document-link` — the
+> document-URL grammar and the chat `?at=` anchor codec, which the backend's
+> chat ref sync and the frontend's cards and editors share, so the one
+> package the backend imports core from directly; see
+> [chat.md](chat.md)). `./canvas`,
 > `./ooxml`, and `./ooxml/drawingml` in the sketch below are **still roadmap**
 > (PR1's canvas piece and PR2/PR3 have not landed). The exports sketch and the
 > README index summary describe the target shape, not the current one.
