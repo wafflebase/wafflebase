@@ -212,12 +212,15 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
           <ChatAvatar author={author} />
         ) : (
           // Read to a screen reader from the prefix below, not from here:
-          // this one is only there on hover.
+          // this one is only there on hover. Always laid out, only hidden, and
+          // on the message's own 20px line: shown as an inline box it took
+          // this div's inherited 24px line instead, so hovering a run of
+          // continuation lines grew each row by 4px and the list jumped.
           <time
             aria-hidden
             dateTime={message.createdAt}
             title={formatTime(message.createdAt)}
-            className="hidden whitespace-nowrap pt-0.5 text-xs text-muted-foreground tabular-nums group-hover/message:inline group-focus-within/message:inline"
+            className="invisible block whitespace-nowrap text-xs leading-5 text-muted-foreground tabular-nums group-hover/message:visible group-focus-within/message:visible"
           >
             {formatShortTime(message.createdAt)}
           </time>
