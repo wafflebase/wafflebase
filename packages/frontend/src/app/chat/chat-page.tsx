@@ -45,6 +45,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { chatBadgeCount } from "@/components/chat/chat-cache";
+import {
+  forgetLastChannel,
+  readLastChannel,
+  writeLastChannel,
+} from "@/components/chat/last-channel";
 import { Conversation } from "@/components/chat/conversation";
 import { ThreadView } from "@/components/chat/thread-view";
 import {
@@ -76,35 +81,6 @@ import {
   ChannelMembersDialog,
 } from "./channel-members-dialog";
 import { AddPeopleDialog, NewDmDialog } from "./new-dm-dialog";
-
-const LAST_CHANNEL_KEY = (workspaceId: string) =>
-  `wafflebase:chat-last:${workspaceId}`;
-
-function readLastChannel(workspaceId: string): string | null {
-  try {
-    return window.localStorage.getItem(LAST_CHANNEL_KEY(workspaceId));
-  } catch {
-    return null;
-  }
-}
-
-function writeLastChannel(workspaceId: string, channelId: string): void {
-  try {
-    window.localStorage.setItem(LAST_CHANNEL_KEY(workspaceId), channelId);
-  } catch {
-    // A convenience only.
-  }
-}
-
-function forgetLastChannel(workspaceId: string, channelId: string): void {
-  try {
-    if (readLastChannel(workspaceId) === channelId) {
-      window.localStorage.removeItem(LAST_CHANNEL_KEY(workspaceId));
-    }
-  } catch {
-    // A convenience only.
-  }
-}
 
 /**
  * `/w/:workspaceId/chat/:channelId?` — channel list, conversation and, with

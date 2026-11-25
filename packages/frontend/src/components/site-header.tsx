@@ -58,6 +58,8 @@ export interface HeaderActions {
   comments?: ReactNode;
   /** Show/hide version history. */
   history?: ReactNode;
+  /** Show/hide the chat panel (`ChatPanelToggle`). */
+  chat?: ReactNode;
   /** Download / export the document. */
   export?: ReactNode;
   /** The Share dialog trigger. */
@@ -70,6 +72,7 @@ const ACTION_ORDER = [
   "primary",
   "comments",
   "history",
+  "chat",
   "export",
   "share",
   "presence",
@@ -84,6 +87,7 @@ const ACTION_ORDER = [
 const MENU_SLOTS = [
   "comments",
   "history",
+  "chat",
   "export",
 ] as const satisfies readonly (keyof HeaderActions)[];
 
