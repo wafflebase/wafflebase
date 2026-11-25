@@ -5,6 +5,7 @@ import type {
   StreamMessageEvent,
   StreamUpdateEvent,
 } from '@/api/chat';
+import type { SendFailure } from './send-failure';
 
 /**
  * React Query keys for chat. Every list a stream event can touch hangs off
@@ -173,7 +174,6 @@ export function parseStreamUpdate(raw: string): StreamUpdateEvent | null {
   return { workspaceId, channelId, messageId, threadRootId };
 }
 
-/** Parse a `message` frame, or null for anything that is not one. */
 /** Parse a `channel` frame, or null for anything that is not one. */
 export function parseStreamChannel(raw: string): StreamChannelEvent | null {
   let parsed: unknown;
@@ -190,6 +190,7 @@ export function parseStreamChannel(raw: string): StreamChannelEvent | null {
   return { workspaceId, channelId };
 }
 
+/** Parse a `message` frame, or null for anything that is not one. */
 export function parseStreamMessage(raw: string): StreamMessageEvent | null {
   let parsed: unknown;
   try {
@@ -251,6 +252,8 @@ export function channelCount(channel: ChannelSummary): number {
 export type ChatLine = ChatMessageDto & {
   localState?: 'pending' | 'failed';
   clientId?: string;
+  /** Why a failed send failed, when it says more than "Not sent". */
+  failure?: SendFailure;
 };
 
 /** What a send was asked to post, kept so a failed one can be retried. */

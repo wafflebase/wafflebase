@@ -36,6 +36,7 @@ import {
   type PostInput,
 } from "./chat-cache";
 import { pendingStore, updatePending } from "./pending-store";
+import { classifySendFailure, newClientId } from "./send-failure";
 import { catchUpChannel, takePendingCatchUp } from "./use-chat-stream";
 
 /** Channels the caller can see in one workspace, with unread counts. */
@@ -220,7 +221,6 @@ function applyPosted(
 }
 
 const NO_PENDING: PendingSend[] = [];
-let lastClientId = 0;
 /** Each channel's last queued post, per client; see `run` in `useSendMessage`. */
 const SEND_QUEUE_WAIT_MS = 15_000;
 const sendQueues = new WeakMap<QueryClient, Map<string, Promise<void>>>();
@@ -276,7 +276,10 @@ export function useSendMessage(workspaceId: string, channelId: string) {
     (clientId: string, input: PostInput): Promise<ChatMessageDto> => {
       const post = async () => {
         try {
-          const message = await postMessage(workspaceId, channelId, input);
+          const message = await postMessage(workspaceId, channelId, {
+            ...input,
+            clientId,
+          });
           // Both writes in one tick, so the server's row and the retired
           // local one land in the same render and never flicker or double.
           applyPosted(queryClient, workspaceId, channelId, message);
@@ -285,13 +288,14 @@ export function useSendMessage(workspaceId: string, channelId: string) {
           );
           return message;
         } catch (err) {
+          const failure = classifySendFailure(err);
           updatePending(queryClient, channelId, (sends) =>
             sends.map((p) =>
               p.clientId === clientId
                 ? {
                     ...p,
                     state: "failed",
-                    message: { ...p.message, localState: "failed" },
+                    message: { ...p.message, localState: "failed", failure },
                   }
                 : p,
             ),
@@ -324,8 +328,9 @@ export function useSendMessage(workspaceId: string, channelId: string) {
 
   const send = useCallback(
     (input: PostInput): Promise<ChatMessageDto> => {
-      lastClientId += 1;
-      const clientId = `${Date.now().toString(36)}-${lastClientId}`;
+      // Also the post's idempotency key: a retry, even after a reload,
+      // sends it again, and the server answers with the first copy.
+      const clientId = newClientId();
       const me = queryClient.getQueryData<User>(["me"]);
       // The newest seq known anywhere: the server's row for this send can
       // only come after it, which is how `withPending` tells the two apart
@@ -375,7 +380,10 @@ export function useSendMessage(workspaceId: string, channelId: string) {
     [queryClient, workspaceId, channelId, run],
   );
 
-  /** Send a failed message again, in place. */
+  /**
+   * Send a failed message again, in place, under its original `clientId`.
+   * Null when there is nothing to retry, or the server refused it for good.
+   */
   const retry = useCallback(
     (clientId: string): Promise<ChatMessageDto> | null => {
       const entry = (
@@ -386,13 +394,19 @@ export function useSendMessage(workspaceId: string, channelId: string) {
         )
       ).find((p) => p.clientId === clientId);
       if (!entry || entry.state !== "failed") return null;
+      // The server refused this message for good; the row says why.
+      if (entry.message.failure?.retryable === false) return null;
       updatePending(queryClient, channelId, (sends) =>
         sends.map((p) =>
           p.clientId === clientId
             ? {
                 ...p,
                 state: "pending",
-                message: { ...p.message, localState: "pending" },
+                message: {
+                  ...p.message,
+                  localState: "pending",
+                  failure: undefined,
+                },
               }
             : p,
         ),

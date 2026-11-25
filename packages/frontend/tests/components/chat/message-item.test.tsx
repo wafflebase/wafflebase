@@ -188,3 +188,44 @@ describe("MessageLine on a coarse pointer", () => {
     expect(screen.getByRole("group", { name: "Confirm delete" })).toBeInTheDocument();
   });
 });
+
+describe("a failed send", () => {
+  beforeEach(() => setPointer(false));
+
+  const failed = (failure?: { reason: string | null; retryable: boolean }) =>
+    ({
+      ...msg({ id: "local-k1" }),
+      localState: "failed",
+      clientId: "k1",
+      failure,
+    }) as ChatMessageDto;
+
+  it("offers Retry and Discard when sending again may work", () => {
+    renderLine(failed());
+    expect(screen.getByText("Not sent")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("says why and offers only Discard when the server refused it for good", () => {
+    renderLine(
+      failed({ reason: "This channel is archived, so it no longer takes messages.", retryable: false }),
+    );
+    expect(
+      screen.getByText("This channel is archived, so it no longer takes messages."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("tells a reader who is sending too fast to slow down, and still offers Retry", () => {
+    renderLine(
+      failed({
+        reason: "You're sending messages too quickly. Wait a moment and try again.",
+        retryable: true,
+      }),
+    );
+    expect(screen.getByText(/sending messages too quickly/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});

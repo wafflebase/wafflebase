@@ -260,10 +260,20 @@ export async function fetchMessages(
   return res.json();
 }
 
+/**
+ * Post a message. `clientId` is the send's own id, the same on every retry,
+ * so a retry whose first attempt reached the server gets that message back
+ * instead of posting it twice.
+ */
 export async function postMessage(
   workspaceId: string,
   channelId: string,
-  input: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+  input: {
+    body: string;
+    threadRootId?: string;
+    alsoInChannel?: boolean;
+    clientId?: string;
+  },
 ): Promise<ChatMessageDto> {
   const res = await fetchWithAuth(
     `${channelBase(workspaceId, channelId)}/messages`,
