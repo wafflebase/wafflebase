@@ -38,7 +38,7 @@ const MEMBER_LOAD_ATTEMPTS = 3;
  * The bound only keeps a long-lived replica from holding every channel it
  * ever routed.
  */
-const CHANNEL_CACHE_MAX = 10_000;
+export const CHANNEL_CACHE_MAX = 10_000;
 
 type CachedSet = { set: Set<number>; loadedAt: number };
 type CachedChannel = {
@@ -191,21 +191,8 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
    * has nobody.
    */
   private async readersOf(event: ChatRoutedEvent): Promise<Set<number>> {
-    let channel = this.channels.get(event.c);
-    if (!channel || Date.now() - channel.loadedAt >= MEMBER_CACHE_TTL_MS) {
-      const row = await this.prisma.chatChannel.findUnique({
-        where: { id: event.c },
-        select: { kind: true, workspaceId: true },
-      });
-      if (!row) return new Set();
-      channel = {
-        kind: row.kind as ChannelKind,
-        workspaceId: row.workspaceId,
-        loadedAt: Date.now(),
-      };
-      if (this.channels.size >= CHANNEL_CACHE_MAX) this.channels.clear();
-      this.channels.set(event.c, channel);
-    }
+    const channel = await this.channelOf(event.c);
+    if (!channel) return new Set();
     if (channel.kind === 'public') {
       return this.cachedLoad(
         this.workspaceMembers,
@@ -220,6 +207,39 @@ export class ChatHub implements OnModuleInit, OnModuleDestroy {
       );
     }
     return this.membersOf(event.c, channel.workspaceId);
+  }
+
+  /**
+   * The channel's kind and workspace, cached. Guarded against a reset like
+   * `cachedLoad`: a row read before a reset may predate a `chn` or `mem` the
+   * outage swallowed, so it is re-read rather than cached over the reset's
+   * `clear()`.
+   */
+  private async channelOf(channelId: string): Promise<CachedChannel | null> {
+    const cached = this.channels.get(channelId);
+    if (cached && Date.now() - cached.loadedAt < MEMBER_CACHE_TTL_MS) {
+      return cached;
+    }
+    for (let attempt = 0; attempt < MEMBER_LOAD_ATTEMPTS; attempt += 1) {
+      const generation = this.generation;
+      const row = await this.prisma.chatChannel.findUnique({
+        where: { id: channelId },
+        select: { kind: true, workspaceId: true },
+      });
+      if (generation !== this.generation) continue;
+      if (!row) return null;
+      const channel: CachedChannel = {
+        kind: row.kind as ChannelKind,
+        workspaceId: row.workspaceId,
+        loadedAt: Date.now(),
+      };
+      if (this.channels.size >= CHANNEL_CACHE_MAX) this.channels.clear();
+      this.channels.set(channelId, channel);
+      return channel;
+    }
+    throw new Error(
+      `channel load interrupted by ${MEMBER_LOAD_ATTEMPTS} resets`,
+    );
   }
 
   /**

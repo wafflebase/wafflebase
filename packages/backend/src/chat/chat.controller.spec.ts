@@ -25,4 +25,17 @@ describe('ChatController throttling', () => {
       expect(Reflect.getMetadata('THROTTLER:TTLdefault', fn)).toBe(10_000);
     },
   );
+
+  // Files re-sorts the channel's whole ref set per page, and shared-in scans
+  // a document's refs, so a user cycling addresses must still be bounded.
+  it.each(['files', 'sharedIn'])(
+    '%s is throttled per user at the ref-read pace',
+    (handler) => {
+      const fn = proto[handler];
+      const guards = Reflect.getMetadata(GUARDS_METADATA, fn) as unknown[];
+      expect(guards).toContain(UserThrottlerGuard);
+      expect(Reflect.getMetadata('THROTTLER:LIMITdefault', fn)).toBe(120);
+      expect(Reflect.getMetadata('THROTTLER:TTLdefault', fn)).toBe(60_000);
+    },
+  );
 });

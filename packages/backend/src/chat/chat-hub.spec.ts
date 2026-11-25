@@ -1,7 +1,7 @@
 import { Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
-import { ChatHub, MEMBER_CACHE_TTL_MS } from './chat-hub';
+import { CHANNEL_CACHE_MAX, ChatHub, MEMBER_CACHE_TTL_MS } from './chat-hub';
 import { ChatBusEvent, ChatHubEvent } from './chat.types';
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
@@ -539,15 +539,72 @@ describe('ChatHub', () => {
       h.events.next(msg('pub', 1));
       await flush();
 
+      const stays = h.collect(3);
       h.workspacesOf.set(2, ['other']);
       now.mockReturnValue(1_000_000 + MEMBER_CACHE_TTL_MS + 1);
       h.events.next(msg('pub', 2));
       await flush();
 
+      // The positive control: routing of msg 2 finished, through a fresh
+      // load, and the member who stayed got it.
+      expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(2);
+      expect(stays.seen).toEqual([msg('pub', 2)]);
       expect(removed.seen).toEqual([msg('pub', 1)]);
     } finally {
       now.mockRestore();
     }
+  });
+
+  it('does not cache a channel kind read across a reconnect', async () => {
+    const h = harness();
+    h.kinds.set('c', 'public');
+    const previewer = h.collect(2);
+    let release: () => void = () => undefined;
+    h.findChannel.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          // The read saw `public`; it answers only after the reset below.
+          release = () => resolve({ kind: 'public', workspaceId: 'w1' });
+        }),
+    );
+
+    h.events.next(msg('c', 1));
+    await flush();
+    // The channel became private while the listener was down; that `chn`
+    // is lost.
+    h.kinds.set('c', 'private');
+    h.resets.next();
+    release();
+    await flush();
+    h.events.next(msg('c', 2));
+    await flush();
+
+    expect(previewer.seen).toEqual([{ t: 'ready' }]);
+    // The interrupted read is retried at once, and its answer is cached.
+    expect(h.findChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the channel cache', async () => {
+    const h = harness();
+    h.members.set('c0', [1]);
+    h.collect(1);
+    for (let i = 0; i < CHANNEL_CACHE_MAX; i++) {
+      h.events.next(msg(`c${i}`, 1));
+      await flush();
+    }
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX);
+
+    // Still cached: the cache holds exactly CHANNEL_CACHE_MAX entries.
+    h.events.next(msg('c0', 2));
+    await flush();
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX);
+
+    // One more channel overflows it and drops every entry, `c0` included.
+    h.events.next(msg('overflow', 1));
+    await flush();
+    h.events.next(msg('c0', 3));
+    await flush();
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX + 2);
   });
 
   it('drops an event for a channel that no longer exists', async () => {

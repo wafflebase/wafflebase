@@ -35,8 +35,10 @@ import { isSafeUrl } from '@wafflebase/core/url';
 
 Classic CJS resolvers ignore the `exports` map. The backend's build
 (`tsconfig.build.json`) maps `@wafflebase/core/*` to `dist/*/index.d.ts`, and
-its `tsconfig.json` paths and jest `moduleNameMapper` map it to source, all by
-wildcard, so a new subpath needs nothing there — only an `exports` entry here.
+its `tsconfig.json` paths and both jest configs' `moduleNameMapper` (the unit
+one in `package.json` and the e2e one in `test/jest-e2e.json`) map it to
+source, all by wildcard, so a new subpath needs nothing there — only an
+`exports` entry here.
 Do not add a `typesVersions` map instead: the agent jobs' install refuses
 `package.json` fields it does not know. The backend's runtime image copies
 `dist/` (see the root `Dockerfile`).

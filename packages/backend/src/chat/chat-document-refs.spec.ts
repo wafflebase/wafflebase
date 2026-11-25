@@ -61,6 +61,33 @@ describe('extractDocumentLinks', () => {
     expect(extractDocumentLinks(`${BASE}.evil.test/s/${ID}`, BASE)).toEqual([]);
   });
 
+  it('reads a link opened by a quote or a bracket', () => {
+    for (const body of [
+      `"${BASE}/s/${ID}"`,
+      `[${BASE}/s/${ID}]`,
+      `(${BASE}/s/${ID})`,
+      `{${BASE}/s/${ID}}`,
+    ]) {
+      expect(extractDocumentLinks(body, BASE)).toEqual([
+        { documentId: ID, at: null },
+      ]);
+    }
+    // The closing bracket is not part of the anchor.
+    expect(extractDocumentLinks(`{${BASE}/s/${ID}?at=xyz}`, BASE)).toEqual([
+      { documentId: ID, at: 'xyz' },
+    ]);
+  });
+
+  it('still refuses a link glued to a character a URL may hold', () => {
+    // `'`, `:` and `=` are legal inside a path or query, so a match after
+    // one may be the tail of somebody else's URL.
+    for (const glue of ["'", ':', '=', '/', 'x', '.']) {
+      expect(
+        extractDocumentLinks(`https://evil.test/a${glue}${BASE}/s/${ID}`, BASE),
+      ).toEqual([]);
+    }
+  });
+
   it('ignores an unknown route or a non-uuid id', () => {
     expect(extractDocumentLinks(`${BASE}/x/${ID}`, BASE)).toEqual([]);
     expect(extractDocumentLinks(`${BASE}/s/abc`, BASE)).toEqual([]);

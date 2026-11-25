@@ -56,14 +56,25 @@ function escapeRegExp(s: string): string {
 }
 
 /**
+ * What may stand right before an absolute link: whitespace or an opening
+ * quote or bracket. RFC 3986 leaves `"`, `<`, `[` and `{` out of a path, so
+ * a match after one cannot be the tail of somebody else's URL; `(` is legal
+ * in a path but is kept for the common `(see <link>)`, as before. `'`, `:`,
+ * `=` and every other path or query character stay refused.
+ */
+const LINK_OPENER = /[\s(<[{"]/;
+
+/**
  * Document links in `body`, first occurrence of each document only, in body
  * order, at most `MAX_REFS_PER_MESSAGE`. Two shapes count: an absolute URL on
  * this deployment's frontend `origin`, under any path prefix (the router
  * basename, which the backend does not know), and a root-relative path
  * standing on its own (`/s/<id>` at the start of the body or after
- * whitespace or an opening bracket). Any other origin is somebody else's
- * site — its `/s/<id>` names nothing here. A prefix accepts no more than an
- * origin-only rule would: the id is still looked up, in this workspace.
+ * whitespace, `(` or `<` — the rule `message-body.tsx` linkifies by, so a
+ * card never appears for text that renders unlinked). Any other origin is
+ * somebody else's site — its `/s/<id>` names nothing here. A prefix accepts
+ * no more than an origin-only rule would: the id is still looked up, in this
+ * workspace.
  */
 export function extractDocumentLinks(
   body: string,
@@ -89,7 +100,7 @@ export function extractDocumentLinks(
     // refuse when the match is glued to the text before it.
     const start = match.index ?? 0;
     if (origin && start > 0 && match[0].startsWith(origin)) {
-      if (!/[\s(<]/.test(body[start - 1])) continue;
+      if (!LINK_OPENER.test(body[start - 1])) continue;
     }
     seen.add(documentId);
     out.push({ documentId, at: atParam(match[3]) });
@@ -102,7 +113,7 @@ function atParam(tail: string | undefined): string | null {
   if (!tail || !tail.startsWith('?')) return null;
   const query = tail.slice(1).split('#')[0];
   // Trailing sentence punctuation is not part of the link.
-  const params = new URLSearchParams(query.replace(/[.,!?;:'")\]]+$/, ''));
+  const params = new URLSearchParams(query.replace(/[.,!?;:'")\]}]+$/, ''));
   return params.get('at');
 }
 
