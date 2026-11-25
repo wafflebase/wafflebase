@@ -8,7 +8,6 @@ import { userFacingError } from "@/api/http-error";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { chatKeys, withPending } from "./chat-cache";
 import { Composer } from "./composer";
 import { groupMessages, lastOwnMessage } from "./group-messages";
@@ -23,6 +22,7 @@ import {
   useThreadMessages,
 } from "./use-chat";
 import { useRovingMessages } from "./use-roving-messages";
+import { useMentionableMembers } from "./use-mentionable-members";
 
 /** Within this of the end still counts as reading the newest reply. */
 const BOTTOM_SLACK_PX = 48;
@@ -51,7 +51,7 @@ export function ThreadView({
   const meId = me?.id ?? -1;
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
-  const members = useWorkspaceMembers(workspaceId);
+  const members = useMentionableMembers(workspaceId, channel);
   const thread = useThreadMessages(workspaceId, channelId, rootId);
   const pending = usePendingMessages(channelId, rootId);
   const sender = useSendMessage(workspaceId, channelId);
@@ -316,6 +316,7 @@ export function ThreadView({
         >
           <Composer
             channelId={`${channelId}:thread:${rootId}`}
+            userId={me?.id}
             onSend={send}
             onArrowUpWhenEmpty={editLast}
             members={members}

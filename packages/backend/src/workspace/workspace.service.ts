@@ -185,6 +185,15 @@ export class WorkspaceService {
         await tx.chatChannelMember.deleteMany({
           where: { userId: targetUserId, channelId: { in: channelIds } },
         });
+        // Their chat bell rows here go too: every one quotes a channel of a
+        // workspace they can no longer read, public channels included.
+        await tx.notification.deleteMany({
+          where: {
+            recipientId: targetUserId,
+            workspaceId,
+            type: { in: ['chat_mention', 'chat_thread_reply'] },
+          },
+        });
         // A private channel this removal empties is deleted with it. Only
         // its members can read it, so with none left its messages are
         // unreadable by anybody, nobody can rejoin or archive it, and its

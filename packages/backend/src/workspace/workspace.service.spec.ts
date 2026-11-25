@@ -54,6 +54,9 @@ function createMockPrisma() {
       findUnique: jest.fn().mockResolvedValue(null),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    notification: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     $executeRaw: jest.fn().mockResolvedValue(1),
     // `removeMember` runs its membership delete + key revocation in one
     // interactive transaction. Passing the same mock client through means a
@@ -388,6 +391,24 @@ describe('WorkspaceService', () => {
       });
       // One membership event per channel, so every hub evicts its cache.
       expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops the removed member's chat bell rows for the workspace", async () => {
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      // Public channels included: none of the workspace is readable now.
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: {
+          recipientId: 2,
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          type: { in: ['chat_mention', 'chat_thread_reply'] },
+        },
+      });
     });
 
     it('deletes a private channel the removal leaves with no members', async () => {

@@ -616,7 +616,6 @@ function EditBox({
   const edit = useEditMessage(workspaceId);
   const ref = useRef<HTMLTextAreaElement>(null);
   const trimmed = text.trim();
-  const tooLong = text.length > CHAT_BODY_MAX;
 
   useEffect(() => {
     const ta = ref.current;
@@ -662,6 +661,8 @@ function EditBox({
     onKeyDown,
     initialMentions: mentionsOf(message.body),
   });
+  // Measured as sent: picked mentions expand into their tokens.
+  const tooLong = mention.applyMentions(text).trim().length > CHAT_BODY_MAX;
 
   return (
     <div className="mt-1 flex flex-col gap-2">
