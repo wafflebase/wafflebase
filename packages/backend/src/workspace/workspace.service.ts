@@ -139,10 +139,11 @@ export class WorkspaceService {
     // so it must not outlive the authority of whoever registered it. A
     // remaining owner takes one over by re-enabling it.
     //
-    // Chat memberships go in the same transaction for the same reason: the
-    // chat stream fans out on `ChatChannelMember` rows alone, so a row that
-    // outlived the workspace membership would keep delivering that
-    // workspace's events to somebody who no longer belongs to it.
+    // Chat memberships go in the same transaction for the same reason: a
+    // private channel's or DM's events fan out on `ChatChannelMember` rows,
+    // so a row that outlived the workspace membership would keep delivering
+    // that workspace's events to somebody who no longer belongs to it.
+    // (Public channels fan out on workspace membership; see below.)
     const { deleted, announce } = await this.prisma.$transaction(
       async (tx) => {
         const deleted = await tx.workspaceMember.delete({

@@ -241,7 +241,11 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const previewing = Boolean(previewRevisionId && currentUser);
 
   return (
-    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"

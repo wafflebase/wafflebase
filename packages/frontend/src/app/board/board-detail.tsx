@@ -170,7 +170,11 @@ function BoardLayout({ documentId }: { documentId: string }) {
       currentUser={currentUser}
       panel={[commentsOpen, setCommentsOpen]}
     >
-    <ChatPanelProvider open={chatOpen} onOpenChange={setChatOpen}>
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
