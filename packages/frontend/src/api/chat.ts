@@ -296,6 +296,26 @@ export async function fetchMessages(
 }
 
 /**
+ * Whether this backend takes a post's `clientId`. The frontend ships on merge
+ * while the backend is deployed later, and a backend from before `clientId`
+ * refuses the unknown property (`forbidNonWhitelisted`) with a 400 — which
+ * `classifySendFailure` rightly treats as final. So the first such refusal
+ * turns it off for the session, and posts go without it: a retry may then
+ * double a message, as it always could on that backend.
+ */
+let serverTakesClientId = true;
+
+/** The 400 a backend that predates `clientId` answers a post carrying it. */
+async function refusesClientId(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false;
+  const text = await res
+    .clone()
+    .text()
+    .catch(() => "");
+  return /property clientId should not exist/.test(text);
+}
+
+/**
  * Post a message. `clientId` is the send's own id, the same on every retry,
  * so a retry whose first attempt reached the server gets that message back
  * instead of posting it twice.
@@ -310,10 +330,17 @@ export async function postMessage(
     clientId?: string;
   },
 ): Promise<ChatMessageDto> {
-  const res = await fetchWithAuth(
-    `${channelBase(workspaceId, channelId)}/messages`,
-    json("POST", input),
+  const url = `${channelBase(workspaceId, channelId)}/messages`;
+  const { clientId, ...rest } = input;
+  const withId = clientId !== undefined && serverTakesClientId;
+  let res = await fetchWithAuth(
+    url,
+    json("POST", withId ? { ...rest, clientId } : rest),
   );
+  if (withId && (await refusesClientId(res))) {
+    serverTakesClientId = false;
+    res = await fetchWithAuth(url, json("POST", rest));
+  }
   await assertOk(res, "Couldn't send the message", {
     statusMessages: {
       409: "This channel is archived, so it no longer takes messages.",
@@ -412,6 +439,9 @@ export async function fetchChannelFiles(
   if (opts.limit !== undefined) url.searchParams.set("limit", String(opts.limit));
   if (opts.before) url.searchParams.set("before", opts.before);
   const res = await fetchWithAuth(url.toString());
+  // A backend from before Files has no such route. The list is a convenience,
+  // so it reads as empty rather than as an error on every open.
+  if (res.status === 404) return { files: [], cursor: null };
   await assertOk(res, "Couldn't load the channel's files");
   return res.json();
 }
