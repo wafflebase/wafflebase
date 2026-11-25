@@ -418,6 +418,65 @@ export class NotificationService {
   }
 
   /**
+   * A chat message was edited. Every bell row that quotes it — its
+   * `chat_mention` rows and a `chat_thread_reply` row it opened — gets the
+   * new text as its preview, so an edit cannot leave the old wording sitting
+   * in somebody's inbox. A `chat_mention` whose recipient is no longer in
+   * `recipients` (the mention was edited out) is deleted; a recipient who is
+   * new is notified through `createChatMention`, whose unique key on the
+   * message leaves the rows that already exist alone, read state included.
+   *
+   * `recipients` are authorized exactly as `createChatMention` expects.
+   */
+  async syncChatMessage(input: {
+    workspaceId: string;
+    actorId: number;
+    channelId: string;
+    messageId: string;
+    threadRootId: string | null;
+    recipients: number[];
+    preview: string;
+  }): Promise<void> {
+    const quoting = {
+      workspaceId: input.workspaceId,
+      threadId: input.channelId,
+      commentId: input.messageId,
+    };
+    const dropped = await this.prisma.notification.findMany({
+      where: {
+        ...quoting,
+        type: 'chat_mention',
+        recipientId: { notIn: input.recipients },
+      },
+      select: { id: true, recipientId: true },
+    });
+    if (dropped.length > 0) {
+      await this.prisma.notification.deleteMany({
+        where: { id: { in: dropped.map((n) => n.id) } },
+      });
+    }
+    await this.prisma.notification.updateMany({
+      where: {
+        ...quoting,
+        type: { in: ['chat_mention', 'chat_thread_reply'] },
+      },
+      data: {
+        preview: sanitizePreview(mentionBodyToPlainText(input.preview)),
+      },
+    });
+    await this.createChatMention(input);
+    // `createChatMention` refreshed the badges it raised; one that dropped
+    // needs the same, or it shows a count with nothing behind it.
+    if (dropped.length > 0) {
+      await Promise.all(
+        unique(dropped.map((n) => n.recipientId)).map((id) =>
+          this.publishSummary(id),
+        ),
+      );
+    }
+  }
+
+  /**
    * A reply was posted in a thread. Everyone already in it — the root's
    * author and anyone who replied before — hears about it, except the actor
    * and `excludeUserIds` (the users this same message already reached through

@@ -25,6 +25,8 @@ export const PAGE_SIZE = 50;
  */
 const POST_TRANSACTION = { maxWait: 10_000, timeout: 10_000 };
 
+const DELETED_ROOT = 'That message was deleted, so it cannot be replied to';
+
 const AUTHOR = { select: { id: true, username: true, photo: true } } as const;
 
 type MessageRow = ChatMessage & { author: ChatUserSummary | null };
@@ -95,19 +97,20 @@ export class ChatMessageService {
     checkBody(data.body);
     const { channel, ctx } = await this.channels.resolve(userId, channelId);
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
-    const body = await this.canonicalBody(data.body, channel.workspaceId);
+    const body = await this.canonicalBody(data.body, channel);
 
     const threadRootId = data.threadRootId ?? null;
     if (threadRootId !== null) {
       const root = await this.prisma.chatMessage.findUnique({
         where: { id: threadRootId },
-        select: { channelId: true, threadRootId: true },
+        select: { channelId: true, threadRootId: true, deletedAt: true },
       });
       if (!root || root.channelId !== channelId || root.threadRootId !== null) {
         throw new BadRequestException(
           'threadRootId must be a top-level message in this channel',
         );
       }
+      if (root.deletedAt !== null) throw new ConflictException(DELETED_ROOT);
     }
     // "Also send to channel" only means something for a reply.
     const alsoInChannel = threadRootId !== null && data.alsoInChannel === true;
@@ -138,13 +141,16 @@ export class ChatMessageService {
         include: { author: AUTHOR },
       });
       if (threadRootId !== null) {
-        await tx.chatMessage.update({
-          where: { id: threadRootId },
+        // `deletedAt: null` again under the write: a root deleted after the
+        // check above takes no reply, and the whole post rolls back.
+        const { count } = await tx.chatMessage.updateMany({
+          where: { id: threadRootId, deletedAt: null },
           data: {
             replyCount: { increment: 1 },
             lastReplyAt: message.createdAt,
           },
         });
+        if (count === 0) throw new ConflictException(DELETED_ROOT);
       }
       // A message in the channel's own flow (top-level, or a reply also
       // sent to it) is posting there, so it reads everything up to it. A
@@ -260,7 +266,10 @@ export class ChatMessageService {
 
   /**
    * Edit one's own message. Another author's message, a deleted one, and one
-   * in a channel the caller can no longer read are all the same 404.
+   * in a channel the caller can no longer read are all the same 404. The bell
+   * follows the edit (`afterEdit`): its previews quote the new text, a
+   * mention taken out takes its notification with it, and one put in
+   * notifies as a post would.
    */
   async edit(
     userId: number,
@@ -269,12 +278,12 @@ export class ChatMessageService {
     workspaceIdOrSlug?: string,
   ): Promise<ChatMessageDto> {
     checkBody(body);
-    const { message, channel } = await this.ownMessage(
+    const { message, channel, ctx } = await this.ownMessage(
       userId,
       messageId,
       workspaceIdOrSlug,
     );
-    const text = await this.canonicalBody(body, channel.workspaceId);
+    const text = await this.canonicalBody(body, channel);
     // `deletedAt: null` in the write itself: a delete that commits after
     // `ownMessage` read the row must not have its cleared body written back.
     const { count } = await this.prisma.chatMessage.updateMany({
@@ -287,7 +296,9 @@ export class ChatMessageService {
       include: { author: AUTHOR },
     });
     await this.announceUpdate(message, channel);
-    return toDto(updated);
+    const dto = toDto(updated);
+    await this.afterEdit(dto, channel, ctx);
+    return dto;
   }
 
   /**
@@ -295,7 +306,9 @@ export class ChatMessageService {
    * thread root keeps its replies reachable. The body is cleared, and so are
    * the bell rows that quote it — a `chat_mention` or `chat_thread_reply`
    * carries a preview of the message in `commentId` — so the text is gone
-   * from the database and not merely hidden.
+   * from the database and not merely hidden. A deleted reply no longer
+   * counts on its root: `replyCount` drops by one and `lastReplyAt` falls
+   * back to the newest reply still standing.
    */
   async remove(
     userId: number,
@@ -307,18 +320,30 @@ export class ChatMessageService {
       messageId,
       workspaceIdOrSlug,
     );
-    await this.prisma.$transaction([
-      this.prisma.chatMessage.update({
-        where: { id: messageId },
+    await this.prisma.$transaction(async (tx) => {
+      // `deletedAt: null` under the write, so two racing deletes decrement
+      // the root once.
+      const { count } = await tx.chatMessage.updateMany({
+        where: { id: messageId, deletedAt: null },
         data: { body: '', deletedAt: new Date() },
-      }),
-      this.prisma.notification.deleteMany({
+      });
+      if (count === 0) throw new NotFoundException('Message not found');
+      await tx.notification.deleteMany({
         where: {
           commentId: messageId,
           type: { in: ['chat_mention', 'chat_thread_reply'] },
         },
-      }),
-    ]);
+      });
+      if (message.threadRootId !== null) {
+        await tx.$executeRaw`
+          UPDATE "ChatMessage" r
+          SET "replyCount" = GREATEST(r."replyCount" - 1, 0),
+              "lastReplyAt" = (
+                SELECT max(x."createdAt") FROM "ChatMessage" x
+                WHERE x."threadRootId" = r.id AND x."deletedAt" IS NULL)
+          WHERE r.id = ${message.threadRootId}`;
+      }
+    });
     await this.announceUpdate(message, channel);
   }
 
@@ -348,7 +373,11 @@ export class ChatMessageService {
     userId: number,
     messageId: string,
     workspaceIdOrSlug?: string,
-  ): Promise<{ message: ChatMessage; channel: ChatChannel }> {
+  ): Promise<{
+    message: ChatMessage;
+    channel: ChatChannel;
+    ctx: AccessContext;
+  }> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
     });
@@ -361,7 +390,7 @@ export class ChatMessageService {
       workspaceIdOrSlug,
     );
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
-    return { message, channel };
+    return { message, channel, ctx };
   }
 
   /**
@@ -394,6 +423,9 @@ export class ChatMessageService {
    * username, so `@[ceo](42)` cannot dress user 42 up as somebody else. A
    * token whose id is not a member of the workspace is flattened to plain
    * `@name` — it names nobody who could be notified or rendered as a chip.
+   * So is a token naming somebody who cannot read the channel (outside a
+   * private channel or a DM): a chip would offer them a link to a channel
+   * they cannot open, and the mention could never notify them anyway.
    * `canonicalMentions` repeats that to a fixpoint, so a flattened token
    * cannot hand its brackets to the text around it and re-form a token
    * nobody resolved. The result is checked again, since a longer real
@@ -401,7 +433,7 @@ export class ChatMessageService {
    */
   private async canonicalBody(
     raw: string,
-    workspaceId: string,
+    channel: ChatChannel,
   ): Promise<string> {
     const ids = [
       ...new Set(
@@ -417,7 +449,10 @@ export class ChatMessageService {
         : await this.prisma.user.findMany({
             where: {
               id: { in: ids },
-              workspaceMembers: { some: { workspaceId } },
+              workspaceMembers: { some: { workspaceId: channel.workspaceId } },
+              ...(channel.kind === 'public'
+                ? {}
+                : { chatMemberships: { some: { channelId: channel.id } } }),
             },
             select: { id: true, username: true },
           });
@@ -445,41 +480,13 @@ export class ChatMessageService {
     const actorId = message.author?.id;
     if (actorId === undefined) return;
     try {
-      const mentioned = [
-        ...new Set(
-          extractMentionedUserIds(message.body)
-            .map(Number)
-            .filter((id) => Number.isSafeInteger(id) && id > 0)
-            .filter((id) => id !== actorId),
-        ),
-      ];
-      let recipients: number[] = [];
+      const { mentioned, recipients } = await this.mentionRecipients(
+        message.body,
+        channel,
+        ctx,
+        actorId,
+      );
       if (mentioned.length > 0) {
-        const [workspaceMembers, channelMembers] = await Promise.all([
-          this.prisma.workspaceMember.findMany({
-            where: {
-              workspaceId: channel.workspaceId,
-              userId: { in: mentioned },
-            },
-            select: { userId: true },
-          }),
-          this.prisma.chatChannelMember.findMany({
-            where: { channelId: channel.id, userId: { in: mentioned } },
-            select: { userId: true },
-          }),
-        ]);
-        const inWorkspace = new Set(workspaceMembers.map((m) => m.userId));
-        const inChannel = new Set(channelMembers.map((m) => m.userId));
-        // 'notify' and 'notify-preview' both produce a chat_mention row.
-        recipients = mentioned.filter(
-          (id) =>
-            mentionOutcome({
-              kind: ctx.kind,
-              archived: ctx.archived,
-              isWorkspaceMember: inWorkspace.has(id),
-              isChannelMember: inChannel.has(id),
-            }) !== 'none',
-        );
         await this.notifications.createChatMention({
           workspaceId: channel.workspaceId,
           actorId,
@@ -505,5 +512,90 @@ export class ChatMessageService {
     } catch (err) {
       this.logger.warn(`chat notify failed for ${message.id}: ${String(err)}`);
     }
+  }
+
+  /**
+   * After an edit has committed: the bell rows quoting this message are
+   * brought in line with its new text (`NotificationService.syncChatMessage`)
+   * — previews rewritten, a mention edited out dropped, a mention edited in
+   * notified. Logged and swallowed like `afterPost`: the edit stands.
+   */
+  private async afterEdit(
+    message: ChatMessageDto,
+    channel: ChatChannel,
+    ctx: AccessContext,
+  ): Promise<void> {
+    const actorId = message.author?.id;
+    if (actorId === undefined) return;
+    try {
+      const { recipients } = await this.mentionRecipients(
+        message.body,
+        channel,
+        ctx,
+        actorId,
+      );
+      await this.notifications.syncChatMessage({
+        workspaceId: channel.workspaceId,
+        actorId,
+        channelId: channel.id,
+        messageId: message.id,
+        threadRootId: message.threadRootId,
+        recipients,
+        preview: message.body,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `chat edit notify failed for ${message.id}: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Who a body mentions (`mentioned`, the author excluded) and which of them
+   * a mention may reach (`recipients`): each is classified with
+   * `mentionOutcome` against their own access, so a private channel or a DM
+   * never leaks to somebody outside it.
+   */
+  private async mentionRecipients(
+    body: string,
+    channel: ChatChannel,
+    ctx: AccessContext,
+    actorId: number,
+  ): Promise<{ mentioned: number[]; recipients: number[] }> {
+    const mentioned = [
+      ...new Set(
+        extractMentionedUserIds(body)
+          .map(Number)
+          .filter((id) => Number.isSafeInteger(id) && id > 0)
+          .filter((id) => id !== actorId),
+      ),
+    ];
+    if (mentioned.length === 0) return { mentioned, recipients: [] };
+    const [workspaceMembers, channelMembers] = await Promise.all([
+      this.prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: channel.workspaceId,
+          userId: { in: mentioned },
+        },
+        select: { userId: true },
+      }),
+      this.prisma.chatChannelMember.findMany({
+        where: { channelId: channel.id, userId: { in: mentioned } },
+        select: { userId: true },
+      }),
+    ]);
+    const inWorkspace = new Set(workspaceMembers.map((m) => m.userId));
+    const inChannel = new Set(channelMembers.map((m) => m.userId));
+    // 'notify' and 'notify-preview' both produce a chat_mention row.
+    const recipients = mentioned.filter(
+      (id) =>
+        mentionOutcome({
+          kind: ctx.kind,
+          archived: ctx.archived,
+          isWorkspaceMember: inWorkspace.has(id),
+          isChannelMember: inChannel.has(id),
+        }) !== 'none',
+    );
+    return { mentioned, recipients };
   }
 }

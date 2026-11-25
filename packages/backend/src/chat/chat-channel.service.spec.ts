@@ -53,6 +53,7 @@ function setup(
       deleteMany: jest.fn().mockResolvedValue({ count: removed }),
       count: jest.fn().mockResolvedValue(remaining),
     },
+    notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const prisma = {
     chatChannel: {
@@ -136,6 +137,25 @@ describe('ChatChannelService.removeMember', () => {
       expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
     });
 
+    it("drops a removed member's bell rows for a private channel", async () => {
+      const { remove, tx } = setup({ kind: 'private', createdBy: CALLER });
+      await remove();
+      expect(tx.notification.deleteMany).toHaveBeenCalledWith({
+        where: {
+          recipientId: TARGET,
+          workspaceId: 'w1',
+          threadId: 'c1',
+          type: { in: ['chat_mention', 'chat_thread_reply'] },
+        },
+      });
+    });
+
+    it('keeps them for a public channel, which they can still read', async () => {
+      const { remove, tx } = setup({ createdBy: CALLER });
+      await remove();
+      expect(tx.notification.deleteMany).not.toHaveBeenCalled();
+    });
+
     it('refuses a plain member of a private channel, though they may archive it', async () => {
       const { remove, tx } = setup({
         kind: 'private',
@@ -216,5 +236,67 @@ describe('ChatChannelService.removeMember', () => {
     const { remove, bus } = setup();
     bus.notifyMembership.mockRejectedValue(new Error('bus down'));
     await expect(remove()).resolves.toBeUndefined();
+  });
+});
+
+describe('ChatChannelService.leave', () => {
+  it("drops the leaver's bell rows for a private channel", async () => {
+    const { service, tx } = setup({ kind: 'private' });
+    await service.leave(CALLER, 'c1');
+    expect(tx.notification.deleteMany).toHaveBeenCalledWith({
+      where: {
+        recipientId: CALLER,
+        workspaceId: 'w1',
+        threadId: 'c1',
+        type: { in: ['chat_mention', 'chat_thread_reply'] },
+      },
+    });
+  });
+
+  it('keeps them for a public channel, which stays readable', async () => {
+    const { service, tx } = setup({ kind: 'public' });
+    await service.leave(CALLER, 'c1');
+    expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
+    expect(tx.notification.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('drops nothing when the caller was not in the channel', async () => {
+    const { service, tx } = setup({ kind: 'public', removed: 0 });
+    await service.leave(CALLER, 'c1');
+    expect(tx.notification.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatChannelService.openDm', () => {
+  it('restores a missing member at the channel tail', async () => {
+    const createMany = jest.fn().mockResolvedValue({ count: 1 });
+    const prisma = {
+      workspaceMember: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ workspaceId: 'w1', role: 'member' }),
+        count: jest.fn().mockResolvedValue(2),
+      },
+      chatChannel: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'dm1', lastSeq: 7n }),
+      },
+      chatChannelMember: { createMany },
+    };
+    const service = new ChatChannelService(
+      prisma as unknown as PrismaService,
+      { notifyMembership: jest.fn() } as unknown as ChatBus,
+    );
+    // The summary query is not what this pins.
+    jest.spyOn(service, 'summaryOf').mockResolvedValue({} as never);
+
+    await service.openDm(CALLER, 'w1', [TARGET]);
+
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { channelId: 'dm1', userId: CALLER, lastReadSeq: 7n },
+        { channelId: 'dm1', userId: TARGET, lastReadSeq: 7n },
+      ],
+      skipDuplicates: true,
+    });
   });
 });

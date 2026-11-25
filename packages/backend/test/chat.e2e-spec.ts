@@ -468,9 +468,16 @@ describeDb('Chat integration', () => {
       expect(reopened).toMatchObject({ id: dm.id, isMember: true });
       expect(reopened.members).toHaveLength(2);
       expect(notify).toHaveBeenCalledWith(dm.id);
-      // Reopening is not a new arrival: the history reads as unread, since
-      // it was addressed to them.
-      expect(reopened.unreadCount).toBe(1);
+      // A returning member starts at the tail: what arrived while they were
+      // gone is theirs to scroll, but none of it is unread.
+      const [restored] = await channels.list(peer.id, workspace.id);
+      expect(restored).toMatchObject({
+        id: dm.id,
+        unreadCount: 0,
+        lastReadSeq: 1,
+      });
+      const history = await messages.page(peer.id, dm.id, {});
+      expect(history.map((m) => m.body)).toEqual(['before you left']);
 
       // The other side reopening it repairs it the same way.
       await prisma.chatChannelMember.deleteMany({
@@ -929,6 +936,31 @@ describeDb('Chat integration', () => {
       const fresh = await channels.list(peer.id, workspace.id);
       expect(fresh[0]).toMatchObject({ unreadCount: 5, mentionCount: 2 });
     });
+
+    it('a mention count matches the canonical token only', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'general',
+      });
+      await channels.join(peer.id, channel.id);
+
+      // A markdown-looking link ending in the reader's id is not a mention,
+      // and neither is a token for an id that merely ends in theirs.
+      await messages.post(owner.id, channel.id, {
+        body: `see [docs](${peer.id}) and (${peer.id})`,
+      });
+      await messages.post(owner.id, channel.id, {
+        body: `cc @[${owner.username}](${owner.id})`,
+      });
+      await messages.post(owner.id, channel.id, {
+        body: `hey @[${peer.username}](${peer.id})`,
+      });
+
+      const [summary] = await channels.list(peer.id, workspace.id);
+      expect(summary).toMatchObject({ unreadCount: 3, mentionCount: 1 });
+    });
   });
 
   describe('messages', () => {
@@ -1048,6 +1080,41 @@ describeDb('Chat integration', () => {
       const [top] = await messages.page(owner.id, channel.id, {});
       expect(top).toMatchObject({ id: root.id, replyCount: 2 });
       expect(top.lastReplyAt).not.toBeNull();
+    });
+
+    it('deleting a reply recounts its root; a deleted root takes no reply', async () => {
+      const { owner, workspace, channel } = await publicChannel();
+      const root = await messages.post(owner.id, channel.id, { body: 'root' });
+      const first = await messages.post(owner.id, channel.id, {
+        body: 'first',
+        threadRootId: root.id,
+      });
+      const second = await messages.post(owner.id, channel.id, {
+        body: 'second',
+        threadRootId: root.id,
+      });
+      const top = async () =>
+        (await messages.page(owner.id, channel.id, {})).find(
+          (m) => m.id === root.id,
+        )!;
+
+      await messages.remove(owner.id, second.id);
+      expect(await top()).toMatchObject({
+        replyCount: 1,
+        lastReplyAt: first.createdAt,
+      });
+      await messages.remove(owner.id, first.id);
+      expect(await top()).toMatchObject({ replyCount: 0, lastReplyAt: null });
+
+      await messages.remove(owner.id, root.id);
+      await as(owner)
+        .post(`${base(workspace.id)}/channels/${channel.id}/messages`)
+        .send({ body: 'too late', threadRootId: root.id })
+        .expect(409);
+      const replies = await messages.page(owner.id, channel.id, {
+        thread: root.id,
+      });
+      expect(replies.map((m) => m.body)).toEqual(['', '', '']);
     });
 
     it('a reply to a reply or to another channel is 400', async () => {
@@ -1229,6 +1296,85 @@ describeDb('Chat integration', () => {
       const after = await rows();
       expect(after.map((r) => r.commentId)).not.toContain(reply.id);
       expect(after.map((r) => r.commentId)).toContain(kept.id);
+    });
+
+    it('an edit rewrites, drops and adds notification previews', async () => {
+      const { owner, members, workspace, channel } = await publicChannel();
+      const [peer] = members;
+      const other = await createUser();
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: other.id, role: 'member' },
+      });
+      const root = await messages.post(peer.id, channel.id, { body: 'root' });
+      const reply = await messages.post(owner.id, channel.id, {
+        body: `draft for @[${peer.username}](${peer.id})`,
+        threadRootId: root.id,
+      });
+      const rows = () =>
+        prisma.notification.findMany({
+          where: { commentId: reply.id },
+          select: { recipientId: true, type: true, preview: true },
+          orderBy: [{ recipientId: 'asc' }, { type: 'asc' }],
+        });
+      expect(await rows()).toEqual([
+        {
+          recipientId: peer.id,
+          type: 'chat_mention',
+          preview: `draft for @${peer.username}`,
+        },
+      ]);
+      // The reply's thread-reply row to peer was absorbed by the mention;
+      // give `other` one to prove those previews follow the edit too.
+      await prisma.notification.create({
+        data: {
+          type: 'chat_thread_reply',
+          recipientId: other.id,
+          actorId: owner.id,
+          workspaceId: workspace.id,
+          threadId: channel.id,
+          commentId: reply.id,
+          dedupeKey: `${root.id}:test`,
+          preview: `draft for @${peer.username}`,
+        },
+      });
+
+      await as(owner)
+        .patch(`${base(workspace.id)}/messages/${reply.id}`)
+        .send({ body: `final, @[${other.username}](${other.id})` })
+        .expect(200);
+
+      // peer's mention is gone with the token; other is newly mentioned (a
+      // second row, keyed on the message) and every preview is the new text.
+      expect(await rows()).toEqual([
+        {
+          recipientId: other.id,
+          type: 'chat_mention',
+          preview: `final, @${other.username}`,
+        },
+        {
+          recipientId: other.id,
+          type: 'chat_thread_reply',
+          preview: `final, @${other.username}`,
+        },
+      ]);
+    });
+
+    it('a mention of someone outside a private channel is flattened', async () => {
+      const { owner, members, workspace } = await team(2);
+      const [insider, outsider] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      await channels.invite(owner.id, channel.id, [insider.id]);
+
+      const posted = await messages.post(owner.id, channel.id, {
+        body: `@[${insider.username}](${insider.id}) @[${outsider.username}](${outsider.id})`,
+      });
+
+      expect(posted.body).toBe(
+        `@[${insider.username}](${insider.id}) @${outsider.username}`,
+      );
     });
 
     it('a seq beyond the safe-integer range is 400, not 500', async () => {
@@ -1446,6 +1592,49 @@ describeDb('Chat integration', () => {
 
       expect(await rowsFor(outsider.id, 'chat_mention')).toHaveLength(0);
       expect(await rowsFor(stranger.id, 'chat_mention')).toHaveLength(0);
+    });
+
+    it('leaving a private channel takes its previews; a public one keeps them', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const secret = await channels.create(owner.id, workspace.id, {
+        kind: 'private',
+        name: 'secret',
+      });
+      const open = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'open',
+      });
+      await channels.invite(owner.id, secret.id, [peer.id]);
+      await channels.join(peer.id, open.id);
+      await messages.post(owner.id, secret.id, { body: `s ${mention(peer)}` });
+      await messages.post(owner.id, open.id, { body: `o ${mention(peer)}` });
+      const threads = async () =>
+        (await rowsFor(peer.id, 'chat_mention')).map((r) => r.threadId);
+      expect(await threads()).toHaveLength(2);
+
+      await channels.leave(peer.id, open.id);
+      await channels.leave(peer.id, secret.id);
+
+      expect(await threads()).toEqual([open.id]);
+    });
+
+    it('workspace removal takes every chat preview in that workspace', async () => {
+      const { owner, members, workspace } = await team(1);
+      const [peer] = members;
+      const channel = await channels.create(owner.id, workspace.id, {
+        kind: 'public',
+        name: 'open',
+      });
+      await channels.join(peer.id, channel.id);
+      await messages.post(owner.id, channel.id, {
+        body: `o ${mention(peer)}`,
+      });
+      expect(await rowsFor(peer.id, 'chat_mention')).toHaveLength(1);
+
+      await workspaces.removeMember(workspace.id, owner.id, peer.id);
+
+      expect(await rowsFor(peer.id, 'chat_mention')).toHaveLength(0);
     });
 
     it('a group-DM mention notifies; a DM without one does not', async () => {
