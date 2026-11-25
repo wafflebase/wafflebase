@@ -54,3 +54,20 @@
 - The `typesVersions` map added to `@wafflebase/core` failed `scripts:tests`:
   the agent jobs' install allow-lists `package.json` fields. The backend
   build's own `paths` maps core's declarations instead.
+- Round 2 (rerun in place): blocked on correctness (empty `notIn` as
+  match-all), test-adequacy (a vacuous malformed-cursor test) and
+  blast-radius (absolute links never matched under a router basename,
+  because `FRONTEND_URL` must stay origin-only for CORS; a module-scope
+  regex lookbehind below the Safari 14 build floor). All fixed with ~20
+  minors in two parallel streams; one design-fit minor ("core's tests run
+  in no CI lane") disputed: `ci.yml` runs `verify:self`, whose `core:test`
+  lane runs them.
+- Round 3 (the bound): the rebuttal held and four lenses passed. Blocked on
+  correctness (a failed background thread refetch blanked a loaded thread)
+  and test-adequacy (mobile slides chat wiring untested). Both fixed after
+  the round, with the cheap minors, in two parallel streams; no round 4 was
+  run, as the loop is bounded at three. The remaining minors are known
+  limitations in the PR body.
+- A backend e2e jest run printed its results and then never exited (open
+  handles), holding a background task for hours. Pass `--forceExit` when a
+  verify step runs the e2e suite in the background.
