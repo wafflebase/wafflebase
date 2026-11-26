@@ -165,16 +165,16 @@ This step writes each template's content and approves only once the Yorkie event
 
    This command handles only those three types, and skips documents that already have a listing (`--reset` unpublishes and publishes them again). It goes away once every type renders offline.
 
-Whenever the catalogue changes, run steps 1 to 3 again. Step 1 creates the documents for any seeds added since and leaves existing documents unchanged. Step 3 rewrites a slides or note template whose content changed, updates only what changed, re-approves it, and keeps every preview link already handed out.
+Whenever the catalogue changes, run steps 1 to 4 again. Step 1 creates the documents for any seeds added since and leaves existing documents unchanged. Step 3 rewrites a slides or note template whose content changed, updates only what changed, re-approves it, and keeps every preview link already handed out. Step 4 publishes any spreadsheet, document, or board seed added since, and updates the card (title, description, category, tags) of one already published.
 
-Steps 1 to 3 do not update a spreadsheet, document, or board template that is already published. To bring one up to date, rewrite its document and publish it again:
+Steps 1 to 4 do not update the content of a spreadsheet, document, or board template that is already published. To bring its content up to date, rewrite its document and publish it again:
 
 ```bash
 pnpm backend seed:templates:build --workspace <workspaceId> --author <userId> --force-content
 pnpm backend register:templates:build --author <userId> --frontend https://app.example.com --reset
 ```
 
-`--force-content` rewrites every seeded document from the catalogue, slides and notes included, and a content change returns a public template to review. Run step 3 again afterwards to re-approve the slides and note templates. `--reset` unpublishes each spreadsheet, document, and board template and publishes it again, so those templates leave the public gallery until they are re-approved, and their old preview links stop working.
+`--force-content` rewrites every seeded document from the catalogue, slides and notes included, and a content change returns a public template to review. After the backend has received the content-change event for each rewritten slides and note template, run step 3 again to re-approve them. A run made before an event arrives reports that template as unchanged and approves nothing, and the event then takes it out of the gallery. `--reset` unpublishes each spreadsheet, document, and board template and publishes it again, so those templates leave the public gallery until they are re-approved, and their old preview links stop working.
 
 ## Related
 
