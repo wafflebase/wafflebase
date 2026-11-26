@@ -1,14 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-// The page first asks whether the visitor is already signed in (and sends
-// them on if so; see app/login/__tests__). Every test here is signed out.
-vi.mock("@/api/auth", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/auth")>()),
-  fetchMeOptional: vi.fn(async () => null),
-}));
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { LoginForm } from "@/components/login-form";
 import LoginPage from "@/app/login/page";
@@ -130,13 +122,9 @@ describe("LoginPage", () => {
 
   function renderPage(entry = "/login") {
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-      >
-        <MemoryRouter initialEntries={[entry]}>
-          <LoginPage />
-        </MemoryRouter>
-      </QueryClientProvider>,
+      <MemoryRouter initialEntries={[entry]}>
+        <LoginPage />
+      </MemoryRouter>,
     );
   }
 
@@ -177,7 +165,7 @@ describe("LoginPage", () => {
       screen.queryByRole("link", { name: /continue with google/i }),
     ).toBeNull();
     expect(
-      await screen.findByRole("link", { name: /continue with github/i }),
+      screen.getByRole("link", { name: /continue with github/i }),
     ).toBeTruthy();
   });
 
@@ -190,21 +178,47 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(
-      await screen.findByRole("link", { name: /continue with github/i }),
+      screen.getByRole("link", { name: /continue with github/i }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("link", { name: /continue with google/i }),
     ).toBeNull();
   });
 
-  it("wires ?error= from the URL into the form", async () => {
-    renderPage("/login?error=oauth_state");
-    expect((await screen.findByRole("alert")).textContent).toContain("expired");
+  it("wires ?error= from the URL into the form", () => {
+    render(
+      <MemoryRouter initialEntries={["/login?error=oauth_state"]}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("expired");
   });
 
-  it("renders no alert on a plain visit", async () => {
-    renderPage("/login");
-    await screen.findByRole("link", { name: /continue with github/i });
+  // The docs are a separate site (VitePress under /docs), not a route of this
+  // app. A client-side <Link> rendered nothing at /docs — a blank page on the
+  // web, and one the desktop shell never saw, so it could not send it to the
+  // system browser. It has to be a real page navigation.
+  it("links Docs as a page navigation, not an app route", () => {
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<p>unmatched route</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const docs = screen.getByRole("link", { name: "Docs" });
+    expect(docs.getAttribute("href")).toBe("/docs/");
+    fireEvent.click(docs);
+    expect(screen.queryByText("unmatched route")).toBeNull();
+  });
+
+  it("renders no alert on a plain visit", () => {
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });

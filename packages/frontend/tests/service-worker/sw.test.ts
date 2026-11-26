@@ -23,6 +23,8 @@ type Handler = (event: unknown) => void;
 
 class FakeCache {
   entries = new Map<string, Response>();
+  /** Set to make every `put` fail, as a full storage quota does. */
+  full = false;
   constructor(private network: (url: string) => Promise<Response>) {}
   private key(input: string | Request) {
     return new URL(typeof input === "string" ? input : input.url, ORIGIN).href;
@@ -31,6 +33,7 @@ class FakeCache {
     return this.entries.get(this.key(input))?.clone();
   }
   async put(input: string | Request, response: Response) {
+    if (this.full) throw new DOMException("quota", "QuotaExceededError");
     this.entries.set(this.key(input), response);
   }
   async add(input: string) {
@@ -58,7 +61,7 @@ function manifest(overrides: Partial<ServiceWorkerManifest> = {}) {
 
 function boot(
   m: ServiceWorkerManifest,
-  shared?: { caches: Map<string, FakeCache> },
+  shared?: { caches?: Map<string, FakeCache>; shell?: string },
 ) {
   const handlers = new Map<string, Handler>();
   const state = {
@@ -66,10 +69,20 @@ function boot(
     requests: [] as string[],
     skipped: false,
     claimed: false,
+    /** The server accepts the connection and never answers. */
+    stalled: false,
   };
   const network = async (url: string) => {
     state.requests.push(url);
     if (!state.online) throw new TypeError("Failed to fetch");
+    if (state.stalled) return new Promise<Response>(() => {});
+    const pathname = new URL(url).pathname;
+    if (pathname === "/index.html" && shared?.shell !== undefined) {
+      return new Response(shared.shell, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
     return new Response(`body of ${new URL(url).pathname}`, {
       status: 200,
       headers: { "content-type": "text/plain" },
@@ -114,6 +127,9 @@ function boot(
     Promise,
     Set,
     Error,
+    // The navigation timeout fires at once here: the tests are about which
+    // answer wins, not about the two seconds.
+    setTimeout: (fn: () => void) => setTimeout(fn, 0),
   });
 
   async function lifecycle(type: "install" | "activate") {
@@ -227,5 +243,36 @@ describe("offline app-shell service worker", () => {
     await expect(fresh.lifecycle("install")).rejects.toThrow();
     expect(fresh.store.get("wafflebase-shell-v3")?.entries.size ?? 0).toBe(0);
     expect(fresh.state.skipped).toBe(false);
+  });
+
+  test("a navigation the server never answers gets the cached shell", async () => {
+    sw.state.stalled = true;
+    const response = await sw.request("/w/team/d/1", { mode: "navigate" });
+    expect(await (response as Response).text()).toBe("body of /index.html");
+  });
+
+  test("a full cache does not fail a chunk the network delivered", async () => {
+    sw.store.get("wafflebase-assets")!.full = true;
+    const response = await sw.request("/assets/lazy-b.js");
+    expect(await (response as Response).text()).toBe("body of /assets/lazy-b.js");
+  });
+
+  test("an install refuses a shell from another build", async () => {
+    const fresh = boot(manifest({ version: "v4" }), {
+      shell: '<script type="module" src="/assets/index-z.js"></script>',
+    });
+    await expect(fresh.lifecycle("install")).rejects.toThrow(/index-z/);
+    expect(fresh.store.get("wafflebase-shell-v4")?.entries.size ?? 0).toBe(0);
+    expect(fresh.state.skipped).toBe(false);
+  });
+
+  test("an install accepts a shell that names only this build's assets", async () => {
+    const fresh = boot(manifest({ version: "v5" }), {
+      shell:
+        '<script type="module" crossorigin src="/assets/index-a.js"></script>' +
+        '<link rel="stylesheet" href="/assets/index-a.css"><link rel="icon" href="/favicon.svg">',
+    });
+    await fresh.lifecycle("install");
+    expect(fresh.store.get("wafflebase-shell-v5")!.entries.size).toBe(1);
   });
 });

@@ -7,8 +7,9 @@
  *
  * - Navigations are network-first. Whenever the server answers, its answer is
  *   used, whatever the status, so a deploy reaches users on their next load
- *   and nobody is held on an old build. Only a navigation that cannot reach
- *   the server at all is answered with the cached `index.html`.
+ *   and nobody is held on an old build. A navigation that cannot reach the
+ *   server, or gets no answer within NAVIGATION_TIMEOUT_MS while a cached shell
+ *   exists, is answered with the cached `index.html`.
  * - `assets/` files are content-hashed by Vite, so they are cache-first: a
  *   name never changes content. The boot set is precached at install; every
  *   other chunk is cached the first time the app loads it, so an editor
@@ -34,6 +35,14 @@ const SHELL_CACHE = SHELL_CACHE_PREFIX + MANIFEST.version;
 // the next and need not be downloaded again. Pruned on activate instead.
 const ASSET_CACHE = "wafflebase-assets";
 const SHELL_KEY = MANIFEST.base + "index.html";
+// How long a navigation waits for the server before the cached shell answers.
+// A stalled connection (a TLS handshake that never completes) otherwise holds
+// the navigation until the browser's own timeout, a minute or more; and the
+// desktop shell, which needs a page to start loading within 3 s, would give
+// up on a cache that was there all along (docs/design/desktop-app.md §2). The
+// late network answer is not used: the next navigation gets the fresh build.
+const NAVIGATION_TIMEOUT_MS = 2000;
+const TIMED_OUT = Symbol("timed out");
 const ASSET_PREFIX = MANIFEST.base + "assets/";
 
 // Same-origin paths that are never the app: the VitePress site published
@@ -70,6 +79,19 @@ async function precache() {
   // before this one.
   const response = await fetch(SHELL_KEY, { cache: "reload" });
   if (!response.ok) throw new Error(`shell fetch failed: ${response.status}`);
+  // The shell comes from the server, the boot set from this worker's manifest.
+  // A deploy that lands between the two would pair a new shell with the old
+  // build's chunks, and that shell could not start offline. Refuse it: the
+  // install fails and the previous worker keeps serving until the next one.
+  const html = await response.clone().text();
+  const known = new Set(MANIFEST.assets);
+  const escaped = ASSET_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const referenced = new RegExp(`["'](${escaped}[^"'?#]+)`, "g");
+  for (const match of html.matchAll(referenced)) {
+    if (!known.has(match[1])) {
+      throw new Error(`shell references ${match[1]}, not part of this build`);
+    }
+  }
   const assets = await caches.open(ASSET_CACHE);
   await Promise.all(
     MANIFEST.precache.map(async (path) => {
@@ -100,10 +122,23 @@ async function cleanup() {
 }
 
 async function handleNavigate(request) {
+  const shell = await caches.open(SHELL_CACHE);
+  const network = fetch(request);
+  // Answered from cache after a timeout, the network's late result has no one
+  // to report to; keep its rejection from surfacing as unhandled.
+  network.catch(() => {});
   try {
-    return await fetch(request);
+    const first = await Promise.race([
+      network,
+      new Promise((resolve) =>
+        setTimeout(() => resolve(TIMED_OUT), NAVIGATION_TIMEOUT_MS),
+      ),
+    ]);
+    if (first !== TIMED_OUT) return first;
+    const cached = await shell.match(SHELL_KEY);
+    // No cached shell: nothing better than waiting for the network.
+    return cached ?? (await network);
   } catch (error) {
-    const shell = await caches.open(SHELL_CACHE);
     const cached = await shell.match(SHELL_KEY);
     if (cached) return cached;
     throw error;
@@ -116,7 +151,13 @@ async function handleAsset(request) {
   if (cached) return cached;
   const response = await fetch(request);
   if (response.ok && response.type === "basic") {
-    await assets.put(request, response.clone());
+    // Best effort: a full quota must not turn a chunk the network delivered
+    // into a failed load. Only install's precache is all-or-nothing.
+    try {
+      await assets.put(request, response.clone());
+    } catch {
+      // Served uncached; the next load tries again.
+    }
   }
   return response;
 }

@@ -23,8 +23,11 @@ export const PrivateRoute = (): ReactElement => {
   }
 
   // No response at all is not "signed out": say so, and keep the URL, so
-  // the same route opens once the server answers again.
-  if (isBackendUnreachableError(error)) {
+  // the same route opens once the server answers again. Only while no user is
+  // known: a refetch on window focus during an outage keeps the user React
+  // Query already has, and the open document must stay mounted (the editor
+  // reports its own connection state).
+  if (!me && isBackendUnreachableError(error)) {
     return <OfflineScreen onRetry={retry} retrying={isFetching} />;
   }
 

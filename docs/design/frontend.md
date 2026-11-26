@@ -115,8 +115,8 @@ it is registered (below).
 
 | Request | Handling |
 |---------|----------|
-| Navigation, same origin | Network first, whatever the status. Only a navigation that gets no response is answered with the cached `index.html` |
-| `assets/*` (Vite's content-hashed output) | Cache first. The boot set is precached at install; any other chunk is cached the first time the app loads it |
+| Navigation, same origin | Network first, whatever the status. A navigation that gets no response, or none within 2 s while a cached shell exists, is answered with the cached `index.html`. The 2 s bound matters for a stalled connection (a TLS handshake that never completes), which would otherwise wait for the browser's own timeout, and for the desktop shell, which gives a cached app 3 s to start loading ([desktop-app.md](desktop-app.md) §2) |
+| `assets/*` (Vite's content-hashed output) | Cache first. The boot set is precached at install; any other chunk is cached the first time the app loads it, best effort: a full storage quota serves the chunk uncached rather than failing it |
 | `/docs`, `/auth/`, `/api/`, `/internal/` on the same origin | Untouched. `/docs` is the VitePress site; the rest are backend routes on a deployment that serves the API from the frontend's origin, so no sign-in redirect or cookie-setting response ever runs through the worker |
 | Other origins (API, Yorkie, fonts), non-GET, unhashed root files | Untouched |
 
@@ -146,7 +146,11 @@ shell cache and every cached chunk not in its asset list. Taking over a page
 from the previous build is safe because that page's lazy chunks miss the new
 cache and go to the network, which still serves them: `publish-ghpage.yml`
 keeps three deployments of assets. An install that cannot download its boot
-set fails as a whole, and the previous worker stays.
+set fails as a whole, and the previous worker stays. So does one whose
+fetched `index.html` names an asset outside this worker's build: a deploy that
+lands between downloading `sw.js` and fetching the shell would otherwise pair
+a new shell with the old build's chunks, and that shell could not start
+offline.
 
 **What a user sees offline.** The session check (`fetchMe`,
 `fetchMeOptional`) used to read "no response" as "signed out", so a network
