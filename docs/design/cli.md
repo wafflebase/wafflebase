@@ -927,9 +927,9 @@ wafflebase api-keys revoke key-uuid
 
 # Templates (the gallery; publish/use need `wafflebase login`, not an API key)
 wafflebase templates list                       # what this workspace published
-wafflebase templates list --scope public --category Finance --sort popular
+wafflebase templates list --scope public --category finance --sort popular
 wafflebase templates publish abc-123 \
-  --title "Weekly Report" --category Business --tag weekly \
+  --title "Weekly Report" --category work/meeting --tag weekly \
   --visibility workspace                        # default tier is `unlisted`
 wafflebase templates use tpl-uuid               # → a new doc in this workspace
 wafflebase templates use tpl-uuid --into other-workspace

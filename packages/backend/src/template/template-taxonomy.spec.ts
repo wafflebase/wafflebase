@@ -101,5 +101,20 @@ describe('label → slug data migration', () => {
       (m) => [m[1], m[2]],
     );
     expect(Object.fromEntries(pairs)).toEqual(LEGACY_CATEGORY_ALIASES);
+
+    // The `WHERE … IN` list decides which rows the UPDATE touches. A label
+    // selected there without a `CASE` arm would be set to NULL (a `CASE` with
+    // no match and no `ELSE` yields NULL); a label with an arm but missing
+    // here would never be migrated. Both lists must name the same labels.
+    const where = /WHERE "category" IN \(([^)]*)\)/.exec(sql);
+    expect(where).not.toBeNull();
+    const selected = [...where![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(selected.length).toBe(new Set(selected).size);
+    expect([...selected].sort()).toEqual(
+      Object.keys(LEGACY_CATEGORY_ALIASES).sort(),
+    );
+    // No `ELSE`: the arms above are the whole mapping, so nothing outside the
+    // list is rewritten by a fallback.
+    expect(sql).not.toMatch(/\bELSE\b/);
   });
 });

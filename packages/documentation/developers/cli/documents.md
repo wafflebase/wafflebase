@@ -207,7 +207,7 @@ Comments work on sheets, docs, and PDFs; other document types fail with `400`. Y
 ```bash
 wafflebase templates list
 wafflebase templates list --scope public --type slides --sort popular
-wafflebase templates publish <doc-id> --category Business --tag weekly --visibility workspace
+wafflebase templates publish <doc-id> --category work/meeting --tag weekly --visibility workspace
 wafflebase templates use <template-id>
 ```
 

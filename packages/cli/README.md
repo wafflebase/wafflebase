@@ -204,7 +204,7 @@ wafflebase docs content abc-123 | wafflebase docs set-content abc-123
 wafflebase templates list                            # the workspace's gallery
 wafflebase templates list --scope public --query budget
 wafflebase templates publish abc-123 --title "Weekly Report" \
-  --category Business --tag weekly --visibility workspace
+  --category work/meeting --tag weekly --visibility workspace
 wafflebase templates use tpl-1 --into other-workspace
 
 # Schema introspection (singular aliases resolve too)

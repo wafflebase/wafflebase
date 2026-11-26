@@ -164,15 +164,21 @@ Migration:
    no content.
 
 *Shipped (PR1 of Phase 1).* The tree, `ALL_CATEGORY_SLUGS`, `childrenOf`,
-`categoryLabel` and `LEGACY_CATEGORY_ALIASES` live in
-`packages/core/src/templates/`, which makes `@wafflebase/core` a runtime
-dependency of the backend (the image now copies `packages/core/dist`, and core
-gained `typesVersions` because the backend's CommonJS resolution ignores
-`exports`). Labels are English strings in that module for now; moving them to
+`categoryLabel`, `resolveCategory` and `LEGACY_CATEGORY_ALIASES` live in
+`packages/core/src/templates/`, published as the `@wafflebase/core/templates`
+subpath — one new `exports` entry and nothing else, since the backend's build
+and jest configs already map `@wafflebase/core/*` by wildcard and the backend
+already loaded core at runtime (`@wafflebase/core/document-link`), with the
+image already copying `packages/core/dist`. The tree is declared `as const`
+and `TemplateCategorySlug` is derived from it, so the slug list is written
+once. Labels are English strings in that module for now; moving them to
 frontend i18n keyed by slug is deferred to the ko locale work. The migration is
-`20261126000000_template_category_slugs`, and a backend spec pins its `CASE`
-arms to the alias map. Seeds are filed under a leaf (`catalog.spec.ts` refuses
-a bare top), and the picker lists each top followed by its leaves.
+`20261126000000_template_category_slugs`, and a backend spec pins both its
+`CASE` arms and its `WHERE … IN` list to the alias map. Seeds are filed under
+a leaf (`catalog.spec.ts` refuses a bare top), and the picker lists each top
+followed by its leaves. The Share dialog shows a stored v1 label as the slug it
+maps to and sends only the fields the user changed, so a row the migration has
+not reached does not fail an unrelated save.
 
 #### Theme variants at "Use template"
 

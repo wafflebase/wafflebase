@@ -11,9 +11,9 @@ import {
   type TemplateCategorySlug,
 } from '../src/templates/index.ts';
 
-// One key per member of the union: adding a slug to the union without listing
-// it here (or the reverse) is a compile error, and the test below then pins
-// the runtime list to the same set.
+// One key per member of the union (derived from the tree): adding a node to
+// the tree without listing it here (or the reverse) is a compile error, and
+// the test below then pins the runtime list to the same set.
 const UNION: Record<TemplateCategorySlug, true> = {
   work: true,
   'work/pitch-proposal': true,
@@ -48,6 +48,12 @@ const UNION: Record<TemplateCategorySlug, true> = {
   other: true,
 };
 
+// The derivation must stay closed: if it ever widened to `string`, the record
+// above would still type-check, so pin a non-slug as a compile error too.
+// @ts-expect-error a v1 label is not a TemplateCategorySlug
+const LEGACY_IS_NOT_A_SLUG: TemplateCategorySlug = 'Business';
+void LEGACY_IS_NOT_A_SLUG;
+
 describe('TEMPLATE_CATEGORY_TREE', () => {
   it('derives exactly the slugs of the TemplateCategorySlug union', () => {
     expect([...ALL_CATEGORY_SLUGS].sort()).toEqual(Object.keys(UNION).sort());
@@ -57,7 +63,7 @@ describe('TEMPLATE_CATEGORY_TREE', () => {
   it('keeps tops in ascending sort order, with Other last', () => {
     const sorts = TEMPLATE_CATEGORY_TREE.map((t) => t.sort);
     expect(sorts).toEqual([...sorts].sort((a, b) => a - b));
-    expect(TEMPLATE_CATEGORY_TREE.at(-1)?.slug).toBe('other');
+    expect(TEMPLATE_CATEGORY_TREE[TEMPLATE_CATEGORY_TREE.length - 1].slug).toBe('other');
   });
 
   it('gives every option a distinct label', () => {

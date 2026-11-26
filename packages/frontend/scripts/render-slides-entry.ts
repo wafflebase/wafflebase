@@ -11,6 +11,12 @@
  * thumbnail source, encoded by the same `encodeThumbnail` the Share dialog
  * uses — so an offline card is the 1280 px WebP a publish from the editor
  * would have uploaded.
+ *
+ * Unlike a publish from the editor, nothing here has warmed the asset cache,
+ * so a deck thumbnail goes through the same bounded settle as `__renderSlide`
+ * (repaint until no image is loading) and waits for web fonts too. A deck
+ * whose assets have not arrived by the deadline is a failed render, never a
+ * card with a hole in it that the manifest would then record as current.
  */
 import type { SlidesDocument } from "@wafflebase/slides";
 import { createSlideRenderHook } from "../src/app/slides/slide-render-hook";
@@ -40,6 +46,32 @@ declare global {
 
 window.__renderSlide = (doc, index) => createSlideRenderHook(() => doc).render(index);
 
+/**
+ * `renderDeckThumbnail`, settled: the slide-render hook's repaint-until-no-
+ * image-is-pending loop (it answers `null` past its deadline, or for a
+ * tainted canvas), plus web fonts. A font the paint asks for loads
+ * asynchronously and repaints nothing, so once fonts are ready the deck is
+ * painted again; still loading after a second pass is a failure.
+ */
+async function settledDeckThumbnail(
+  doc: SlidesDocument,
+): Promise<HTMLCanvasElement | string> {
+  let painted: HTMLCanvasElement | null = null;
+  const hook = createSlideRenderHook(() => doc, {
+    render: async (d) => (painted = await renderDeckThumbnail(d)),
+  });
+  for (let pass = 0; pass < 2; pass++) {
+    await document.fonts.ready;
+    if ((await hook.render(0)) === null) {
+      return painted
+        ? "an image did not finish loading in time, or the canvas is tainted"
+        : "nothing to render";
+    }
+    if (document.fonts.status === "loaded" && painted) return painted;
+  }
+  return "a web font did not finish loading";
+}
+
 function readAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -52,7 +84,13 @@ function readAsDataUrl(blob: Blob): Promise<string> {
 window.__renderThumbnail = async (content) => {
   let canvas: HTMLCanvasElement | null;
   if (content.kind === "slides" && "document" in content) {
-    canvas = await renderDeckThumbnail(content.document as SlidesDocument);
+    const settled = await settledDeckThumbnail(
+      content.document as SlidesDocument,
+    );
+    if (typeof settled === "string") {
+      return { ok: false, unsupported: false, reason: settled };
+    }
+    canvas = settled;
   } else if (content.kind === "note" && "document" in content) {
     // The light card, as `notes-view.tsx` registers it.
     canvas = renderNoteThumbnail(

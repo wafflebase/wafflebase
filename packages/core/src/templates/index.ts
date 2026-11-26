@@ -33,8 +33,14 @@ export type TemplateCategoryTop = {
   readonly children: readonly TemplateCategoryLeaf[];
 };
 
-/** Tops in display order (ascending `sort`); leaves in display order. */
-export const TEMPLATE_CATEGORY_TREE: readonly TemplateCategoryTop[] = [
+/**
+ * The tree as a literal: `as const` so {@link TemplateCategorySlug} is derived
+ * from it rather than written out a second time, `satisfies` so its shape is
+ * still checked. Exported widened, as {@link TEMPLATE_CATEGORY_TREE}: the
+ * literal type is a union of tuples (one of them empty), and calling `find` /
+ * `map` on that narrows a callback's parameter to `never` on some compilers.
+ */
+const TREE_LITERAL = [
   {
     slug: 'work',
     label: 'Work',
@@ -108,49 +114,36 @@ export const TEMPLATE_CATEGORY_TREE: readonly TemplateCategoryTop[] = [
     ],
   },
   { slug: 'other', label: 'Other', sort: 990, children: [] },
-];
+] as const satisfies readonly TemplateCategoryTop[];
+
+/** A top's own slug plus `top/leaf` for each of its leaves. */
+type SlugsOf<T> = T extends {
+  readonly slug: infer Top extends string;
+  readonly children: readonly (infer Leaf)[];
+}
+  ?
+      | Top
+      | (Leaf extends { readonly slug: infer L extends string }
+          ? `${Top}/${L}`
+          : never)
+  : never;
 
 /**
  * Every stored value a listing's `category` may hold, as a string-literal
- * union so a seed with a typo or a legacy label is a compile error.
+ * union so a seed with a typo or a legacy label is a compile error. Derived
+ * from the tree, so the tree is the only list.
  */
-export type TemplateCategorySlug =
-  | 'work'
-  | 'work/pitch-proposal'
-  | 'work/report-review'
-  | 'work/plan-roadmap'
-  | 'work/meeting'
-  | 'work/retro-workshop'
-  | 'work/project-tracker'
-  | 'finance'
-  | 'finance/budget'
-  | 'finance/invoice-quote'
-  | 'finance/financial-model'
-  | 'education'
-  | 'education/lesson-lecture'
-  | 'education/study-notes'
-  | 'education/classroom-admin'
-  | 'marketing'
-  | 'marketing/campaign'
-  | 'marketing/content-calendar'
-  | 'marketing/brand-press'
-  | 'people'
-  | 'people/resume-cover-letter'
-  | 'people/onboarding'
-  | 'people/directory-org'
-  | 'personal'
-  | 'personal/personal-finance'
-  | 'personal/planner-journal'
-  | 'personal/travel-events'
-  | 'design'
-  | 'design/design-review'
-  | 'design/moodboard'
-  | 'other';
+export type TemplateCategorySlug = SlugsOf<(typeof TREE_LITERAL)[number]>;
+
+/** Tops in display order (ascending `sort`); leaves in display order. */
+export const TEMPLATE_CATEGORY_TREE: readonly TemplateCategoryTop[] =
+  TREE_LITERAL;
 
 /**
  * Every valid stored value, tops first-then-their-leaves in display order.
- * Derived from the tree; a test asserts it equals the
- * {@link TemplateCategorySlug} union so the two cannot drift.
+ * The cast only narrows the template literal TypeScript widens to `string`;
+ * the union it narrows onto is derived from the same tree, so the two cannot
+ * drift (a test still pins the exact list).
  */
 export const ALL_CATEGORY_SLUGS: readonly TemplateCategorySlug[] =
   TEMPLATE_CATEGORY_TREE.flatMap((top) => [
