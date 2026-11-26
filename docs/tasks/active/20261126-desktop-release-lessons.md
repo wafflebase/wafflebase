@@ -88,6 +88,12 @@
 - **Same origin is not the same app.** wafflebase.io serves the app, the
   homepage and the docs site from one origin; the shell's "frontend origin
   stays in-window" rule kept the docs in a window with no way back.
+- **A plugin's injected script can sit between the page and the policy.**
+  `tauri-plugin-opener` injects a click handler that cancels every
+  `target=_blank` click and asks over IPC to open it; the deployment's pages
+  have no IPC by design, so the GitHub link did nothing and neither hook
+  logged a thing. Found by a debug build under a separate identifier with
+  logs on, clicked by the user. Fixed with `open_js_links_on_click(false)`.
 - **Test a `target=_blank` click with a real gesture.** A click synthesised
   by `eval` is treated as a popup and blocked before WKWebView's new-window
   delegate runs, so a scripted check of the GitHub link proves nothing either

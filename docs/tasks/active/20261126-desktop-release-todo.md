@@ -53,7 +53,9 @@ other half of Phase 2 and are not in this task.
 - [x] Usability pass (impeccable): docs site → system browser; login
       page's Docs link was a client-side `<Link>` to an unrouted `/docs`
       (blank page, web too) → real link; window title follows the page;
-      View menu Back / Forward / Reload without accelerators
+      View menu Back / Forward / Reload without accelerators; `target=_blank`
+      links did nothing (opener's injected link script needs IPC the page
+      does not have) → script off, policy decides; verified by a user click
 - [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
       (`/auth/providers` has no `desktop` field on 0.6.18), or the default
       server answers "too old"

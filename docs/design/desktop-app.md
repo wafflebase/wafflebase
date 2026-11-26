@@ -234,6 +234,12 @@ its own cookies.
 | Download (`<a download>`) | Saved to Downloads, without a dialog, only for `blob:` URLs the frontend minted or URLs on the frontend origin; anything else is refused. On macOS WebKit routes downloads to this handler before the navigation hook |
 | `<backend>/auth/desktop/session` from the handoff page | Allowed once, in the window running sign-in. If that window then renders anything but the frontend or a bundled page, sign-in fails and the window shows the error |
 
+`tauri-plugin-opener` is registered without its link script
+(`open_js_links_on_click(false)`). That script catches every `target=_blank`
+click, cancels it and asks over IPC to open the URL, but the deployment's
+pages get no IPC (§1), so with it on such a link did nothing at all. Off,
+WebKit sends the request through `on_new_window` and the table above decides.
+
 The frontend's `window.open` calls are all external hyperlinks in sheets and
 docs (`worksheet.ts`, `text-editor.ts`), so the system browser is the right
 place for them. Every download goes through one of two helpers,

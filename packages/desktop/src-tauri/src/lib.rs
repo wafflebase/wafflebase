@@ -608,7 +608,16 @@ pub fn run() {
             focus_main(app);
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_opener::init())
+        // Without its link script. That script catches every `target=_blank`
+        // click, cancels it and asks over IPC to open the URL, but the
+        // deployment's pages get no IPC on purpose (capabilities/local.json),
+        // so the click died silently. With it off, WebKit hands the request
+        // to `on_new_window`, and the navigation policy decides (§4).
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
