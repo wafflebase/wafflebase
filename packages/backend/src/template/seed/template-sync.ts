@@ -59,7 +59,17 @@ export interface TemplateSyncDeps {
   >;
   templates: Pick<TemplateService, 'publish' | 'update' | 'submit' | 'review'>;
   images: Pick<ImageService, 'upload' | 'delete'>;
-  writeContent: (documentId: string, content: SeedContent) => Promise<void>;
+  /**
+   * Write `content` and return a hash of the document's root right after the
+   * write — what {@link readContentHash} returns while nobody else has
+   * touched the document since.
+   */
+  writeContent: (documentId: string, content: SeedContent) => Promise<string>;
+  /** Hash the document's root as it stands now (same serializer). */
+  readContentHash: (
+    documentId: string,
+    kind: SeedContent['kind'],
+  ) => Promise<string>;
   /** Reads `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` and `YORKIE_AUTH_WEBHOOK_ENFORCE`. */
   config: { get<T = string>(key: string): T | undefined };
   /** Measures elapsed time while waiting; never compared with Yorkie's. */
@@ -84,6 +94,19 @@ class SeedStop extends Error {
   ) {
     super(message);
   }
+}
+
+/** The data columns of a record, for re-saving it with one field changed. */
+function pickRecord(
+  r: TemplateSeedRecord,
+): Omit<TemplateSeedRecord, 'documentId' | 'slug' | 'updatedAt'> {
+  return {
+    contentHash: r.contentHash,
+    writtenHash: r.writtenHash,
+    cardHash: r.cardHash,
+    thumbnailHash: r.thumbnailHash,
+    appliedAt: r.appliedAt,
+  };
 }
 
 export class TemplateSync {
@@ -177,6 +200,15 @@ export class TemplateSync {
       where: { documentId },
     });
 
+    // A record without a listing is stale: the listing was unpublished (which
+    // deletes the row and its preview link) since this command last ran.
+    // Nothing it recorded still describes anything, so it is discarded and
+    // the seed takes the first-publish path. Handled here rather than by
+    // having `TemplateService.unpublish` know about seed records: the record
+    // is this command's own bookkeeping, and the service should not grow a
+    // dependency on an operator tool's table.
+    if (!listing && record) record = null;
+
     // A takedown is terminal, and the operator path never reverses
     // moderation — not even by trying and letting the service refuse.
     if (listing?.status === 'removed') {
@@ -194,10 +226,11 @@ export class TemplateSync {
     if (!listing) {
       listing = await this.publish(documentId, seed, thumbnail);
       record = await this.saveRecord(documentId, seed.slug, {
-        contentHash: record?.contentHash ?? '',
+        contentHash: '',
+        writtenHash: '',
         cardHash,
         thumbnailHash: thumbnail.sha256,
-        appliedAt: record?.appliedAt ?? null,
+        appliedAt: null,
       });
       applied = 'published';
     } else {
@@ -228,6 +261,7 @@ export class TemplateSync {
         });
         record = await this.saveRecord(documentId, seed.slug, {
           contentHash: record?.contentHash ?? '',
+          writtenHash: record?.writtenHash ?? '',
           cardHash,
           thumbnailHash: thumbnail.sha256,
           appliedAt: record?.appliedAt ?? null,
@@ -243,22 +277,31 @@ export class TemplateSync {
       // compared only with Yorkie-issued instants — never with this
       // process's clock.
       const baseline = (await this.readListing(documentId)).contentChangedAt;
-      await this.deps.writeContent(documentId, seed.content);
-      const observed = await this.awaitContentEvent(documentId, baseline);
+      const writtenHash = await this.deps.writeContent(
+        documentId,
+        seed.content,
+      );
+      // Recorded before the wait with `appliedAt` cleared: a wait that times
+      // out leaves nothing to attest, and the next run rewrites.
       record = await this.saveRecord(documentId, seed.slug, {
         contentHash,
+        writtenHash,
         cardHash: record?.cardHash ?? cardHash,
         thumbnailHash: record?.thumbnailHash ?? thumbnail.sha256,
+        appliedAt: null,
+      });
+      const observed = await this.awaitContentEvent(documentId, baseline);
+      record = await this.saveRecord(documentId, seed.slug, {
+        ...pickRecord(record),
         appliedAt: observed.contentChangedAt,
       });
       applied ??= 'updated';
     }
 
     // ---- Approval ----------------------------------------------------------
-    // Every approval echoes a watermark this command observed for its own
-    // write. Without one there is nothing it may attest to.
-    const attested = record?.appliedAt;
-    if (!record || !attested) {
+    // Only content this command wrote, and whose event it saw land, can be
+    // attested. Without that there is nothing to approve.
+    if (!record || !record.appliedAt || !record.writtenHash) {
       throw new SeedStop(
         'failed',
         'no observed content write to attest to; not approving',
@@ -271,22 +314,36 @@ export class TemplateSync {
     }
     this.assertResubmittable(listing);
 
-    // An operator does not attest to content it did not write. Equality of
-    // two Yorkie-issued instants: any later event means the document is no
-    // longer what this command wrote.
-    if (listing.contentChangedAt?.getTime() !== attested.getTime()) {
-      throw new SeedStop(
-        'failed',
-        'edited by someone else (content watermark ' +
-          `${listing.contentChangedAt?.toISOString() ?? 'none'}, this command ` +
-          `wrote ${attested.toISOString()}); not approving`,
-      );
-    }
-
     if (listing.visibility === 'public' && listing.status === 'listed') {
       return applied
         ? { result: 'updated', detail: 'applied; still public and listed' }
         : { result: 'unchanged', detail: 'public and listed' };
+    }
+
+    // The watermark is read *before* the content, and approval echoes it.
+    // An edit landing before the read below changes the content, which is
+    // refused here; one landing after it moves `contentChangedAt` past this
+    // watermark, which `review()` refuses with a 409 (its `contentAt` CAS),
+    // or — if its event arrives only after the approval — returns the
+    // listing to `pending` and hides it (`TemplateReviewSyncService`).
+    const contentAt = listing.contentChangedAt;
+    if (!contentAt) {
+      throw new SeedStop('failed', 'the listing has no content watermark');
+    }
+    // An operator does not attest to content it did not write: the document
+    // must still hold exactly what this command's write left there. This,
+    // not the watermark, is what tells our own event from a stranger's — the
+    // first advance after the write is not necessarily ours.
+    const current = await this.deps.readContentHash(
+      documentId,
+      seed.content.kind,
+    );
+    if (current !== record.writtenHash) {
+      throw new SeedStop(
+        'failed',
+        'edited by someone else during or after the sync: the document no ' +
+          'longer holds what this command wrote; not approving',
+      );
     }
 
     const { authorId } = this.options;
@@ -306,7 +363,7 @@ export class TemplateSync {
     // command observed, which `review()` re-checks under its own CAS.
     await this.deps.templates.review(listing.id, authorId, {
       decision: 'approve',
-      contentAt: attested.toISOString(),
+      contentAt: contentAt.toISOString(),
     });
     return {
       result: applied === 'published' ? 'published' : 'approved',

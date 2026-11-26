@@ -3,6 +3,7 @@ CREATE TABLE "TemplateSeedRecord" (
     "documentId" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "contentHash" TEXT NOT NULL,
+    "writtenHash" TEXT NOT NULL DEFAULT '',
     "cardHash" TEXT NOT NULL,
     "thumbnailHash" TEXT NOT NULL,
     "appliedAt" TIMESTAMP(3),

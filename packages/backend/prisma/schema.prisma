@@ -439,6 +439,11 @@ model TemplateSeedRecord {
   /// sha256 of the catalogue content this command last wrote and saw land;
   /// empty until it has.
   contentHash      String
+  /// sha256 of the document's whole root (Yorkie's sorted JSON) right after
+  /// this command's last write. Approval re-reads the document and refuses
+  /// unless it still hashes to this — so an edit by anyone else, even one
+  /// whose event was mistaken for ours, is never attested. Empty until a write.
+  writtenHash      String    @default("")
   /// sha256 of title, description, category and tags as last applied.
   cardHash         String
   /// sha256 of the thumbnail bytes last uploaded. Identical bytes skip the

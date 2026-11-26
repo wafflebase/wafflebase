@@ -435,11 +435,10 @@ Where the shipped command differs from the proposal above, and why:
   computed; a renderer change shows up as different bytes.
 - **`appliedAt` is a Yorkie instant, observed — never this host's clock.** A
   write snapshots the listing's `contentChangedAt`, writes, and waits for the
-  watermark to strictly advance past the snapshot; that observed value is both
-  `appliedAt` and the `contentAt` sent to `review()`. Clock skew between the
-  sync host and Yorkie therefore cannot wedge a seed. `appliedAt` is nullable:
-  null means no write of ours has been observed, and nothing is approved. "Edited
-  by someone else" is the listing's watermark differing from `appliedAt`.
+  watermark to strictly advance past the snapshot; that observed value is
+  `appliedAt`. Clock skew between the sync host and Yorkie therefore cannot
+  wedge a seed. `appliedAt` is nullable: null means no write of ours has been
+  observed, and nothing is approved.
 - **Fails closed without the event webhook.** An event never observed within
   `--event-timeout` fails the seed with a message naming the webhook, and no
   approval is attempted — `review()` is never called with an undefined
@@ -473,11 +472,39 @@ Where the shipped command differs from the proposal above, and why:
 - **A listing with no record** (one `register:templates` made) counts as
   entirely changed, so its card, thumbnail and content are reapplied and
   re-approved once.
-- **Known limitation:** the wait attributes the first watermark advance after
-  the snapshot to this write. An unrelated event landing in that window — a
-  stranger's edit, or a late event from `seed:templates`' own write — would be
-  attested instead; the next such event then moves the watermark past
-  `appliedAt` and the following run refuses with "edited by someone else".
+- **"Edited by someone else" is decided by content, not by the watermark.**
+  The first watermark advance after a write is not necessarily ours, so the
+  wait alone cannot attribute it. `writeContent` returns the hash of the
+  document's root (Yorkie's sorted JSON) right after the write, stored as
+  `TemplateSeedRecord.writtenHash`; before approving, the command reads the
+  watermark, then re-reads the document and refuses unless it still hashes to
+  `writtenHash` — whichever event it observed. Both sides go through the same
+  serializer, so no per-type normalization of `seedContentHash` is needed (a
+  catalogue-to-Yorkie round trip is not byte-stable for docs trees).
+  Approval then echoes the watermark read *before* the content, so an edit
+  after that read either changes the content (refused here) or moves
+  `contentChangedAt` past `contentAt`, which `review()` refuses
+  (`template.service.ts`, the `seen !== actual` CAS in `review()`). A
+  content-identical late event of our own — the case that used to wedge a seed
+  on "edited by someone else" — now just approves the newer watermark.
+- **Residual window:** an edit made after the read-back whose event has not
+  reached the backend when `review()` runs is approved with the older
+  watermark. It is not served: when its event lands,
+  `TemplateReviewSyncService` returns the listing to `pending`, and
+  `isVisibleTo` hides any listing whose `contentChangedAt` is past
+  `reviewedContentAt` even if that write never happens.
+- **A record without a listing is stale and discarded.** `unpublish` deletes
+  the listing but not the `TemplateSeedRecord`; the next run treats the seed as
+  never published (publish → write → observe → submit → approve). Handled in
+  the command, not by making `TemplateService.unpublish` aware of seed
+  records: the record is the operator tool's own bookkeeping.
+- **Contract-tested against the real service.**
+  `test/template-sync.e2e-spec.ts` (`RUN_DB_INTEGRATION_TESTS`) drives
+  `TemplateSync` against the real `TemplateService` and
+  `TemplateReviewSyncService` on Postgres, with a fake Yorkie document store
+  and event source: first publish, card change, content change, a
+  third-party edit before and inside the wait, re-sync after unpublish, and
+  the `contentAt` CAS.
 
 ### 4. Gallery browse v2
 

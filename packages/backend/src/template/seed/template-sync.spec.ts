@@ -9,6 +9,7 @@ import {
   TemplateSync,
   type SeedThumbnail,
   type TemplateSyncDeps,
+  type TemplateSyncOptions,
 } from './template-sync';
 import type { TemplateSeed } from './types';
 
@@ -90,6 +91,7 @@ function recordRow(
     cardHash: CARD_HASH,
     thumbnailHash: THUMB.sha256,
     appliedAt: OURS,
+    writtenHash: 'h-ours',
     updatedAt: new Date(0),
     ...overrides,
   };
@@ -117,6 +119,17 @@ interface World {
   eventDelayReads: number;
   /** Writes whose event has not landed yet. */
   pendingEvents: number;
+  /** The document's root hash as Yorkie would serialize it now. */
+  docHash: string;
+  /** The seeded `Document` row, or null when it was never seeded. */
+  doc: {
+    id: string;
+    type: string;
+    workspaceId: string;
+    deletedAt: Date | null;
+  } | null;
+  /** Runs right after a content read-back — an edit racing the approval. */
+  afterReadback?: (world: World) => void;
 }
 
 /** The Yorkie event for a write, as `TemplateReviewSyncService` applies it. */
@@ -148,19 +161,15 @@ function setup(
     eventsRegistered: true,
     eventDelayReads: 2,
     pendingEvents: 0,
+    docHash: 'h-ours',
+    doc: { id: DOC_ID, type: 'note', workspaceId: 'ws', deletedAt: null },
     ...initial,
   };
+  let writes = 0;
   let readsSinceWrite = 0;
   const prisma = {
     document: {
-      findUnique: jest.fn(() =>
-        Promise.resolve({
-          id: DOC_ID,
-          type: 'note',
-          workspaceId: 'ws',
-          deletedAt: null,
-        }),
-      ),
+      findUnique: jest.fn(() => Promise.resolve(world.doc)),
     },
     templateListing: {
       findUnique: jest.fn(() => {
@@ -224,26 +233,44 @@ function setup(
       world.listing = { ...world.listing!, status: 'pending' };
       return Promise.resolve({});
     }),
-    review: jest.fn(() => {
-      world.listing = {
-        ...world.listing!,
-        status: 'listed',
-        visibility: 'public',
-        reviewedContentAt: world.listing!.contentChangedAt,
-      };
-      return Promise.resolve({});
-    }),
+    review: jest.fn(
+      (_id: string, _user: number, dto: { contentAt?: string }) => {
+        // `review()`'s CAS (template.service.ts, `seen !== actual`): the
+        // watermark echoed must still be the listing's current one.
+        const actual = world.listing!.contentChangedAt?.getTime() ?? null;
+        const seen = dto.contentAt ? new Date(dto.contentAt).getTime() : null;
+        if (seen !== actual) {
+          return Promise.reject(
+            new Error('This template changed while you were reviewing it'),
+          );
+        }
+        world.listing = {
+          ...world.listing!,
+          status: 'listed',
+          visibility: 'public',
+          reviewedContentAt: world.listing!.contentChangedAt,
+        };
+        return Promise.resolve({});
+      },
+    ),
   };
   const images = {
     upload: jest.fn(() => Promise.resolve({ id: 'new-thumb.webp', url: '/x' })),
     delete: jest.fn(() => Promise.resolve(undefined)),
   };
   const writeContent = jest.fn(() => {
+    writes += 1;
+    world.docHash = `h-write-${writes}`;
     if (world.eventsRegistered) {
       world.pendingEvents += 1;
       readsSinceWrite = 0;
     }
-    return Promise.resolve(undefined);
+    return Promise.resolve(world.docHash);
+  });
+  const readContentHash = jest.fn(() => {
+    const hash = world.docHash;
+    world.afterReadback?.(world);
+    return Promise.resolve(hash);
   });
   const deps: TemplateSyncDeps = {
     prisma: prisma as unknown as TemplateSyncDeps['prisma'],
@@ -251,19 +278,29 @@ function setup(
     images: images as unknown as TemplateSyncDeps['images'],
     config: { get: <T>(key: string) => config[key] as T | undefined },
     writeContent,
+    readContentHash,
     now: () => new Date(world.localClock),
     sleep: (ms) => {
       world.localClock += ms;
       return Promise.resolve();
     },
   };
-  const make = () =>
+  const make = (extra: Partial<TemplateSyncOptions> = {}) =>
     new TemplateSync(deps, {
       authorId: AUTHOR,
       eventTimeoutMs: 5_000,
       pollIntervalMs: 500,
+      ...extra,
     });
-  return { world, make, prisma, templates, images, writeContent };
+  return {
+    world,
+    make,
+    prisma,
+    templates,
+    images,
+    writeContent,
+    readContentHash,
+  };
 }
 
 describe('TemplateSync', () => {
@@ -492,6 +529,7 @@ describe('TemplateSync', () => {
         contentChangedAt: new Date(2_000),
       }),
       record: recordRow(),
+      docHash: 'h-stranger',
     });
 
     const outcome = await make().syncOne(SEED, THUMB);
@@ -499,6 +537,128 @@ describe('TemplateSync', () => {
     expect(outcome.result).toBe('failed');
     expect(outcome.detail).toMatch(/edited by someone else/);
     expect(templates.review).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stranger edit whose event was credited to our write', async () => {
+    // The stranger edits right after our write; the first watermark advance
+    // the wait sees could be theirs. The read-back catches it.
+    const { world, make, templates, writeContent } = setup();
+    writeContent.mockImplementationOnce(() => {
+      world.docHash = 'h-write-1';
+      world.pendingEvents += 1;
+      world.docHash = 'h-stranger';
+      return Promise.resolve('h-write-1');
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/no longer holds what this command wrote/);
+    expect(templates.review).not.toHaveBeenCalled();
+  });
+
+  it('does not wedge when our own late event moved the watermark', async () => {
+    // Content is still exactly ours; only the watermark moved (our event
+    // arriving after a previous run attested an earlier one).
+    const { make, templates } = setup({
+      listing: listingRow({
+        status: 'pending',
+        contentChangedAt: new Date(2_000),
+      }),
+      record: recordRow(),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('approved');
+    expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      decision: 'approve',
+      contentAt: new Date(2_000).toISOString(),
+    });
+  });
+
+  it('relies on the review CAS for an edit landing after the read-back', async () => {
+    const { world, make, templates } = setup({
+      listing: listingRow({ status: 'pending' }),
+      record: recordRow(),
+      afterReadback: (w) => {
+        // A stranger's edit lands, event and all, between read-back and
+        // approval: the watermark moves past the one we will echo.
+        w.docHash = 'h-stranger';
+        w.pendingEvents += 1;
+        w.eventDelayReads = -1;
+        landEvent(w);
+      },
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(templates.review).toHaveBeenCalledTimes(1);
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/changed while you were reviewing/);
+    expect(world.listing?.visibility).toBe('public');
+    expect(world.listing?.status).toBe('pending');
+  });
+
+  it('re-syncs an unpublished seed: the stale record is discarded', async () => {
+    // `unpublish` deleted the listing; the record from the earlier run
+    // remains and must not be trusted.
+    const { world, make, templates, writeContent } = setup({
+      listing: null,
+      record: recordRow(),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('published');
+    expect(templates.publish).toHaveBeenCalledTimes(1);
+    expect(writeContent).toHaveBeenCalledTimes(1);
+    expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      decision: 'approve',
+      contentAt: new Date(world.yorkieClock).toISOString(),
+    });
+    expect(world.record).toMatchObject({
+      contentHash: CONTENT_HASH,
+      writtenHash: 'h-write-1',
+    });
+  });
+
+  describe('the seeded document must be the one this catalogue made', () => {
+    it.each([
+      ['missing', null, 'skipped', /not seeded/],
+      [
+        'trashed',
+        { id: DOC_ID, type: 'note', workspaceId: 'ws', deletedAt: new Date(1) },
+        'failed',
+        /in the trash/,
+      ],
+      [
+        'in another workspace',
+        { id: DOC_ID, type: 'note', workspaceId: 'other', deletedAt: null },
+        'failed',
+        /seeded into workspace other/,
+      ],
+      [
+        'of another type',
+        { id: DOC_ID, type: 'sheet', workspaceId: 'ws', deletedAt: null },
+        'failed',
+        /is a sheet, the catalogue says note/,
+      ],
+    ])(
+      'refuses a document that is %s',
+      async (_label, doc, result, message) => {
+        const { make, templates, images, writeContent } = setup({ doc });
+        const sync = make({ workspaceId: 'ws' });
+
+        const outcome = await sync.syncOne(SEED, THUMB);
+
+        expect(outcome.result).toBe(result);
+        expect(outcome.detail).toMatch(message);
+        expect(images.upload).not.toHaveBeenCalled();
+        expect(writeContent).not.toHaveBeenCalled();
+        expect(templates.publish).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it('refuses a thumbnail rendered from other content', async () => {

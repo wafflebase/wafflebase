@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -8,7 +9,10 @@ import {
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { AppModule } from '../../app.module';
 import { PrismaService } from '../../database/prisma.service';
-import { YorkieService } from '../../yorkie/yorkie.service';
+import {
+  YorkieService,
+  type WithDocumentOptions,
+} from '../../yorkie/yorkie.service';
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 import { DocsYorkieRoot, writeDocsRoot } from '../../yorkie/docs-tree';
 import { SlidesYorkieRoot, writeSlidesRoot } from '../../yorkie/slides-tree';
@@ -45,60 +49,86 @@ function documentType(content: SeedContent): string {
 // Content
 // --------------------------------------------------------------------------
 
+/** Where each seed kind's Yorkie document lives, and how a new one starts. */
+function documentOptions(kind: SeedContent['kind']): WithDocumentOptions {
+  if (kind === 'sheet') {
+    return {
+      docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.sheet,
+      initialRoot: initialSpreadsheetDocument(),
+    };
+  }
+  return { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES[kind] };
+}
+
+/**
+ * sha256 of a document's whole root, as Yorkie serializes it with sorted
+ * keys. Used to tell whether a document still holds exactly what a write
+ * left there: both sides go through the same serializer, so no per-type
+ * normalization is needed.
+ */
+function rootHash(doc: { toSortedJSON(): string }): string {
+  return createHash('sha256').update(doc.toSortedJSON()).digest('hex');
+}
+
 /**
  * Replace a seeded document's content with `content`. Exported for
  * `sync:templates`, which rewrites a listed seed when its catalogue content
  * changes.
+ *
+ * Returns the {@link rootHash} of the document right after this write was
+ * applied locally — the server state at attach plus this change, before
+ * anything else is pulled in. `sync:templates` compares a later read against
+ * it to prove nobody edited the document after the write.
  */
 export async function writeContent(
   yorkie: YorkieService,
   documentId: string,
   content: SeedContent,
-): Promise<void> {
+): Promise<string> {
+  return yorkie.withDocument<string, Record<string, unknown>>(
+    documentId,
+    (doc) => {
+      doc.update((root) => applyContent(root, content));
+      return rootHash(doc);
+    },
+    documentOptions(content.kind),
+  );
+}
+
+/** The {@link rootHash} of a seeded document as it stands now. */
+export async function readContentHash(
+  yorkie: YorkieService,
+  documentId: string,
+  kind: SeedContent['kind'],
+): Promise<string> {
+  return yorkie.withDocument<string, Record<string, unknown>>(
+    documentId,
+    (doc) => rootHash(doc),
+    { ...documentOptions(kind), syncMode: 'readonly' },
+  );
+}
+
+/** Write `content` into a root, inside a `doc.update`. */
+function applyContent(
+  root: Record<string, unknown>,
+  content: SeedContent,
+): void {
   if (content.kind === 'doc') {
-    await yorkie.withDocument<void, DocsYorkieRoot>(
-      documentId,
-      (doc) => {
-        doc.update((root) => writeDocsRoot(root, content.document));
-      },
-      { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.doc },
-    );
+    writeDocsRoot(root as unknown as DocsYorkieRoot, content.document);
     return;
   }
-
   if (content.kind === 'slides') {
-    await yorkie.withDocument<void, SlidesYorkieRoot>(
-      documentId,
-      (doc) => {
-        doc.update((root) => writeSlidesRoot(root, content.document));
-      },
-      { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.slides },
-    );
+    writeSlidesRoot(root as unknown as SlidesYorkieRoot, content.document);
     return;
   }
-
   if (content.kind === 'note') {
-    await yorkie.withDocument<void, NoteYorkieRoot>(
-      documentId,
-      (doc) => {
-        doc.update((root) => writeNoteRoot(root, content.document));
-      },
-      { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.note },
-    );
+    writeNoteRoot(root as unknown as NoteYorkieRoot, content.document);
     return;
   }
-
   if (content.kind === 'board') {
-    await yorkie.withDocument<void, BoardRoot>(
-      documentId,
-      (doc) => {
-        doc.update((root) => {
-          root.meta = content.root.meta;
-          root.elements = content.root.elements;
-        });
-      },
-      { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.board },
-    );
+    const board = root as unknown as BoardRoot;
+    board.meta = content.root.meta;
+    board.elements = content.root.elements;
     return;
   }
 
@@ -111,28 +141,18 @@ export async function writeContent(
   // a cell would otherwise leave the old value behind and still report
   // `rewritten`, so the document on screen would match no version of the
   // catalogue.
-  await yorkie.withDocument<void, SpreadsheetDocument>(
-    documentId,
-    (doc) => {
-      doc.update((root) => {
-        const tabId = root.tabOrder[0];
-        const worksheet = root.sheets[tabId];
-        root.tabs[tabId].name = content.tabName;
-        // Assigned unconditionally for the same reason: a revision that drops
-        // `frozenRows` has to unfreeze the header, not keep the old pane.
-        worksheet.frozenRows = content.frozenRows ?? 0;
-        replaceWorksheetCells(
-          worksheet,
-          Object.entries(content.cells).map(
-            ([ref, value]) => [parseRef(ref), value] as const,
-          ),
-        );
-      });
-    },
-    {
-      docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.sheet,
-      initialRoot: initialSpreadsheetDocument(),
-    },
+  const sheet = root as unknown as SpreadsheetDocument;
+  const tabId = sheet.tabOrder[0];
+  const worksheet = sheet.sheets[tabId];
+  sheet.tabs[tabId].name = content.tabName;
+  // Assigned unconditionally for the same reason: a revision that drops
+  // `frozenRows` has to unfreeze the header, not keep the old pane.
+  worksheet.frozenRows = content.frozenRows ?? 0;
+  replaceWorksheetCells(
+    worksheet,
+    Object.entries(content.cells).map(
+      ([ref, value]) => [parseRef(ref), value] as const,
+    ),
   );
 }
 

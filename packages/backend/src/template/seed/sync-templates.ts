@@ -8,7 +8,7 @@ import { ImageService } from '../../image/image.service';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { TemplateService } from '../template.service';
 import { TEMPLATE_CATALOG } from './catalog';
-import { writeContent } from './seed-templates';
+import { readContentHash, writeContent } from './seed-templates';
 import {
   acquireSyncLock,
   parseSyncArgs,
@@ -65,6 +65,8 @@ async function main(): Promise<void> {
         config: app.get(ConfigService),
         writeContent: (documentId, content) =>
           writeContent(yorkie, documentId, content),
+        readContentHash: (documentId, kind) =>
+          readContentHash(yorkie, documentId, kind),
       },
       {
         authorId: args.authorId,

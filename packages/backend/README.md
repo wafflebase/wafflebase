@@ -704,7 +704,7 @@ watermark it attests to (`appliedAt`), so a re-run does only what changed:
 
 | Listing | What the run does |
 | --- | --- |
-| none | upload thumbnail → `publish` (unlisted, licensed) → write the catalogue content → wait for its event → quiet `submit` → approve that watermark |
+| none (also after an unpublish: the leftover record is discarded) | upload thumbnail → `publish` (unlisted, licensed) → write the catalogue content → wait for its event → quiet `submit` → approve |
 | public + listed, nothing changed | nothing |
 | card or thumbnail changed | `update` (returns it to review; the preview link is kept) → approve. Identical thumbnail bytes are not re-uploaded |
 | content changed, or no record of a write of ours | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
@@ -716,17 +716,22 @@ watermark it attests to (`appliedAt`), so a re-run does only what changed:
 Every approval attests only to content this command wrote and saw land. A write
 snapshots the listing's `contentChangedAt` first and waits, up to
 `--event-timeout` seconds (default 30), for it to strictly advance past that
-snapshot; the advanced value — a Yorkie-issued instant, never compared with
-this host's clock — is the `contentAt` echoed to `review()`. **It fails closed:**
-with the Yorkie event webhook unregistered no event arrives, nothing is
-approved, and the seed fails with a message saying so; the next run rewrites
-and waits again. Approval is by listing id, only for seeds with a record, and
-refused when the listing's watermark is anything other than the one this
-command observed — somebody else edited the document. Submissions are made
+snapshot — a Yorkie-issued instant, never compared with this host's clock.
+**It fails closed:** with the Yorkie event webhook unregistered no event
+arrives, nothing is approved, and the seed fails with a message saying so; the
+next run rewrites and waits again. Because the first advance is not
+necessarily ours, approval does not trust it: the write's own root hash is
+recorded (`writtenHash`), and before approving the command reads the listing's
+watermark, re-reads the document, and refuses unless the document still hashes
+to what it wrote — somebody else edited it. Approval is by listing id, only for
+seeds with a record, and echoes that watermark, so an edit landing afterwards
+makes `review()`'s `contentAt` check refuse it. Submissions are made
 without the reviewer notification, since the same run decides them. One run at a time: a
 `pg_try_advisory_lock` on a dedicated connection refuses a second run
 (`DATABASE_URL` must be a session-mode connection for that). A seed that fails
 does not stop the others; the run exits non-zero if any did.
+`test/template-sync.e2e-spec.ts` runs the command against the real
+`TemplateService` on Postgres (`RUN_DB_INTEGRATION_TESTS=true`).
 
 **`sync:templates` requires the webhook to be enforcing** — the same
 `YORKIE_AUTH_WEBHOOK_ENFORCE=true` the server demands, because a public
