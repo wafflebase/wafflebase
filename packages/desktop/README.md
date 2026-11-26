@@ -78,7 +78,10 @@ in a sheet, a new window) goes to the system browser like any other link:
 1. `GET <backend>/auth/providers` must report `desktop.github === true`.
    Without the field the window says the server is too old for desktop
    sign-in; with `false` it says the server has it turned off (no https
-   sign-in address, or no `COOKIE_SECURE=true` behind a TLS proxy).
+   sign-in address, or no `COOKIE_SECURE=true` behind a TLS proxy). On
+   Windows `desktop.windowsOrigin === false` also stops it here: that server
+   refuses `http://tauri.localhost`, the origin this app's webview hands off
+   from, so the sign-in could only fail at the last step.
 2. A listener starts on `127.0.0.1:<random>` with a fresh nonce and PKCE
    verifier, and the system browser opens its single-use
    `http://127.0.0.1:<port>/launch/<token>`, which redirects to

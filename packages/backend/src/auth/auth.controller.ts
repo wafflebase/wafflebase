@@ -408,13 +408,26 @@ export class AuthController {
    * (`cliLoginAvailable()`), since it is the same gate; Google has no
    * loopback mode yet. A server that predates the field is how the app tells
    * "too old for desktop sign-in" apart from a login that never comes back.
+   *
+   * `desktop.windowsOrigin` is the second half of that answer, and only
+   * Windows reads it: the handoff that ends a desktop sign-in POSTs from the
+   * app's own webview, whose origin there is `http://tauri.localhost`, and a
+   * deployment that set `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false` refuses it.
+   * Reporting it here is what lets the Windows app say so before it opens a
+   * browser, instead of after the user has signed in and the handoff 403s.
+   * It stays a separate field rather than folding into `github`, because
+   * macOS and Linux hand off from `tauri://localhost` and are unaffected.
    */
   @Get('providers')
   authProviders() {
     return {
       github: true,
       google: googleAuthConfigured(),
-      desktop: { github: cliLoginAvailable(), google: false },
+      desktop: {
+        github: cliLoginAvailable(),
+        google: false,
+        windowsOrigin: windowsDesktopOriginAllowed(),
+      },
     };
   }
 

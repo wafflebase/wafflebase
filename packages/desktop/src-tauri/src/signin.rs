@@ -1,7 +1,8 @@
 //! Desktop sign-in, from an intercepted `/auth/github` navigation to the
 //! handoff page (`docs/design/desktop-app.md` §3).
 //!
-//! 1. `GET <backend>/auth/providers` must report `desktop.github === true`.
+//! 1. `GET <backend>/auth/providers` must report `desktop.github === true`,
+//!    and on Windows must not report `desktop.windowsOrigin === false`.
 //! 2. A loopback listener (`login.rs`) is started with a fresh nonce and PKCE
 //!    verifier, and the system browser opens its single-use launch URL.
 //! 3. On a valid callback the window is focused and loads the bundled
@@ -303,6 +304,51 @@ struct Providers {
 #[derive(serde::Deserialize)]
 struct DesktopProviders {
     github: Option<bool>,
+    /// Whether the server accepts `http://tauri.localhost` as a handoff
+    /// origin. Only Windows hands off from it — macOS and Linux use
+    /// `tauri://localhost`, which the server always accepts. Absent on a
+    /// server that predates the field, which accepted it unconditionally.
+    #[serde(rename = "windowsOrigin")]
+    windows_origin: Option<bool>,
+}
+
+/// This platform's verdict on a server's `desktop` sign-in answer.
+///
+/// `windows` is whether this build's webview hands off from
+/// `http://tauri.localhost`. A server that refuses that origin
+/// (`WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) would 403 the handoff POST at
+/// the very end, after the user signed in — so Windows refuses here instead,
+/// while macOS and Linux are unaffected by the setting.
+fn desktop_signin_verdict(desktop: Option<&DesktopProviders>, windows: bool) -> Result<(), String> {
+    match desktop.and_then(|d| d.github) {
+        Some(true) => {}
+        // A current server that cannot run the loopback login: it reports
+        // the same for the CLI. See `cliLoginAvailable` in the backend.
+        Some(false) => {
+            return Err(
+                "This server has desktop sign-in turned off: it needs an https sign-in \
+                 address, or COOKIE_SECURE=true behind a TLS proxy. Ask its \
+                 administrator, or sign in from a web browser."
+                    .to_string(),
+            )
+        }
+        None => {
+            return Err(
+                "This server is too old for desktop sign-in. Ask its administrator to \
+                 upgrade Wafflebase, or sign in from a web browser."
+                    .to_string(),
+            )
+        }
+    }
+    if windows && desktop.and_then(|d| d.windows_origin) == Some(false) {
+        return Err(
+            "This server does not accept sign-in from the Windows app's window \
+             (WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false). Ask its administrator, or \
+             sign in from a web browser."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 async fn check_providers(backend: &Url) -> Result<(), String> {
@@ -328,22 +374,7 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
         .json()
         .await
         .map_err(|_| "The server's sign-in options could not be read.".to_string())?;
-    match providers.desktop.and_then(|d| d.github) {
-        Some(true) => Ok(()),
-        // A current server that cannot run the loopback login: it reports
-        // the same for the CLI. See `cliLoginAvailable` in the backend.
-        Some(false) => Err(
-            "This server has desktop sign-in turned off: it needs an https sign-in \
-             address, or COOKIE_SECURE=true behind a TLS proxy. Ask its \
-             administrator, or sign in from a web browser."
-                .to_string(),
-        ),
-        None => Err(
-            "This server is too old for desktop sign-in. Ask its administrator to \
-             upgrade Wafflebase, or sign in from a web browser."
-                .to_string(),
-        ),
-    }
+    desktop_signin_verdict(providers.desktop.as_ref(), cfg!(windows))
 }
 
 /// Start desktop sign-in against `backend` in window `label`. Cancels any
@@ -489,6 +520,46 @@ mod tests {
 
     fn u(s: &str) -> Url {
         Url::parse(s).unwrap()
+    }
+
+    fn desktop(github: Option<bool>, windows_origin: Option<bool>) -> DesktopProviders {
+        DesktopProviders {
+            github,
+            windows_origin,
+        }
+    }
+
+    /// The preflight's whole reading of `/auth/providers`, platform by
+    /// platform. A server whose Windows handoff origin is off must stop a
+    /// Windows sign-in before the browser opens, and must not touch the
+    /// other two platforms, which hand off from `tauri://localhost`.
+    #[test]
+    fn a_refused_windows_origin_stops_only_windows() {
+        let off = desktop(Some(true), Some(false));
+        assert!(desktop_signin_verdict(Some(&off), true).is_err());
+        assert!(desktop_signin_verdict(Some(&off), false).is_ok());
+
+        let on = desktop(Some(true), Some(true));
+        assert!(desktop_signin_verdict(Some(&on), true).is_ok());
+        assert!(desktop_signin_verdict(Some(&on), false).is_ok());
+
+        // A server that predates the field accepted the origin
+        // unconditionally, so its silence is not a refusal.
+        let old = desktop(Some(true), None);
+        assert!(desktop_signin_verdict(Some(&old), true).is_ok());
+    }
+
+    #[test]
+    fn a_server_without_desktop_sign_in_is_refused_everywhere() {
+        for windows in [true, false] {
+            // Too old for desktop sign-in at all.
+            assert!(desktop_signin_verdict(None, windows).is_err());
+            assert!(desktop_signin_verdict(Some(&desktop(None, Some(true))), windows).is_err());
+            // Current, but the loopback login is gated off.
+            assert!(
+                desktop_signin_verdict(Some(&desktop(Some(false), Some(true))), windows).is_err()
+            );
+        }
     }
 
     fn handoff() -> Handoff {

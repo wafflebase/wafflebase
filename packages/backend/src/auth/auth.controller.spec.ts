@@ -810,7 +810,7 @@ describe('AuthController', () => {
       expect(controller.authProviders()).toEqual({
         github: true,
         google: false,
-        desktop: { github: true, google: false },
+        desktop: { github: true, google: false, windowsOrigin: true },
       });
 
       process.env.GOOGLE_CLIENT_ID = 'id';
@@ -824,7 +824,7 @@ describe('AuthController', () => {
         github: true,
         google: true,
         // Google has no loopback mode yet, configured or not.
-        desktop: { github: true, google: false },
+        desktop: { github: true, google: false, windowsOrigin: true },
       });
     });
 
@@ -839,6 +839,7 @@ describe('AuthController', () => {
       expect(controller.authProviders().desktop).toEqual({
         github: false,
         google: false,
+        windowsOrigin: true,
       });
 
       process.env.GITHUB_CALLBACK_URL =
@@ -849,6 +850,31 @@ describe('AuthController', () => {
         'http://wafflebase.internal:3000/auth/github/callback';
       process.env.COOKIE_SECURE = 'true';
       expect(controller.authProviders().desktop.github).toBe(true);
+    });
+
+    /**
+     * The Windows app hands off from `http://tauri.localhost`, so a
+     * deployment that refuses that origin cannot complete a Windows
+     * sign-in. The app reads `desktop.windowsOrigin` to say so before it
+     * opens a browser, instead of after the handoff POST is refused — and
+     * `desktop.github` stays true, because macOS and Linux hand off from
+     * `tauri://localhost` and are unaffected by the setting.
+     */
+    it('reports whether the Windows handoff origin is accepted', () => {
+      delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+      expect(controller.authProviders().desktop.windowsOrigin).toBe(true);
+
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = '  FALSE  ';
+      expect(controller.authProviders().desktop).toEqual({
+        github: true,
+        google: false,
+        windowsOrigin: false,
+      });
+
+      // Anything but that one word leaves it accepted, the same reading
+      // `isDesktopOrigin` gives it.
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = 'no';
+      expect(controller.authProviders().desktop.windowsOrigin).toBe(true);
     });
   });
 

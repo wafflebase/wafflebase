@@ -167,7 +167,7 @@ code and its verifier.
 | `mode=desktop` on `GET /auth/github` | Same state, confirmation and nonce machinery as `mode=cli`. Entries in `CliAuthStore` record their mode, so a code minted for one flow cannot be redeemed through the other. The confirmation page names the desktop app instead of the command line |
 | `mode=desktop` on `GET /auth/google` (Phase 2) | Google has no CLI mode today ([backend README](../../packages/backend/README.md) `/auth/google`: browser only). The Google guard gains the same state handling |
 | `POST /auth/desktop/session` | Form-encoded `{ code, verifier, returnTo? }`, accepted only from a desktop `Origin` (below). Consumes like `cli/exchange`, then writes cookies with the existing `setAuthCookies` path and answers `303` to `FRONTEND_URL` (plus `returnTo` when `safeReturnPath` accepts it). A code that does not redeem answers `303` to `FRONTEND_URL/login?error=desktop_session`. Throttled like `cli/exchange` |
-| `GET /auth/providers` | Adds `desktop: { github, google }` (`google` is `false` until Phase 2), so a new app can tell an old server apart and say so instead of hanging on the loopback timeout |
+| `GET /auth/providers` | Adds `desktop: { github, google, windowsOrigin }` (`google` is `false` until Phase 2), so a new app can tell an old server apart and say so instead of hanging on the loopback timeout. `windowsOrigin` reports whether `http://tauri.localhost` is still an accepted handoff origin (below); only the Windows app reads it, and it refuses there before opening a browser rather than after the handoff POST is refused |
 
 **The session endpoint only answers the desktop app.** Unlike
 `cli/exchange`, which returns tokens to whoever calls it, this endpoint

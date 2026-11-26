@@ -103,7 +103,7 @@ imports the full module set listed below.
 
 **`GET /auth/providers`**
 - No guard. Returns `{ github: true, google: <bool>, desktop: { github:
-  <bool>, google: false } }`.
+  <bool>, google: false, windowsOrigin: <bool> } }`.
 - Which sign-in buttons the login page should offer. Google is optional and
   configured per *deployment*, so a build-time `VITE_` flag could not answer
   it — a self-hosted image is built once and configured per install.
@@ -114,6 +114,13 @@ imports the full module set listed below.
   same gate as the CLI login; Google has no loopback mode yet. A server
   without the field is how the app recognizes one too old for desktop
   sign-in ([desktop-app.md](desktop-app.md) §3).
+- `windowsOrigin` is whether `POST /auth/desktop/session` still accepts
+  `http://tauri.localhost` (`WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN`). Only the
+  Windows app reads it — it is the origin that app's webview hands off from,
+  so a deployment that dropped it must stop a Windows sign-in before the
+  browser opens rather than 403 the handoff after the user signed in. macOS
+  and Linux hand off from `tauri://localhost` and ignore the field, which is
+  why it is reported beside `github` instead of lowering it.
 
 **`GET /auth/google`** (only where `GOOGLE_*` is configured)
 - Guard: `GoogleAuthGuard`

@@ -509,7 +509,7 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 | `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
 | `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
-| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google } }` — which sign-in buttons the login page should offer, and which the desktop app can run |
+| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google, windowsOrigin } }` — which sign-in buttons the login page should offer, which the desktop app can run, and whether the Windows app's handoff origin is still accepted |
 | `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
