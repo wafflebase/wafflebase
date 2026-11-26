@@ -6,10 +6,12 @@
 //! whose signature does not verify against that key. See
 //! `docs/design/desktop-app.md` §5 and §7.
 //!
-//! Flow: check at launch (release builds) and once a day, or on "Check for
-//! Updates…"; download in the background; then ask. "Restart Now" installs
-//! and relaunches. "Later" keeps the package and installs it when the app
-//! quits, so the next launch runs the new version without asking again.
+//! The app is versioned with the server and released with it, which is often,
+//! and most of those releases do not touch the shell. So the background check
+//! (at launch in release builds, then daily) is silent: it downloads and
+//! verifies the package and installs it when the app quits, and the next
+//! launch runs it. Only "Check for Updates…" talks to the user: "Restart
+//! Now" installs and relaunches, "Later" leaves it for quit.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -59,9 +61,10 @@ pub fn check_from_menu<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move { check(&app, true).await });
 }
 
-/// Installs a package the user deferred with "Later". Called on
-/// `RunEvent::Exit`; on Windows the installer takes over and the process
-/// exits here, without relaunching the app the user just quit.
+/// Installs a downloaded package: one the background check fetched, or one
+/// the user deferred with "Later". Called on `RunEvent::Exit`; on Windows the
+/// installer takes over and the process exits here, without relaunching the
+/// app the user just quit.
 pub fn install_pending_on_exit<R: Runtime>(app: &AppHandle<R>) {
     let Some(state) = app.try_state::<Updates>() else {
         return;
@@ -79,7 +82,8 @@ pub fn install_pending_on_exit<R: Runtime>(app: &AppHandle<R>) {
 async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
     let state = app.state::<Updates>();
     if state.pending().is_some() {
-        // Already downloaded: ask again rather than fetching it twice.
+        // Already downloaded and waiting for quit. Offer it rather than
+        // fetching again; a newer release is picked up after that launch.
         if manual {
             prompt_restart(app);
         }
@@ -93,8 +97,14 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
 
     match result {
         Ok(Some(downloaded)) => {
+            dlog!(
+                "update {} downloaded, installs on quit",
+                downloaded.0.version
+            );
             *state.pending() = Some(downloaded);
-            prompt_restart(app);
+            if manual {
+                prompt_restart(app);
+            }
         }
         Ok(None) => {
             if manual {

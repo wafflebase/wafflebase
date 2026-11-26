@@ -1,6 +1,6 @@
 [package]
 name = "wafflebase-desktop"
-version = "0.1.0"
+version = "0.6.18"
 description = "Desktop shell that opens a Wafflebase deployment in a native window"
 authors = ["Wafflebase contributors"]
 license = "Apache-2.0"

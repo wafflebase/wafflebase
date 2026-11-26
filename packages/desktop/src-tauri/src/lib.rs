@@ -587,11 +587,11 @@ mod tests {
     }
 
     /// The update endpoint is compiled in, so a wrong one strands every
-    /// install. Server releases own this repository's "Latest" release, so
-    /// `releases/latest/...` would answer with the server's assets (or 404);
-    /// the manifest lives on the rolling `desktop-latest` release instead.
+    /// install. The app ships in the same GitHub release as the server, so
+    /// the repository's "Latest" release carries its `latest.json`; a
+    /// prerelease is never "Latest" and so never offered.
     #[test]
-    fn update_endpoint_is_the_rolling_desktop_release() {
+    fn update_endpoint_is_the_latest_release() {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let updater = &conf["plugins"]["updater"];
@@ -599,9 +599,9 @@ mod tests {
         assert_eq!(endpoints.len(), 1, "{endpoints:?}");
         let endpoint = endpoints[0].as_str().unwrap();
         assert!(endpoint.starts_with("https://"), "{endpoint}");
-        assert!(!endpoint.contains("/releases/latest/"), "{endpoint}");
         assert!(
-            endpoint.ends_with("/releases/download/desktop-latest/latest.json"),
+            endpoint
+                == "https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json",
             "{endpoint}"
         );
         assert!(updater.get("dangerousInsecureTransportProtocol").is_none());

@@ -18,3 +18,10 @@
 - **Generate the signing key off-keychain.** `openssl genrsa` + CSR, then
   `pkcs12 -export -legacy`: the key exists only in the `.p12`, so "which Mac
   holds the private key" cannot recur.
+- **Versioning follows the release process, not the code boundary.** The
+  first draft gave the shell its own `desktop-v*` version because it carries
+  no server code — correct, and still the wrong call: a second number and a
+  second procedure cost more than the extra updates, and riding the server's
+  release made the "Latest" problem disappear. What the separate version was
+  protecting (no update nags) is better bought in the update UX (silent,
+  installed on quit).

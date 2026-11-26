@@ -238,13 +238,14 @@ that would reach the system browser without cookies.
   browser). `updater` and `dialog` are driven from Rust only; no capability
   grants their commands to any page.
 - **Updates.** The app updates only the shell; the UI updates when the server
-  does. `src-tauri/src/update.rs` checks at launch and once a day (release
-  builds), and on **Check for Updates…** in the app menu. A found update is
-  downloaded and its minisign signature verified against the public key
-  compiled into `tauri.conf.json` before the user is asked anything. Then
-  **Restart Now** installs and relaunches, and **Later** keeps the package
-  and installs it on quit, so the next launch runs it without asking again.
-  On Windows the NSIS installer runs passively; deferred to quit, it does
+  does. Because the app ships with every server release (§7), most updates
+  change nothing a user would notice, so `src-tauri/src/update.rs` keeps the
+  background check silent: at launch and once a day (release builds) it
+  downloads a new version, verifies its minisign signature against the public
+  key compiled into `tauri.conf.json`, and installs it when the app quits; the
+  next launch runs it. Only **Check for Updates…** in the app menu talks to
+  the user: "up to date", or **Restart Now** / **Later** (Later leaves it for
+  quit). On Windows the NSIS installer runs passively and, run at quit, does
   not relaunch the app the user just closed. A failed background check is
   logged, not shown.
 - **Signing.** Apple Developer ID (G2 intermediate) with notarization on macOS.
@@ -252,8 +253,7 @@ that would reach the system browser without cookies.
   Authenticode-signed, so SmartScreen warns on first run until a signing route
   is chosen (Azure Artifact Signing, or an OV certificate in a cloud HSM —
   EV no longer buys SmartScreen reputation). Signing secrets live only in the
-  `desktop-release` GitHub Environment, which requires a maintainer's
-  approval.
+  `desktop-release` GitHub Environment, restricted to `v*` tags.
 
 ### 6. WebKit checklist
 
@@ -279,13 +279,30 @@ It exists today but no workflow runs it.
 
 ### 7. Release
 
-`@wafflebase/desktop` has its own version and `desktop-v*` tags, separate from
-the server's lockstep version, because it carries no server or frontend code.
-`.github/workflows/desktop-release.yml` builds a universal macOS bundle
-(signed, notarized, stapled; the disk image notarized separately) and a
-Windows NSIS installer, and publishes them to GitHub Releases. The desktop
-release is not a step in the server release procedure. The procedure and the
-secrets it needs are in [`packages/desktop/README.md`](../../packages/desktop/README.md#releasing).
+The app carries the repository's lockstep version and ships in the same
+GitHub release as the server: publishing `vX.Y.Z` runs `docker-publish.yml`,
+`npm-publish.yml` and `.github/workflows/desktop-release.yml` side by side.
+The last builds a universal macOS bundle (signed, notarized, stapled; the disk
+image notarized separately) and a Windows NSIS installer and attaches them to
+that release. It is a separate workflow so that notarization, which waits on
+Apple and can fail, never holds up or fails the server image. The secrets it
+needs are in [`packages/desktop/README.md`](../../packages/desktop/README.md#releasing).
+
+One version means one number in release notes, bug reports and the About
+box, and no second release procedure. It is a release number, not a
+compatibility contract: a 0.7.0 app opens a self-hosted 0.6.x server like any
+other, and what a server supports is read from `/auth/providers` (§3).
+`scripts/test/desktop-version.test.mjs` keeps `packages/desktop/package.json`,
+`Cargo.toml` and `Cargo.lock` on the root version, so a release bump that
+misses them fails before the tag; the workflow's first job checks the tag
+again.
+
+An earlier draft gave the app its own `desktop-v*` tags. That would have
+needed its own release procedure, and since server releases own the
+repository's "Latest", its update manifest a rolling release of its own. The
+cost of riding the server's release is cadence: the app ships with every
+server release, most of which do not touch the shell, which is why the
+background update is silent.
 
 Distribution is GitHub Releases only. The Mac App Store would require the
 sandbox, under which the loopback sign-in listener and direct writes to
@@ -293,17 +310,21 @@ Downloads need entitlements and review for what is a thin shell; the
 Microsoft Store adds a review cycle for no capability the installer lacks.
 Homebrew and winget manifests can point at the same assets later.
 
-**Where the manifest lives.** Server releases own the repository's "Latest"
-release, so the updater cannot use `releases/latest/download/latest.json`: it
-would follow the server's release and 404. Each version publishes to its own
-`desktop-vX.Y.Z` release with `--latest=false`, and the rolling
-`desktop-latest` release carries `latest.json` plus stable-named installers
-for download links. The endpoint is compiled into every installed app, so it
-cannot move without a manual reinstall; a unit test pins it. The manifest's
-package URLs point at the versioned release, never at `desktop-latest`, so a
-download in flight cannot change under the app. A prerelease tag
-(`desktop-v0.2.0-beta.1`) publishes its versioned release only and leaves
-installed apps alone.
+**Where the manifest lives.** Every release carries `latest.json` and
+installers under stable names (`Wafflebase_universal.dmg`,
+`Wafflebase_x64-setup.exe`), so the app polls
+`releases/latest/download/latest.json` and download links use
+`releases/latest/download/<name>`. The endpoint is compiled into every
+installed app and cannot move without a manual reinstall; a unit test pins
+it. The manifest's package URLs name the release's own tag, never `latest`,
+so a download in flight cannot change under the app. A prerelease is never
+"Latest", so it is never offered.
+
+The manifest is uploaded last. Between publishing a release and the end of
+the desktop run (about half an hour, mostly notarization) the new "Latest"
+has no `latest.json` or installers: update checks get a 404 and try again the
+next day, and download links are briefly dead. If the run fails for good,
+installed apps stay where they are until the next release.
 
 **Keys that cannot be lost.**
 
@@ -322,7 +343,7 @@ a yearly step in the README procedure.
 |-------|-------|
 | 0. Spike | Unsigned shell that loads a deployment; run the §6 checklist on macOS. Go or no-go for Tauri |
 | 1. Sign-in | Backend `mode=desktop` (GitHub), `/auth/desktop/session`, providers field. Shell: picker, navigation policy, login, downloads, menus. Unsigned macOS + Windows builds for the team |
-| 2. Release | Google `mode=desktop`; signing, notarization, updater (shipped: `desktop-release.yml`, `update.rs`); Authenticode; `test:webkit` in CI; public release |
+| 2. Release | Google `mode=desktop`; signing, notarization, updater, released with the server (shipped: `desktop-release.yml`, `update.rs`); Authenticode; `test:webkit` in CI; public release |
 | Later | Linux; file associations into import; deep links; offline (separate design) |
 
 ### 9. What the Phase 0 spike found
@@ -363,8 +384,9 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | WebView tracking prevention drops the cookies set by the cross-site handoff POST | Verified in the spike. Fallback: write the cookies through each platform's native cookie store |
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
-| Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment (maintainer approval); Phase 1 builds are unsigned and internal |
-| The agent App can push a `desktop-v*` tag (`contents: write`) | Its tags are refused by the workflow's first job, and the signing jobs wait for a maintainer's approval on the Environment |
+| Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment, restricted to `v*` tags; Phase 1 builds are unsigned and internal |
+| The agent App can publish a release (`contents: write`) | The workflow's first job refuses a release it authored, and every job that reads a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. A required reviewer on the Environment closes the residual cases that guard names (an App-published draft a human created) |
+| Every server release ships the app, most without shell changes | Silent background update, installed on quit (§5); one ~10 MB download per release |
 | The updater key leaks | An attacker who can also serve the manifest could ship a signed update. The manifest is on GitHub Releases, writable only by the repository; rotating the key requires a release that trusts both keys before the old one is dropped |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the frontend URL, and `navigation::is_secure_origin` applies the same rule to the backend origin the login link names, so no exchange runs over cleartext |
 | The window's URL is read after a `/auth/github` navigation is cancelled (client-side routing to `/login` fires no event), so a foreign sign-in link clicked just as the window itself moves to `/login` is taken over against the foreign origin | Accepted. The race needs the click and an app-driven route change within one main-thread turn. The foreign backend then holds that attempt's nonce, so it can cancel a real sign-in in progress or finish the attempt against itself, but its OAuth page opens in the system browser with an address bar, and its session POST sets no cookie on the chosen server. Requiring the link to be on the frontend origin is not an option: the backend may have its own (`VITE_BACKEND_API_URL`). Pinning the backend origin after the first sign-in is the follow-up if this needs closing |

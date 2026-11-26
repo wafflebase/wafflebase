@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/desktop",
-  "version": "0.1.0",
+  "version": "0.6.18",
   "private": true,
   "description": "Desktop shell (Tauri 2) that opens a Wafflebase deployment in a native window",
   "license": "Apache-2.0",

@@ -32,7 +32,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDMkZDQzZEMzI4OUIwQTEKUldTaHNJa3liY3d2WENPTk1ETVFMWnhUdWtVL1FHc0NucVJIS2kzNTYxNlV3S1dneXdCblQrdC8K",
       "endpoints": [
-        "https://github.com/wafflebase/wafflebase/releases/download/desktop-latest/latest.json"
+        "https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

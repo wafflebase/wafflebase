@@ -9,7 +9,7 @@ flow the CLI uses. The design is
 [docs/design/desktop-app.md](../../docs/design/desktop-app.md).
 
 Status: Phase 0 + 1, plus the release half of Phase 2: signed and notarized
-macOS builds and the in-app updater, published by `desktop-v*` tags (see
+macOS builds and the in-app updater, published with every server release (see
 [Releasing](#releasing)). Google desktop sign-in, Authenticode for Windows and
 `test:webkit` in CI are still open.
 
@@ -22,7 +22,7 @@ macOS builds and the in-app updater, published by `desktop-v*` tags (see
 | `src-tauri/src/navigation.rs` | Navigation, new-window and download policy (pure, tested) |
 | `src-tauri/src/login.rs` | Loopback listener + PKCE, with the CLI's rules (tested) |
 | `src-tauri/src/signin.rs` | Sign-in orchestration: providers check, browser, handoff |
-| `src-tauri/src/update.rs` | Updater: launch/daily/menu checks, download, Restart Now / Later |
+| `src-tauri/src/update.rs` | Updater: silent launch/daily check installed on quit; menu check with Restart Now / Later |
 | `src-tauri/src/lib.rs` | Windows, hooks, menu, plugins, commands |
 | `src-tauri/capabilities/local.json` | IPC for the bundled pages only |
 | `app-icon.svg` | Icon source; `pnpm icon` regenerates `src-tauri/icons/` |
@@ -204,39 +204,40 @@ that redirects straight to the callback.
 
 ## Releasing
 
-A `desktop-vX.Y.Z` tag runs `.github/workflows/desktop-release.yml`: a
-universal macOS `.dmg` (signed, notarized, stapled), a Windows NSIS installer
-(not Authenticode-signed yet), and the updater packages, published to the
-`desktop-vX.Y.Z` release with `latest.json`. A final version also refreshes
-the rolling `desktop-latest` release, which is what installed apps poll and
-what download links point at:
+The app has no release of its own. It carries the repository's version and
+ships in the same GitHub release as the server: publishing `vX.Y.Z` runs
+`.github/workflows/desktop-release.yml` next to the Docker and npm publishes,
+which builds a universal macOS `.dmg` (signed, notarized, stapled), a Windows
+NSIS installer (not Authenticode-signed yet) and the updater packages, and
+attaches them to that release with `latest.json`. Installed apps poll
+`releases/latest/download/latest.json` and install new versions silently when
+they quit; download links are:
 
 ```
-https://github.com/wafflebase/wafflebase/releases/download/desktop-latest/Wafflebase_universal.dmg
-https://github.com/wafflebase/wafflebase/releases/download/desktop-latest/Wafflebase_x64-setup.exe
+https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg
+https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_x64-setup.exe
 ```
 
-The why — and why not `releases/latest` — is in
-[desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
+The why is in [desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
 
-### Cutting a release
+### In the release procedure
 
-1. Bump `version` in `package.json` and `src-tauri/Cargo.toml` to the same
-   value (`tauri.conf.json` reads `package.json`), and refresh `Cargo.lock`
-   with `cargo check`. Merge it.
-2. Tag the merge commit and push the tag:
-   `git tag desktop-v0.1.1 && git push origin desktop-v0.1.1`. A tag with a
-   suffix (`desktop-v0.2.0-beta.1`) publishes a prerelease and is not offered
-   to installed apps.
-3. Approve the `desktop-release` deployment in the run. The first job fails
-   if the tag and the two versions disagree.
-4. After it publishes, open the `.dmg` on a Mac that has never run the app;
-   Gatekeeper must open it without a warning. Then let an older install pick
-   the update up through **Check for Updates…**.
+- The version bump covers `packages/desktop/package.json`,
+  `src-tauri/Cargo.toml` and the `wafflebase-desktop` entry in
+  `src-tauri/Cargo.lock` (`tauri.conf.json` reads `package.json`).
+  `scripts/test/desktop-version.test.mjs` fails until all three match the
+  root `package.json`.
+- After publishing, watch the `desktop-release` run (about half an hour,
+  mostly notarization). Until it finishes the new release has no installers
+  and no `latest.json`; a failure there does not affect the server image.
+- Then open the `.dmg` on a Mac that has never run the app: Gatekeeper must
+  open it without a warning.
 
 ### The `desktop-release` Environment
 
-Required reviewers: the maintainers. Deployment tags: `desktop-v*`.
+Deployment branches and tags: `v*` tags only. A required reviewer is
+optional; it closes the cases the workflow's author guard cannot (a draft a
+human created and the agent App published).
 
 | Name | Kind | Value |
 |------|------|-------|
@@ -263,14 +264,17 @@ already signed keep running: the signature is timestamped.
 
 ### Testing an update locally
 
-Build two versions against a local manifest, without touching the shipped
-endpoint, by merging a config at build time:
+Build the current version and a higher one against a local manifest, without
+touching the shipped endpoint, by merging a config at build time (once with
+`"version"` omitted, once with it set):
 
 ```bash
-cfg='{"version":"0.1.1","plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
+cfg='{"version":"99.0.0","plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
 TAURI_SIGNING_PRIVATE_KEY=... TAURI_SIGNING_PRIVATE_KEY_PASSWORD=... \
   pnpm --filter @wafflebase/desktop tauri build --bundles app -c "$cfg"
 ```
 
 Serve the newer `Wafflebase.app.tar.gz` and a `latest.json` naming it from
-`127.0.0.1:8765`, run the older build, and use **Check for Updates…**.
+`127.0.0.1:8765`, then run the older build. It fetches the manifest and the
+package at launch without a word; quit it and the bundle on disk is the new
+version. **Check for Updates…** instead shows the Restart Now / Later prompt.

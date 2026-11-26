@@ -1,18 +1,24 @@
 # Desktop release: signing, notarization, updater
 
 Phase 2 of [desktop-app.md](../../design/desktop-app.md) §8, release half:
-ship signed, notarized macOS builds and an in-app updater from a
-`desktop-v*` tag. Google desktop sign-in and `test:webkit` in CI are the
+ship signed, notarized macOS builds and an in-app updater with every server
+release. Google desktop sign-in and `test:webkit` in CI are the
 other half of Phase 2 and are not in this task.
 
 ## Decisions
 
 - Channel: GitHub Releases only. No Mac App Store / Microsoft Store (sandbox
   breaks the loopback listener and Downloads writes; review cycle for a shell).
-- Server releases own "Latest" on this repo, so `releases/latest/download/…`
-  is unusable. Versioned assets go to `desktop-vX.Y.Z` (`make_latest: false`)
-  and the update manifest to a rolling `desktop-latest` release. The endpoint
-  is compiled into the binary: it cannot move without a manual reinstall.
+- **One version, one release** (maintainer's call, 2026-11-26). The app takes
+  the repository's lockstep version and is attached to the server's own
+  `vX.Y.Z` release by a separate workflow on `release: published`, so a
+  notarization failure never touches the Docker image. That release is
+  "Latest", so the updater uses `releases/latest/download/latest.json`
+  (compiled in; pinned by a test). First draft used `desktop-v*` tags and a
+  rolling `desktop-latest` release; dropped with this decision.
+- **Silent background updates.** Releases are frequent and rarely touch the
+  shell, so the background check downloads and installs on quit without a
+  prompt; only "Check for Updates…" asks Restart Now / Later.
 - macOS: Developer ID Application (G2), individual team `WRGGVTC2RN`. The
   certificate issued 2026-11-26 expires **2027-12-26**; renew yearly.
   Notarization through an App Store Connect Team API key.
@@ -20,25 +26,29 @@ other half of Phase 2 and are not in this task.
   Signing vs OV + cloud HSM) is chosen. The updater payload is still
   minisign-signed.
 - Updater key: Tauri minisign key; losing it strands every install.
-- Signing secrets live only in the `desktop-release` GitHub Environment.
+- Signing secrets live only in the `desktop-release` GitHub Environment
+  (`v*` tags). The workflow refuses a release the agent App authored, as
+  the Docker/npm publishes do.
 
 ## Todo
 
 - [x] Developer ID Application (G2) certificate + `.p12` (key generated off-keychain)
 - [x] Updater minisign key pair
-- [x] `tauri-plugin-updater` + `tauri-plugin-dialog`: background check at launch
-      (release builds), "Check for Updates…" menu item, download then ask
-      Restart / Later; Later installs on quit
+- [x] `tauri-plugin-updater` + `tauri-plugin-dialog`: silent background check
+      (launch + daily, release builds) installed on quit; "Check for
+      Updates…" asks Restart Now / Later
 - [x] ~~Endpoint env override~~ — not needed: a test build merges
       `-c '{"plugins":{"updater":{...}}}'`, so the shipped binary has no knob
-- [x] Single version source (`tauri.conf.json` reads `package.json`)
-- [x] `.github/workflows/desktop-release.yml`: macOS universal (signed +
-      notarized) + Windows NSIS, `latest.json`, `desktop-latest`
+- [x] Single version source (`tauri.conf.json` reads `package.json`); desktop
+      joins the lockstep version (0.6.18), `scripts/test/desktop-version.test.mjs`
+- [x] `.github/workflows/desktop-release.yml` on `release: published`: macOS
+      universal (signed + notarized) + Windows NSIS, attached to the release,
+      `latest.json` last
 - [x] Docs: desktop-app.md §5/§7, desktop README release procedure
 - [x] Verify: cargo fmt/clippy/test; local signed universal build;
       local 0.1.0 → 0.1.1 update against a local manifest
 - [ ] User: App Store Connect API access + Team key; Environment secrets;
-      first `desktop-v0.1.0` tag
+      first server release that carries the app
 
 ## Review
 
@@ -58,6 +68,14 @@ Verified locally (2026-11-26):
   manifest carrying the wrong minisign signature was downloaded but never
   installed (bundle stayed 0.1.0).
 
-Not verified here: the dialog itself (no screen capture permission in this
+After the switch to one release + silent updates: `cargo test` (55, endpoint
+now `releases/latest`), all of `scripts/test` (incl. `release-guard` over the
+new `release: published` trigger and `desktop-version`), actionlint,
+`verify:fast`. Re-ran the updater (arm64, test config): a 0.6.18 build
+fetched the manifest and a 99.0.0 package at launch and, on quit, the bundle
+on disk was 99.0.0.
+
+Not verified here: that no dialog appears on the silent path, and the
+manual-check dialog itself (no screen capture permission in this
 session) and Restart Now; tauri's own `APPLE_CERTIFICATE` signing path,
-notarization and the Windows job, which only the first tagged run exercises.
+notarization and the Windows job, which only the first release run exercises.
