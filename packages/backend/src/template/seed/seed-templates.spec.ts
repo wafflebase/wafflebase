@@ -61,6 +61,26 @@ describe('hashRootJson', () => {
     expect(hashRootJson(other)).toBe(hashRootJson(sheetRoot(clean)));
   });
 
+  // A member named `__proto__` is an own property of what `JSON.parse`
+  // returns, but assigning it onto a fresh `{}` reaches `Object.prototype`'s
+  // setter instead of creating a property — so a rebuild that assigns would
+  // drop it from the hash, past the collision guard, and let injected content
+  // sit under an approved listing.
+  it('moves when content is injected under a __proto__ key', () => {
+    // A computed key, not the literal `__proto__:` form, which sets the
+    // prototype rather than creating the own property the hash has to see.
+    const injected = { cells: { 'ra|ca': { v: 'ok' } }, ['__proto__']: 1 };
+    expect(hashRootJson(sheetRoot(injected))).not.toBe(
+      hashRootJson(sheetRoot(clean)),
+    );
+    const nested = {
+      cells: { 'ra|ca': { v: 'ok' }, ['__proto__']: { v: 'evil' } },
+    };
+    expect(hashRootJson(sheetRoot(nested))).not.toBe(
+      hashRootJson(sheetRoot(clean)),
+    );
+  });
+
   it('separates a moved cell from an unmoved one', () => {
     const moved = {
       cells: { 'ra|ca': { v: 'ok' } },

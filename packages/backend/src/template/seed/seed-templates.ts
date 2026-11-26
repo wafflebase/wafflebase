@@ -156,19 +156,26 @@ function renameAxisIds(ws: unknown): unknown {
     if (typeof value === 'string') return rename(value);
     if (Array.isArray(value)) return value.map(walk);
     if (value && typeof value === 'object') {
-      const out: Record<string, unknown> = {};
+      // Built through `Object.fromEntries`, never `out[key] = …`: a member
+      // named `__proto__` reaches `Object.prototype`'s setter on assignment
+      // and vanishes from the hash, which is the dropped member this guard
+      // exists to refuse. `JSON.parse` makes such a member an own property,
+      // so `Object.entries` does list it.
+      const seen = new Set<string>();
+      const entries: Array<[string, unknown]> = [];
       for (const [k, v] of Object.entries(value)) {
         const key = rename(k);
-        if (Object.prototype.hasOwnProperty.call(out, key)) {
+        if (seen.has(key)) {
           throw new Error(
             `worksheet key ${JSON.stringify(k)} collides with ` +
               `${JSON.stringify(key)} after axis-id renaming, so its root ` +
               'cannot be hashed',
           );
         }
-        out[key] = walk(v);
+        seen.add(key);
+        entries.push([key, walk(v)]);
       }
-      return out;
+      return Object.fromEntries(entries);
     }
     return value;
   };
