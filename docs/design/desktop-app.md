@@ -37,13 +37,16 @@ the remote origin gets no native API at all by default. The comparison is in
   state, multiple windows, external links in the system browser, downloads
   saved to disk, single instance, auto-update, signed and notarized builds.
 - Release for macOS and Windows.
+- Open the app's UI with no network, and say plainly that it is offline,
+  rather than showing a blank window (§10).
 
 ### Non-Goals
 
-- **Offline editing.** Persisting Yorkie documents locally is deferred in
+- **Offline reading and editing.** The UI opens offline (§10); documents do
+  not. Persisting Yorkie documents locally is deferred in
   [sync-status.md](sync-status.md) and is needed on the web as much as here.
-  It gets its own design. The desktop app behaves exactly like a browser tab
-  when the connection drops.
+  §10 lays out the follow-ups. Once a document is open, the desktop app
+  behaves exactly like a browser tab when the connection drops.
 - **Editing local files without a server.** Opening an `.xlsx` and editing it
   in place is a different product from a client for a server.
 - **Bundling the frontend into the app.** See Alternatives Considered.
@@ -382,7 +385,7 @@ a yearly step in the README procedure.
 | 0. Spike | Unsigned shell that loads a deployment; run the §6 checklist on macOS. Go or no-go for Tauri |
 | 1. Sign-in | Backend `mode=desktop` (GitHub), `/auth/desktop/session`, providers field. Shell: picker, navigation policy, login, downloads, menus. Unsigned macOS + Windows builds for the team |
 | 2. Release | Google `mode=desktop`; signing, notarization, updater, released with the server (shipped: `desktop-release.yml`, `update.rs`); Authenticode; `test:webkit` in CI; public release |
-| Later | Linux; file associations into import; deep links; offline (separate design) |
+| Later | Linux; file associations into import; deep links; offline reading and editing (§10 follow-ups) |
 
 ### 9. What the Phase 0 spike found
 
@@ -412,6 +415,101 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
   for each one. `withGlobalTauri` still exposes an inert `window.__TAURI__`
   object to remote pages.
 
+### 10. Offline boot
+
+Launched with no network, the app used to show an empty window: it loads the
+deployment's frontend from its URL (§1), and there was nothing to load. Slack's
+desktop app answers this with a Service Worker that caches its UI, and so does
+this app. The worker belongs to the **frontend**, not the shell, so it keeps
+§1's property: the shell carries no frontend code, and the UI a user sees
+offline is the one their server last served. It helps a browser tab exactly as
+much. The frontend design is in [frontend.md](frontend.md) § Offline app
+shell.
+
+**Spike: Service Workers work in the shell's WKWebView.** Measured on macOS 26
+(Darwin 25.3) with Tauri 2.12.7 / wry 0.57.3, running the debug shell against
+`http://localhost` (a secure context, like any `https://` deployment):
+
+- wry gives each window `WKWebsiteDataStore.defaultDataStore` (persistent; the
+  app sets no `incognito` and no data-store identifier), and sets
+  `limitsNavigationsToAppBoundDomains` on iOS only. App-Bound Domains, which
+  gate Service Workers in a third-party WKWebView on iOS, do not apply on
+  macOS.
+- A test page reported `'serviceWorker' in navigator`, registered `/sw.js`,
+  reached `ready` and got `controllerchange` within 120 ms of first load.
+- After quitting the app and **stopping the server**, a relaunch loaded the
+  page with `navigator.serviceWorker.controller` set, `workerStart > 0` in its
+  navigation timing, and the precached Cache Storage entry present: the worker
+  served it, and both the registration and the cache survived the restart.
+- The real frontend build did the same: offline, `/login` rendered the offline
+  screen with the page controlled by `sw.js`. The Chromium equivalent (the
+  WebView2 engine) did too for `/login` and for a signed-in deep link never
+  visited before, which is what precaching `PrivateRoute` is for.
+- With no worker registered and the server down, the shell logs the
+  navigation (`navigation … -> Allow`) and **no** page-load event follows.
+  With the worker, `PageLoadEvent::Finished` fires for the frontend URL as for
+  any load. Windows was not run; WebView2 is Chromium and supports Service
+  Workers for `https://` origins, but see below on its page-load event.
+
+**What works offline, and what does not.**
+
+| | Offline |
+|-|---------|
+| Launch, window, menus, **Change server…** | Yes, as before |
+| The app's UI at `/login` or any signed-in route | Yes, from the worker's cache, showing the offline screen ("You're offline", documents are on the server, Try again; retries on the browser's `online` event) |
+| A route opened once online (an editor's chunk) | Its code is cached, but it sits behind the session check, so it shows the same screen |
+| Document list, documents, sign-in | No: they need the API and Yorkie, which are not cached and must not be |
+| A server never opened online, or a first launch | No worker yet: what the unreachable-server page (below) is for |
+
+The offline screen makes no claim that anything is saved or available locally.
+The same rule as [sync-status.md](sync-status.md), for the same reason.
+
+**With the unreachable-server page.** The shell's bundled failure page (probe
+before load, backoff, Retry / Change server) and this cached UI answer the same
+condition, and the cached UI should win when it exists, since it is the user's
+own app and recovers in place. The shell cannot ask the remote origin anything
+over IPC, and should not learn to, but it does not need to:
+
+1. Probe as planned. When the server answers, load it; nothing changes.
+2. When the probe fails, **navigate to the server's start URL anyway** rather
+   than straight to the bundled page.
+3. On `PageLoadEvent::Finished` for the frontend origin, ask the page whether
+   a worker served it:
+   `window.eval_with_callback("!!(navigator.serviceWorker && navigator.serviceWorker.controller)", …)`.
+   `true`: the cached UI booted; stop, and leave recovery to the page's own
+   Try again and `online` handling. `false`: show the bundled page.
+4. No `Finished` within a few seconds (macOS with no worker, measured above):
+   show the bundled page.
+
+Step 3's check is needed on Windows, where wry fires `Finished` on WebView2's
+`NavigationCompleted` whether or not the navigation succeeded, so an error page
+would otherwise look like a booted app. Only the shell evaluates script, and
+the page cannot start anything. A page that lies only stops the shell from
+replacing it. `eval_with_callback` was run against the offline frontend in the
+spike and returned the expected value. This is the only `lib.rs` change offline
+boot needs, and it belongs to the unreachable-server work.
+
+**Follow-ups: reading and editing offline.** Each is a separate design, in
+this order:
+
+1. **Read a recently opened document.** The worker must keep storing no API
+   response or document content, because its cache is shared by everyone who
+   uses this browser profile and is not cleared on sign-out. A read-only copy
+   would therefore come from the editor: a Yorkie snapshot (`Document.toBytes()`)
+   written to IndexedDB when a document is opened, keyed by user and document,
+   cleared on sign-out, with a small recent-documents index the offline screen
+   lists. It renders through the existing read-only `Mem*Store` path that
+   revision previews already use ([revision-history.md](revision-history.md)).
+   It needs a cached signed-in identity, since `/auth/me` is unreachable, and
+   an answer to whether a copy of a document the user has since lost access to
+   may still be shown.
+2. **Edit offline.** This is Yorkie's `ClientOptions.store` and the
+   stable-`clientKey` trade described in [sync-status.md](sync-status.md)
+   § Non-Goals: a stable key brings the SDK's single-active-session guard,
+   which refuses a second window on the same document. The desktop app makes
+   that trade more pressing, not different: it opens documents in several
+   windows of one webview profile.
+
 ### Risks and Mitigation
 
 | Risk | Mitigation |
@@ -425,6 +523,7 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment, restricted to `v*` tags; Phase 1 builds are unsigned and internal |
 | The agent App can publish a release (`contents: write`), and a release runs the workflow file at the tagged commit, so a tag on a commit that edits the file could drop its guard | The first job refuses a release the App authored and every job reading a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. That guard is in the file, so the backstop is the Environment: its secrets reach only a job that names it, and a **required reviewer** makes every such job wait for a maintainer whatever the file says |
 | The manifest names an asset the release does not carry | Every installed app logs a 404 and nobody sees it. `desktop-release.test.mjs` checks that the names agree across the Collect steps, the manifest, the upload and the README's download links |
+| A cached UI keeps users on an old build after a deploy | Navigations are network-first: the cache answers only when the server cannot. A deploy changes `sw.js`, and the new worker replaces the old shell and prunes old chunks ([frontend.md](frontend.md) § Offline app shell). `VITE_SERVICE_WORKER=off` turns it off and unregisters it |
 | Every server release ships the app, most without shell changes | Silent background update, installed on quit (§5); one ~10 MB download per release |
 | The updater key leaks | An attacker who can also serve the manifest could ship a signed update. The manifest is on GitHub Releases, writable only by the repository; rotating the key requires a release that trusts both keys before the old one is dropped |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the frontend URL, and `navigation::is_secure_origin` applies the same rule to the backend origin the login link names, so no exchange runs over cleartext |
@@ -440,6 +539,7 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | Electron | Same Chromium everywhere, the closest match to the Chromium-only visual tests. Rejected because the web app already works in Safari, so its main advantage buys little, while it costs ~100 MB per install, more memory and security defaults that must be set by hand. It stays the fallback if the §6 spike fails |
 | Installable PWA | No control over sign-in, downloads, menus or updates, and it depends on the user's browser (Safari and Firefox install support differs). Adding a web manifest is cheap and worth doing on its own, but it is not this app |
 | Bundle the frontend into the app | Every server upgrade would need an app release, and a team on an older server would get a frontend newer than its API |
+| A shell-level copy of the last frontend, served offline through a custom protocol | Considered for §10 in case Service Workers did not work in WKWebView; they do. It would need the shell to fetch and store a remote bundle, and serving it from a bundled origin puts the deployment's code where `capabilities/local.json` grants IPC, the one property §1 rules out |
 | Custom URL scheme (`wafflebase://`) for the OAuth callback | Any other app can register the same scheme. Loopback + PKCE is the RFC 8252 recommendation, and the CLI already has it |
 | `cli/exchange` tokens injected as cookies from native code | Per-platform cookie APIs, and the shell would hold long-lived JWTs (§3) |
 | OAuth inside the webview | Google refuses embedded user agents; GitHub sign-in without an address bar looks like phishing |

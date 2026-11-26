@@ -15,6 +15,7 @@ import { PrivateRoute } from "@/PrivateRoute";
 vi.mock("@/api/auth", () => ({
   fetchMe: async () => ({ id: 1, username: "me", email: "me@x", photo: null }),
   fetchYorkieToken: async () => "token",
+  isBackendUnreachableError: () => false,
 }));
 vi.mock("@yorkie-js/react", () => ({
   YorkieProvider: ({ children }: { children: ReactNode }) => children,

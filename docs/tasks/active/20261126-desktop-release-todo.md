@@ -58,9 +58,16 @@ other half of Phase 2 and are not in this task.
       does not have) → script off, policy decides; verified by a user click
 - [ ] ① Unreachable-server view (Rocket.Chat-style): bundled failure page,
       backoff probe (2s → 30s), auto-reload on recovery, Retry / Change server
-- [ ] ② Offline boot, first slice (Slack-style asset cache): verify Service
+- [x] ② Offline boot, first slice (Slack-style asset cache): verify Service
       Worker support in WKWebView/Tauri, then make the app open its UI with no
       network; recent-document read-only only if it lands cleanly, else design
+      → SW works in WKWebView (spike, desktop-app.md §10); frontend
+      `service-worker/sw.js` (network-first shell, hashed assets cache-first,
+      no API/data) + offline screen in both route guards; verified offline in
+      the real shell and in Chromium. Recent-document read-only **not built**:
+      designed as a §10 follow-up (needs an IndexedDB snapshot store, not the
+      SW cache). Shell side (probe fails → still navigate, ask the page
+      whether a worker served it) is specified in §10 for ①
 - [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
       (`/auth/providers` has no `desktop` field on 0.6.18), or the default
       server answers "too old"

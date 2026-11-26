@@ -101,3 +101,33 @@
 - **Browser shortcuts collide with Google parity.** Cmd+[ / Cmd+] (Docs
   indent) and Cmd+R (Sheets fill right) belong to the editors; menu
   accelerators would steal them, so Back / Forward / Reload ship without any.
+
+## Offline boot
+
+- **Spike the platform before designing around it.** Whether Service Workers
+  run in a third-party WKWebView is an iOS question (App-Bound Domains); wry
+  sets that flag on iOS only and uses the persistent default data store on
+  macOS. A twenty-line static server and a beacon on a second port settled it
+  in one run: registered, controlling, and serving after a restart with the
+  server stopped.
+- **Report from the page over a second origin.** The shell cannot be watched
+  on screen, and the page under test is the thing that goes offline. An image
+  beacon to a separate loopback port (which the worker passes through
+  untouched) kept reporting while the content server was down.
+- **The page-load event is not a success signal on every platform.** With no
+  worker and no server, WKWebView logs the navigation and never fires
+  `Finished`; wry's WebView2 backend fires `Finished` on `NavigationCompleted`
+  even for an error page. A shell rule built on "the page loaded" alone would
+  be right on macOS and wrong on Windows; `eval_with_callback` asking for
+  `navigator.serviceWorker.controller` works on both.
+- **"No response" is not "signed out".** The session check turned a network
+  failure into a redirect to `/login`, which offline is the first thing every
+  launch would show. Telling the two apart (`BackendUnreachableError`, only for
+  a rejected `fetch`) was the change the offline screen needed, and it fixes a
+  network blip on the web as well.
+- **Make sure a route you test exists.** The first offline e2e "failed" with an
+  empty page because `/w/team/d/abc` is not a route; the console said so. Read
+  the console before suspecting the cache.
+- **Revert spike edits to shipped code before the run.** A debug-only
+  `eval_with_callback` probe in `lib.rs` was built into the scratch binary and
+  the file restored before launching it, so it could not ride into a commit.

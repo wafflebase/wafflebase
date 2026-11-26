@@ -8,6 +8,7 @@ import { backendOrigin } from "@/api/images";
 import { initSentry } from "./sentry.ts";
 import { AppCrashFallback } from "@/components/app-crash-fallback";
 import { loadBrandFontsForPath } from "@/lib/brand-fonts";
+import { setUpServiceWorker } from "@/lib/service-worker";
 
 // First statement to run in the module, so a throw anywhere below is still
 // reported. A no-op unless `VITE_SENTRY_DSN` is set for this build — see
@@ -24,6 +25,18 @@ setCredentialedImageOrigins([backendOrigin()]);
 // Brand faces only for a cold load of a brand route, started before the
 // route chunk is fetched; see `brand-fonts.ts`.
 loadBrandFontsForPath(window.location.pathname);
+
+// The offline app shell. After `load`, so installing it (which downloads the
+// boot chunks a second time, mostly from the HTTP cache) never competes with
+// the first render.
+window.addEventListener("load", () => {
+  void setUpServiceWorker({
+    production: import.meta.env.PROD,
+    setting: import.meta.env.VITE_SERVICE_WORKER,
+    base: import.meta.env.BASE_URL,
+    container: navigator.serviceWorker,
+  });
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

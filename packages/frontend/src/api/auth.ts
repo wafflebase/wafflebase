@@ -16,6 +16,41 @@ export function isAuthExpiredError(error: unknown): error is AuthExpiredError {
   return error instanceof Error && error.name === "AuthExpiredError";
 }
 
+/**
+ * The session check could not reach the backend at all: no response, as
+ * opposed to a response saying "signed out". Told apart so the route guards
+ * can say the app is offline instead of sending a signed-in user to the
+ * sign-in page, which is what an unreachable server used to look like.
+ */
+export class BackendUnreachableError extends Error {
+  constructor() {
+    super("Could not reach the server");
+    this.name = "BackendUnreachableError";
+  }
+}
+
+export function isBackendUnreachableError(
+  error: unknown,
+): error is BackendUnreachableError {
+  return error instanceof Error && error.name === "BackendUnreachableError";
+}
+
+/**
+ * Runs a request, turning the `TypeError` that `fetch` rejects with when it
+ * gets no response into `BackendUnreachableError`. Only the fetch call goes
+ * in here, so a `TypeError` from anything else is not mistaken for one.
+ */
+async function reachBackend(request: () => Promise<Response>): Promise<Response> {
+  try {
+    return await request();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new BackendUnreachableError();
+    }
+    throw error;
+  }
+}
+
 type LogoutOptions = {
   redirect?: boolean;
   showSuccessToast?: boolean;
@@ -114,12 +149,11 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
  * Throws an error if the request fails.
  */
 export async function fetchMe(): Promise<User> {
-  const res = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/auth/me`,
-    {
+  const res = await reachBackend(() =>
+    fetchWithAuth(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
       method: "GET",
       credentials: "include",
-    }
+    }),
   );
 
   if (!res.ok) {
@@ -135,10 +169,12 @@ export async function fetchMe(): Promise<User> {
  */
 export async function fetchMeOptional(): Promise<User | null> {
   const requestMe = () =>
-    fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
-      method: "GET",
-      credentials: "include",
-    });
+    reachBackend(() =>
+      fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
+        method: "GET",
+        credentials: "include",
+      }),
+    );
 
   let res = await requestMe();
 

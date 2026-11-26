@@ -103,6 +103,74 @@ The reload defers to unsaved work because it is a reload *this app* initiates:
 `lib/unsaved-work.ts` is the registry both the sync chip and the upload queue
 report into; see [sync-status.md](sync-status.md).
 
+#### Offline app shell
+
+A production build writes a service worker, `dist/sw.js`, so the app's own UI
+opens with no network: the desktop app launched on a plane, or a tab reopened
+while the server is down. It caches the app, never the data. Signed-in pages
+still need the server, and saying so honestly is half of the feature. The
+desktop app is the main reason for it
+([desktop-app.md](desktop-app.md) § Offline boot), but nothing in it is
+desktop-specific.
+
+| Request | Handling |
+|---------|----------|
+| Navigation, same origin | Network first, whatever the status. Only a navigation that gets no response is answered with the cached `index.html` |
+| `assets/*` (Vite's content-hashed output) | Cache first. The boot set is precached at install; any other chunk is cached the first time the app loads it |
+| `/docs`, `/auth/`, `/api/`, `/internal/` on the same origin | Untouched. `/docs` is the VitePress site; the rest are backend routes on a deployment that serves the API from the frontend's origin, so no sign-in redirect or cookie-setting response ever runs through the worker |
+| Other origins (API, Yorkie, fonts), non-GET, unhashed root files | Untouched |
+
+The pieces, in `packages/frontend`:
+
+- **`service-worker/sw.js`** — the worker, plain JavaScript with no imports,
+  so the tests run the file that ships (`tests/service-worker/sw.test.ts`, in a
+  VM with an in-memory Cache Storage).
+- **`service-worker/plugin.ts`** — a Vite plugin that, at `writeBundle`, fills
+  `sw.js`'s manifest token: a version (a hash of `index.html` and every asset
+  name), the **boot set** (the entry chunk's static import closure and its CSS,
+  which is what `index.html` loads before first render, plus the same closure
+  for `PrivateRoute`, the one lazy chunk every signed-in route needs before it
+  can show anything), and the list of all hashed assets.
+- **`src/lib/service-worker.ts`** — registers `/sw.js` after `load`, in
+  production builds only, with `updateViaCache: "none"`.
+
+**No stale build.** This is what most often goes wrong with app-shell
+workers, so the design rules it out instead of managing it. Navigations are
+network-first, so a reachable server's `index.html` always wins and a deploy
+reaches the user on their next load, as it does without a worker. The cached
+shell is only ever an offline fallback. A new deploy changes `sw.js`'s bytes
+(the version), and `updateViaCache: "none"` makes the browser's update check
+bypass the ten-minute `max-age` GitHub Pages serves it with. The new worker
+precaches the new shell, calls `skipWaiting`, and on activate deletes the old
+shell cache and every cached chunk not in its asset list. Taking over a page
+from the previous build is safe because that page's lazy chunks miss the new
+cache and go to the network, which still serves them: `publish-ghpage.yml`
+keeps three deployments of assets. An install that cannot download its boot
+set fails as a whole, and the previous worker stays.
+
+**What a user sees offline.** The session check (`fetchMe`,
+`fetchMeOptional`) used to read "no response" as "signed out", so a network
+drop sent a signed-in user to `/login`. They now throw
+`BackendUnreachableError` when `fetch` itself rejects, and `PrivateRoute` and
+`PublicRoute` render `components/offline-screen.tsx` in that case: "You're
+offline", a sentence saying the documents are on the server, and Try again. It
+also retries on the browser's `online` event. The URL is kept, so the route
+the user asked for opens once the server answers. The screen claims nothing
+is available offline, because nothing is yet. A route outside both guards (the
+marketing page, `/shared/:token`) behaves as before.
+
+**Turning it off.** `VITE_SERVICE_WORKER=off` at build time writes no `sw.js`,
+and the app then unregisters any worker an earlier build installed. Not
+writing the file alone would not be enough: an installed worker outlives the
+build that installed it, and an update check that gets a 404 leaves it in
+place.
+
+**What it costs.** One extra download of the boot set at install, after the
+page's `load` event and mostly from the HTTP cache. Cache Storage grows by the
+chunks a user actually opens, and is pruned to the current build on every
+update. The browser-test lanes run on the Vite dev server, where nothing
+registers, so Playwright's request routing is unaffected.
+
 #### Provider Hierarchy
 
 ```
@@ -504,7 +572,10 @@ Google — OAuth + JWT cookies). The frontend's role is:
 3. **Anonymous-safe session checks** — Public contexts like `PublicRoute` and
    shared-link pages call `fetchMeOptional()`. If access token is expired, it
    calls POST `/auth/refresh` once and retries `GET /auth/me`; otherwise it
-   treats `401` as unauthenticated (`null`).
+   treats `401` as unauthenticated (`null`). Both throw
+   `BackendUnreachableError` when the request gets no response at all, and
+   the two route guards show the offline screen for it rather than the
+   sign-in page ([Offline app shell](#offline-app-shell)).
 4. **Logout** — POST `/auth/logout` clears auth cookies; frontend redirects to
    `/login`.
 5. **401 handling** — `fetchWithAuth()` wraps authenticated API calls. On
