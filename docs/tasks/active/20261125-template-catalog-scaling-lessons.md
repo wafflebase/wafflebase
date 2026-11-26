@@ -27,3 +27,12 @@
   fixes (read-back content hash before approve; real-service DB contract test).
 - A self-declared "known limitation" in a security-relevant path is a finding
   waiting to happen — close the window instead of documenting it.
+- Round 3 (security/docs): 4 blocking — loop bound reached, escalated to a
+  human. (a) deleting `register:templates` leaves 16 sheet/doc/board seeds with
+  no operator path (design-fit); (b) the rewritten content-write path is faked
+  in every test (test-adequacy); (c) card drift via the Share dialog is invisible
+  because sync trusts its own `cardHash` record instead of the listing
+  (blast-radius); (d) the root-hash read-back cannot see third-party content
+  that `writeContent` does not overwrite, e.g. an injected sheet tab (security).
+- Scope lesson: retiring a tool before its replacement reaches parity is a
+  regression even when the phase plan says "slides first".
