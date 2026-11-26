@@ -4,7 +4,7 @@ import {
   assertValidSlidesBody,
 } from '../../api/v1/docs-content.controller';
 import { TEMPLATE_CATALOG } from './catalog';
-import { seedDocumentId } from './seed-templates';
+import { expectedRootHash, seedDocumentId } from './seed-templates';
 
 /**
  * The catalogue's contract with the rest of the product.
@@ -390,5 +390,21 @@ describe('template seed catalogue', () => {
       const ids = seed.content.document.blocks.map((b) => b.id);
       expect(new Set(ids).size).toBe(ids.length);
     }
+  });
+
+  // `writeContent` refuses a write that does not match the catalogue from
+  // *inside* the `doc.update` building it, reading the half-built root: that
+  // is the only point at which a refusal actually withholds the change, since
+  // `withDocument` detaches unconditionally and a Yorkie detach ships the
+  // document's pending change pack. Reading the half-built root stands in for
+  // the committed one only while the two hash the same, which
+  // `expectedRootHash` computes both of and refuses the seed over. Running it
+  // across the catalogue is what turns that into a guarantee.
+  it('hashes every seed root the same before and after commit', () => {
+    const hashes = new Map<string, string>();
+    for (const seed of TEMPLATE_CATALOG) {
+      hashes.set(seed.slug, expectedRootHash(seed.content));
+    }
+    expect(hashes.size).toBe(TEMPLATE_CATALOG.length);
   });
 });

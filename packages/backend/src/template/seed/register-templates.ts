@@ -446,14 +446,28 @@ async function approveOne(
     timeout: 60_000,
   });
 
-  // The row whose title line is *exactly* this title. A substring match
-  // (`hasText`) let "Budget" approve "Budget Tracker", and a queue can hold a
-  // real user's submission this command has no business deciding.
-  const row = page.locator('li').filter({
-    has: page.locator('p.font-medium', {
-      hasText: new RegExp(`^${escapeRegExp(title)}$`),
-    }),
-  });
+  // The *queue* row whose title line is exactly this title.
+  //
+  // Exact, because a substring match (`hasText`) let "Budget" approve "Budget
+  // Tracker", and a queue can hold a real user's submission this command has
+  // no business deciding.
+  //
+  // Scoped to the pending queue, because the Reports list further down the
+  // same page renders a flagged listing's title in byte-identical markup
+  // (`<p class="truncate font-medium">`). A page-wide `li` match would count
+  // a report of a same-titled listing as a second row, and the ambiguity
+  // refusal below would then abort the whole run over a report nobody asked
+  // this command to decide. An Approve button is what only a queue row has.
+  const row = page
+    .locator('li')
+    .filter({
+      has: page.getByRole('button', { name: 'Approve', exact: true }),
+    })
+    .filter({
+      has: page.locator('p.font-medium', {
+        hasText: new RegExp(`^${escapeRegExp(title)}$`),
+      }),
+    });
   await row
     .first()
     .waitFor({ timeout: 30_000 })

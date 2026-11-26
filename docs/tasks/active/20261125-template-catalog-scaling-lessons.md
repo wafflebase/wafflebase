@@ -36,3 +36,15 @@
   that `writeContent` does not overwrite, e.g. an injected sheet tab (security).
 - Scope lesson: retiring a tool before its replacement reaches parity is a
   regression even when the phase plan says "slides first".
+- Panel round (correctness/security): 2 blocking. (a) `writeContent`'s refusal
+  ran after `doc.update` returned, so the change was already a local change and
+  `withDocument`'s unconditional detach would have shipped it — a refusal that
+  withholds nothing. Moved inside the updater, where Yorkie drops the clone and
+  records no change. (b) `approveOne`'s exact-title row locator was page-wide
+  over `<li>`, and the admin page's Reports list renders a listing title in
+  byte-identical markup, so a report could be counted as a second row and the
+  new ambiguity refusal would abort the run; scoped to rows carrying an Approve
+  button.
+- A guard that reads a *pre-commit* CRDT proxy instead of the committed root
+  only substitutes while the two serialize alike. Assert that where every input
+  passes (`expectedRootHash` computes both) rather than reasoning about it once.

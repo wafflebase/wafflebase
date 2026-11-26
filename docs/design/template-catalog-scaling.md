@@ -496,7 +496,14 @@ Where the shipped command differs from the proposal above, and why:
   thread — survives under an approved listing. It returns the hash of the root
   the catalogue *defines* (`expectedRootHash`: the same replacement applied to
   a detached, never-synced Yorkie document), refuses to push unless the live
-  document hashes to exactly that, and that hash is `writtenHash`.
+  document hashes to exactly that, and that hash is `writtenHash`. The refusal
+  is raised from *inside* the `doc.update` that builds the new root, not after
+  it: Yorkie discards the clone an updater threw out of and records no local
+  change, whereas a change already committed locally would be shipped by the
+  detach `withDocument` runs unconditionally, sync or no sync. Reading the
+  half-built root instead of the committed one is sound only while the two
+  hash the same, which `expectedRootHash` computes both of and refuses over,
+  and `catalog.spec.ts` runs across the whole catalogue.
 - **"Edited by someone else" is decided by content, not by the watermark.**
   The first watermark advance after a write is not necessarily ours, so the
   wait alone cannot attribute it. Before approving, the command reads the

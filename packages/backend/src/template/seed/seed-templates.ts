@@ -72,8 +72,8 @@ function documentOptions(kind: SeedContent['kind']): WithDocumentOptions {
  *   every cell's place in the grid — so a changed, added or moved cell still
  *   changes the hash — while making two writes of the same content agree.
  */
-function rootHash(doc: { toSortedJSON(): string }): string {
-  const root = JSON.parse(doc.toSortedJSON()) as Record<string, unknown>;
+function hashRootJson(json: string): string {
+  const root = JSON.parse(json) as Record<string, unknown>;
   const sheets = root.sheets;
   if (sheets && typeof sheets === 'object') {
     for (const [tabId, ws] of Object.entries(sheets)) {
@@ -81,6 +81,25 @@ function rootHash(doc: { toSortedJSON(): string }): string {
     }
   }
   return createHash('sha256').update(stableStringify(root)).digest('hex');
+}
+
+/** {@link hashRootJson} of a document's committed root. */
+function rootHash(doc: { toSortedJSON(): string }): string {
+  return hashRootJson(doc.toSortedJSON());
+}
+
+/**
+ * {@link hashRootJson} of the root a `doc.update` has built so far — read off
+ * the proxy handed to the updater, before the change is committed, so a write
+ * can be refused from inside the update it is still assembling.
+ *
+ * The proxy exposes `toJSON` but not `toSortedJSON`; the two differ only in
+ * object key order, which {@link stableStringify} normalizes away. That the
+ * two therefore agree is not left to inspection — {@link expectedRootHash}
+ * computes both and refuses the seed if they ever diverge.
+ */
+function pendingRootHash(root: Record<string, unknown>): string {
+  return hashRootJson((root as unknown as { toJSON(): string }).toJSON());
 }
 
 /** Rename a worksheet's axis ids by position; see {@link rootHash}. */
@@ -155,8 +174,23 @@ export function expectedRootHash(content: SeedContent): string {
   const doc = new yorkieSdk.Document<Record<string, unknown>>(
     `seed-expected-${randomUUID()}`,
   );
-  doc.update((root) => replaceRoot(root, content));
-  return rootHash(doc);
+  let pending = '';
+  doc.update((root) => {
+    replaceRoot(root, content);
+    pending = pendingRootHash(root);
+  });
+  const committed = rootHash(doc);
+  // `writeContent` can only refuse a write it has not committed yet, so its
+  // guard reads the half-built root rather than the committed one. The two
+  // have to be the same hash for that substitution to hold; assert it here,
+  // where every seed passes through, rather than trusting it.
+  if (pending !== committed) {
+    throw new Error(
+      'a seed root hashes differently before and after commit, so the ' +
+        'write-time guard cannot stand in for the committed one',
+    );
+  }
+  return committed;
 }
 
 /**
@@ -180,15 +214,22 @@ export async function writeContent(
   await yorkie.withDocument<void, Record<string, unknown>>(
     documentId,
     (doc) => {
-      doc.update((root) => replaceRoot(root, content));
-      const actual = rootHash(doc);
-      if (actual !== expected) {
-        // Thrown before `withDocument` syncs, so the change is never pushed.
-        throw new Error(
-          'the rewritten document does not match the catalogue root; ' +
-            'nothing was written',
-        );
-      }
+      doc.update((root) => {
+        replaceRoot(root, content);
+        if (pendingRootHash(root) !== expected) {
+          // Thrown from *inside* the updater, which is the only place a
+          // refusal actually withholds the change: Yorkie discards the
+          // contaminated clone and records no local change, so neither the
+          // sync nor `withDocument`'s unconditional detach — which ships a
+          // document's pending change pack — has anything to push. Checking
+          // after `doc.update` returned would have refused a write already
+          // committed locally and bound for the server.
+          throw new Error(
+            'the rewritten document does not match the catalogue root; ' +
+              'nothing was written',
+          );
+        }
+      });
     },
     documentOptions(content.kind),
   );
