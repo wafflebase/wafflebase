@@ -20,6 +20,12 @@ const msg = (seq: number, authorId = 2): ChatMessageDto => ({
 });
 
 let threadData: ChatMessageDto[] = [];
+let threadState: {
+  error: Error | null;
+  hasOlder: boolean;
+} = { error: null, hasOlder: false };
+const retryThread = vi.fn(() => Promise.resolve());
+const loadOlder = vi.fn(() => Promise.resolve());
 const send = vi.fn(() => Promise.resolve());
 const joinMutate = vi.fn();
 let channel = {
@@ -39,9 +45,20 @@ vi.mock("@/api/chat", () => ({
 vi.mock("@/components/comments/use-workspace-members", () => ({
   useWorkspaceMembers: () => [],
 }));
+vi.mock("@/components/chat/use-mentionable-members", () => ({
+  useMentionableMembers: () => [],
+}));
 vi.mock("@/components/chat/use-chat", () => ({
   useChannels: () => ({ data: [channel] }),
-  useThreadMessages: () => ({ data: threadData, isLoading: false, error: null }),
+  useThreadMessages: () => ({
+    data: threadData,
+    isLoading: false,
+    error: threadState.error,
+    retry: retryThread,
+    hasOlder: threadState.hasOlder,
+    loadingOlder: false,
+    loadOlder,
+  }),
   usePendingMessages: () => [],
   useSendMessage: () => ({ send, retry: vi.fn(), discard: vi.fn() }),
   useJoinChannel: () => ({ mutate: joinMutate, isPending: false }),
@@ -101,7 +118,10 @@ function renderThread(highlightMessageId?: string) {
   return { ...r, rerenderThread: () => r.rerender(ui()) };
 }
 
-const log = () => screen.getByRole("region", { name: "Thread" });
+const log = () =>
+  document.getElementById("chat-message-m1")!.closest<HTMLElement>(
+    ".overflow-y-auto",
+  )!;
 
 describe("ThreadView scroll", () => {
   beforeEach(() => {
@@ -110,6 +130,9 @@ describe("ThreadView scroll", () => {
     send.mockClear();
     joinMutate.mockReset();
     channel = { ...channel, isMember: true, archived: false };
+    threadState = { error: null, hasOlder: false };
+    retryThread.mockClear();
+    loadOlder.mockClear();
   });
 
   it("opens with the root at the top", () => {
@@ -162,10 +185,57 @@ describe("ThreadView scroll", () => {
     expect(joinMutate).toHaveBeenCalledWith("c1", expect.anything());
   });
 
-  it("offers no join on an archived channel", () => {
+  it("offers no join on an archived channel, and says why it is read-only", () => {
     channel = { ...channel, isMember: false, archived: true };
     renderThread();
     expect(screen.queryByRole("button", { name: "Join channel" })).toBeNull();
+    expect(
+      screen.getByText("This channel is archived. You can read it, but not post."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Reply…" })).toBeDisabled();
+  });
+
+  it("adds no second Thread landmark inside the page's own", () => {
+    renderThread();
+    expect(screen.queryByRole("region", { name: "Thread" })).toBeNull();
+  });
+
+  it("offers Retry when the thread fails to load", () => {
+    threadData = [];
+    threadState = { error: new Error("boom"), hasOlder: false };
+    renderThread();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't load this thread.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retryThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the loaded replies when a background refresh fails", () => {
+    // React Query keeps `data` on a failed refetch and sets `error` beside
+    // it: the replies already read must stay, with a quiet way to retry.
+    threadState = { error: new Error("boom"), hasOlder: false };
+    renderThread();
+    for (const s of [2, 3, 4, 5, 6]) {
+      expect(document.getElementById(`chat-message-m${s}`)).toBeInTheDocument();
+    }
+    expect(screen.queryByText("Couldn't load this thread.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Couldn't refresh replies.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retryThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads earlier replies on demand instead of dropping them", () => {
+    threadState = { error: null, hasOlder: true };
+    threadData = [msg(1), ...[60, 61, 62].map((s) => msg(s))].map((m) =>
+      m.id === "m1" ? { ...m, replyCount: 700 } : m,
+    );
+    renderThread();
+    // The root's count covers the replies not loaded yet.
+    expect(screen.getByText("700 replies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier replies" }));
+    expect(loadOlder).toHaveBeenCalledTimes(1);
   });
 
   it("is one tab stop that starts at the newest reply", () => {

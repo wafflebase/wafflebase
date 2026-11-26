@@ -2,6 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { hashSecret, timingSafeEqualStr } from './oauth-state';
 
+/**
+ * Which loopback client a login attempt belongs to: `wafflebase login`
+ * (`cli`) or the desktop app (`desktop`, see `docs/design/desktop-app.md`).
+ *
+ * Both run the same state, confirmation and PKCE machinery, but they redeem
+ * the code at different endpoints with different effects —
+ * `POST /auth/cli/exchange` returns bearer tokens to the caller, while
+ * `POST /auth/desktop/session` sets session cookies on the browser that
+ * sent it. So the mode is carried from the start of the login into the code,
+ * and a code only redeems through the endpoint of the mode it was minted for.
+ */
+export type CliAuthMode = 'cli' | 'desktop';
+
 interface StateEntry {
   /**
    * SHA-256 of the secret handed to the browser in the CLI state cookie
@@ -11,7 +24,7 @@ interface StateEntry {
    * value that satisfies the check.
    */
   csrfHash: string;
-  mode: string;
+  mode: CliAuthMode;
   port: number;
   /**
    * Nonce the CLI generated for this login attempt. Echoed back on the
@@ -32,6 +45,8 @@ interface StateEntry {
 interface CodeEntry {
   userId: number;
   challenge: string;
+  /** The flow this code was minted for; see `CliAuthMode`. */
+  mode: CliAuthMode;
   expiresAt: number;
 }
 
@@ -51,7 +66,7 @@ export class CliAuthStore {
    * `consumeState` refuses any state token that arrives without it.
    */
   createState(
-    mode: string,
+    mode: CliAuthMode,
     port: number,
     nonce?: string,
     challenge?: string,
@@ -87,7 +102,7 @@ export class CliAuthStore {
     csrfSecret: unknown,
   ):
     | {
-        mode: string;
+        mode: CliAuthMode;
         port: number;
         nonce?: string;
         challenge?: string;
@@ -125,12 +140,16 @@ export class CliAuthStore {
    * makes it a proof-of-possession code instead — only the process that
    * generated the verifier can redeem it, and the verifier never appears
    * in any URL.
+   *
+   * `mode` is the login attempt's (`CliAuthMode`), and `consumeCode` will
+   * only redeem the code through that same flow.
    */
-  createCode(userId: number, challenge: string): string {
+  createCode(userId: number, challenge: string, mode: CliAuthMode): string {
     const code = randomBytes(32).toString('base64url');
     this.codes.set(code, {
       userId,
       challenge,
+      mode,
       expiresAt: Date.now() + 60 * 1000,
     });
     this.cleanup();
@@ -142,11 +161,22 @@ export class CliAuthStore {
    * from. The entry is spent on *any* attempt — a mismatched verifier
    * burns the code rather than leaving it up for another try, so a stolen
    * code cannot be probed and never survives a redemption.
+   *
+   * `mode` is the flow the caller redeems for. A code minted for the other
+   * one is refused exactly like an unknown code — and spent, like any other
+   * failed attempt — so the answer never says which flow a code belongs to.
    */
-  consumeCode(code: string, verifier: string): number | undefined {
+  consumeCode(
+    code: string,
+    verifier: string,
+    mode: CliAuthMode,
+  ): number | undefined {
     const entry = this.codes.get(code);
     this.codes.delete(code);
     if (!entry || entry.expiresAt < Date.now()) {
+      return undefined;
+    }
+    if (entry.mode !== mode) {
       return undefined;
     }
     if (!timingSafeEqualStr(entry.challenge, hashCliVerifier(verifier))) {

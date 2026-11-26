@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
 import { Conversation } from "@/components/chat/conversation";
+import { draftStore } from "@/components/chat/draft-store";
 
 const msg = (seq: number, authorId = 2): ChatMessageDto => ({
   id: `m${seq}`,
@@ -89,6 +90,9 @@ vi.mock("@/api/chat", () => ({
 }));
 vi.mock("@/components/comments/use-workspace-members", () => ({
   useWorkspaceMembers: () => [],
+}));
+vi.mock("@/components/chat/use-mentionable-members", () => ({
+  useMentionableMembers: () => [],
 }));
 vi.mock("@/components/chat/use-chat-stream", () => ({
   setOpenChatChannel: vi.fn(),
@@ -315,6 +319,31 @@ describe("Conversation", () => {
     expect(screen.queryByText(/This channel is archived\. Its history/)).toBeNull();
   });
 
+  it("holds the composer inert, labelled only Message, until the channel is known", () => {
+    channels = [];
+    const view = renderConversation();
+    const box = screen.getByRole("textbox", { name: "Message" });
+    expect(box).toBeDisabled();
+    expect(box).not.toHaveFocus();
+    // No reason line: nothing is wrong, the channel is only loading.
+    expect(screen.queryByText(/archived/)).toBeNull();
+
+    channels = [channel()];
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <Conversation
+          workspaceId="w1"
+          channelId="c1"
+          onOpenThread={openThread}
+          placeholder="Message #general"
+        />
+      </QueryClientProvider>,
+    );
+    const ready = screen.getByRole("textbox", { name: "Message #general" });
+    expect(ready).toBeEnabled();
+    expect(ready).toHaveFocus();
+  });
+
   it("shows the composer to a member", () => {
     renderConversation();
     expect(screen.getByRole("textbox")).toBeInTheDocument();
@@ -322,9 +351,11 @@ describe("Conversation", () => {
   });
   describe("unread orientation", () => {
     const divider = () =>
-      screen.queryByRole("heading", { name: "New messages" })?.closest("li") ?? null;
-    const findDivider = async () =>
-      (await screen.findByRole("heading", { name: "New messages" })).closest("li")!;
+      document.querySelector<HTMLLIElement>("[data-unread-divider]");
+    const findDivider = async () => {
+      await waitFor(() => expect(divider()).not.toBeNull());
+      return divider()!;
+    };
 
     it("draws no divider when nothing was unread", async () => {
       renderConversation();
@@ -523,9 +554,10 @@ describe("Conversation", () => {
       expect(line.querySelector(".sr-only")).toHaveTextContent(/^user2, .+:/);
     });
 
-    it("marks days with headings", () => {
+    it("marks days with plain labels, not headings", () => {
       renderConversation();
-      expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThan(0);
+      expect(document.querySelector("[data-day-divider]")).not.toBeNull();
+      expect(screen.queryAllByRole("heading")).toHaveLength(0);
     });
   });
 
@@ -571,16 +603,15 @@ describe("Conversation", () => {
       state = { ...state, messages: [msg(1), msg(2, 1), msg(3)] };
       renderConversation();
       const composer = screen.getByRole("textbox");
-      composer.focus();
-      // Who "me" is arrives with the auth query, and until it has, `meId` is
-      // -1, `lastOwnMessage` finds nothing and ↑ is a silent no-op. Waiting a
-      // fixed tick for that query bets on how many turns of the loop it takes
-      // to settle and re-render, which is exactly what varies under a loaded
-      // CI runner — so the key is pressed again until the box opens, and the
-      // test waits for the state it needs rather than for a clock.
+      // Who "me" is arrives with the auth query, and ↑ means nothing until
+      // it has: press it until the edit box opens rather than sleeping one
+      // tick, which a loaded machine does not always resolve the query in.
       await waitFor(() => {
+        composer.focus();
         fireEvent.keyDown(composer, { key: "ArrowUp" });
-        screen.getByRole("textbox", { name: "Edit message" });
+        expect(
+          screen.getByRole("textbox", { name: "Edit message" }),
+        ).toBeInTheDocument();
       });
       const edit = screen.getByRole("textbox", { name: "Edit message" });
       expect(row("m2")).toContainElement(edit);
@@ -646,6 +677,35 @@ describe("Conversation", () => {
       fireEvent.click(screen.getByRole("button", { name: "Discard" }));
       expect(discardSend).toHaveBeenCalledWith("b");
     });
+  });
+
+  it("reloads only the composer when a new draft is seeded", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = (draftSeed: number) => (
+      <QueryClientProvider client={client}>
+        <Conversation
+          workspaceId="w1"
+          channelId="c1"
+          onOpenThread={openThread}
+          draftSeed={draftSeed}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(0));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox")).not.toBeDisabled(),
+    );
+    const before = log();
+    scrollTo(700);
+    draftStore.set(1, "c1", "See /s/doc-1");
+    rerender(view(1));
+    expect(screen.getByRole("textbox")).toHaveValue("See /s/doc-1");
+    // The log is the same node, where the reader left it.
+    expect(log()).toBe(before);
+    expect(log().scrollTop).toBe(700);
+    draftStore.set(1, "c1", "");
   });
 
   it("offers Retry when the messages fail to load", () => {

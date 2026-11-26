@@ -228,3 +228,62 @@ describe("ChannelList group DMs", () => {
     expect(avatars(group)).toBe(2);
   });
 });
+
+describe("ChannelList jump to", () => {
+  it("opens the switcher from a visible control, with its key beside it", async () => {
+    const onJumpTo = vi.fn();
+    const onShowShortcuts = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChannelList
+          workspaceId="w1"
+          channels={[channel("general")]}
+          isLoading={false}
+          activeChannelId={null}
+          me={1}
+          hrefFor={(id) => `/w/w1/chat/${id}`}
+          onNewChannel={() => {}}
+          onBrowse={() => {}}
+          onNewMessage={() => {}}
+          onJumpTo={onJumpTo}
+          onShowShortcuts={onShowShortcuts}
+        />
+      </MemoryRouter>,
+    );
+    const user = userEvent.setup();
+    const jump = screen.getByRole("button", { name: /Jump to…/ });
+    expect(jump).toHaveAttribute("aria-keyshortcuts");
+    await user.click(jump);
+    expect(onJumpTo).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    expect(onShowShortcuts).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ChannelList landmarks and counts", () => {
+  it("labels the Archived section like the others", () => {
+    renderList([channel("old", { archived: true })]);
+    expect(screen.getByRole("region", { name: "Archived" })).toBeInTheDocument();
+  });
+
+  it("names mentions by their own count", () => {
+    renderList([
+      channel("one", { mentionCount: 1, unreadCount: 7 }),
+      channel("two", { mentionCount: 2, unreadCount: 2 }),
+      channel("quiet", { unreadCount: 4 }),
+      channel("dm", {
+        kind: "dm",
+        name: null,
+        unreadCount: 1,
+        members: [
+          { id: 1, username: "me", photo: null },
+          { id: 2, username: "minji", photo: null },
+        ],
+      }),
+    ]);
+    expect(screen.getByRole("link", { name: "one, 1 unread mention" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "two, 2 unread mentions" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "quiet, unread messages" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "minji, 1 unread message" })).toBeInTheDocument();
+  });
+});

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
-import { CliAuthStore } from './cli-auth.store';
+import { CliAuthMode, CliAuthStore } from './cli-auth.store';
 import {
   cliStateCookieName,
   cliStateCookieOptions,
@@ -148,6 +148,18 @@ export function parseFetchSite(raw: unknown): string | undefined {
   return value === '' ? undefined : value;
 }
 
+/**
+ * The loopback flow a `GET /auth/github` start asks for — `?mode=cli`
+ * (`wafflebase login`) or `?mode=desktop` (the desktop app) — or
+ * `undefined` for an ordinary browser login. Both loopback modes take the
+ * same `port`, `nonce` and `challenge` and pass the same gates; the mode is
+ * recorded so the code they end in only redeems through its own endpoint
+ * (see `CliAuthMode`).
+ */
+export function parseCliAuthMode(raw: unknown): CliAuthMode | undefined {
+  return raw === 'cli' || raw === 'desktop' ? raw : undefined;
+}
+
 /** The loopback port, or `undefined` when it is not a usable one. */
 export function parseCliPort(raw: unknown): number | undefined {
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -174,11 +186,16 @@ export function parseCliPort(raw: unknown): number | undefined {
  *   the browser state is: the confirmation click gates the *mint*, and
  *   an attacker can perform it in their own browser, so without the
  *   cookie the resulting state could simply be handed to a victim.
+ * - **Desktop** (`?mode=desktop&…`, same parameters) — the CLI branch
+ *   verbatim, for the desktop app's system-browser sign-in
+ *   (`docs/design/desktop-app.md` §3). The mode rides the state into the
+ *   code, which then redeems only at `POST /auth/desktop/session`.
  * - **Browser** — a double-submit cookie pair (see `oauth-state.ts`).
  *   Without it, `/auth/github/callback` would set session cookies for any
  *   code presented to it, which is login CSRF / session fixation.
  *
- * Ahead of the CLI branch only, a `?mode=cli` start another *site*
+ * Ahead of the loopback branches only, a `?mode=cli` (or `desktop`) start
+ * another *site*
  * navigated the browser into is refused outright
  * (`assertCliStartNotCrossSite`). Neither state mechanism covers that on
  * its own — the navigation carrying the attack is also the navigation
@@ -207,16 +224,16 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     >();
     const res = http.getResponse<Response>();
     this.warnIfInsecureOrigin();
-    const isCliStart = req.query?.mode === 'cli';
-    if (isCliStart) {
-      this.assertCliStartNotCrossSite(req);
-      this.assertCliLoginAvailable();
+    const mode = parseCliAuthMode(req.query?.mode);
+    if (mode) {
+      this.assertCliStartNotCrossSite(req, mode);
+      this.assertCliLoginAvailable(mode);
     }
     const port = parseCliPort(req.query?.port);
 
-    if (isCliStart && port !== undefined && req.__cliConfirmed) {
+    if (mode && port !== undefined && req.__cliConfirmed) {
       const { stateToken, csrf } = this.cliAuthStore.createState(
-        'cli',
+        mode,
         port,
         parseCliNonce(req.query?.nonce),
         parseCliChallenge(req.query?.challenge),
@@ -243,15 +260,22 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    * rather than a silent downgrade to a browser login, because the person
    * running `wafflebase login` is waiting on a loopback callback that would
    * otherwise never arrive and would time out five minutes later with
-   * nothing to act on.
+   * nothing to act on. The desktop app waits on the same kind of callback.
    */
-  private assertCliLoginAvailable() {
+  private assertCliLoginAvailable(mode: CliAuthMode) {
     if (cliLoginAvailable()) return;
     this.logger.warn(
-      'Refused a CLI login: nothing says this origin is secure (no https ' +
+      `Refused a ${mode} login: nothing says this origin is secure (no https ` +
         'GITHUB_CALLBACK_URL, no COOKIE_SECURE=true, not loopback), so the ' +
         'consent cookie cannot be trusted.',
     );
+    if (mode === 'desktop') {
+      throw new BadRequestException(
+        'Desktop sign-in requires an https server. Serve Wafflebase over ' +
+          'https and set GITHUB_CALLBACK_URL to that URL (or set ' +
+          'COOKIE_SECURE=true if TLS terminates at a proxy in front of it).',
+      );
+    }
     throw new BadRequestException(
       'Command-line sign-in requires an https server. Serve Wafflebase ' +
         'over https and set GITHUB_CALLBACK_URL to that URL (or set ' +
@@ -314,16 +338,21 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    * attack needs the victim's *browser*, carrying the victim's GitHub
    * session, and every browser that can be steered cross-site also sends
    * this.
+   *
+   * A desktop start has the CLI's shape exactly — the app hands a loopback
+   * `/launch/<token>` URL to the OS opener — so it is held to the same rule.
    */
-  private assertCliStartNotCrossSite(req: Request) {
+  private assertCliStartNotCrossSite(req: Request, mode: CliAuthMode) {
     const value = parseFetchSite(req.headers?.['sec-fetch-site']);
     if (value === undefined) return;
     if (ALLOWED_FETCH_SITES.has(value)) return;
     this.logger.warn(
-      `Refused a cross-site-initiated CLI login (Sec-Fetch-Site: ${value}).`,
+      `Refused a cross-site-initiated ${mode} login (Sec-Fetch-Site: ${value}).`,
     );
     throw new BadRequestException(
-      'Start the login from Wafflebase itself (or run `wafflebase login`).',
+      mode === 'desktop'
+        ? 'Start the login from the Wafflebase desktop app.'
+        : 'Start the login from Wafflebase itself (or run `wafflebase login`).',
     );
   }
 }

@@ -18,6 +18,7 @@ import {
   IconClipboard,
   IconLayoutRows,
   IconMessage,
+  IconMessages,
   IconTrash,
   IconRowInsertBottom,
   IconRowInsertTop,
@@ -88,6 +89,12 @@ interface SheetContextMenuProps {
   onDeleteImage?: () => void;
   selectedImageId?: string | null;
   onInsertComment?: () => void;
+  /**
+   * "Send to chat": hands a link to the selection to the editor's chat panel.
+   * Omitted where there is no panel to send to (a share-link viewer). Not a
+   * write, so a read-only sheet offers it too.
+   */
+  onSendToChat?: () => void;
   onOpenDataValidation?: () => void;
 }
 
@@ -108,6 +115,7 @@ export function SheetContextMenu({
   onDeleteImage,
   selectedImageId,
   onInsertComment,
+  onSendToChat,
   onOpenDataValidation,
 }: SheetContextMenuProps) {
   const [menuType, setMenuType] = useState<MenuType>("cell");
@@ -394,16 +402,19 @@ export function SheetContextMenu({
             >
               <IconTrash size={16} /> Delete {cellColLabel}
             </ContextMenuItem>
+            {(onInsertComment || onSendToChat) && <ContextMenuSeparator />}
             {onInsertComment && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem disabled={readOnly} onSelect={onInsertComment}>
-                  <IconMessage size={16} /> Insert comment
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {navigator.platform.startsWith("Mac") ? "⌘+⌥+M" : "Ctrl+Alt+M"}
-                  </span>
-                </ContextMenuItem>
-              </>
+              <ContextMenuItem disabled={readOnly} onSelect={onInsertComment}>
+                <IconMessage size={16} /> Insert comment
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {navigator.platform.startsWith("Mac") ? "⌘+⌥+M" : "Ctrl+Alt+M"}
+                </span>
+              </ContextMenuItem>
+            )}
+            {onSendToChat && (
+              <ContextMenuItem onSelect={onSendToChat}>
+                <IconMessages size={16} /> Send to chat
+              </ContextMenuItem>
             )}
             {onOpenDataValidation && (
               <>

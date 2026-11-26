@@ -1,3 +1,5 @@
+import type { ChatDocumentAnchor } from '@wafflebase/core/document-link';
+
 /**
  * Shared chat contracts. The REST DTOs here are mirrored by the frontend
  * (`packages/frontend/src/api/chat.ts`); `seq` travels as a JSON `number`
@@ -70,6 +72,45 @@ export interface ChatMessageDto {
   editedAt: string | null;
   deleted: boolean;
   createdAt: string;
+  /**
+   * Document cards: the links in `body` that name a live document of this
+   * channel's workspace, one per document (match by `documentId`). Title
+   * and type are read when the message is, so a rename shows; a trashed
+   * document drops out.
+   */
+  refs: ChatDocumentRefDto[];
+}
+
+/**
+ * Where a card points inside its document, per type (`docs/design/chat.md`
+ * § Document Cards and Anchors). Shared with the frontend, which writes and
+ * applies it, so both validate it by one rule.
+ */
+export type { ChatDocumentAnchor };
+
+export interface ChatDocumentRefDto {
+  documentId: string;
+  /** The document's type (`sheet`, `doc`, `slides`, …). */
+  type: string;
+  title: string;
+  anchor: ChatDocumentAnchor | null;
+}
+
+/** A row of a channel's Files list: a document at its latest share. */
+export interface ChatFileDto extends ChatDocumentRefDto {
+  messageId: string;
+  /** Null once the sharer's account is deleted. */
+  sharedBy: ChatUserSummary | null;
+  sharedAt: string;
+}
+
+/**
+ * A channel a document was shared in, at its latest share there: what the
+ * editor's chat panel opens on when nothing else asks for a channel.
+ */
+export interface ChatSharedInDto {
+  channelId: string;
+  sharedAt: string;
 }
 
 /**
@@ -77,8 +118,9 @@ export interface ChatMessageDto {
  * message content — and short keys, since a NOTIFY payload is capped at 8 kB.
  * `msg`: channel, workspace, seq, thread root, author, and whether a reply
  * was also sent to the channel (so it counts as unread there). `upd`: a message
- * was edited or deleted — channel, workspace, message id, thread root. `mem`:
- * a channel's membership changed, so cached member sets for it are stale.
+ * was edited or deleted — channel, workspace, message id, thread root. `chn`:
+ * a channel's metadata (name, topic, archive state) changed. `mem`: a
+ * channel's membership changed, so cached member sets for it are stale.
  */
 export type ChatBusEvent =
   | {
@@ -91,10 +133,17 @@ export type ChatBusEvent =
       i: boolean;
     }
   | { t: 'upd'; c: string; w: string; id: string; r: string | null }
+  | { t: 'chn'; c: string; w: string }
   | { t: 'mem'; c: string };
 
-/** The bus events `ChatHub` routes to a channel's connected members. */
-export type ChatRoutedEvent = Extract<ChatBusEvent, { t: 'msg' | 'upd' }>;
+/**
+ * The bus events `ChatHub` routes to a channel's readers: its members, or
+ * for a public channel every member of its workspace.
+ */
+export type ChatRoutedEvent = Extract<
+  ChatBusEvent,
+  { t: 'msg' | 'upd' | 'chn' }
+>;
 
 /**
  * What `ChatHub` hands one user's streams: their channels' routed events,
@@ -122,4 +171,13 @@ export interface StreamUpdateEvent {
   channelId: string;
   messageId: string;
   threadRootId: string | null;
+}
+
+/**
+ * The `channel` event of `GET /chat/stream`: a channel's name, topic or
+ * archive state changed. Ids only; the client refetches its channel list.
+ */
+export interface StreamChannelEvent {
+  workspaceId: string;
+  channelId: string;
 }

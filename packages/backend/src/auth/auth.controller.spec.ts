@@ -1,11 +1,11 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import {
   EmailProviderConflictError,
   UserService,
 } from 'src/user/user.service';
-import { AuthController } from './auth.controller';
+import { AuthController, isDesktopOrigin } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
 import { JwtStrategy } from './jwt.strategy';
@@ -795,6 +795,14 @@ describe('AuthController', () => {
       process.env = { ...saved };
     });
 
+    beforeEach(() => {
+      // `desktop.github` follows `cliLoginAvailable()`; pin a loopback
+      // origin so a developer's own `.env` does not decide these cases.
+      process.env.GITHUB_CALLBACK_URL =
+        'http://localhost:3000/auth/github/callback';
+      delete process.env.COOKIE_SECURE;
+    });
+
     it('reports Google off until all three variables are set', () => {
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
@@ -802,6 +810,7 @@ describe('AuthController', () => {
       expect(controller.authProviders()).toEqual({
         github: true,
         google: false,
+        desktop: { github: true, google: false, windowsOrigin: true },
       });
 
       process.env.GOOGLE_CLIENT_ID = 'id';
@@ -814,7 +823,58 @@ describe('AuthController', () => {
       expect(controller.authProviders()).toEqual({
         github: true,
         google: true,
+        // Google has no loopback mode yet, configured or not.
+        desktop: { github: true, google: false, windowsOrigin: true },
       });
+    });
+
+    /**
+     * The desktop app reads `desktop.github` to decide whether to start a
+     * sign-in at all, so it must be false exactly where
+     * `?mode=desktop` would be refused — a cleartext non-loopback origin.
+     */
+    it('reports desktop GitHub sign-in only where the CLI gate allows it', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+      expect(controller.authProviders().desktop).toEqual({
+        github: false,
+        google: false,
+        windowsOrigin: true,
+      });
+
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+      expect(controller.authProviders().desktop.github).toBe(true);
+
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.internal:3000/auth/github/callback';
+      process.env.COOKIE_SECURE = 'true';
+      expect(controller.authProviders().desktop.github).toBe(true);
+    });
+
+    /**
+     * The Windows app hands off from `http://tauri.localhost`, so a
+     * deployment that refuses that origin cannot complete a Windows
+     * sign-in. The app reads `desktop.windowsOrigin` to say so before it
+     * opens a browser, instead of after the handoff POST is refused — and
+     * `desktop.github` stays true, because macOS and Linux hand off from
+     * `tauri://localhost` and are unaffected by the setting.
+     */
+    it('reports whether the Windows handoff origin is accepted', () => {
+      delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+      expect(controller.authProviders().desktop.windowsOrigin).toBe(true);
+
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = '  FALSE  ';
+      expect(controller.authProviders().desktop).toEqual({
+        github: true,
+        google: false,
+        windowsOrigin: false,
+      });
+
+      // Anything but that one word leaves it accepted, the same reading
+      // `isDesktopOrigin` gives it.
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = 'no';
+      expect(controller.authProviders().desktop.windowsOrigin).toBe(true);
     });
   });
 
@@ -992,7 +1052,7 @@ describe('AuthController', () => {
     };
 
     it('returns tokens for a valid code and its verifier', async () => {
-      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'cli');
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'access-tok',
@@ -1023,7 +1083,7 @@ describe('AuthController', () => {
      * derived from, it buys no session.
      */
     it('rejects a valid code presented without its verifier', async () => {
-      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'cli');
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
@@ -1032,8 +1092,18 @@ describe('AuthController', () => {
       expect(authService.createTokens).not.toHaveBeenCalled();
     });
 
+    it('refuses a code minted for the desktop app as an invalid code', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+
+      await expect(
+        controller.cliExchange({ code, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow('Invalid or expired code');
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
     it('rejects the same code on second use', async () => {
-      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'cli');
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'at',
@@ -1048,6 +1118,428 @@ describe('AuthController', () => {
         controller.cliExchange({ code, verifier: CLI_VERIFIER }),
       ).rejects.toThrow(UnauthorizedException);
     });
+  });
+
+  describe('githubAuthCallback — desktop flow', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+
+    it('redirects a desktop login to the loopback callback with its nonce', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const nonce = 'd'.repeat(64);
+      const { stateToken, csrf } = cliAuthStore.createState(
+        'desktop',
+        51234,
+        nonce,
+        CLI_CHALLENGE,
+      );
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: { [cliStateCookieName()]: csrf },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      const [url] = (res.redirect as jest.Mock).mock.calls[0] as [string];
+      const match = new RegExp(
+        `^http://127\\.0\\.0\\.1:51234/callback\\?code=([^&]+)&state=${nonce}$`,
+      ).exec(url);
+      expect(match).not.toBeNull();
+      // No session for the system browser: the webview gets it, later.
+      expect(res.cookie).not.toHaveBeenCalled();
+
+      // The code is a desktop code: `cli/exchange` refuses it…
+      const code = decodeURIComponent(match![1]);
+      await expect(
+        controller.cliExchange({ code, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('mints a code that redeems at desktop/session', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const { stateToken, csrf } = cliAuthStore.createState(
+        'desktop',
+        51234,
+        'd'.repeat(64),
+        CLI_CHALLENGE,
+      );
+      const res = createMockResponse();
+      await controller.githubAuthCallback(
+        {
+          user: { username: 'bob', email: 'bob@example.com', photo: null },
+          cookies: { [cliStateCookieName()]: csrf },
+          query: { state: stateToken },
+        } as any,
+        res,
+        stateToken,
+      );
+      const [url] = (res.redirect as jest.Mock).mock.calls[0] as [string];
+      const code = new URL(url).searchParams.get('code')!;
+
+      const sessionRes = createMockResponse();
+      await controller.desktopSession(
+        {
+          headers: { origin: 'tauri://localhost' },
+          body: { code, verifier: CLI_VERIFIER },
+        } as unknown as Request,
+        sessionRes,
+      );
+      expect(sessionRes.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173',
+      );
+    });
+  });
+
+  /**
+   * The handoff page in the desktop app's webview posts the code here and
+   * the response sets the session cookies on that webview. Because it signs
+   * in *whoever posts*, any other origin is a login-CSRF vector.
+   */
+  describe('POST /auth/desktop/session', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+
+    function sessionRequest(
+      headers: Record<string, unknown>,
+      body: Record<string, unknown>,
+    ) {
+      return { headers, body } as unknown as Request;
+    }
+
+    beforeEach(() => {
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'desktop-at',
+        refreshToken: 'desktop-rt',
+      });
+    });
+
+    it.each(['tauri://localhost', 'http://tauri.localhost'])(
+      'sets the session cookies and 303s to the frontend from %s',
+      async (origin) => {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await controller.desktopSession(
+          sessionRequest({ origin }, { code, verifier: CLI_VERIFIER }),
+          res,
+        );
+
+        expect(userService.user).toHaveBeenCalledWith({ id: 42 });
+        expect(res.cookie).toHaveBeenCalledWith(
+          'wafflebase_session',
+          'desktop-at',
+          expect.objectContaining({
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 1000,
+          }),
+        );
+        expect(res.cookie).toHaveBeenCalledWith(
+          'wafflebase_refresh',
+          'desktop-rt',
+          expect.objectContaining({
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 2000,
+          }),
+        );
+        expect(res.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      },
+    );
+
+    it.each<[string, Record<string, unknown>]>([
+      ['no Origin', {}],
+      ['Origin: null', { origin: 'null' }],
+      ['an empty Origin', { origin: '' }],
+      ['a web origin', { origin: 'https://evil.example' }],
+      ['the frontend origin', { origin: 'http://localhost:5173' }],
+      ['a look-alike host', { origin: 'tauri://localhost.evil.example' }],
+      ['a trailing slash', { origin: 'tauri://localhost/' }],
+      ['a different case', { origin: 'TAURI://LOCALHOST' }],
+      ['a port', { origin: 'http://tauri.localhost:8080' }],
+      ['the unused https scheme', { origin: 'https://tauri.localhost' }],
+      [
+        'a joined repeat',
+        { origin: 'tauri://localhost, https://evil.example' },
+      ],
+      ['an array', { origin: ['tauri://localhost'] }],
+    ])(
+      'refuses %s with 403 and leaves the code unspent',
+      async (_, headers) => {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await expect(
+          controller.desktopSession(
+            sessionRequest(headers, { code, verifier: CLI_VERIFIER }),
+            res,
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(res.cookie).not.toHaveBeenCalled();
+        expect(res.redirect).not.toHaveBeenCalled();
+        expect(userService.user).not.toHaveBeenCalled();
+
+        // Not consumed: the real handoff can still redeem it.
+        const ok = createMockResponse();
+        await controller.desktopSession(
+          sessionRequest(
+            { origin: 'tauri://localhost' },
+            { code, verifier: CLI_VERIFIER },
+          ),
+          ok,
+        );
+        expect(ok.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      },
+    );
+
+    it('refuses the Windows origin when the deployment opts out', async () => {
+      const previous = process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = 'false';
+      try {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await expect(
+          controller.desktopSession(
+            sessionRequest(
+              { origin: 'http://tauri.localhost' },
+              { code, verifier: CLI_VERIFIER },
+            ),
+            res,
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(res.cookie).not.toHaveBeenCalled();
+
+        // The custom-scheme origin still works: the switch is about the one
+        // origin a browser can reach.
+        const ok = createMockResponse();
+        await controller.desktopSession(
+          sessionRequest(
+            { origin: 'tauri://localhost' },
+            { code, verifier: CLI_VERIFIER },
+          ),
+          ok,
+        );
+        expect(ok.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      } finally {
+        if (previous === undefined) {
+          delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+        } else {
+          process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = previous;
+        }
+      }
+    });
+
+    it('checks the Origin before the body, so a bad body is still a 403', async () => {
+      await expect(
+        controller.desktopSession(
+          sessionRequest({ origin: 'https://evil.example' }, {}),
+          createMockResponse(),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuses a CLI code as an invalid code', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'cli');
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER },
+        ),
+        res,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+
+    it('303s to the sign-in page when the user lookup fails', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      (userService.user as jest.Mock).mockRejectedValue(new Error('db down'));
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER },
+        ),
+        res,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+
+    it.each<[string, (code: string) => Record<string, unknown>]>([
+      ['an unknown code', () => ({ code: 'nope', verifier: CLI_VERIFIER })],
+      ['the wrong verifier', (code) => ({ code, verifier: 'w'.repeat(43) })],
+      ['a malformed verifier', (code) => ({ code, verifier: 'short' })],
+      ['no verifier', (code) => ({ code })],
+      ['no code', () => ({ verifier: CLI_VERIFIER })],
+      ['an array code', (code) => ({ code: [code], verifier: CLI_VERIFIER })],
+      ['an empty code', () => ({ code: '', verifier: CLI_VERIFIER })],
+      ['an overlong code', () => ({ code: 'c'.repeat(201), verifier: CLI_VERIFIER })],
+    ])('303s to the sign-in page on %s', async (_, body) => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest({ origin: 'tauri://localhost' }, body(code)),
+        res,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(authService.createTokens).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+
+    it('303s to a safe returnTo path', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER, returnTo: '/d/123?tab=2' },
+        ),
+        res,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/d/123?tab=2',
+      );
+    });
+
+    it.each(['//evil.example/x', 'https://evil.example', '/\\evil', 'd/1'])(
+      'ignores an unsafe returnTo %s',
+      async (returnTo) => {
+        const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+        const res = createMockResponse();
+
+        await controller.desktopSession(
+          sessionRequest(
+            { origin: 'tauri://localhost' },
+            { code, verifier: CLI_VERIFIER, returnTo },
+          ),
+          res,
+        );
+
+        expect(res.redirect).toHaveBeenCalledWith(303, 'http://localhost:5173');
+      },
+    );
+
+    it('is single-use', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      const req = sessionRequest(
+        { origin: 'tauri://localhost' },
+        { code, verifier: CLI_VERIFIER },
+      );
+      await controller.desktopSession(req, createMockResponse());
+
+      const res = createMockResponse();
+      await controller.desktopSession(req, res);
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+
+    it('303s to the sign-in page when the user is gone', async () => {
+      (userService.user as jest.Mock).mockResolvedValue(null);
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        sessionRequest(
+          { origin: 'tauri://localhost' },
+          { code, verifier: CLI_VERIFIER },
+        ),
+        res,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+    });
+  });
+});
+
+describe('isDesktopOrigin', () => {
+  const windowsOrigin = process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+
+  afterEach(() => {
+    if (windowsOrigin === undefined) {
+      delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+    } else {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = windowsOrigin;
+    }
+  });
+
+  it('accepts exactly the two Tauri webview origins the app uses', () => {
+    expect(isDesktopOrigin('tauri://localhost')).toBe(true);
+    expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
+    expect(isDesktopOrigin('https://tauri.localhost')).toBe(false);
+    expect(isDesktopOrigin('null')).toBe(false);
+    expect(isDesktopOrigin(undefined)).toBe(false);
+    expect(isDesktopOrigin('https://tauri.localhost.example')).toBe(false);
+  });
+
+  it('drops the browser-reachable origin when the deployment opts out', () => {
+    for (const value of ['false', 'FALSE', '  False  ']) {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = value;
+      expect(isDesktopOrigin('http://tauri.localhost')).toBe(false);
+      // The custom scheme no browser can produce is never the one dropped.
+      expect(isDesktopOrigin('tauri://localhost')).toBe(true);
+    }
+  });
+
+  it('keeps the Windows origin for every other value of the switch', () => {
+    for (const value of ['', 'true', 'no', 'off', '0']) {
+      process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN = value;
+      expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
+    }
+    delete process.env.WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN;
+    expect(isDesktopOrigin('http://tauri.localhost')).toBe(true);
   });
 });
 

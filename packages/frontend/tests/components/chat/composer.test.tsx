@@ -1,4 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { startTransition, Suspense, useState } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "@/components/chat/composer";
 
@@ -81,19 +83,145 @@ describe("Composer", () => {
   });
 
   it("restores the draft on remount", () => {
-    const first = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
     type("half a thought");
     first.unmount();
-    render(<Composer channelId="c1" onSend={vi.fn()} />);
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
     expect(box()).toHaveValue("half a thought");
   });
 
   it("keeps drafts apart per channel", () => {
-    const first = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
     type("for c1");
     first.unmount();
-    render(<Composer channelId="c2" onSend={vi.fn()} />);
+    render(<Composer channelId="c2" userId={1} onSend={vi.fn()} />);
     expect(box()).toHaveValue("");
+  });
+
+  it("never shows one user's draft to another in the same tab", () => {
+    const first = render(
+      <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+    );
+    type("private thought");
+    first.unmount();
+    const second = render(
+      <Composer channelId="c1" userId={2} onSend={vi.fn()} />,
+    );
+    expect(box()).toHaveValue("");
+    // The user resolving after the first render loads their own draft.
+    second.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("private thought");
+  });
+
+  it("keeps text typed before the signed-in user resolves", () => {
+    window.sessionStorage.setItem(
+      "wafflebase:chat-draft:1:c1",
+      "an older draft",
+    );
+    const view = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    type("typed while loading");
+    view.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("typed while loading");
+    // And it is now the user's draft, so it survives a remount.
+    view.unmount();
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("typed while loading");
+  });
+
+  it("touches storage only after a render commits, never while rendering", () => {
+    // A server render runs the render body and no effects: what it wrote
+    // is what a discarded render would have written.
+    window.sessionStorage.setItem("wafflebase:chat-draft:c1", "legacy");
+    window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "saved");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    try {
+      const html = renderToString(
+        <Composer channelId="c1" userId={1} onSend={vi.fn()} />,
+      );
+      expect(html).toContain("saved");
+      expect(setItem).not.toHaveBeenCalled();
+      expect(removeItem).not.toHaveBeenCalled();
+    } finally {
+      setItem.mockRestore();
+      removeItem.mockRestore();
+    }
+    // Mounted for real, the old unkeyed draft is dropped.
+    render(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    expect(box()).toHaveValue("saved");
+  });
+
+  it("keeps picked mentions when a render switching drafts is discarded", async () => {
+    // A transition that suspends throws its render away: the box stays on
+    // c1, so the mention picked there must still expand when it is sent.
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const never = new Promise<never>(() => undefined);
+    let switchTo!: (channelId: string) => void;
+    function Suspends({ when }: { when: boolean }): null {
+      if (when) throw never;
+      return null;
+    }
+    function Host() {
+      const [channelId, setChannelId] = useState("c1");
+      switchTo = (next) => startTransition(() => setChannelId(next));
+      return (
+        <Suspense fallback={null}>
+          <Composer
+            channelId={channelId}
+            userId={1}
+            onSend={onSend}
+            members={[{ userId: "2", username: "minji" }]}
+          />
+          <Suspends when={channelId !== "c1"} />
+        </Suspense>
+      );
+    }
+    render(<Host />);
+    fireEvent.change(combo(), {
+      target: { value: "hi @min", selectionStart: 7 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
+    await act(async () => switchTo("c2"));
+    expect(combo()).toHaveValue("hi @minji ");
+    // Typing on renders afresh, reading the picked mentions again.
+    fireEvent.change(combo(), {
+      target: { value: "hi @minji !", selectionStart: 11 },
+    });
+    fireEvent.keyDown(combo(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("hi @[minji](2) !");
+  });
+
+  it("loads the stored draft when the user resolves on an empty box", () => {
+    window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "saved");
+    const view = render(<Composer channelId="c1" onSend={vi.fn()} />);
+    view.rerender(<Composer channelId="c1" userId={1} onSend={vi.fn()} />);
+    expect(box()).toHaveValue("saved");
+  });
+
+  it("measures the limit after picked mentions expand", async () => {
+    render(
+      <Composer
+        channelId="c1"
+        onSend={vi.fn()}
+        members={[{ userId: "123456", username: "minji" }]}
+      />,
+    );
+    // `@minji` (6) becomes `@[minji](123456)` (16) on send.
+    const prefix = "x".repeat(4000 - 7);
+    fireEvent.change(combo(), {
+      target: { value: `${prefix} @min`, selectionStart: prefix.length + 5 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
+    // As typed it is exactly the limit; as sent it is ten over.
+    expect(screen.getByText(/characters over the/)).toHaveTextContent(
+      "10 characters over the",
+    );
+    expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
   });
 
   it("is disabled with its reason", () => {
@@ -132,7 +260,7 @@ describe("Composer", () => {
     type("gone");
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(box()).toHaveValue("");
-    expect(window.sessionStorage.getItem("wafflebase:chat-draft:c1")).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
     done();
     await vi.waitFor(() => expect(box()).toHaveValue(""));
   });

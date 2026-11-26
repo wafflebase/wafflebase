@@ -16,6 +16,8 @@ exactly the leaf you need so bundlers tree-shake the rest.
 | `@wafflebase/core/tokens.css` | Generated CSS custom properties for the tokens (built by `scripts/build-css.ts`) |
 | `@wafflebase/core/geometry` | `Point` / `Rect` / `Size` types, bounding-box math, hit-testing |
 | `@wafflebase/core/url` | Safe-protocol hyperlink gating (`SAFE_PROTOCOLS`, `isSafeUrl`) shared by every renderer/exporter across sheets and docs |
+| `@wafflebase/core/image` | `loadImage`, the CORS-then-plain-retry image loader the engines' image caches share |
+| `@wafflebase/core/document-link` | The document-URL grammar (type → route letter, uuid id rule, path parse) and the chat `?at=` anchor types, limits and codec — read by the backend's chat ref sync and the frontend alike |
 
 `@wafflebase/tokens` is folded into this package as the `./tokens` subpath.
 
@@ -31,8 +33,15 @@ import { rectsIntersect, type Rect } from '@wafflebase/core/geometry';
 import { isSafeUrl } from '@wafflebase/core/url';
 ```
 
-Classic CJS resolvers ignore the `exports` map, so a new subpath also needs a
-matching `@wafflebase/core/*` path entry in `packages/backend/tsconfig.json`.
+Classic CJS resolvers ignore the `exports` map. The backend's build
+(`tsconfig.build.json`) maps `@wafflebase/core/*` to `dist/*/index.d.ts`, and
+its `tsconfig.json` paths and both jest configs' `moduleNameMapper` (the unit
+one in `package.json` and the e2e one in `test/jest-e2e.json`) map it to
+source, all by wildcard, so a new subpath needs nothing there — only an
+`exports` entry here.
+Do not add a `typesVersions` map instead: the agent jobs' install refuses
+`package.json` fields it does not know. The backend's runtime image copies
+`dist/` (see the root `Dockerfile`).
 
 ## Build
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { render } from '@testing-library/react';
 import { Document } from '@yorkie-js/sdk';
 import type { YorkieSlidesRoot } from '@/types/slides-document';
@@ -71,12 +72,12 @@ const slideLayouts = (): string[] =>
 
 describe('MobileSlidesView empty-deck seed', () => {
   it('seeds a Title slide on an edit mount', () => {
-    render(<MobileSlidesView mode="edit" />);
+    render(<MobileSlidesView mode="edit" />, { wrapper: MemoryRouter });
     expect(slideLayouts()).toEqual(['title-slide']);
   });
 
   it('leaves the deck empty on a view (share-link viewer) mount', () => {
-    render(<MobileSlidesView mode="view" />);
+    render(<MobileSlidesView mode="view" />, { wrapper: MemoryRouter });
     expect(slideLayouts()).toEqual([]);
   });
 });

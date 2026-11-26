@@ -72,6 +72,125 @@ describe("scrubCapabilityTokens", () => {
     );
   });
 
+  it("redacts a console breadcrumb's raw arguments", () => {
+    // Sentry's console instrumentation keeps the argument array beside the
+    // joined `message`, so redacting only the message leaves the token in
+    // `data.arguments` (#1198).
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          level: "error",
+          message: "image load failed /documents/x/file?token=secret",
+          data: {
+            logger: "console",
+            arguments: [
+              "image load failed",
+              "/documents/x/file?token=secret",
+              { src: "https://wafflebase.io/documents/x/file?token=secret" },
+              404,
+            ],
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const scrubbed = scrubCapabilityTokens(event);
+    const args = scrubbed.breadcrumbs?.[0].data?.arguments as unknown[];
+    expect(args[0]).toBe("image load failed");
+    expect(args[1]).toBe("/documents/x/file?token=__redacted__");
+    expect(args[2]).toEqual({
+      src: "https://wafflebase.io/documents/x/file?token=__redacted__",
+    });
+    expect(args[3]).toBe(404);
+    // The joined form of those same arguments, and the field the Sentry UI
+    // displays. Redacting only `data.arguments` leaves the token right here.
+    expect(scrubbed.breadcrumbs?.[0].message).toBe(
+      "image load failed /documents/x/file?token=__redacted__",
+    );
+  });
+
+  it("redacts a console breadcrumb's message", () => {
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          level: "error",
+          message: "could not open https://wafflebase.io/shared/secret-token",
+        },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      "could not open https://wafflebase.io/shared/__redacted__",
+    );
+  });
+
+  it("redacts the string elements of an array console argument", () => {
+    // Sentry's `normalize()` returns primitives before it checks the depth it
+    // has reached, so an array's strings arrive here intact.
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          data: {
+            arguments: ["failed", ["/shared/secret-token", 404]],
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
+      ?.arguments as unknown[];
+    expect(args[1]).toEqual(["/shared/__redacted__", 404]);
+  });
+
+  it("redacts a token embedded in a console argument's prose", () => {
+    // The whole argument is not a URL, so it cannot go through
+    // `redactCapabilityTokens` directly without percent-encoding the prose.
+    const event = {
+      breadcrumbs: [
+        {
+          category: "console",
+          data: {
+            arguments: ["could not open /shared/secret-token (offline)"],
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
+      ?.arguments as unknown[];
+    expect(args[0]).toBe("could not open /shared/__redacted__ (offline)");
+  });
+
+  it("reaches a nested string and leaves non-strings alone", () => {
+    // Strings are rewritten wherever the bounded walk finds them; anything
+    // else is returned as it came, since re-serializing application state
+    // inside a send hook is not this function's job.
+    const nested = { request: { url: "/shared/aaa" } };
+    const event = {
+      breadcrumbs: [
+        { category: "console", data: { arguments: [nested, null, undefined] } },
+      ],
+    } as unknown as Event;
+
+    const args = scrubCapabilityTokens(event).breadcrumbs?.[0].data
+      ?.arguments as unknown[];
+    expect(args[0]).toEqual({ request: { url: "/shared/__redacted__" } });
+    expect(args[1]).toBeNull();
+    expect(args[2]).toBeUndefined();
+  });
+
+  it("survives a crumb whose arguments is not an array", () => {
+    const event = {
+      breadcrumbs: [{ category: "console", data: { arguments: "nope" } }],
+    } as unknown as Event;
+
+    expect(() => scrubCapabilityTokens(event)).not.toThrow();
+    expect(event.breadcrumbs?.[0].data?.arguments).toBe("nope");
+  });
+
   it("redacts a token inside a ui.click breadcrumb message", () => {
     // The SDK serializes the clicked element, aria-label and title included.
     const event = {
@@ -244,7 +363,6 @@ describe("scrubCapabilityTokens", () => {
 
     expect(() => scrubCapabilityTokens(event)).not.toThrow();
   });
-
   it("scrubs a transaction event the same way", () => {
     // The gap that mattered most: `beforeSend` never sees these, and
     // `browserTracingIntegration` emits one per pageload and navigation.
@@ -292,13 +410,12 @@ describe("sentry.ts build baseline", () => {
     // `main.tsx` imports this file before it renders anything, so the cost is
     // a blank app on those browsers, not a missed redaction. Read the source
     // rather than the pattern: the hazard is the literal existing at all.
-    const source = readFileSync(
-      path.resolve(__dirname, "./sentry.ts"),
-      "utf8",
-    );
-
-    // Skip the prose that explains the ban, which names the construct.
-    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
-    expect(code).not.toMatch(/\(\?<[=!]/);
+    // `redactUrlsInText` lives in `lib/redact-url.ts`, imported above it.
+    for (const file of ["./sentry.ts", "./lib/redact-url.ts"]) {
+      const source = readFileSync(path.resolve(__dirname, file), "utf8");
+      // Skip the prose that explains the ban, which names the construct.
+      const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+      expect(code, file).not.toMatch(/\(\?<[=!]/);
+    }
   });
 });

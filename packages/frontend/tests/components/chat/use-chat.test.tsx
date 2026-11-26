@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatMessageDto } from "@/api/chat";
@@ -22,8 +22,9 @@ const msg = (seq: number): ChatMessageDto => ({
   createdAt: "2026-11-20T10:00:00.000Z",
 });
 
-/** A root and 60 replies: seq 1..61. */
-const thread = Array.from({ length: 61 }, (_, i) => msg(i + 1));
+/** A root and its replies: seq 1..n. */
+const threadOf = (n: number) => Array.from({ length: n }, (_, i) => msg(i + 1));
+let thread = threadOf(61);
 
 /**
  * Pages exactly like `ChatMessageService.page`: with `after`, the oldest
@@ -58,21 +59,84 @@ vi.mock("@/components/chat/use-chat-stream", () => ({
   takePendingCatchUp: vi.fn(),
 }));
 
+function renderThread() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+  const hook = renderHook(() => useThreadMessages("w1", "c1", "m1"), {
+    wrapper,
+  });
+  return { ...hook, queryClient };
+}
+
 describe("useThreadMessages", () => {
   it("loads every reply of a thread longer than one page", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(QueryClientProvider, { client: queryClient }, children);
-    const { result } = renderHook(
-      () => useThreadMessages("w1", "c1", "m1"),
-      { wrapper },
-    );
+    thread = threadOf(61);
+    const { result } = renderThread();
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.data).toBeDefined());
     expect(result.current.data?.map((m) => m.seq)).toEqual(
       thread.map((m) => m.seq),
     );
+    expect(result.current.hasOlder).toBe(false);
+  });
+
+  it("opens a very long thread at its newest replies and reads back on demand", async () => {
+    // 600 replies: more than opening reads, which used to keep the oldest
+    // 500 and silently drop the newest 100.
+    thread = threadOf(601);
+    const { result } = renderThread();
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const seqs = result.current.data!.map((m) => m.seq);
+    expect(seqs.at(-1)).toBe(601);
+    expect(seqs).toHaveLength(500);
+    expect(result.current.hasOlder).toBe(true);
+
+    // 101 older rows: two full pages and the one holding the root.
+    for (let i = 0; i < 3; i++) await act(() => result.current.loadOlder());
+    expect(result.current.data!.map((m) => m.seq)).toEqual(
+      thread.map((m) => m.seq),
+    );
+    expect(result.current.hasOlder).toBe(false);
+  });
+
+  it("keeps the replies read back through when the thread is refetched", async () => {
+    thread = threadOf(601);
+    const { result, queryClient } = renderThread();
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    await act(() => result.current.loadOlder());
+    const before = result.current.data!.length;
+
+    thread = threadOf(602);
+    await act(() =>
+      queryClient.invalidateQueries({ queryKey: ["chat", "thread", "m1"] }),
+    );
+    await waitFor(() =>
+      expect(result.current.data!.at(-1)?.seq).toBe(602),
+    );
+    expect(result.current.data!.length).toBeGreaterThanOrEqual(before + 1);
+  });
+
+  it("keeps a thread read back to its root complete when it is refetched", async () => {
+    thread = threadOf(601);
+    const { result, queryClient } = renderThread();
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    for (let i = 0; i < 3; i++) await act(() => result.current.loadOlder());
+    expect(result.current.hasOlder).toBe(false);
+
+    thread = threadOf(602);
+    await act(() =>
+      queryClient.invalidateQueries({ queryKey: ["chat", "thread", "m1"] }),
+    );
+    await waitFor(() =>
+      expect(result.current.data!.at(-1)?.seq).toBe(602),
+    );
+    expect(result.current.data!.map((m) => m.seq)).toEqual(
+      thread.map((m) => m.seq),
+    );
+    expect(result.current.hasOlder).toBe(false);
   });
 });

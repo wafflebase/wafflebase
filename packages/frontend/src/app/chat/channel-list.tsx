@@ -4,9 +4,11 @@ import {
   IconArchive,
   IconChevronRight,
   IconHash,
+  IconKeyboard,
   IconListSearch,
   IconLock,
   IconPlus,
+  IconSearch,
 } from "@tabler/icons-react";
 
 import type { ChannelSummary } from "@/api/chat";
@@ -15,10 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/components/text-formatting/platform";
+
+import { formatChatCombo } from "./chat-shortcuts";
 import {
   browsableChannels,
   channelLabel,
   groupChannels,
+  unreadDescription,
 } from "./group-channels";
 
 const ARCHIVED_OPEN_KEY = (workspaceId: string) =>
@@ -57,6 +63,10 @@ interface ChannelListProps {
   /** Opens the channel dialog on its Browse tab. */
   onBrowse: () => void;
   onNewMessage: () => void;
+  /** Opens the channel switcher, Mod+K's dialog. */
+  onJumpTo?: () => void;
+  /** Opens the shortcut sheet, Mod+/'s dialog. */
+  onShowShortcuts?: () => void;
 }
 
 /**
@@ -82,6 +92,8 @@ export function ChannelList({
   onNewChannel,
   onBrowse,
   onNewMessage,
+  onJumpTo,
+  onShowShortcuts,
 }: ChannelListProps) {
   const {
     channels: rooms,
@@ -93,6 +105,9 @@ export function ChannelList({
 
   return (
     <nav aria-label="Chat channels" className="flex min-h-0 flex-1 flex-col">
+      {onJumpTo && (
+        <JumpTo onJumpTo={onJumpTo} onShowShortcuts={onShowShortcuts} />
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
         <Section title="Channels" actionLabel="New channel" onAction={onNewChannel}>
           {isLoading ? (
@@ -200,6 +215,51 @@ export function ChannelList({
   );
 }
 
+/**
+ * The switcher's way in that does not need Mod+K — a phone has no such key —
+ * with the key written beside it for those who do, and, on a fine pointer,
+ * the shortcut sheet one step away.
+ */
+function JumpTo({
+  onJumpTo,
+  onShowShortcuts,
+}: {
+  onJumpTo: () => void;
+  onShowShortcuts?: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1 px-2 pt-3">
+      <button
+        type="button"
+        onClick={onJumpTo}
+        aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-input-border px-2 text-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-h-11"
+      >
+        <IconSearch aria-hidden className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-left">Jump to…</span>
+        <kbd
+          aria-hidden
+          className="shrink-0 rounded border bg-muted px-1 font-sans text-xs pointer-coarse:hidden"
+        >
+          {formatChatCombo("Mod+K", isMac)}
+        </kbd>
+      </button>
+      {onShowShortcuts && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 text-muted-foreground pointer-coarse:hidden"
+          aria-label="Keyboard shortcuts"
+          title={`Keyboard shortcuts (${formatChatCombo("Mod+/", isMac)})`}
+          onClick={onShowShortcuts}
+        >
+          <IconKeyboard />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function Section({
   title,
   actionLabel,
@@ -254,7 +314,7 @@ function ArchivedSection({
   const shown = open ? channels : channels.filter((c) => c.id === activeChannelId);
 
   return (
-    <section className="mt-4">
+    <section className="mt-4" aria-label="Archived">
       <h2 className="pb-1">
         <button
           type="button"
@@ -349,11 +409,7 @@ function ChannelRow({
 }) {
   const unread = !archived && channel.unreadCount > 0;
   const count = archived ? 0 : channelCount(channel);
-  const description = count
-    ? `${count} unread${channel.mentionCount > 0 ? ` mention${count === 1 ? "" : "s"}` : ""}`
-    : unread
-      ? "unread messages"
-      : undefined;
+  const description = archived ? undefined : unreadDescription(channel);
 
   return (
     <li>

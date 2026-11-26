@@ -46,6 +46,7 @@
     "@types/passport-github2": "^1.2.9",
     "@types/passport-google-oauth20": "^2.0.16",
     "@wafflebase/board": "workspace:*",
+    "@wafflebase/core": "workspace:*",
     "@wafflebase/docs": "workspace:^",
     "@wafflebase/sheets": "workspace:^",
     "@wafflebase/slides": "workspace:*",
@@ -126,8 +127,7 @@
       "^@wafflebase/docs$": "<rootDir>/../../docs/src/node.ts",
       "^@wafflebase/slides$": "<rootDir>/../../slides/src/node.ts",
       "^@wafflebase/board$": "<rootDir>/../../board/src/node.ts",
-      "^@wafflebase/core/tokens$": "<rootDir>/../../core/src/tokens/index.ts",
-      "^@wafflebase/core/url$": "<rootDir>/../../core/src/url/index.ts",
+      "^@wafflebase/core/(.*)$": "<rootDir>/../../core/src/$1/index.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [

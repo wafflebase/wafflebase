@@ -3,8 +3,9 @@ import { useSyncExternalStore } from "react";
 /**
  * The live stream's state, as the conversation footer reports it.
  * `connecting` is the quiet first attempt (and "no stream mounted");
- * `reconnecting` is the browser retrying after a drop; `stopped` is the
- * browser having given up, which only a reload recovers from.
+ * `reconnecting` is the stream being reopened after a drop, by the browser
+ * or by `useChatStream` once the browser gave up; `stopped` is the session
+ * having ended, which only signing in again recovers from.
  */
 export type ChatConnection = "connecting" | "live" | "reconnecting" | "stopped";
 

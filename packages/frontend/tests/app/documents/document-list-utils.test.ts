@@ -201,4 +201,13 @@ describe("getDocumentPath", () => {
   it("defaults an unknown/absent type to the sheet path", () => {
     expect(getDocumentPath({ id: "d1" })).toBe("/s/d1");
   });
+
+  it("never answers with something off the table's prototype", () => {
+    // A chat ref's `type` is a plain string from the wire.
+    for (const type of ["constructor", "__proto__", "toString", "spreadsheet"]) {
+      expect(getDocumentPath({ id: "d1", type: type as DocumentType })).toBe(
+        "/s/d1",
+      );
+    }
+  });
 });

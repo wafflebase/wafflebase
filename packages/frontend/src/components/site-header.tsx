@@ -58,6 +58,8 @@ export interface HeaderActions {
   comments?: ReactNode;
   /** Show/hide version history. */
   history?: ReactNode;
+  /** Show/hide the chat panel (`ChatPanelToggle`). */
+  chat?: ReactNode;
   /** Download / export the document. */
   export?: ReactNode;
   /** The Share dialog trigger. */
@@ -70,6 +72,7 @@ const ACTION_ORDER = [
   "primary",
   "comments",
   "history",
+  "chat",
   "export",
   "share",
   "presence",
@@ -84,6 +87,7 @@ const ACTION_ORDER = [
 const MENU_SLOTS = [
   "comments",
   "history",
+  "chat",
   "export",
 ] as const satisfies readonly (keyof HeaderActions)[];
 
@@ -343,8 +347,11 @@ export function SiteHeader({
             On a phone the cluster tightens its gaps, drops the presence
             avatars (the lowest-priority slot), and — as a last resort, e.g.
             while the sync chip is showing — scrolls rather than overlapping
-            the title. `py-1` keeps focus rings clear of that scroll box. */}
-        <div className="flex shrink-0 items-center gap-2 max-sm:min-w-0 max-sm:shrink max-sm:gap-1 max-sm:overflow-x-auto max-sm:py-1 max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden">
+            the title. A scroll box clips on both axes, so `p-1` keeps focus
+            rings and the bell's corner badge (which overhangs the button)
+            inside it, and `-mx-1` gives the horizontal padding back so the
+            controls stay where they were. */}
+        <div className="flex shrink-0 items-center gap-2 max-sm:-mx-1 max-sm:min-w-0 max-sm:shrink max-sm:gap-1 max-sm:overflow-x-auto max-sm:p-1 max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden">
           {/* Left of the per-editor controls, so it reads as a property of the
               document rather than as one more button. */}
           {syncStatus && <SyncStatusChip />}

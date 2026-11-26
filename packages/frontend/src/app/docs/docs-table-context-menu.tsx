@@ -20,6 +20,7 @@ import {
   IconDropletOff,
   IconPalette,
   IconTableOff,
+  IconMessages,
 } from "@tabler/icons-react";
 import { InsertCommentMenuItem } from "./comments/InsertCommentMenuItem";
 import {
@@ -45,6 +46,12 @@ interface DocsTableContextMenuProps {
    * table cell. Runs `beginCompose`. Omitted / read-only hides the item.
    */
   onInsertComment?: () => void;
+  /**
+   * "Send to chat", given the right-clicked point — as in the body menu,
+   * which leaves an editable in-table right-click to this one. Omitted
+   * where there is no chat panel to send to.
+   */
+  onSendToChat?: (point: MenuPosition) => void;
 }
 
 interface MenuPosition {
@@ -64,8 +71,11 @@ export function DocsTableContextMenu({
   readOnly = false,
   canComment,
   onInsertComment,
+  onSendToChat,
 }: DocsTableContextMenuProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
+  // Where the user right-clicked; `position` is later clamped on screen.
+  const [point, setPoint] = useState<MenuPosition | null>(null);
   const [showColors, setShowColors] = useState(false);
   const [mergeCtx, setMergeCtx] = useState<TableMergeContext>({ state: 'none' });
   // Whether a non-empty selection existed when the menu opened — comments
@@ -93,6 +103,7 @@ export function DocsTableContextMenu({
       if (!editor?.isInTable()) return;
       e.preventDefault();
       setPosition({ x: e.clientX, y: e.clientY });
+      setPoint({ x: e.clientX, y: e.clientY });
       setMergeCtx(editor.getTableMergeContext());
       setHasSelection(!!editor.getActiveSelection());
       setShowColors(false);
@@ -379,6 +390,26 @@ export function DocsTableContextMenu({
               close();
             }}
           />
+        </>
+      )}
+
+      {onSendToChat && point && (
+        <>
+          <div role="separator" className={sep} />
+          <button
+            role="menuitem"
+            tabIndex={-1}
+            className={item}
+            // Not `act`: the chat panel's composer takes focus, and handing
+            // it back to the caret would pull it away again.
+            onClick={() => {
+              onSendToChat(point);
+              close();
+            }}
+          >
+            <IconMessages size={iconSize} className="text-muted-foreground" />
+            Send to chat
+          </button>
         </>
       )}
 

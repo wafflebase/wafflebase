@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -92,6 +93,19 @@ export class PostMessageDto {
   @IsOptional()
   @IsBoolean()
   alsoInChannel?: boolean;
+
+  /**
+   * The sender's own id for this send (a UUID from current clients), reused
+   * on every retry so the server can return the message instead of posting
+   * it twice. Any short token is accepted, since a send restored after a
+   * reload may carry one minted by an older client.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{1,64}$/, {
+    message: 'clientId must be 1–64 letters, digits, "-" or "_"',
+  })
+  clientId?: string;
 }
 
 export class EditMessageDto {
@@ -136,4 +150,19 @@ export class MarkReadDto {
   @Min(0)
   @Max(Number.MAX_SAFE_INTEGER)
   seq!: number;
+}
+
+/** `GET …/channels/:cid/files`. `before` is the previous page's `cursor`. */
+export class ListFilesQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  before?: string;
 }

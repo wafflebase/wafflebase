@@ -88,8 +88,9 @@ export function ChannelSwitcher({
         <div className="border-b p-3 pr-12">
           <input
             role="combobox"
-            aria-expanded
-            aria-controls="chat-switcher-list"
+            // The list is gone when nothing matches, so nothing to point at.
+            aria-expanded={items.length > 0}
+            aria-controls={items.length > 0 ? "chat-switcher-list" : undefined}
             aria-activedescendant={activeItem ? optionId(activeItem) : undefined}
             aria-autocomplete="list"
             aria-label="Jump to a channel or person"

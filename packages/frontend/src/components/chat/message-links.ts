@@ -1,6 +1,8 @@
 import type { ChatMessageDto } from "@/api/chat";
 import { parseMentionBody } from "@/components/comments/mentions";
 
+import { routerBasename } from "./document-link";
+
 /** Whether a body mentions user `me`. */
 export function mentionsUser(body: string, me: number): boolean {
   return parseMentionBody(body).some(
@@ -17,9 +19,5 @@ export function messageLink(
   workspaceId: string,
   message: Pick<ChatMessageDto, "id" | "channelId">,
 ): string {
-  const base = (import.meta.env.VITE_FRONTEND_BASENAME ?? "").replace(
-    /\/$/,
-    "",
-  );
-  return `${window.location.origin}${base}/w/${encodeURIComponent(workspaceId)}/chat/${encodeURIComponent(message.channelId)}?message=${encodeURIComponent(message.id)}`;
+  return `${window.location.origin}${routerBasename()}/w/${encodeURIComponent(workspaceId)}/chat/${encodeURIComponent(message.channelId)}?message=${encodeURIComponent(message.id)}`;
 }

@@ -32,21 +32,6 @@ export function chatLayout({
 }
 
 /**
- * Where a bare `/chat` lands on desktop: the last channel, while the caller
- * is still in it, else the workspace's default channel. Membership matters
- * because a public channel stays in the list after you leave it, and
- * returning there would undo the leave.
- */
-export function landingChannelId(
-  channels: ChannelSummary[],
-  last: string | null,
-): string | null {
-  const open = (c: ChannelSummary) => c.isMember && !c.archived;
-  if (last && channels.some((c) => c.id === last && open(c))) return last;
-  return channels.find((c) => c.isDefault && open(c))?.id ?? null;
-}
-
-/**
  * Which channel actions to offer. Everyone is always in the default channel,
  * so it has no Add people, Leave or Archive; it can still be renamed.
  */

@@ -3,7 +3,9 @@
   "compilerOptions": {
     "rootDir": "./src",
     "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo",
-    "paths": {}
+    "paths": {
+      "@wafflebase/core/*": ["../core/dist/*/index.d.ts"]
+    }
   },
   "exclude": ["node_modules", "test", "dist", "prisma", "**/*spec.ts"]
 }

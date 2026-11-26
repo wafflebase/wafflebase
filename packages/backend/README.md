@@ -97,6 +97,26 @@ COOKIE_SECURE=                          # Optional. Whether session and login
                                         # `NODE_ENV=production` with a
                                         # non-loopback `http://` callback URL
                                         # logs a warning for that reason.
+WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=      # Optional. The literal `false` —
+                                        # trimmed, case-insensitive — stops
+                                        # `POST /auth/desktop/session`
+                                        # accepting `http://tauri.localhost`,
+                                        # the origin the desktop app's webview
+                                        # has on Windows. Unlike
+                                        # `tauri://localhost`, that one is a
+                                        # name an ordinary browser can reach
+                                        # (Chrome and Firefox resolve
+                                        # `.localhost` to loopback, and
+                                        # `tauri.localhost` is also a real DNS
+                                        # name), so a local listener on port
+                                        # 80 — or a resolver that answers for
+                                        # it — can POST somebody else's login
+                                        # code with an `Origin` the allowlist
+                                        # trusts. Anything else, unset
+                                        # included, keeps it accepted, since
+                                        # dropping it costs the Windows app
+                                        # its in-webview sign-in. macOS and
+                                        # Linux are unaffected either way.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -418,6 +438,11 @@ docker compose up -d              # Start PostgreSQL + Yorkie
 # Run database migrations:
 pnpm backend migrate
 
+# Build the workspace packages the backend loads at runtime (Node resolves
+# them to their built dist, not to source; re-run after pulling changes to
+# packages/core or an engine, or `nest start` fails with "Cannot find module"):
+pnpm core build && pnpm --filter @wafflebase/docs build && pnpm sheets build && pnpm slides build
+
 # Start dev server:
 pnpm dev                          # Starts frontend (:5173) + backend (:3000)
 
@@ -485,11 +510,12 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` is gated on a confirmation click) |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` and `?mode=desktop` are gated on a confirmation click) |
 | `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
 | `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
-| `GET` | `/auth/providers` | - | `{ github, google }` — which sign-in buttons the login page should offer |
+| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google, windowsOrigin } }` — which sign-in buttons the login page should offer, which the desktop app can run, and whether the Windows app's handoff origin is still accepted |
+| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -827,7 +853,9 @@ one they are not in, any channel once they leave the workspace — answers
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM, not the default channel) |
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/:userId` | Remove someone else — the channel's creator or a workspace owner (an owner only by an owner); not a DM or the default channel |
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
-| `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
+| `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel?, clientId? }`; 30 per 10 s per user. A repeated `clientId` returns the first message; a reply to a deleted root is `409` |
+| `GET` | `/workspaces/:wid/chat/documents/:documentId/channels` | Channels the caller is in where the document was most recently shared (≤20), for the editor chat panel |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/files` | Documents linked in the channel, newest share first, one row per document (`?limit=` 1–100, `?before=<cursor>`); 120 per minute per user, as is the shared-in read |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |
 | `GET` | `/workspaces/:wid/chat/messages/:mid` | One message (a bell deep link learns whether it is a thread reply) |
 | `PATCH` | `/workspaces/:wid/chat/messages/:mid` | Edit one's own message (`{ body }`) |
@@ -844,12 +872,20 @@ plain `@name`. Mentions and thread replies reach the bell through the
 `Notification` table (`chat_mention`, `chat_thread_reply`), each recipient
 checked against their own access to the channel.
 
+A message body's links to this deployment's documents become
+`ChatDocumentRef` rows, each stored only for a live document in the
+channel's own workspace, and come back on the message as `refs` (title and
+type read at read time). An edit replaces them and a delete clears them.
+
 The stream carries ids only. `ready` opens every (re)connect and is the
 client's cue to re-read unread counts and catch the open channel up;
 `message` is `{ workspaceId, channelId, seq, threadRootId, authorId }`;
 `update` (an edit or delete) is `{ workspaceId, channelId, messageId,
-threadRootId }` and the client refetches that message; `ping` is a 25 s
-keep-alive. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
+threadRootId }` and the client refetches that message; `channel` (a rename,
+topic, archive or unarchive) is `{ workspaceId, channelId }` and the client
+refetches its channel list; `ping` is a 25 s keep-alive. A public channel's
+events go to every connected member of its workspace — any of them may read
+it — and a private channel's or DM's to its members. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
 `chat` channel (`ChatBus`), fanned out per replica by `ChatHub` to the
 connected members of the channel from a member cache that a membership event
 evicts, that expires after 60 s in case that event was lost, and that a
@@ -1115,7 +1151,8 @@ membership would cost more than 2,000,000 checks, is a `400`. See
    a double-submit pair for the browser (secret in the
    `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
    `web.<hash>`), or
-   a CliAuthStore token for `?mode=cli`, paired with a secret in the
+   a CliAuthStore token for `?mode=cli` (or `?mode=desktop`), paired
+   with a secret in the
    `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
    this browser too
 3. Passport redirects to GitHub OAuth consent screen, carrying `state`
@@ -1140,6 +1177,12 @@ answers it with a confirmation page first; only the click through it
 (which carries the `__Host-wafflebase_cli_confirm` cookie secret back as
 `?confirm=`) reaches the guard. Design:
 [`docs/design/backend.md`](../../docs/design/backend.md).
+
+The desktop app's sign-in (`?mode=desktop`) is the same loopback flow with
+the page worded for the app; the code it ends in redeems only at
+`POST /auth/desktop/session`, which the app's bundled handoff page posts from
+its webview to get the session cookies there. Design:
+[`docs/design/desktop-app.md`](../../docs/design/desktop-app.md) §3.
 
 ## Database Schema
 
@@ -1262,12 +1305,22 @@ blob with none (see
 | `seq` | BigInt | Per-channel monotonic; `@@unique([channelId, seq])`. The pagination and catch-up cursor |
 | `authorId` | Int? | FK to User (`SetNull`) — a message survives its author |
 | `apiKeyId` | String? | Reserved for posts made with an API key (P3) |
+| `clientId` | String? | The poster's own id for a send; `@@unique([channelId, authorId, clientId])` makes a retry return the first copy |
 | `body` | String | Plain text, mentions as canonical `@[username](userId)`. Cleared on soft delete |
 | `threadRootId` | String? | Null = top-level |
 | `alsoInChannel` | Boolean | A reply also shown in the channel flow |
 | `replyCount` / `lastReplyAt` | | Thread summary on the root |
 | `editedAt` / `deletedAt` | DateTime? | Soft delete keeps the row so `seq` stays gap-free and a root keeps its replies |
 | `createdAt` | DateTime | Auto-set |
+
+**ChatDocumentRef** — a document a message links to
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `messageId` / `documentId` | | Composite PK; both FKs `Cascade`, so a deleted message or document leaves no ref |
+| `channelId` | String | The message's channel, denormalized (no FK) so the Files list reads `@@index([channelId, createdAt])` alone |
+| `anchor` | Json? | The parsed `?at=` anchor (sheet axis ids / doc block / slide, plus a display `label`), null for a document-level link or one that did not parse |
+| `createdAt` | DateTime | When it was first shared; an edit that keeps the link keeps it |
 
 ## Module Structure
 
@@ -1283,7 +1336,7 @@ src/
 │   ├── github-auth.guard.ts   # Mints the OAuth `state` (web + CLI)
 │   ├── oauth-state.ts         # Browser double-submit state cookie
 │   ├── cli-auth.store.ts      # CLI login state/code store
-│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli
+│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli|desktop
 │   ├── jwt.strategy.ts        # Passport JWT-from-cookie strategy
 │   └── jwt-auth.guard.ts      # Route guard
 ├── user/

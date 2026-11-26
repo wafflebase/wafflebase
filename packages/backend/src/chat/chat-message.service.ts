@@ -14,6 +14,13 @@ import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { canonicalMentions } from './chat-mentions';
 import { MAX_BODY_LENGTH } from './chat.dto';
+import {
+  ChatDocumentRefService,
+  describeError,
+  REFS_INCLUDE,
+  RefRow,
+  toRefDtos,
+} from './chat-document-refs';
 import { ChatMessageDto, ChatUserSummary } from './chat.types';
 
 export const PAGE_SIZE = 50;
@@ -25,9 +32,35 @@ export const PAGE_SIZE = 50;
  */
 const POST_TRANSACTION = { maxWait: 10_000, timeout: 10_000 };
 
+const DELETED_ROOT = 'That message was deleted, so it cannot be replied to';
+const DELETED_REPLAY = 'That message was sent and has since been deleted';
+
 const AUTHOR = { select: { id: true, username: true, photo: true } } as const;
 
-type MessageRow = ChatMessage & { author: ChatUserSummary | null };
+/** What a message read includes: its author and its document cards. */
+const MESSAGE_INCLUDE = {
+  author: AUTHOR,
+  refs: REFS_INCLUDE,
+  channel: { select: { workspaceId: true } },
+} as const;
+
+type MessageRow = ChatMessage & {
+  author: ChatUserSummary | null;
+  refs?: RefRow[];
+  channel?: { workspaceId: string };
+};
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+  );
+}
+
+/** An idempotent retry's answer: the earlier message, unless it is gone. */
+function replayed(row: MessageRow): ChatMessageDto {
+  if (row.deletedAt !== null) throw new ConflictException(DELETED_REPLAY);
+  return toDto(row);
+}
 
 function toDto(m: MessageRow): ChatMessageDto {
   return {
@@ -43,6 +76,8 @@ function toDto(m: MessageRow): ChatMessageDto {
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     deleted: m.deletedAt !== null,
     createdAt: m.createdAt.toISOString(),
+    refs:
+      m.deletedAt || !m.channel ? [] : toRefDtos(m.refs, m.channel.workspaceId),
   };
 }
 
@@ -75,6 +110,7 @@ export class ChatMessageService {
     private readonly channels: ChatChannelService,
     private readonly bus: ChatBus,
     private readonly notifications: NotificationService,
+    private readonly documentRefs: ChatDocumentRefService,
   ) {}
 
   /**
@@ -86,33 +122,55 @@ export class ChatMessageService {
    * since replying in a thread is not reading the channel. Only after
    * it commits do other replicas hear of it, so nobody is told about a
    * message they cannot fetch yet.
+   *
+   * A `clientId` makes the post idempotent per author and channel: a retry
+   * whose first attempt did reach the server — the response was lost, or a
+   * reload cut it off — gets that message back, with no second `seq`, event
+   * or notification. Two attempts racing both miss the lookup; the unique
+   * index lets one insert win and the other reads the winner. If that message
+   * has since been deleted the retry is a 409, a refusal the client reports
+   * and does not retry: the blank row is not a send that just landed, and a
+   * fresh insert would collide with the same `clientId`.
    */
   async post(
     userId: number,
     channelId: string,
-    data: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+    data: {
+      body: string;
+      threadRootId?: string;
+      alsoInChannel?: boolean;
+      clientId?: string;
+    },
   ): Promise<ChatMessageDto> {
     checkBody(data.body);
     const { channel, ctx } = await this.channels.resolve(userId, channelId);
+    const clientId = data.clientId ?? null;
+    if (clientId !== null) {
+      // Before the archive check: a send that landed just before the
+      // channel was archived still reports success on retry.
+      const earlier = await this.findByClientId(userId, channelId, clientId);
+      if (earlier) return replayed(earlier);
+    }
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
-    const body = await this.canonicalBody(data.body, channel.workspaceId);
+    const body = await this.canonicalBody(data.body, channel);
 
     const threadRootId = data.threadRootId ?? null;
     if (threadRootId !== null) {
       const root = await this.prisma.chatMessage.findUnique({
         where: { id: threadRootId },
-        select: { channelId: true, threadRootId: true },
+        select: { channelId: true, threadRootId: true, deletedAt: true },
       });
       if (!root || root.channelId !== channelId || root.threadRootId !== null) {
         throw new BadRequestException(
           'threadRootId must be a top-level message in this channel',
         );
       }
+      if (root.deletedAt !== null) throw new ConflictException(DELETED_ROOT);
     }
     // "Also send to channel" only means something for a reply.
     const alsoInChannel = threadRootId !== null && data.alsoInChannel === true;
 
-    const created = await this.prisma.$transaction(async (tx) => {
+    const inserting = this.prisma.$transaction(async (tx) => {
       // The archive check is repeated here, under the lock, so a channel
       // archived after `resolve` cannot take one more message.
       const allocated = await tx.$queryRaw<{ lastSeq: bigint }[]>`
@@ -134,17 +192,21 @@ export class ChatMessageService {
           body,
           threadRootId,
           alsoInChannel,
+          clientId,
         },
         include: { author: AUTHOR },
       });
       if (threadRootId !== null) {
-        await tx.chatMessage.update({
-          where: { id: threadRootId },
+        // `deletedAt: null` again under the write: a root deleted after the
+        // check above takes no reply, and the whole post rolls back.
+        const { count } = await tx.chatMessage.updateMany({
+          where: { id: threadRootId, deletedAt: null },
           data: {
             replyCount: { increment: 1 },
             lastReplyAt: message.createdAt,
           },
         });
+        if (count === 0) throw new ConflictException(DELETED_ROOT);
       }
       // A message in the channel's own flow (top-level, or a reply also
       // sent to it) is posting there, so it reads everything up to it. A
@@ -166,8 +228,17 @@ export class ChatMessageService {
       }
       return message;
     }, POST_TRANSACTION);
+    let duplicate: MessageRow | null = null;
+    const created = await inserting.catch(async (err: unknown) => {
+      if (clientId === null || !isUniqueViolation(err)) throw err;
+      duplicate = await this.findByClientId(userId, channelId, clientId);
+      if (!duplicate) throw err;
+      return duplicate;
+    });
+    if (duplicate) return replayed(duplicate);
 
     const dto = toDto(created);
+    dto.refs = await this.documentRefs.sync(dto.id, channel, body);
     try {
       await this.bus.notifyMessage({
         t: 'msg',
@@ -191,6 +262,19 @@ export class ChatMessageService {
     }
     await this.afterPost(dto, channel, ctx);
     return dto;
+  }
+
+  /** The message this author already posted to the channel under `clientId`. */
+  private findByClientId(
+    userId: number,
+    channelId: string,
+    clientId: string,
+  ): Promise<MessageRow | null> {
+    return this.prisma.chatMessage.findFirst({
+      where: { channelId, authorId: userId, clientId },
+      // The earlier send's cards come back with it.
+      include: MESSAGE_INCLUDE,
+    });
   }
 
   /**
@@ -232,7 +316,7 @@ export class ChatMessageService {
       where,
       orderBy: { seq: forward ? 'asc' : 'desc' },
       take: PAGE_SIZE,
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     if (!forward) rows.reverse();
     return rows.map(toDto);
@@ -251,7 +335,7 @@ export class ChatMessageService {
   ): Promise<ChatMessageDto> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     if (!message) throw new NotFoundException('Message not found');
     await this.channels.resolve(userId, message.channelId, workspaceIdOrSlug);
@@ -260,7 +344,10 @@ export class ChatMessageService {
 
   /**
    * Edit one's own message. Another author's message, a deleted one, and one
-   * in a channel the caller can no longer read are all the same 404.
+   * in a channel the caller can no longer read are all the same 404. The bell
+   * follows the edit (`afterEdit`): its previews quote the new text, a
+   * mention taken out takes its notification with it, and one put in
+   * notifies as a post would.
    */
   async edit(
     userId: number,
@@ -269,12 +356,12 @@ export class ChatMessageService {
     workspaceIdOrSlug?: string,
   ): Promise<ChatMessageDto> {
     checkBody(body);
-    const { message, channel } = await this.ownMessage(
+    const { message, channel, ctx } = await this.ownMessage(
       userId,
       messageId,
       workspaceIdOrSlug,
     );
-    const text = await this.canonicalBody(body, channel.workspaceId);
+    const text = await this.canonicalBody(body, channel);
     // `deletedAt: null` in the write itself: a delete that commits after
     // `ownMessage` read the row must not have its cleared body written back.
     const { count } = await this.prisma.chatMessage.updateMany({
@@ -282,12 +369,17 @@ export class ChatMessageService {
       data: { body: text, editedAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('Message not found');
+    // The re-read below carries the refs as stored: the new body's on
+    // success, none after a failed sync (which clears them to match).
+    await this.documentRefs.sync(messageId, channel, text);
     const updated = await this.prisma.chatMessage.findUniqueOrThrow({
       where: { id: messageId },
-      include: { author: AUTHOR },
+      include: MESSAGE_INCLUDE,
     });
     await this.announceUpdate(message, channel);
-    return toDto(updated);
+    const dto = toDto(updated);
+    await this.afterEdit(dto, channel, ctx);
+    return dto;
   }
 
   /**
@@ -295,7 +387,9 @@ export class ChatMessageService {
    * thread root keeps its replies reachable. The body is cleared, and so are
    * the bell rows that quote it — a `chat_mention` or `chat_thread_reply`
    * carries a preview of the message in `commentId` — so the text is gone
-   * from the database and not merely hidden.
+   * from the database and not merely hidden. A deleted reply no longer
+   * counts on its root: `replyCount` is recounted from the replies still
+   * standing and `lastReplyAt` falls back to the newest of them.
    */
   async remove(
     userId: number,
@@ -307,18 +401,43 @@ export class ChatMessageService {
       messageId,
       workspaceIdOrSlug,
     );
-    await this.prisma.$transaction([
-      this.prisma.chatMessage.update({
-        where: { id: messageId },
+    await this.prisma.$transaction(async (tx) => {
+      // `deletedAt: null` under the write, so of two racing deletes only
+      // one goes on to touch the root.
+      const { count } = await tx.chatMessage.updateMany({
+        where: { id: messageId, deletedAt: null },
         data: { body: '', deletedAt: new Date() },
-      }),
-      this.prisma.notification.deleteMany({
+      });
+      if (count === 0) throw new NotFoundException('Message not found');
+      await tx.chatDocumentRef.deleteMany({ where: { messageId } });
+      await tx.notification.deleteMany({
         where: {
           commentId: messageId,
           type: { in: ['chat_mention', 'chat_thread_reply'] },
         },
-      }),
-    ]);
+      });
+      if (message.threadRootId !== null) {
+        // Lock the root first, in its own statement: a racing reply holds
+        // this lock from its `replyCount` bump until it commits, and under
+        // READ COMMITTED only a statement started after the lock is granted
+        // sees that reply. A recount inside the locking UPDATE itself would
+        // read the older snapshot and miss it.
+        await tx.$queryRaw`
+          SELECT 1 FROM "ChatMessage"
+          WHERE id = ${message.threadRootId} FOR UPDATE`;
+        // A recount, not a decrement, so a count that ever drifted heals
+        // here rather than being carried forward.
+        await tx.$executeRaw`
+          UPDATE "ChatMessage" r
+          SET "replyCount" = (
+                SELECT count(*) FROM "ChatMessage" x
+                WHERE x."threadRootId" = r.id AND x."deletedAt" IS NULL),
+              "lastReplyAt" = (
+                SELECT max(x."createdAt") FROM "ChatMessage" x
+                WHERE x."threadRootId" = r.id AND x."deletedAt" IS NULL)
+          WHERE r.id = ${message.threadRootId}`;
+      }
+    });
     await this.announceUpdate(message, channel);
   }
 
@@ -348,7 +467,11 @@ export class ChatMessageService {
     userId: number,
     messageId: string,
     workspaceIdOrSlug?: string,
-  ): Promise<{ message: ChatMessage; channel: ChatChannel }> {
+  ): Promise<{
+    message: ChatMessage;
+    channel: ChatChannel;
+    ctx: AccessContext;
+  }> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
     });
@@ -361,7 +484,7 @@ export class ChatMessageService {
       workspaceIdOrSlug,
     );
     if (!canPost(ctx)) throw new ConflictException('Channel is archived');
-    return { message, channel };
+    return { message, channel, ctx };
   }
 
   /**
@@ -394,6 +517,9 @@ export class ChatMessageService {
    * username, so `@[ceo](42)` cannot dress user 42 up as somebody else. A
    * token whose id is not a member of the workspace is flattened to plain
    * `@name` — it names nobody who could be notified or rendered as a chip.
+   * So is a token naming somebody who cannot read the channel (outside a
+   * private channel or a DM): a chip would offer them a link to a channel
+   * they cannot open, and the mention could never notify them anyway.
    * `canonicalMentions` repeats that to a fixpoint, so a flattened token
    * cannot hand its brackets to the text around it and re-form a token
    * nobody resolved. The result is checked again, since a longer real
@@ -401,7 +527,7 @@ export class ChatMessageService {
    */
   private async canonicalBody(
     raw: string,
-    workspaceId: string,
+    channel: ChatChannel,
   ): Promise<string> {
     const ids = [
       ...new Set(
@@ -417,7 +543,10 @@ export class ChatMessageService {
         : await this.prisma.user.findMany({
             where: {
               id: { in: ids },
-              workspaceMembers: { some: { workspaceId } },
+              workspaceMembers: { some: { workspaceId: channel.workspaceId } },
+              ...(channel.kind === 'public'
+                ? {}
+                : { chatMemberships: { some: { channelId: channel.id } } }),
             },
             select: { id: true, username: true },
           });
@@ -445,41 +574,13 @@ export class ChatMessageService {
     const actorId = message.author?.id;
     if (actorId === undefined) return;
     try {
-      const mentioned = [
-        ...new Set(
-          extractMentionedUserIds(message.body)
-            .map(Number)
-            .filter((id) => Number.isSafeInteger(id) && id > 0)
-            .filter((id) => id !== actorId),
-        ),
-      ];
-      let recipients: number[] = [];
+      const { mentioned, recipients } = await this.mentionRecipients(
+        message.body,
+        channel,
+        ctx,
+        actorId,
+      );
       if (mentioned.length > 0) {
-        const [workspaceMembers, channelMembers] = await Promise.all([
-          this.prisma.workspaceMember.findMany({
-            where: {
-              workspaceId: channel.workspaceId,
-              userId: { in: mentioned },
-            },
-            select: { userId: true },
-          }),
-          this.prisma.chatChannelMember.findMany({
-            where: { channelId: channel.id, userId: { in: mentioned } },
-            select: { userId: true },
-          }),
-        ]);
-        const inWorkspace = new Set(workspaceMembers.map((m) => m.userId));
-        const inChannel = new Set(channelMembers.map((m) => m.userId));
-        // 'notify' and 'notify-preview' both produce a chat_mention row.
-        recipients = mentioned.filter(
-          (id) =>
-            mentionOutcome({
-              kind: ctx.kind,
-              archived: ctx.archived,
-              isWorkspaceMember: inWorkspace.has(id),
-              isChannelMember: inChannel.has(id),
-            }) !== 'none',
-        );
         await this.notifications.createChatMention({
           workspaceId: channel.workspaceId,
           actorId,
@@ -503,7 +604,96 @@ export class ChatMessageService {
         });
       }
     } catch (err) {
-      this.logger.warn(`chat notify failed for ${message.id}: ${String(err)}`);
+      // The class and code only: the failed call carried the body as preview.
+      this.logger.warn(
+        `chat notify failed for ${message.id}: ${describeError(err)}`,
+      );
     }
+  }
+
+  /**
+   * After an edit has committed: the bell rows quoting this message are
+   * brought in line with its new text (`NotificationService.syncChatMessage`)
+   * — previews rewritten, a mention edited out dropped, a mention edited in
+   * notified. Logged and swallowed like `afterPost`: the edit stands.
+   */
+  private async afterEdit(
+    message: ChatMessageDto,
+    channel: ChatChannel,
+    ctx: AccessContext,
+  ): Promise<void> {
+    const actorId = message.author?.id;
+    if (actorId === undefined) return;
+    try {
+      const { recipients } = await this.mentionRecipients(
+        message.body,
+        channel,
+        ctx,
+        actorId,
+      );
+      await this.notifications.syncChatMessage({
+        workspaceId: channel.workspaceId,
+        actorId,
+        channelId: channel.id,
+        messageId: message.id,
+        threadRootId: message.threadRootId,
+        recipients,
+        preview: message.body,
+      });
+    } catch (err) {
+      // The class and code only: the failed call carried the body as preview.
+      this.logger.warn(
+        `chat edit notify failed for ${message.id}: ${describeError(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Who a body mentions (`mentioned`, the author excluded) and which of them
+   * a mention may reach (`recipients`): each is classified with
+   * `mentionOutcome` against their own access, so a private channel or a DM
+   * never leaks to somebody outside it.
+   */
+  private async mentionRecipients(
+    body: string,
+    channel: ChatChannel,
+    ctx: AccessContext,
+    actorId: number,
+  ): Promise<{ mentioned: number[]; recipients: number[] }> {
+    const mentioned = [
+      ...new Set(
+        extractMentionedUserIds(body)
+          .map(Number)
+          .filter((id) => Number.isSafeInteger(id) && id > 0)
+          .filter((id) => id !== actorId),
+      ),
+    ];
+    if (mentioned.length === 0) return { mentioned, recipients: [] };
+    const [workspaceMembers, channelMembers] = await Promise.all([
+      this.prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: channel.workspaceId,
+          userId: { in: mentioned },
+        },
+        select: { userId: true },
+      }),
+      this.prisma.chatChannelMember.findMany({
+        where: { channelId: channel.id, userId: { in: mentioned } },
+        select: { userId: true },
+      }),
+    ]);
+    const inWorkspace = new Set(workspaceMembers.map((m) => m.userId));
+    const inChannel = new Set(channelMembers.map((m) => m.userId));
+    // 'notify' and 'notify-preview' both produce a chat_mention row.
+    const recipients = mentioned.filter(
+      (id) =>
+        mentionOutcome({
+          kind: ctx.kind,
+          archived: ctx.archived,
+          isWorkspaceMember: inWorkspace.has(id),
+          isChannelMember: inChannel.has(id),
+        }) !== 'none',
+    );
+    return { mentioned, recipients };
   }
 }

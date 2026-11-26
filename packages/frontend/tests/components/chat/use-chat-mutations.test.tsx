@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelSummary, ChatMessageDto } from "@/api/chat";
+import { HttpError } from "@/api/http-error";
 import { chatKeys, type PendingSend } from "@/components/chat/chat-cache";
 import {
   useChannelMessages,
@@ -18,7 +19,12 @@ const api = vi.hoisted(() => ({
       (
         w: string,
         c: string,
-        input: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+        input: {
+          body: string;
+          threadRootId?: string;
+          alsoInChannel?: boolean;
+          clientId?: string;
+        },
       ) => Promise<unknown>
     >(),
   fetchMessages:
@@ -366,9 +372,122 @@ describe("useSendMessage", () => {
     await act(async () => {
       await result.current.sender.retry(clientId);
     });
-    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "hi" });
+    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", {
+      body: "hi",
+      clientId,
+    });
     expect(ids(queryClient)).toEqual(["m1", "m2"]);
     await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("sends one clientId per message, the same on every retry", async () => {
+    api.postMessage
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(msg(2, { body: "hi" }))
+      .mockResolvedValueOnce(msg(3, { body: "again" }));
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() => expect(result.current.channel).toHaveLength(1));
+    const clientId = result.current.channel[0].clientId!;
+    await act(async () => {
+      await result.current.sender.retry(clientId);
+    });
+    await act(async () => {
+      await result.current.sender.send({ body: "again" });
+    });
+
+    const sent = api.postMessage.mock.calls.map(([, , input]) => input.clientId);
+    expect(sent[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(sent[1]).toBe(sent[0]);
+    expect(sent[2]).not.toBe(sent[0]);
+  });
+
+  it("retries a send restored after a reload under its original clientId", async () => {
+    api.postMessage.mockReturnValueOnce(new Promise(() => {}));
+    const first = renderSend();
+    act(() => {
+      void first.result.current.sender.send({ body: "cut off" });
+    });
+    await waitFor(() => expect(api.postMessage).toHaveBeenCalledTimes(1));
+    const original = api.postMessage.mock.calls[0][2].clientId;
+    expect(original).toBeTruthy();
+
+    const second = renderSend();
+    api.postMessage.mockResolvedValueOnce(msg(2, { body: "cut off" }));
+    await act(async () => {
+      await second.result.current.sender.retry(
+        second.result.current.channel[0].clientId!,
+      );
+    });
+    expect(api.postMessage.mock.calls[1][2].clientId).toBe(original);
+  });
+
+  it.each([
+    [400, "Message body must be at most 4000 characters"],
+    [404, "Channel not found"],
+    [409, "This channel is archived, so it no longer takes messages."],
+  ])("a %i is final: the row says why and offers no retry", async (status, reason) => {
+    api.postMessage.mockRejectedValueOnce(new HttpError(reason, status));
+    const { result } = renderSend();
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() =>
+      expect(result.current.channel[0]?.localState).toBe("failed"),
+    );
+    expect(result.current.channel[0].failure).toEqual({
+      reason,
+      retryable: false,
+    });
+    expect(
+      result.current.sender.retry(result.current.channel[0].clientId!),
+    ).toBeNull();
+    expect(api.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 429 asks the reader to slow down and can be retried", async () => {
+    api.postMessage.mockRejectedValueOnce(
+      new HttpError(
+        "You're sending messages too quickly. Wait a moment and try again.",
+        429,
+      ),
+    );
+    const { result } = renderSend();
+    await act(async () => {
+      await result.current.sender.send({ body: "hi" }).catch(() => {});
+    });
+    await waitFor(() =>
+      expect(result.current.channel[0]?.localState).toBe("failed"),
+    );
+    expect(result.current.channel[0].failure).toEqual({
+      reason: "You're sending messages too quickly. Wait a moment and try again.",
+      retryable: true,
+    });
+    api.postMessage.mockResolvedValueOnce(msg(2, { body: "hi" }));
+    await act(async () => {
+      await result.current.sender.retry(result.current.channel[0].clientId!);
+    });
+    await waitFor(() => expect(result.current.channel).toEqual([]));
+  });
+
+  it("a network failure or a 5xx is retryable with no reason of its own", async () => {
+    api.postMessage
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new HttpError("stack trace", 503));
+    const { result } = renderSend();
+    await act(async () => {
+      await result.current.sender.send({ body: "a" }).catch(() => {});
+      await result.current.sender.send({ body: "b" }).catch(() => {});
+    });
+    await waitFor(() => expect(result.current.channel).toHaveLength(2));
+    for (const line of result.current.channel) {
+      expect(line.failure).toEqual({ reason: null, retryable: true });
+    }
   });
 
   it("discards a failed send", async () => {
@@ -397,13 +516,21 @@ describe("useSendMessage", () => {
     await waitFor(() => expect(result.current.channel).toHaveLength(2));
     // The second post waits for the first to be answered.
     await waitFor(() => expect(api.postMessage).toHaveBeenCalledTimes(1));
-    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "one" });
+    expect(api.postMessage).toHaveBeenLastCalledWith(
+      "w1",
+      "c1",
+      expect.objectContaining({ body: "one" }),
+    );
     await act(async () => {
       resolvers[0](msg(2, { body: "one" }));
       await first;
     });
     await waitFor(() => expect(api.postMessage).toHaveBeenCalledTimes(2));
-    expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", { body: "two" });
+    expect(api.postMessage).toHaveBeenLastCalledWith(
+      "w1",
+      "c1",
+      expect.objectContaining({ body: "two" }),
+    );
     await act(async () => {
       resolvers[1](msg(3, { body: "two" }));
       await second;
@@ -456,9 +583,11 @@ describe("useSendMessage", () => {
         await vi.advanceTimersByTimeAsync(15_000);
       });
       expect(api.postMessage).toHaveBeenCalledTimes(2);
-      expect(api.postMessage).toHaveBeenLastCalledWith("w1", "c1", {
-        body: "next",
-      });
+      expect(api.postMessage).toHaveBeenLastCalledWith(
+        "w1",
+        "c1",
+        expect.objectContaining({ body: "next" }),
+      );
     } finally {
       vi.useRealTimers();
     }

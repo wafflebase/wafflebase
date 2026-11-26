@@ -12,6 +12,12 @@ import { useDocument } from '@yorkie-js/react';
 import { IconMessage, IconMessagePlus } from '@tabler/icons-react';
 
 import { Toggle } from '@/components/ui/toggle.tsx';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu.tsx';
+import { HeaderPanelToggle } from '@/components/site-header';
+import {
+  HEADER_CONTROL_SIZE,
+  useHeaderPlacement,
+} from '@/components/header-placement';
 import {
   Tooltip,
   TooltipContent,
@@ -95,12 +101,19 @@ export function PdfCollabStateProvider({
   readOnly,
   token,
   presenceUser,
+  panel,
   children,
 }: {
   documentId: string;
   readOnly: boolean;
   token?: string;
   presenceUser: PdfPresenceUser;
+  /**
+   * The comments panel's open flag, when the host keeps it — the `/f/:id`
+   * route does, in `useRightPanels`, so comments share the right-hand slot
+   * with chat. Kept here otherwise (a share-link viewer).
+   */
+  panel?: readonly [boolean, React.Dispatch<React.SetStateAction<boolean>>];
   children: ReactNode;
 }) {
   const { doc } = useDocument<YorkiePdfRoot, PdfPresence>();
@@ -111,7 +124,8 @@ export function PdfCollabStateProvider({
     store,
     documentId,
   );
-  const [panelOpen, setPanelOpen] = useState(false);
+  const localPanel = useState(false);
+  const [panelOpen, setPanelOpen] = panel ?? localPanel;
   const [creating, setCreating] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pending, setPending] = useState<PdfAnchor | null>(null);
@@ -184,12 +198,15 @@ export function PdfCollabProvider({
   readOnly,
   token,
   presenceUser,
+  panel,
   children,
 }: {
   documentId: string;
   readOnly: boolean;
   token?: string;
   presenceUser: PdfPresenceUser;
+  /** See `PdfCollabStateProvider`. */
+  panel?: readonly [boolean, React.Dispatch<React.SetStateAction<boolean>>];
   children: ReactNode;
 }) {
   const presence: PdfPresence = {
@@ -228,6 +245,7 @@ export function PdfCollabProvider({
         readOnly={readOnly}
         token={token}
         presenceUser={presenceUser}
+        panel={panel}
       >
         {children}
       </PdfCollabStateProvider>
@@ -239,10 +257,39 @@ export function PdfCollabProvider({
  * Top-bar controls (region-comment tool + comments panel toggle), placed in
  * the route's header alongside `ShareDialog`/`UserPresence` — matching the
  * docs/sheets/slides header layout. Must render inside `PdfCollabProvider`.
+ *
+ * The owned route puts this in `SiteHeader`'s `comments` slot, which a phone
+ * moves into the header's More menu, so it reads `useHeaderPlacement()` and
+ * draws itself as checked menu rows there. The shared route's own header has
+ * no placement and gets the buttons.
  */
 export function PdfHeaderActions() {
   const { readOnly, creating, setCreating, panelOpen, setPanelOpen } =
     usePdfCollab();
+  const comments = (
+    <HeaderPanelToggle
+      icon={IconMessage}
+      label="comments"
+      pressed={panelOpen}
+      onPressedChange={setPanelOpen}
+    />
+  );
+  if (useHeaderPlacement() === 'menu') {
+    return (
+      <>
+        {!readOnly && (
+          <DropdownMenuCheckboxItem
+            checked={creating}
+            onCheckedChange={setCreating}
+          >
+            <IconMessagePlus size={16} className="text-muted-foreground" />
+            Comment on a region
+          </DropdownMenuCheckboxItem>
+        )}
+        {comments}
+      </>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
       {!readOnly && (
@@ -250,7 +297,7 @@ export function PdfHeaderActions() {
           <TooltipTrigger asChild>
             <Toggle
               size="sm"
-              className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+              className={`${HEADER_CONTROL_SIZE} min-w-8 cursor-pointer border p-0`}
               aria-label="Comment on a region"
               pressed={creating}
               onPressedChange={setCreating}
@@ -263,22 +310,7 @@ export function PdfHeaderActions() {
           </TooltipContent>
         </Tooltip>
       )}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-            aria-label={panelOpen ? 'Hide comments' : 'Show comments'}
-            pressed={panelOpen}
-            onPressedChange={setPanelOpen}
-          >
-            <IconMessage size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>
-          {panelOpen ? 'Hide comments' : 'Show comments'}
-        </TooltipContent>
-      </Tooltip>
+      {comments}
     </div>
   );
 }

@@ -116,6 +116,7 @@ and database tools for handling large datasets.
 - [packages/frontend/](packages/frontend/README.md) — React web app (pages, components, hooks)
 - [packages/backend/](packages/backend/README.md) — NestJS API server (auth, documents, data sources)
 - [packages/cli/](packages/cli/README.md) — Command-line interface for the Wafflebase API ([skills](packages/cli/skills/SKILL.md))
+- [packages/desktop/](packages/desktop/README.md) — Desktop app (Tauri 2 shell that opens your deployment in a native window)
 - [packages/documentation/](packages/documentation/README.md) — VitePress documentation site (wafflebase.io/docs)
 
 Per-package detail lives in [packages/README.md](packages/README.md). The

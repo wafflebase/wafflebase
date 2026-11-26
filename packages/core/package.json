@@ -9,6 +9,12 @@
     "dist"
   ],
   "exports": {
+    "./document-link": {
+      "types": "./dist/document-link/index.d.ts",
+      "import": "./dist/document-link/index.js",
+      "require": "./dist/cjs/document-link/index.js",
+      "default": "./dist/document-link/index.js"
+    },
     "./geometry": {
       "types": "./dist/geometry/index.d.ts",
       "import": "./dist/geometry/index.js",

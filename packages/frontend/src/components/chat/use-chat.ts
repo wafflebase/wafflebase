@@ -36,6 +36,7 @@ import {
   type PostInput,
 } from "./chat-cache";
 import { pendingStore, updatePending } from "./pending-store";
+import { classifySendFailure, newClientId } from "./send-failure";
 import { catchUpChannel, takePendingCatchUp } from "./use-chat-stream";
 
 /** Channels the caller can see in one workspace, with unread counts. */
@@ -49,8 +50,8 @@ export function useChannels(workspaceId: string | undefined) {
 
 /** Channels whose oldest page has been reached, so "Load older" hides. */
 const exhausted = new Set<string>();
-/** A thread holds at most this many pages of replies in P1. */
-const MAX_THREAD_PAGES = 10;
+/** How many pages of replies opening a thread reads before it stops to ask. */
+const THREAD_OPEN_PAGES = 10;
 
 /**
  * A channel's top-level messages, newest page first loaded.
@@ -135,33 +136,86 @@ export function useChannelMessages(workspaceId: string, channelId: string) {
   };
 }
 
-/** A thread's replies, ascending. */
+/**
+ * A thread, root first, ascending. It reads back from the newest reply, so a
+ * long thread is never cut off at its end: opening it reads up to
+ * `THREAD_OPEN_PAGES` pages, and `loadOlder` reads the rest on demand. The
+ * root has the lowest `seq` in the thread, so the thread is complete exactly
+ * when the root is loaded; until then `hasOlder` is set.
+ *
+ * The stream refetches the thread on every reply. A refetch reads back as far
+ * as the cache already reached, so the earlier replies the reader paged
+ * through stay put.
+ */
 export function useThreadMessages(
   workspaceId: string,
   channelId: string,
   rootId: string,
 ) {
-  return useQuery({
-    queryKey: chatKeys.thread(rootId),
-    queryFn: async () => {
+  const queryClient = useQueryClient();
+  const key = useMemo(() => chatKeys.thread(rootId), [rootId]);
+  const readBack = useCallback(
+    async (before: number | undefined, pages: number, floor: number) => {
+      // Reads `pages` pages back from `before` (the newest without it), and
+      // on past them while the oldest read is still above `floor`.
       let all: ChatMessageDto[] = [];
-      // Page forward from the start: without a cursor the server returns
-      // the newest page, after which nothing is newer and the loop stops.
-      let after = 0;
-      for (let page = 0; page < MAX_THREAD_PAGES; page++) {
+      for (let page = 0; ; page++) {
         const batch = await fetchMessages(workspaceId, channelId, {
           thread: rootId,
-          after,
+          ...(before === undefined ? {} : { before }),
         });
         all = mergeMessages(all, batch);
-        if (batch.length < CHAT_PAGE_SIZE) break;
-        const last = lastSeqOf(batch);
-        if (last === null) break;
-        after = last;
+        const oldest = batch[0];
+        if (!oldest || batch.length < CHAT_PAGE_SIZE) break;
+        if (batch.some((m) => m.id === rootId)) break;
+        if (page + 1 >= pages && oldest.seq <= floor) break;
+        before = oldest.seq;
       }
       return all;
     },
+    [workspaceId, channelId, rootId],
+  );
+
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => {
+      // Read back to the oldest row already cached — the root, when the
+      // reader paged all the way up — so a refetch never drops it.
+      const cached = queryClient.getQueryData<ChatMessageDto[]>(key);
+      const reached = cached?.[0]?.seq ?? Infinity;
+      return readBack(undefined, THREAD_OPEN_PAGES, reached);
+    },
   });
+
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const data = query.data;
+  const hasOlder = !!data?.length && !data.some((m) => m.id === rootId);
+
+  /** Read the page of replies before the oldest loaded one. */
+  const loadOlder = useCallback(async () => {
+    const oldest = data?.[0];
+    if (!oldest || !hasOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const page = await readBack(oldest.seq, 1, Infinity);
+      queryClient.setQueryData<ChatMessageDto[]>(key, (old) =>
+        mergeMessages(old, page),
+      );
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [data, hasOlder, loadingOlder, readBack, queryClient, key]);
+
+  return {
+    data,
+    isLoading: query.isLoading,
+    error: query.error,
+    /** Try again after the thread failed to load. */
+    retry: query.refetch,
+    hasOlder,
+    loadingOlder,
+    loadOlder,
+  };
 }
 
 function patchEverywhere(
@@ -220,7 +274,6 @@ function applyPosted(
 }
 
 const NO_PENDING: PendingSend[] = [];
-let lastClientId = 0;
 /** Each channel's last queued post, per client; see `run` in `useSendMessage`. */
 const SEND_QUEUE_WAIT_MS = 15_000;
 const sendQueues = new WeakMap<QueryClient, Map<string, Promise<void>>>();
@@ -276,7 +329,10 @@ export function useSendMessage(workspaceId: string, channelId: string) {
     (clientId: string, input: PostInput): Promise<ChatMessageDto> => {
       const post = async () => {
         try {
-          const message = await postMessage(workspaceId, channelId, input);
+          const message = await postMessage(workspaceId, channelId, {
+            ...input,
+            clientId,
+          });
           // Both writes in one tick, so the server's row and the retired
           // local one land in the same render and never flicker or double.
           applyPosted(queryClient, workspaceId, channelId, message);
@@ -285,13 +341,14 @@ export function useSendMessage(workspaceId: string, channelId: string) {
           );
           return message;
         } catch (err) {
+          const failure = classifySendFailure(err);
           updatePending(queryClient, channelId, (sends) =>
             sends.map((p) =>
               p.clientId === clientId
                 ? {
                     ...p,
                     state: "failed",
-                    message: { ...p.message, localState: "failed" },
+                    message: { ...p.message, localState: "failed", failure },
                   }
                 : p,
             ),
@@ -324,8 +381,9 @@ export function useSendMessage(workspaceId: string, channelId: string) {
 
   const send = useCallback(
     (input: PostInput): Promise<ChatMessageDto> => {
-      lastClientId += 1;
-      const clientId = `${Date.now().toString(36)}-${lastClientId}`;
+      // Also the post's idempotency key: a retry, even after a reload,
+      // sends it again, and the server answers with the first copy.
+      const clientId = newClientId();
       const me = queryClient.getQueryData<User>(["me"]);
       // The newest seq known anywhere: the server's row for this send can
       // only come after it, which is how `withPending` tells the two apart
@@ -375,7 +433,10 @@ export function useSendMessage(workspaceId: string, channelId: string) {
     [queryClient, workspaceId, channelId, run],
   );
 
-  /** Send a failed message again, in place. */
+  /**
+   * Send a failed message again, in place, under its original `clientId`.
+   * Null when there is nothing to retry, or the server refused it for good.
+   */
   const retry = useCallback(
     (clientId: string): Promise<ChatMessageDto> | null => {
       const entry = (
@@ -386,13 +447,19 @@ export function useSendMessage(workspaceId: string, channelId: string) {
         )
       ).find((p) => p.clientId === clientId);
       if (!entry || entry.state !== "failed") return null;
+      // The server refused this message for good; the row says why.
+      if (entry.message.failure?.retryable === false) return null;
       updatePending(queryClient, channelId, (sends) =>
         sends.map((p) =>
           p.clientId === clientId
             ? {
                 ...p,
                 state: "pending",
-                message: { ...p.message, localState: "pending" },
+                message: {
+                  ...p.message,
+                  localState: "pending",
+                  failure: undefined,
+                },
               }
             : p,
         ),

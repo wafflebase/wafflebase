@@ -8,7 +8,6 @@ import { userFacingError } from "@/api/http-error";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { chatKeys, withPending } from "./chat-cache";
 import { Composer } from "./composer";
 import { groupMessages, lastOwnMessage } from "./group-messages";
@@ -23,6 +22,7 @@ import {
   useThreadMessages,
 } from "./use-chat";
 import { useRovingMessages } from "./use-roving-messages";
+import { useMentionableMembers } from "./use-mentionable-members";
 
 /** Within this of the end still counts as reading the newest reply. */
 const BOTTOM_SLACK_PX = 48;
@@ -51,7 +51,7 @@ export function ThreadView({
   const meId = me?.id ?? -1;
   const { data: channels } = useChannels(workspaceId);
   const channel = channels?.find((c) => c.id === channelId);
-  const members = useWorkspaceMembers(workspaceId);
+  const members = useMentionableMembers(workspaceId, channel);
   const thread = useThreadMessages(workspaceId, channelId, rootId);
   const pending = usePendingMessages(channelId, rootId);
   const sender = useSendMessage(workspaceId, channelId);
@@ -86,6 +86,18 @@ export function ThreadView({
     [replies, pending],
   );
   const groups = useMemo(() => groupMessages(display), [display]);
+  // Until the thread is read back to its root, the root's own count is the
+  // only one that covers the replies not loaded yet.
+  const replyCount =
+    thread.hasOlder && root
+      ? Math.max(root.replyCount, replies.length)
+      : replies.length;
+  const loadOlder = () =>
+    thread
+      .loadOlder()
+      .catch((err: unknown) =>
+        toast.error(userFacingError(err, "Couldn't load earlier replies.")),
+      );
 
   const present =
     !!highlightMessageId && replies.some((m) => m.id === highlightMessageId);
@@ -190,9 +202,12 @@ export function ThreadView({
     onDiscard: sender.discard,
   };
 
+  const refreshFailed = !!thread.error && !!thread.data?.length;
   const checkboxId = `also-in-channel-${rootId}`;
+  // An archived channel gets the composer anyway, disabled with its reason,
+  // so a non-member previewing one is told why there is no reply box.
   const canPost = channel
-    ? !(channel.kind === "public" && !channel.isMember)
+    ? channel.archived || !(channel.kind === "public" && !channel.isMember)
     : true;
   // A public channel's thread is readable before joining; say why there is
   // no reply box, and offer the join — not on an archived channel, which the
@@ -207,9 +222,9 @@ export function ThreadView({
         onScroll={onScroll}
         onKeyDown={roving.onKeyDown}
         onFocus={roving.onFocus}
+        // Not a region of its own: the column around it is the Thread
+        // landmark, and a second one by the same name only doubles it.
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3"
-        role="region"
-        aria-label="Thread"
       >
         {root ? (
           <ol className="border-b pb-2">
@@ -221,17 +236,41 @@ export function ThreadView({
         ) : null}
         {thread.isLoading ? (
           <p className="p-4 text-sm text-muted-foreground">Loading replies…</p>
-        ) : thread.error ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            {userFacingError(thread.error, "Couldn't load this thread.")}
-          </p>
+        ) : thread.error && !thread.data?.length ? (
+          <div className="flex flex-col items-start gap-3 p-4">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {userFacingError(thread.error, "Couldn't load this thread.")}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void thread.retry()}
+            >
+              Retry
+            </Button>
+          </div>
         ) : display.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No replies yet.</p>
         ) : (
           <>
             <p className="mx-4 mt-3 text-xs font-medium text-muted-foreground">
-              {replies.length === 1 ? "1 reply" : `${replies.length} replies`}
+              {replyCount === 1 ? "1 reply" : `${replyCount} replies`}
             </p>
+            {thread.hasOlder && (
+              // Below the root and above the replies it reads in, so the
+              // reader's place does not move when they arrive.
+              <div className="mx-4 mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="pointer-coarse:min-h-11"
+                  onClick={() => void loadOlder()}
+                  disabled={thread.loadingOlder}
+                >
+                  {thread.loadingOlder ? "Loading…" : "Show earlier replies"}
+                </Button>
+              </div>
+            )}
             <ol className="flex flex-col">
               {groups.map((g) => (
                 <MessageGroupView
@@ -243,6 +282,22 @@ export function ThreadView({
               ))}
             </ol>
           </>
+        )}
+        {refreshFailed && (
+          // A failed refetch keeps the replies React Query already holds;
+          // replacing them with the error state would throw away the
+          // reader's place for a background read they never asked for.
+          <div className="mx-4 mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Couldn't refresh replies.</span>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs pointer-coarse:min-h-11"
+              onClick={() => void thread.retry()}
+            >
+              Retry
+            </Button>
+          </div>
         )}
       </div>
       <span aria-live="polite" className="sr-only">
@@ -278,6 +333,7 @@ export function ThreadView({
         >
           <Composer
             channelId={`${channelId}:thread:${rootId}`}
+            userId={me?.id}
             onSend={send}
             onArrowUpWhenEmpty={editLast}
             members={members}

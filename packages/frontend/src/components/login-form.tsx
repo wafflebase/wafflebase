@@ -48,6 +48,12 @@ const LOGIN_ERRORS = new Map<string, string>([
     "email_conflict",
     "An account already exists for that email address under the other sign-in provider. Sign in with that provider once, and this one will work too.",
   ],
+  // The desktop app's handoff could not redeem its one-time code: it expired,
+  // was already used, or came from another sign-in.
+  [
+    "desktop_session",
+    "The desktop app could not finish signing you in. Sign in again.",
+  ],
 ]);
 
 /** Shown for a code this build does not recognise, so none is silent. */

@@ -49,6 +49,29 @@ export function normalizeChannelName(raw: string): string {
   return name;
 }
 
+/**
+ * Somebody just lost a channel. Where that means they can no longer read it —
+ * a private channel; never a public one, which stays readable to every
+ * workspace member — their bell rows quoting it go too, so a preview of a
+ * channel they are out of does not outlive their access. Inside the caller's
+ * transaction, so the membership and its previews leave together.
+ */
+async function dropUnreadableChatRows(
+  tx: Prisma.TransactionClient,
+  channel: ChatChannel,
+  userId: number,
+): Promise<void> {
+  if (channel.kind === 'public') return;
+  await tx.notification.deleteMany({
+    where: {
+      recipientId: userId,
+      workspaceId: channel.workspaceId,
+      threadId: channel.id,
+      type: { in: ['chat_mention', 'chat_thread_reply'] },
+    },
+  });
+}
+
 function isUniqueViolation(err: unknown): boolean {
   return (
     err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
@@ -201,16 +224,21 @@ export class ChatChannelService {
     const key = dmKey(id, ids);
     const existing = await this.prisma.chatChannel.findUnique({
       where: { dmKey: key },
-      select: { id: true },
+      select: { id: true, lastSeq: true },
     });
     if (existing) {
       // A DM's identity is its key, but its member rows are not permanent:
       // removing someone from the workspace deletes them. Everyone here was
       // just checked to be a workspace member again, so restore the set.
+      // A restored member starts at the tail, as a joiner does: the history
+      // stays theirs to scroll (a DM's people are fixed, so it was written
+      // to them), but what arrived while they were gone is not unread, and
+      // its mentions were never theirs to be counted.
       const { count } = await this.prisma.chatChannelMember.createMany({
         data: ids.map((memberId) => ({
           channelId: existing.id,
           userId: memberId,
+          lastReadSeq: existing.lastSeq,
         })),
         skipDuplicates: true,
       });
@@ -340,6 +368,7 @@ export class ChatChannelService {
           'You are the last member — archive the channel instead',
         );
       }
+      if (removed > 0) await dropUnreadableChatRows(tx, channel, userId);
       return removed;
     });
     if (count > 0) await this.announceMembership(channelId);
@@ -410,6 +439,7 @@ export class ChatChannelService {
       if (count === 0) {
         throw new NotFoundException('That person is not in this channel');
       }
+      await dropUnreadableChatRows(tx, channel, targetId);
       if (
         channel.kind === 'private' &&
         (await tx.chatChannelMember.count({ where: { channelId } })) === 0
@@ -471,6 +501,7 @@ export class ChatChannelService {
       }
       throw err;
     }
+    await this.announceChannel(channel);
     return this.summaryOf(userId, channelId);
   }
 
@@ -627,7 +658,10 @@ export class ChatChannelService {
     userId: number,
     where: Prisma.Sql,
   ): Promise<ChannelSummary[]> {
-    const mention = `%](${userId})%`;
+    // The canonical token `@[name](id)`, matched as `MENTION_RE` parses it,
+    // so plain text such as `[docs](42)` is not a mention of user 42. The id
+    // is an integer, so it needs no escaping inside the pattern.
+    const mention = `@\\[[^]]*\\]\\(${userId}\\)`;
     const rows = await this.prisma.$queryRaw<SummaryRow[]>`
       SELECT c.id, c.kind, c.name, c.topic,
              c."archivedAt" IS NOT NULL AS archived,
@@ -648,7 +682,7 @@ export class ChatChannelService {
         ON wm."workspaceId" = c."workspaceId" AND wm."userId" = ${userId}
       LEFT JOIN LATERAL (
         SELECT count(*) AS unread,
-               count(*) FILTER (WHERE x.body LIKE ${mention}) AS mentions
+               count(*) FILTER (WHERE x.body ~ ${mention}) AS mentions
         FROM "ChatMessage" x
         WHERE m."userId" IS NOT NULL
           AND x."channelId" = c.id
@@ -697,6 +731,25 @@ export class ChatChannelService {
       mentionCount: r.mentionCount,
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
     }));
+  }
+
+  /**
+   * Tells the channel's readers that its name, topic or archive state
+   * changed, so their channel lists — and an open conversation's composer —
+   * follow without a reload. Best effort, like `announceMembership`.
+   */
+  private async announceChannel(channel: ChatChannel): Promise<void> {
+    try {
+      await this.bus.notifyChannel({
+        t: 'chn',
+        c: channel.id,
+        w: channel.workspaceId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `chat channel notify failed for ${channel.id}: ${String(err)}`,
+      );
+    }
   }
 
   /**

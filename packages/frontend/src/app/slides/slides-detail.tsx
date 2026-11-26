@@ -18,6 +18,8 @@ import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useAutoCollapseSidebar } from "@/hooks/use-auto-collapse-sidebar";
 import { IconHistory } from "@tabler/icons-react";
 import type { Theme } from "@wafflebase/slides";
@@ -193,8 +195,23 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   const doc = useSlidesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  type RightPanel = "theme" | "format" | "motion" | "background" | "history" | null;
+  // One panel at a time on the right, chat included: a union already gives
+  // chat the slot to itself, which is what `useRightPanels` does for the
+  // editors that dock comments and history side by side.
+  type RightPanel =
+    | "theme"
+    | "format"
+    | "motion"
+    | "background"
+    | "history"
+    | "chat"
+    | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const setChatOpen = useCallback(
+    (open: boolean) =>
+      setRightPanel((p) => (open ? "chat" : p === "chat" ? null : p)),
+    [],
+  );
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount SlidesView, dropping its local selection
   // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
@@ -389,6 +406,11 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   }, [store, editor, uploadFn, workspaceId]);
 
   return (
+    <ChatPanelProvider
+      open={rightPanel === "chat"}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider
       open={sidebar.open}
       onOpenChange={sidebar.onOpenChange}
@@ -427,6 +449,9 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 }
               />
             ),
+            // Withheld during a preview, as the panel is: "Send to chat"
+            // reads the live selection the preview is covering.
+            chat: previewing ? null : <ChatPanelToggle />,
             export: (
               <SlidesExportButton
                 store={store}
@@ -552,6 +577,12 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 refreshKey={historyResetToken}
               />
             )}
+            {rightPanel === "chat" && !previewing && documentData && (
+              <LazyChatPanel
+                workspaceId={documentData.workspaceId}
+                documentId={documentId}
+              />
+            )}
           </div>
         </div>
       </SidebarInset>
@@ -589,6 +620,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
           );
         })()}
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 
@@ -636,9 +668,17 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
   // Which design/format panel is open as a bottom sheet. Mirrors the
   // desktop `rightPanel` side-drawer state machine, but the panels render
   // inside a `Sheet` instead of docking next to the canvas.
-  type RightPanel = "theme" | "format" | "motion" | "background" | null;
+  // Chat joins the union so it shares the bottom of the screen with the
+  // design sheets one at a time; it draws its own sheet (`ChatPanel`).
+  type RightPanel = "theme" | "format" | "motion" | "background" | "chat" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
-  const panelMeta = rightPanel ? MOBILE_PANEL_META[rightPanel] : null;
+  const setChatOpen = useCallback(
+    (open: boolean) =>
+      setRightPanel((p) => (open ? "chat" : p === "chat" ? null : p)),
+    [],
+  );
+  const panelMeta =
+    rightPanel && rightPanel !== "chat" ? MOBILE_PANEL_META[rightPanel] : null;
   // Mirror the active theme so the Format sheet's theme-bound pickers
   // (shape fill, text color, font family) get a non-null Theme to
   // resolve against. Without this they are gated behind a `!theme`
@@ -763,6 +803,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
   }, [store, editor, uploadFn, workspaceId]);
 
   return (
+    <ChatPanelProvider open={rightPanel === "chat"} onOpenChange={setChatOpen}>
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -794,6 +835,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
                 disabled={!store || slideCount === 0}
               />
             ),
+            chat: <ChatPanelToggle />,
             share: <ShareDialog documentId={documentId} />,
             presence: <UserPresence />,
           }}
@@ -824,12 +866,13 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
           />
           <MobileSlidesView
             mode="edit"
+            documentId={documentId}
             onStoreReady={setStore}
             onEditorReady={setEditor}
           />
         </div>
         <Sheet
-          open={rightPanel !== null}
+          open={panelMeta !== null}
           onOpenChange={(o) => {
             if (!o) setRightPanel(null);
           }}
@@ -880,6 +923,12 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
             )}
           </SheetContent>
         </Sheet>
+        {rightPanel === "chat" && documentData && (
+          <LazyChatPanel
+            workspaceId={documentData.workspaceId}
+            documentId={documentId}
+          />
+        )}
       </SidebarInset>
       {presentingFrom &&
         store &&
@@ -904,6 +953,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
           );
         })()}
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 

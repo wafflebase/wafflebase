@@ -24,3 +24,27 @@ export function formatShortTime(iso: string): string {
     .join("")
     .trim();
 }
+
+/**
+ * A day divider's label: "Today", "Yesterday", "Wed, Nov 25" within this
+ * year, and "November 25, 2025" before it, where the weekday no longer helps
+ * and the year has to be there.
+ */
+export function dayLabel(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.getFullYear() === now.getFullYear()
+    ? d.toLocaleDateString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    : d.toLocaleDateString([], {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+}

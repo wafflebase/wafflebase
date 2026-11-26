@@ -69,6 +69,11 @@ describe('parsePayload', () => {
     expect(parsePayload(json({ t: 'probe', id: 'p1' }))).toEqual({
       probe: 'p1',
     });
+    expect(parsePayload(json({ t: 'chn', c: 'c1', w: 'w1' }))).toEqual({
+      t: 'chn',
+      c: 'c1',
+      w: 'w1',
+    });
   });
 
   it('drops only the fields it knows', () => {
@@ -101,6 +106,10 @@ describe('parsePayload', () => {
     ['upd with no id', json({ ...upd, id: undefined })],
     ['upd with no workspace', json({ ...upd, w: undefined })],
     ['upd with a numeric thread root', json({ ...upd, r: 1 })],
+    ['chn with no workspace', json({ t: 'chn', c: 'c1' })],
+    ['chn with a numeric workspace', json({ t: 'chn', c: 'c1', w: 1 })],
+    ['chn with a numeric channel', json({ t: 'chn', c: 1, w: 'w1' })],
+    ['chn with no channel', json({ t: 'chn', w: 'w1' })],
     ['a probe with a numeric id', json({ t: 'probe', id: 1 })],
     ['a probe with no id', json({ t: 'probe' })],
   ])('rejects %s', (_label, raw) => {

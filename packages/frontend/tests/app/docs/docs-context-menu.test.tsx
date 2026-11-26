@@ -27,11 +27,13 @@ function Wrapper({
   readOnly = false,
   canComment = true,
   onInsertComment = vi.fn(),
+  onSendToChat,
 }: {
   editor: EditorAPI;
   readOnly?: boolean;
   canComment?: boolean;
   onInsertComment?: () => void;
+  onSendToChat?: (point: { x: number; y: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   return (
@@ -43,6 +45,7 @@ function Wrapper({
         readOnly={readOnly}
         canComment={canComment}
         onInsertComment={onInsertComment}
+        onSendToChat={onSendToChat}
       />
     </>
   );
@@ -58,6 +61,33 @@ const withSelection = () =>
   }) as unknown as Partial<EditorAPI>;
 
 describe('DocsContextMenu', () => {
+
+  it('Send to chat is hidden without a chat panel', () => {
+    render(<Wrapper editor={makeEditor()} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+    expect(screen.getByText('Add link')).toBeDefined();
+    expect(screen.queryByText('Send to chat')).toBeNull();
+  });
+
+  it('Send to chat hands over the right-clicked point and closes the menu', () => {
+    const editor = makeEditor();
+    const onSendToChat = vi.fn();
+    render(<Wrapper editor={editor} onSendToChat={onSendToChat} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 12, clientY: 34 });
+    fireEvent.click(screen.getByText('Send to chat'));
+    expect(onSendToChat).toHaveBeenCalledWith({ x: 12, y: 34 });
+    expect(screen.queryByRole('menu')).toBeNull();
+    // The chat composer takes focus; the caret must not take it back.
+    expect(editor.focus).not.toHaveBeenCalled();
+  });
+
+  it('a read-only editor with chat opens a menu offering only Send to chat', () => {
+    render(<Wrapper editor={makeEditor()} readOnly onSendToChat={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+    expect(screen.getByText('Send to chat')).toBeDefined();
+    expect(screen.queryByText('Add link')).toBeNull();
+    expect(screen.queryByText('Paste')).toBeNull();
+  });
   it('(a) no-selection + not-readonly: shows Paste/Add link, hides Cut/Copy/Insert comment', () => {
     const editor = makeEditor();
     render(<Wrapper editor={editor} readOnly={false} />);
@@ -100,6 +130,28 @@ describe('DocsContextMenu', () => {
 
     expect(screen.queryByText('Paste')).toBeNull();
     expect(screen.queryByText('Add link')).toBeNull();
+  });
+
+  // A read-only editor has no table menu (every row of it is an edit), so a
+  // right-click in a table is this menu's: without it, Copy and Send to chat
+  // were unreachable there and the right-click opened nothing at all.
+  it('(c2) readOnly + isInTable(): opens with Copy and Send to chat', () => {
+    const editor = makeEditor({
+      isInTable: vi.fn(() => true),
+      ...withSelection(),
+    });
+    const onSendToChat = vi.fn();
+    render(<Wrapper editor={editor} readOnly onSendToChat={onSendToChat} />);
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), {
+      clientX: 5,
+      clientY: 6,
+    });
+
+    expect(screen.getByText('Copy')).toBeDefined();
+    expect(screen.queryByText('Paste')).toBeNull();
+    fireEvent.click(screen.getByText('Send to chat'));
+    expect(onSendToChat).toHaveBeenCalledWith({ x: 5, y: 6 });
   });
 
   // A read-only editor still constructs its TextEditor and hidden textarea,

@@ -200,6 +200,119 @@ describe('CliLoginConfirmMiddleware', () => {
     expect(req.__cliConfirmed).toBeUndefined();
   });
 
+  /**
+   * The desktop app's sign-in (`?mode=desktop`) runs the same gate. The page
+   * has to name the app — a person who launched no `wafflebase login` would
+   * otherwise be told to close a page for a sign-in they did start — and the
+   * link has to keep `mode=desktop`, or the code would be minted as a CLI
+   * code that the app's handoff cannot redeem.
+   */
+  describe('mode=desktop', () => {
+    const nonce = 'd'.repeat(64);
+    const challenge = 'c'.repeat(43);
+
+    function continueHref(html: string) {
+      return (/href="([^"]+)"/.exec(html)?.[1] ?? '').replace(/&amp;/g, '&');
+    }
+
+    it('answers with a confirmation page that names the desktop app', () => {
+      const { res, next } = run({
+        mode: 'desktop',
+        port: '51234',
+        nonce,
+        challenge,
+      });
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.setHeader).toHaveBeenCalledWith('X-Frame-Options', 'DENY');
+      const [html] = res.send.mock.calls[0] as [string];
+      expect(html).toContain('<title>Wafflebase desktop app sign-in</title>');
+      expect(html).toContain(
+        'Continue signing in to the Wafflebase desktop app?',
+      );
+      expect(html).toContain('port 51234');
+      expect(html).not.toContain('wafflebase login');
+      expect(html).not.toContain('command-line');
+
+      const href = continueHref(html);
+      const params = new URLSearchParams(href.split('?')[1] ?? '');
+      expect(href.startsWith('/auth/github?')).toBe(true);
+      expect(params.get('mode')).toBe('desktop');
+      expect(params.get('port')).toBe('51234');
+      expect(params.get('nonce')).toBe(nonce);
+      expect(params.get('challenge')).toBe(challenge);
+      const [, secret] = res.cookie.mock.calls[0] as [string, string];
+      expect(params.get('confirm')).toBe(
+        cliConfirmToken(secret, 51234, nonce, challenge, 'desktop'),
+      );
+    });
+
+    it('proceeds when the confirm param matches the cookie', () => {
+      const { req, next } = run(
+        {
+          mode: 'desktop',
+          port: '51234',
+          nonce,
+          challenge,
+          confirm: cliConfirmToken(
+            'secret-value',
+            51234,
+            nonce,
+            challenge,
+            'desktop',
+          ),
+        },
+        { [cliConfirmCookieName()]: 'secret-value' },
+      );
+
+      expect(next).toHaveBeenCalled();
+      expect(req.__cliConfirmed).toBe(true);
+    });
+
+    it('does not let a click consented for one mode start the other', () => {
+      const cliToken = cliConfirmToken('secret-value', 51234, nonce, challenge);
+      const asDesktop = run(
+        { mode: 'desktop', port: '51234', nonce, challenge, confirm: cliToken },
+        { [cliConfirmCookieName()]: 'secret-value' },
+      );
+      expect(asDesktop.next).not.toHaveBeenCalled();
+      expect(asDesktop.req.__cliConfirmed).toBeUndefined();
+
+      const desktopToken = cliConfirmToken(
+        'secret-value',
+        51234,
+        nonce,
+        challenge,
+        'desktop',
+      );
+      const asCli = run(
+        { mode: 'cli', port: '51234', nonce, challenge, confirm: desktopToken },
+        { [cliConfirmCookieName()]: 'secret-value' },
+      );
+      expect(asCli.next).not.toHaveBeenCalled();
+      expect(asCli.req.__cliConfirmed).toBeUndefined();
+    });
+
+    it('shows no confirmation page where the cookie is plantable', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      const { res, next } = run({ mode: 'desktop', port: '51234' });
+
+      expect(next).toHaveBeenCalled();
+      expect(res.send).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('lets an unknown mode through as an ordinary browser login', () => {
+      const { res, next } = run({ mode: 'mobile', port: '51234' });
+
+      expect(next).toHaveBeenCalled();
+      expect(res.send).not.toHaveBeenCalled();
+    });
+  });
+
   it('passes an unusable CLI port through to the ordinary browser login', () => {
     const { res, next } = run({ mode: 'cli', port: '80' });
 
