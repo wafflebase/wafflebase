@@ -44,6 +44,16 @@ const BACK_ID: &str = "nav-back";
 const FORWARD_ID: &str = "nav-forward";
 const RELOAD_ID: &str = "nav-reload";
 
+/// Run in every page before its own scripts, so the frontend can tell it is
+/// inside the desktop app (`isDesktopShell` in `packages/frontend`). It is a
+/// capability flag, not an identity: the frontend uses it only to turn on its
+/// offline app shell here and not, for now, on the web (§10).
+fn desktop_marker_script(version: &str) -> String {
+    format!(
+        "Object.defineProperty(window, '__WAFFLEBASE_DESKTOP__', {{ value: Object.freeze({{ version: {version:?} }}) }});"
+    )
+}
+
 /// Development override for the saved server.
 const SERVER_ENV: &str = "WAFFLEBASE_DESKTOP_SERVER";
 
@@ -172,6 +182,9 @@ fn build_window<R: Runtime>(
     let dl_app = app.clone();
 
     WebviewWindowBuilder::new(app, label, url)
+        .initialization_script(desktop_marker_script(
+            &app.package_info().version.to_string(),
+        ))
         .title("Wafflebase")
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&window_title(&title));
@@ -769,6 +782,13 @@ mod tests {
         let release: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
         assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+    }
+
+    #[test]
+    fn the_desktop_marker_names_the_app_version() {
+        let script = super::desktop_marker_script("0.6.18");
+        assert!(script.contains("__WAFFLEBASE_DESKTOP__"), "{script}");
+        assert!(script.contains("version: \"0.6.18\""), "{script}");
     }
 
     #[test]

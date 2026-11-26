@@ -18,6 +18,7 @@ describe("setUpServiceWorker", () => {
     await setUpServiceWorker({
       production: true,
       setting: undefined,
+      desktop: true,
       base: "/",
       container: c as unknown as ServiceWorkerContainer,
     });
@@ -32,6 +33,7 @@ describe("setUpServiceWorker", () => {
     await setUpServiceWorker({
       production: false,
       setting: undefined,
+      desktop: true,
       base: "/",
       container: c as unknown as ServiceWorkerContainer,
     });
@@ -44,6 +46,22 @@ describe("setUpServiceWorker", () => {
     await setUpServiceWorker({
       production: true,
       setting: "off",
+      desktop: true,
+      base: "/",
+      container: c as unknown as ServiceWorkerContainer,
+    });
+    expect(c.register).not.toHaveBeenCalled();
+    expect(c.unregister).toHaveBeenCalled();
+  });
+
+  // Desktop only for now: a web visitor gets no worker, and one an earlier
+  // build installed in their browser is removed.
+  test("in a web browser, unregisters instead of registering", async () => {
+    const c = container();
+    await setUpServiceWorker({
+      production: true,
+      setting: undefined,
+      desktop: false,
       base: "/",
       container: c as unknown as ServiceWorkerContainer,
     });
@@ -56,6 +74,7 @@ describe("setUpServiceWorker", () => {
       setUpServiceWorker({
         production: true,
         setting: undefined,
+        desktop: true,
         base: "/",
         container: undefined,
       }),
@@ -67,6 +86,7 @@ describe("setUpServiceWorker", () => {
       setUpServiceWorker({
         production: true,
         setting: undefined,
+        desktop: true,
         base: "/",
         container: c as unknown as ServiceWorkerContainer,
       }),

@@ -7,17 +7,24 @@
  * `VITE_SERVICE_WORKER=off` is the deployment's switch, and it has to undo as
  * well as skip: a worker installed by an earlier build outlives the build, so
  * turning it off unregisters it rather than merely not registering again.
+ *
+ * Desktop app only, for now: the worker is registered only where the desktop
+ * shell marks the page (`isDesktopShell`). A web visitor gets none, and one an
+ * earlier build installed in their browser is unregistered the same way.
  */
 export function setUpServiceWorker(options: {
   production: boolean;
   setting: string | undefined;
+  /** Running inside the desktop app (`isDesktopShell()`). */
+  desktop: boolean;
   base: string;
   container: ServiceWorkerContainer | undefined;
 }): Promise<void> {
   const { container } = options;
   if (!options.production || !container) return Promise.resolve();
 
-  if ((options.setting ?? "").trim().toLowerCase() === "off") {
+  const off = (options.setting ?? "").trim().toLowerCase() === "off";
+  if (off || !options.desktop) {
     return container
       .getRegistrations()
       .then((registrations) =>
@@ -43,4 +50,15 @@ export function setUpServiceWorker(options: {
       () => undefined,
       () => undefined,
     );
+}
+
+/**
+ * Whether this page runs inside the Wafflebase desktop app. The shell injects
+ * `window.__WAFFLEBASE_DESKTOP__` into every page it loads, before the page's
+ * own scripts (`packages/desktop`, `DESKTOP_MARKER_SCRIPT`). A capability
+ * flag, not an identity: a page that sets it on itself in a browser only gets
+ * the offline worker, which is harmless.
+ */
+export function isDesktopShell(): boolean {
+  return typeof window !== "undefined" && "__WAFFLEBASE_DESKTOP__" in window;
 }

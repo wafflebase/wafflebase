@@ -492,8 +492,11 @@ deployment's frontend from its URL (§1), and there was nothing to load. Slack's
 desktop app answers this with a Service Worker that caches its UI, and so does
 this app. The worker belongs to the **frontend**, not the shell, so it keeps
 §1's property: the shell carries no frontend code, and the UI a user sees
-offline is the one their server last served. It helps a browser tab exactly as
-much. The frontend design is in [frontend.md](frontend.md) § Offline app
+offline is the one their server last served. For now the frontend registers it
+only inside the desktop app, which it recognizes by a marker the shell injects
+into every page (`window.__WAFFLEBASE_DESKTOP__`, carrying the app version);
+that is the one place the frontend knows it runs in the app, and it decides
+nothing but whether the worker is registered. The frontend design is in [frontend.md](frontend.md) § Offline app
 shell.
 
 **Spike: Service Workers work in the shell's WKWebView.** Measured on macOS 26

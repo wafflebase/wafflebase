@@ -110,8 +110,8 @@ opens with no network: the desktop app launched on a plane, or a tab reopened
 while the server is down. It caches the app, never the data. Signed-in pages
 still need the server, and saying so honestly is half of the feature. The
 desktop app is the main reason for it
-([desktop-app.md](desktop-app.md) § Offline boot), but nothing in it is
-desktop-specific.
+([desktop-app.md](desktop-app.md) § Offline boot), and for now the only place
+it is registered (below).
 
 | Request | Handling |
 |---------|----------|
@@ -158,6 +158,19 @@ also retries on the browser's `online` event. The URL is kept, so the route
 the user asked for opens once the server answers. The screen claims nothing
 is available offline, because nothing is yet. A route outside both guards (the
 marketing page, `/shared/:token`) behaves as before.
+
+**Desktop app only, for now.** The worker is registered only where the
+desktop shell has marked the page: the shell injects
+`window.__WAFFLEBASE_DESKTOP__` into every page before its scripts run, and
+`isDesktopShell()` (`src/lib/service-worker.ts`) reads it. In a browser the app
+registers nothing and unregisters any worker found, so turning it on for the
+web later is a one-line change with nothing to clean up. It started on the
+desktop because that is where launching offline is the common case, and a
+browser tab's cache behaviour across every deployment is the larger blast
+radius to take on second. The marker is a capability flag, not an identity: a
+page that sets it on itself in a browser only gets the offline worker. The
+route guards' offline screen (above) is not gated: a network blip on the web
+no longer signs anyone out either.
 
 **Turning it off.** `VITE_SERVICE_WORKER=off` at build time writes no `sw.js`,
 and the app then unregisters any worker an earlier build installed. Not
