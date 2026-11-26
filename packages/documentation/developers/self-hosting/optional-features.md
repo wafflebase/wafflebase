@@ -157,7 +157,15 @@ Reviewers decide submissions at `/admin/templates` and are notified when one arr
 
 This step writes each template's content and approves only once the Yorkie event webhook (`/internal/yorkie/events`) has reported that write back, so that webhook must be registered on your Yorkie project. Without it, every template fails with a message saying so and nothing is approved.
 
-Run steps 2 and 3 again whenever the catalogue changes: the last command only updates what changed and re-approves it, and keeps every preview link already handed out. Slides and note templates are published today; spreadsheet, board, and document templates are skipped until their thumbnails can be rendered offline.
+4. Spreadsheet, document, and board templates cannot be rendered offline yet, so step 3 skips them. Until they can, publish those through the product's own Share dialog — with the frontend and backend running:
+
+   ```bash
+   pnpm backend register:templates:build --author <userId> --frontend https://app.example.com
+   ```
+
+   This command handles only those three types, and skips documents that already have a listing (`--reset` unpublishes and publishes them again). It goes away once every type renders offline.
+
+Run steps 2 and 3 again whenever the catalogue changes: the last command only updates what changed and re-approves it, and keeps every preview link already handed out.
 
 ## Related
 

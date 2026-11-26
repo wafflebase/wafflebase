@@ -23,7 +23,8 @@ Status: **Design drafted — awaiting review before Phase 1 implementation**
 - [ ] PR1 Taxonomy v2: slug constant in `@wafflebase/core`, DTO alias map, SQL label migration, retype seeds
 - [ ] PR2 Per-file catalog registration (`catalog/<kind>/<family>.ts`) + `catalog-files.spec` + slug-rule assertions
 - [ ] PR3 `locale` / `familyKey` schema + `CARD_FIELDS` + browse fallback + string-table seeds + parity spec
-- [x] PR4 `template:dump` + `render:thumbnails` (slides, note) + `sync:templates` + `TemplateSeedRecord`; retire `register:templates`
+- [x] PR4 `template:dump` + `render:thumbnails` (slides, note) + `sync:templates` + `TemplateSeedRecord`; `register:templates` kept for sheet/doc/board only (user decision, self-review round 3)
+- [ ] Phase 2: offline thumbnail renderers for sheet/doc/board, then delete `register:templates` (script, package.json entries, backend Playwright devDependency)
 - [ ] PR5 `near-duplicate.spec` + `.claude/skills/template-author/` (rubric, reviewer prompt)
 - [ ] PR6 Browse v2: pg_trgm + Korean fixture, multi-filter, collections, URL-synced chips, locale default, 2-col mobile (Before → After)
 - [ ] PR7 SEO prerender (`/templates`, `/t/:id`, sitemap) in `publish-ghpage`

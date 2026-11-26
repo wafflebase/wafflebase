@@ -7,6 +7,7 @@ import {
   syncSeeds,
   type LockClient,
 } from './sync-run';
+import { registerRefusal, syncSkipHint } from './seed-routing';
 import type { SeedThumbnail } from './template-sync';
 import type { TemplateSeed } from './types';
 
@@ -111,9 +112,9 @@ describe('the single-run lock', () => {
 
 describe('syncSeeds', () => {
   const seeds = [
-    { slug: 'deck' },
-    { slug: 'sheet' },
-    { slug: 'broken' },
+    { slug: 'deck', content: { kind: 'slides' } },
+    { slug: 'sheet', content: { kind: 'sheet' } },
+    { slug: 'broken', content: { kind: 'note' } },
   ] as TemplateSeed[];
   const thumb = { sha256: 'x' } as SeedThumbnail;
 
@@ -146,7 +147,10 @@ describe('syncSeeds', () => {
       {
         slug: 'sheet',
         result: 'skipped',
-        detail: 'no thumbnail: no renderer yet',
+        // Points the operator at the command that still handles the type.
+        detail:
+          'no thumbnail: no renderer yet; publish sheet seeds with ' +
+          '`pnpm backend register:templates` until the Phase 2 renderers land',
       },
       {
         slug: 'broken',
@@ -155,5 +159,25 @@ describe('syncSeeds', () => {
       },
     ]);
     expect(report).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('which command publishes which seed type', () => {
+  const seed = (kind: string) =>
+    ({ slug: kind, content: { kind } }) as unknown as TemplateSeed;
+
+  it('register:templates refuses slides and note, which sync owns', () => {
+    expect(registerRefusal(seed('slides'))).toMatch(/sync:templates/);
+    expect(registerRefusal(seed('note'))).toMatch(/sync:templates/);
+    for (const kind of ['sheet', 'doc', 'board']) {
+      expect(registerRefusal(seed(kind))).toBeNull();
+    }
+  });
+
+  it('sync points a skipped sheet/doc/board seed at register:templates', () => {
+    for (const kind of ['sheet', 'doc', 'board']) {
+      expect(syncSkipHint(seed(kind))).toMatch(/register:templates/);
+    }
+    expect(syncSkipHint(seed('slides'))).toBe('');
   });
 });

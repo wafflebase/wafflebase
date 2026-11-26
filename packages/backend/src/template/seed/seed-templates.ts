@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import yorkieSdk from '@yorkie-js/sdk';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -19,7 +20,7 @@ import { SlidesYorkieRoot, writeSlidesRoot } from '../../yorkie/slides-tree';
 import { NoteYorkieRoot, writeNoteRoot } from '../../yorkie/note-content';
 import type { BoardRoot } from './board';
 import { TEMPLATE_CATALOG } from './catalog';
-import { seedDocumentId } from './seed-hash';
+import { seedDocumentId, stableStringify } from './seed-hash';
 import type { SeedContent, TemplateSeed } from './types';
 
 export { seedDocumentId };
@@ -49,50 +50,149 @@ function documentType(content: SeedContent): string {
 // Content
 // --------------------------------------------------------------------------
 
-/** Where each seed kind's Yorkie document lives, and how a new one starts. */
+/** Where each seed kind's Yorkie document lives. */
 function documentOptions(kind: SeedContent['kind']): WithDocumentOptions {
-  if (kind === 'sheet') {
-    return {
-      docKeyPrefix: YORKIE_DOC_KEY_PREFIXES.sheet,
-      initialRoot: initialSpreadsheetDocument(),
-    };
-  }
   return { docKeyPrefix: YORKIE_DOC_KEY_PREFIXES[kind] };
 }
 
 /**
- * sha256 of a document's whole root, as Yorkie serializes it with sorted
- * keys. Used to tell whether a document still holds exactly what a write
- * left there: both sides go through the same serializer, so no per-type
- * normalization is needed.
+ * sha256 of a document's whole root. Used to tell whether a document holds
+ * exactly the root a seed defines.
+ *
+ * Two canonicalizations, both found by running the real write path against a
+ * Yorkie server (`test/seed-content-attached.e2e-spec.ts`):
+ *
+ * - `toSortedJSON` does not sort a `Tree` node's attributes, and a node read
+ *   back from the server lists them in a different order than the node that
+ *   was written — so the parsed root is re-serialized with every object's
+ *   keys sorted ({@link stableStringify}).
+ * - A worksheet keys its cells, sizes and styles by random axis ids that
+ *   `replaceWorksheetCells` mints on every write. They are renamed by
+ *   position (`rowOrder[i]` → `r<i>`, `colOrder[j]` → `c<j>`), which keeps
+ *   every cell's place in the grid — so a changed, added or moved cell still
+ *   changes the hash — while making two writes of the same content agree.
  */
 function rootHash(doc: { toSortedJSON(): string }): string {
-  return createHash('sha256').update(doc.toSortedJSON()).digest('hex');
+  const root = JSON.parse(doc.toSortedJSON()) as Record<string, unknown>;
+  const sheets = root.sheets;
+  if (sheets && typeof sheets === 'object') {
+    for (const [tabId, ws] of Object.entries(sheets)) {
+      (sheets as Record<string, unknown>)[tabId] = renameAxisIds(ws);
+    }
+  }
+  return createHash('sha256').update(stableStringify(root)).digest('hex');
+}
+
+/** Rename a worksheet's axis ids by position; see {@link rootHash}. */
+function renameAxisIds(ws: unknown): unknown {
+  if (!ws || typeof ws !== 'object') return ws;
+  const { rowOrder, colOrder } = ws as {
+    rowOrder?: unknown;
+    colOrder?: unknown;
+  };
+  const names = new Map<string, string>();
+  if (Array.isArray(rowOrder)) {
+    rowOrder.forEach(
+      (id, i) => typeof id === 'string' && names.set(id, `r${i}`),
+    );
+  }
+  if (Array.isArray(colOrder)) {
+    colOrder.forEach(
+      (id, i) => typeof id === 'string' && names.set(id, `c${i}`),
+    );
+  }
+  if (names.size === 0) return ws;
+  // Cell keys are `<rowId>|<colId>`; anything else is a bare id or not one.
+  const rename = (text: string): string =>
+    text
+      .split('|')
+      .map((part) => names.get(part) ?? part)
+      .join('|');
+  const walk = (value: unknown): unknown => {
+    if (typeof value === 'string') return rename(value);
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [rename(k), walk(v)]),
+      );
+    }
+    return value;
+  };
+  return walk(ws);
 }
 
 /**
- * Replace a seeded document's content with `content`. Exported for
+ * Make `root` exactly the root `content` defines: every existing key is
+ * deleted first, so nothing that was there before — a tab, a slide, a board
+ * element, a comment thread somebody injected — survives the write. A seed
+ * document is the catalogue's, and a merge would leave content the operator
+ * never wrote behind a listing they approve.
+ */
+function replaceRoot(
+  root: Record<string, unknown>,
+  content: SeedContent,
+): void {
+  const existing = Object.keys(
+    JSON.parse((root as { toJSON(): string }).toJSON()) as object,
+  );
+  for (const key of existing) delete root[key];
+  if (content.kind === 'sheet') {
+    // A spreadsheet has no whole-document writer; it starts from the
+    // canonical empty workbook, which is deterministic (fixed tab id).
+    for (const [key, value] of Object.entries(initialSpreadsheetDocument())) {
+      root[key] = value;
+    }
+  }
+  applyContent(root, content);
+}
+
+/**
+ * The {@link rootHash} of the root `content` defines, built in a detached,
+ * never-synced Yorkie document — so it depends on the catalogue alone, not on
+ * anything a live document held before.
+ */
+export function expectedRootHash(content: SeedContent): string {
+  const doc = new yorkieSdk.Document<Record<string, unknown>>(
+    `seed-expected-${randomUUID()}`,
+  );
+  doc.update((root) => replaceRoot(root, content));
+  return rootHash(doc);
+}
+
+/**
+ * Replace a seeded document's whole root with `content`. Exported for
  * `sync:templates`, which rewrites a listed seed when its catalogue content
  * changes.
  *
- * Returns the {@link rootHash} of the document right after this write was
- * applied locally — the server state at attach plus this change, before
- * anything else is pulled in. `sync:templates` compares a later read against
- * it to prove nobody edited the document after the write.
+ * Returns {@link expectedRootHash}: the hash of the root the catalogue
+ * defines. The write is refused — nothing is pushed — unless the document
+ * hashes to exactly that after it, and `sync:templates` refuses to approve
+ * unless a later read still does. Comparing against the catalogue, not
+ * against "whatever was there after our write", is what catches content a
+ * merge would have kept.
  */
 export async function writeContent(
   yorkie: YorkieService,
   documentId: string,
   content: SeedContent,
 ): Promise<string> {
-  return yorkie.withDocument<string, Record<string, unknown>>(
+  const expected = expectedRootHash(content);
+  await yorkie.withDocument<void, Record<string, unknown>>(
     documentId,
     (doc) => {
-      doc.update((root) => applyContent(root, content));
-      return rootHash(doc);
+      doc.update((root) => replaceRoot(root, content));
+      const actual = rootHash(doc);
+      if (actual !== expected) {
+        // Thrown before `withDocument` syncs, so the change is never pushed.
+        throw new Error(
+          'the rewritten document does not match the catalogue root; ' +
+            'nothing was written',
+        );
+      }
     },
     documentOptions(content.kind),
   );
+  return expected;
 }
 
 /** The {@link rootHash} of a seeded document as it stands now. */
@@ -290,8 +390,9 @@ async function main(): Promise<void> {
       `Done. ${Object.entries(tally)
         .map(([k, n]) => `${n} ${k}`)
         .join(', ')}. ` +
-        'Register them with: pnpm backend sync:templates --author ' +
-        `${authorId} --thumbnails <dir>`,
+        'Register slides and note seeds with: pnpm backend sync:templates ' +
+        `--author ${authorId} --thumbnails <dir>; sheet, doc and board seeds ` +
+        `with: pnpm backend register:templates --author ${authorId}`,
     );
   } finally {
     await app.close();

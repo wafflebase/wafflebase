@@ -11,7 +11,8 @@ import {
   parseReviewerIds,
 } from '../template-review';
 import type { TemplateService } from '../template.service';
-import { seedCardHash, seedContentHash, seedDocumentId } from './seed-hash';
+import { normalizeTags } from '../template-taxonomy';
+import { seedContentHash, seedDocumentId } from './seed-hash';
 import type { SeedContent, TemplateSeed } from './types';
 
 /**
@@ -96,6 +97,39 @@ class SeedStop extends Error {
   }
 }
 
+/** The card fields `update()` takes, as far as the catalogue sets them. */
+type CardFields = Partial<
+  Pick<TemplateSeed, 'title' | 'description' | 'category' | 'tags'>
+>;
+
+/**
+ * The card fields where the listing differs from the catalogue — read from
+ * the listing's own columns, so an edit made anywhere (the Share dialog
+ * included) is seen. Tags compare after `normalizeTags`, which is what the
+ * service stores.
+ */
+export function cardDrift(
+  listing: Pick<TemplateListing, 'title' | 'description' | 'category' | 'tags'>,
+  seed: TemplateSeed,
+): CardFields {
+  const drift: CardFields = {};
+  if (listing.title !== seed.title) drift.title = seed.title;
+  if ((listing.description ?? null) !== (seed.description ?? null)) {
+    drift.description = seed.description;
+  }
+  if ((listing.category ?? null) !== (seed.category ?? null)) {
+    drift.category = seed.category;
+  }
+  const want = normalizeTags(seed.tags);
+  if (
+    want.length !== listing.tags.length ||
+    want.some((tag, i) => tag !== listing.tags[i])
+  ) {
+    drift.tags = seed.tags;
+  }
+  return drift;
+}
+
 /** The data columns of a record, for re-saving it with one field changed. */
 function pickRecord(
   r: TemplateSeedRecord,
@@ -103,8 +137,8 @@ function pickRecord(
   return {
     contentHash: r.contentHash,
     writtenHash: r.writtenHash,
-    cardHash: r.cardHash,
     thumbnailHash: r.thumbnailHash,
+    thumbnailId: r.thumbnailId,
     appliedAt: r.appliedAt,
   };
 }
@@ -181,7 +215,6 @@ export class TemplateSync {
     this.assertSeedDocument(seed, doc);
 
     const contentHash = seedContentHash(seed.content);
-    const cardHash = seedCardHash(seed);
     // The renderer echoes the content hash it was handed. A mismatch is a
     // picture of content the catalogue no longer holds, and publishing it
     // would be exactly the stale card this command exists to avoid.
@@ -228,18 +261,27 @@ export class TemplateSync {
       record = await this.saveRecord(documentId, seed.slug, {
         contentHash: '',
         writtenHash: '',
-        cardHash,
         thumbnailHash: thumbnail.sha256,
+        thumbnailId: listing.thumbnailId,
         appliedAt: null,
       });
       applied = 'published';
     } else {
       this.assertResubmittable(listing);
 
-      // A missing record — a listing this command did not create, such as one
-      // the retired Playwright command made — counts as everything changed.
-      const cardChanged = record?.cardHash !== cardHash;
-      const thumbnailChanged = record?.thumbnailHash !== thumbnail.sha256;
+      // Card drift is read off the LISTING, not the record: the Share
+      // dialog's `update()` edits these columns and never touches the
+      // record, so a record-based check would report a hand-edited card as
+      // unchanged. The record keeps only what nothing but this command
+      // knows — which bytes it uploaded as which thumbnail id.
+      const card = cardDrift(listing, seed);
+      // Changed bytes, or a thumbnail somebody else attached since (an
+      // "Update preview" from the dialog), or no record of ours at all.
+      const thumbnailChanged =
+        !record ||
+        record.thumbnailHash !== thumbnail.sha256 ||
+        record.thumbnailId !== listing.thumbnailId;
+      const cardChanged = Object.keys(card).length > 0;
 
       if (cardChanged || thumbnailChanged) {
         // `assertCardEditable` refuses a card edit while a submission is under
@@ -256,14 +298,14 @@ export class TemplateSync {
         // `pending` synchronously, whereas a content write does so only when
         // its event lands — after which a card edit would be refused.
         listing = await this.updateCard(listing, seed, thumbnail, {
-          cardChanged,
+          card,
           thumbnailChanged,
         });
         record = await this.saveRecord(documentId, seed.slug, {
           contentHash: record?.contentHash ?? '',
           writtenHash: record?.writtenHash ?? '',
-          cardHash,
           thumbnailHash: thumbnail.sha256,
+          thumbnailId: listing.thumbnailId,
           appliedAt: record?.appliedAt ?? null,
         });
         applied = 'updated';
@@ -286,8 +328,8 @@ export class TemplateSync {
       record = await this.saveRecord(documentId, seed.slug, {
         contentHash,
         writtenHash,
-        cardHash: record?.cardHash ?? cardHash,
         thumbnailHash: record?.thumbnailHash ?? thumbnail.sha256,
+        thumbnailId: record?.thumbnailId ?? listing.thumbnailId,
         appliedAt: null,
       });
       const observed = await this.awaitContentEvent(documentId, baseline);
@@ -442,7 +484,7 @@ export class TemplateSync {
     listing: TemplateListing,
     seed: TemplateSeed,
     thumbnail: SeedThumbnail,
-    changed: { cardChanged: boolean; thumbnailChanged: boolean },
+    changed: { card: CardFields; thumbnailChanged: boolean },
   ): Promise<TemplateListing> {
     const thumbnailId = changed.thumbnailChanged
       ? await this.upload(seed.slug, thumbnail)
@@ -452,14 +494,7 @@ export class TemplateSync {
       // preview link already handed out survives, and it discards the old
       // thumbnail object itself.
       await this.deps.templates.update(listing.id, this.options.authorId, {
-        ...(changed.cardChanged
-          ? {
-              title: seed.title,
-              description: seed.description,
-              category: seed.category,
-              tags: seed.tags,
-            }
-          : {}),
+        ...changed.card,
         ...(thumbnailId ? { thumbnailId } : {}),
       });
     } catch (err) {

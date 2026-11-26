@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { SyncOutcome } from './template-sync';
 import type { ThumbnailLookup } from './thumbnail-manifest';
 import type { SeedThumbnail } from './template-sync';
+import { syncSkipHint } from './seed-routing';
 import type { TemplateSeed } from './types';
 
 /**
@@ -147,7 +148,7 @@ export async function syncSeeds(
         : {
             slug: seed.slug,
             result: found.kind,
-            detail: `no thumbnail: ${found.reason}`,
+            detail: `no thumbnail: ${found.reason}${found.kind === 'skipped' ? syncSkipHint(seed) : ''}`,
           };
     outcomes.push(outcome);
     report(outcome);

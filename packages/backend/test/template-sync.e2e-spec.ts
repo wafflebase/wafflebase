@@ -230,6 +230,39 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
     expect(record.appliedAt?.getTime()).toBe(row.contentChangedAt?.getTime());
   });
 
+  it('a Share-dialog tag edit between runs is detected and re-synced', async () => {
+    await makeSync().syncOne(SEED, thumbnailFor(SEED));
+    const approved = await listing();
+    // The dialog calls the same `update()`, and never touches the record.
+    await templates.update(approved.id, ownerId, { tags: ['hand-edited'] });
+
+    const outcome = await makeSync().syncOne(SEED, thumbnailFor(SEED));
+
+    expect(outcome.result).toBe('updated');
+    expect(await listing()).toMatchObject({
+      tags: SEED.tags,
+      visibility: 'public',
+      status: 'listed',
+    });
+  });
+
+  it('a Share-dialog title edit is detected and never approved', async () => {
+    await makeSync().syncOne(SEED, thumbnailFor(SEED));
+    const approved = await listing();
+    // A card field: the service returns the listing to review.
+    await templates.update(approved.id, ownerId, { title: 'Hand-edited' });
+    expect((await listing()).status).toBe('pending');
+
+    const outcome = await makeSync().syncOne(SEED, thumbnailFor(SEED));
+
+    expect(outcome.result).toBe('skipped');
+    expect(await listing()).toMatchObject({
+      title: 'Hand-edited',
+      status: 'pending',
+      reviewedBy: null,
+    });
+  });
+
   it('a second run is a no-op', async () => {
     await makeSync().syncOne(SEED, thumbnailFor(SEED));
     const before = await listing();

@@ -4,8 +4,8 @@ CREATE TABLE "TemplateSeedRecord" (
     "slug" TEXT NOT NULL,
     "contentHash" TEXT NOT NULL,
     "writtenHash" TEXT NOT NULL DEFAULT '',
-    "cardHash" TEXT NOT NULL,
     "thumbnailHash" TEXT NOT NULL,
+    "thumbnailId" TEXT,
     "appliedAt" TIMESTAMP(3),
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

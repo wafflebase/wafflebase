@@ -1,11 +1,7 @@
 import type { TemplateListing, TemplateSeedRecord } from '@prisma/client';
+import { seedContentHash, seedDocumentId, stableStringify } from './seed-hash';
 import {
-  seedCardHash,
-  seedContentHash,
-  seedDocumentId,
-  stableStringify,
-} from './seed-hash';
-import {
+  cardDrift,
   TemplateSync,
   type SeedThumbnail,
   type TemplateSyncDeps,
@@ -37,7 +33,6 @@ const SEED: TemplateSeed = {
 };
 const DOC_ID = seedDocumentId(SEED.slug);
 const CONTENT_HASH = seedContentHash(SEED.content);
-const CARD_HASH = seedCardHash(SEED);
 const THUMB: SeedThumbnail = {
   bytes: Buffer.from('webp-bytes'),
   mimeType: 'image/webp',
@@ -88,8 +83,8 @@ function recordRow(
     documentId: DOC_ID,
     slug: SEED.slug,
     contentHash: CONTENT_HASH,
-    cardHash: CARD_HASH,
     thumbnailHash: THUMB.sha256,
+    thumbnailId: 'old-thumb.webp',
     appliedAt: OURS,
     writtenHash: 'h-ours',
     updatedAt: new Date(0),
@@ -346,8 +341,8 @@ describe('TemplateSync', () => {
     });
     expect(world.record).toMatchObject({
       contentHash: CONTENT_HASH,
-      cardHash: CARD_HASH,
       thumbnailHash: THUMB.sha256,
+      thumbnailId: 'new-thumb.webp',
     });
     expect(world.record!.appliedAt!.toISOString()).toBe(watermark);
   });
@@ -417,10 +412,16 @@ describe('TemplateSync', () => {
     }
   });
 
-  it('updates a changed card without re-uploading identical thumbnail bytes', async () => {
-    const { world, make, templates, images, writeContent } = setup({
-      listing: listingRow(),
-      record: recordRow({ cardHash: 'old-card' }),
+  it('updates a drifted card without re-uploading identical thumbnail bytes', async () => {
+    // The catalogue changed its card: the listing still shows the old one.
+    const { make, templates, images, writeContent } = setup({
+      listing: listingRow({
+        title: 'Old title',
+        description: 'Old',
+        category: 'other',
+        tags: ['old'],
+      }),
+      record: recordRow(),
     });
 
     const outcome = await make().syncOne(SEED, THUMB);
@@ -434,12 +435,59 @@ describe('TemplateSync', () => {
       category: SEED.category,
       tags: SEED.tags,
     });
+    expect(images.upload).not.toHaveBeenCalled();
     expect(templates.submit).not.toHaveBeenCalled();
     expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
       decision: 'approve',
       contentAt: OURS.toISOString(),
     });
-    expect(world.record?.cardHash).toBe(CARD_HASH);
+  });
+
+  it('reads card drift off the listing: a Share-dialog tag edit is re-synced', async () => {
+    // `update()` from the dialog never touches the seed record, so a record
+    // holding the catalogue's card would call this listing unchanged.
+    const { world, make, templates } = setup({
+      listing: listingRow({ tags: ['hand-edited'] }),
+      record: recordRow(),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(templates.update).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      tags: SEED.tags,
+    });
+    // Tags are not a CARD_FIELD: the listing stays public, nothing to review.
+    expect(outcome.result).toBe('updated');
+    expect(world.listing?.tags).toEqual(SEED.tags);
+  });
+
+  it('refuses to approve a card hand-edited into review from the dialog', async () => {
+    // A title edit on an approved listing returns it to `pending`; the old
+    // record-based check saw equal hashes and approved the stranger's card.
+    const { make, templates } = setup({
+      listing: listingRow({ status: 'pending', title: 'Hand-edited title' }),
+      record: recordRow(),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('skipped');
+    expect(outcome.detail).toMatch(/card this command has not applied/);
+    expect(templates.review).not.toHaveBeenCalled();
+  });
+
+  it('re-syncs a thumbnail replaced from the dialog ("Update preview")', async () => {
+    const { make, templates, images } = setup({
+      listing: listingRow({ thumbnailId: 'dialog-thumb.webp' }),
+      record: recordRow(),
+    });
+
+    await make().syncOne(SEED, THUMB);
+
+    expect(images.upload).toHaveBeenCalledTimes(1);
+    expect(templates.update).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      thumbnailId: 'new-thumb.webp',
+    });
   });
 
   it('uploads and attaches a thumbnail only when its bytes changed', async () => {
@@ -509,7 +557,7 @@ describe('TemplateSync', () => {
   it('skips a removed listing without calling the service', async () => {
     const { make, templates, images, writeContent } = setup({
       listing: listingRow({ status: 'removed', visibility: 'unlisted' }),
-      record: recordRow({ contentHash: 'old', cardHash: 'old' }),
+      record: recordRow({ contentHash: 'old' }),
     });
 
     const outcome = await make().syncOne(SEED, THUMB);
@@ -676,8 +724,8 @@ describe('TemplateSync', () => {
 
   it('skips a pending listing whose card it has not applied', async () => {
     const { make, templates } = setup({
-      listing: listingRow({ status: 'pending' }),
-      record: recordRow({ cardHash: 'old-card' }),
+      listing: listingRow({ status: 'pending', title: 'Other title' }),
+      record: recordRow(),
     });
 
     const outcome = await make().syncOne(SEED, THUMB);
@@ -796,7 +844,21 @@ describe('seed hashes', () => {
     ).not.toBe(base);
   });
 
-  it('changes the card hash when tags change', () => {
-    expect(seedCardHash({ ...SEED, tags: ['other'] })).not.toBe(CARD_HASH);
+  it('compares card fields as the service stores them', () => {
+    const listing = {
+      title: SEED.title,
+      description: SEED.description,
+      category: SEED.category,
+      tags: SEED.tags,
+    };
+    expect(cardDrift(listing, SEED)).toEqual({});
+    // `normalizeTags` lowercases and trims: not drift.
+    expect(cardDrift(listing, { ...SEED, tags: [' DEMO '] })).toEqual({});
+    expect(cardDrift({ ...listing, tags: ['other'] }, SEED)).toEqual({
+      tags: SEED.tags,
+    });
+    expect(cardDrift({ ...listing, description: null }, SEED)).toEqual({
+      description: SEED.description,
+    });
   });
 });

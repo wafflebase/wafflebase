@@ -1004,9 +1004,12 @@ attached, because `thumbnailId` is a `CARD_FIELD`:
 goes through `update()`, which returns an approved listing to review like any
 other card edit.
 
-This replaced an earlier Playwright command, `register:templates`, which drove
-the real Share dialog because the only thumbnail renderers then lived inside
-the mounted editors. A service-level publish path was rejected at the time as
+Until the Phase 2 offline renderers land there are **two** publishing commands:
+`sync:templates` for slides and note seeds, and the earlier Playwright command
+`register:templates` — kept, restricted to sheet, doc and board seeds, and
+deleted once those types render offline. It drives the real Share dialog
+because the only thumbnail renderers for those types still live inside the
+mounted editors. A service-level publish path was rejected at the time as
 "a second, unguarded way to swap an approved gallery card"; that rejection
 still holds for any **network-reachable** path. It does not hold for an
 in-process operator command that calls only the guarded `publish` / `update` /

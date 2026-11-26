@@ -465,22 +465,49 @@ Where the shipped command differs from the proposal above, and why:
   content event does so asynchronously, after which a card edit is refused.
 - **The event wait has two halves**: the watermark reaching the write, and —
   for a listing that was `public` + `listed` — the status flip that follows it.
-- **Thumbnails cover slides and notes only.** Sheet, board and doc seeds are
+- **Two commands until Phase 2; `register:templates` is kept, not retired.**
+  Thumbnails cover slides and notes only, so sheet, board and doc seeds are
   `skipped` in the manifest and left unpublished by `sync:templates`, per
-  "fail that seed instead of publishing an icon-only card"; their renderers
-  are Phase 2. A listing those types already have keeps its state.
+  "fail that seed instead of publishing an icon-only card". Deleting
+  `register:templates` would have left those 16 seeds with no operator path,
+  so it stays — restricted to sheet, doc and board, refusing slides and note
+  with a pointer at `sync:templates`, while sync's skip message for the other
+  three points at `register:templates` (`seed-routing.ts` holds the split, so
+  the two never write the same listing). Its approve step now matches the
+  queue row's title exactly and refuses when two rows share it, instead of
+  the substring match that let "Budget" approve "Budget Tracker". When the
+  Phase 2 renderers land, `register-templates.ts`, its scripts and the
+  backend Playwright devDependency are deleted.
 - **A listing with no record** (one `register:templates` made) counts as
   entirely changed, so its card, thumbnail and content are reapplied and
   re-approved once.
+- **Card drift is read from the listing, not the record.** The Share dialog
+  edits card columns through the same `update()` and never touches
+  `TemplateSeedRecord`, so a record-held card hash reported a hand-edited card
+  as `unchanged` — and, for a listing the edit returned to `pending`, approved
+  it. `cardDrift` compares the listing's own title, description, category and
+  tags (after `normalizeTags`) with the catalogue; the record keeps only what
+  nothing else knows: which thumbnail bytes it uploaded as which `thumbnailId`
+  (a different `thumbnailId` on the listing means "Update preview" replaced
+  it), plus `writtenHash` / `appliedAt`.
+- **The write replaces the whole root, and attests to the catalogue's root.**
+  `writeContent` deletes every existing root key before writing, so nothing
+  that was there — an injected sheet tab, slide, board element or comment
+  thread — survives under an approved listing. It returns the hash of the root
+  the catalogue *defines* (`expectedRootHash`: the same replacement applied to
+  a detached, never-synced Yorkie document), refuses to push unless the live
+  document hashes to exactly that, and that hash is `writtenHash`.
 - **"Edited by someone else" is decided by content, not by the watermark.**
   The first watermark advance after a write is not necessarily ours, so the
-  wait alone cannot attribute it. `writeContent` returns the hash of the
-  document's root (Yorkie's sorted JSON) right after the write, stored as
-  `TemplateSeedRecord.writtenHash`; before approving, the command reads the
+  wait alone cannot attribute it. Before approving, the command reads the
   watermark, then re-reads the document and refuses unless it still hashes to
-  `writtenHash` — whichever event it observed. Both sides go through the same
-  serializer, so no per-type normalization of `seedContentHash` is needed (a
-  catalogue-to-Yorkie round trip is not byte-stable for docs trees).
+  `writtenHash` — the catalogue's root — whichever event it observed. The hash
+  is of the parsed root re-serialized with sorted keys (a `Tree` node's
+  attributes come back from the server in a different order than they were
+  written) and with worksheet axis ids renamed by position
+  (`replaceWorksheetCells` mints random ids on every write); both were found
+  by `test/seed-content-attached.e2e-spec.ts`, which runs this path against a
+  real Yorkie server for every seed type.
   Approval then echoes the watermark read *before* the content, so an edit
   after that read either changes the content (refused here) or moves
   `contentChangedAt` past `contentAt`, which `review()` refuses
