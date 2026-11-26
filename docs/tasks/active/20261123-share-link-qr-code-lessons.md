@@ -92,6 +92,17 @@
   a loaded runner the query had not settled, so `meId` was still -1 and ↑ did
   nothing. Reproduced by delaying the mocked `fetchMe`; fixed by retrying the
   key inside `waitFor` until the edit box opens.
+- Panel round 6 (8895f9897): 2 blocking. `shareLinkUrl`'s env-derived
+  default basename — the argument every production call site omits — now has
+  its own cases, one stubbing `VITE_FRONTEND_BASENAME` (the same key
+  `App.tsx` mounts the router under) and one deleting it to exercise the
+  `?? ""` fallback. The breadcrumb `data.arguments` scrub the earlier round
+  deferred landed on `main` as #1199 and came in with the merge, so
+  `sentry.ts` walks it through `redactValue` today
+  (`packages/frontend/src/sentry.ts:228`).
+- **A default argument is a code path.** A helper tested only with the
+  argument supplied leaves the branch every caller actually takes unproven —
+  here the env read itself, which a renamed key would have broken silently.
 - **A fixed tick is not a wait.** `await act(() => new Promise(r =>
   setTimeout(r, 0)))` asserts how many turns of the loop a query takes to
   settle. Wait for the state the test needs instead.
