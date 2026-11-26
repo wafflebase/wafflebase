@@ -48,3 +48,13 @@
 - A guard that reads a *pre-commit* CRDT proxy instead of the committed root
   only substitutes while the two serialize alike. Assert that where every input
   passes (`expectedRootHash` computes both) rather than reasoning about it once.
+- Panel round (security): 1 blocking. The axis-id renaming the root hash is
+  built on was not injective — a cell injected under a key that already reads
+  as a positional name (`"r0|c0"`) canonicalized onto the renamed real key and
+  one of the two was dropped, so a worksheet could be edited without moving the
+  hash. Renamed and literal parts now live in disjoint namespaces and a
+  surviving collision throws.
+- A canonicalization that feeds a security decision needs to be injective, not
+  merely stable: "two writes of the same content agree" is half the property,
+  and the half that is easy to test. The other half — two different contents
+  disagree — is the one an attacker reads.

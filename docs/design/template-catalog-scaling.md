@@ -514,7 +514,15 @@ Where the shipped command differs from the proposal above, and why:
   written) and with worksheet axis ids renamed by position
   (`replaceWorksheetCells` mints random ids on every write); both were found
   by `test/seed-content-attached.e2e-spec.ts`, which runs this path against a
-  real Yorkie server for every seed type.
+  real Yorkie server for every seed type. The renaming has to be **injective**
+  or the hash stops separating two worksheets: a key that is not an axis id but
+  already reads as a positional name (`"r0|c0"` among the cells, `"r0"` among
+  `rowHeights`) would canonicalize onto a renamed key and one of the two would
+  be silently dropped, so a cell could be injected without moving the hash.
+  Renamed and literal parts are therefore kept in disjoint namespaces — a
+  renamed part is a bare `r<i>`/`c<j>`, a literal one that looks like one gains
+  a `~` — and a collision that survives that is thrown rather than dropped
+  (`seed-templates.spec.ts`).
   Approval then echoes the watermark read *before* the content, so an edit
   after that read either changes the content (refused here) or moves
   `contentChangedAt` past `contentAt`, which `review()` refuses

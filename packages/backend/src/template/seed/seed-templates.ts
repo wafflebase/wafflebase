@@ -70,9 +70,14 @@ function documentOptions(kind: SeedContent['kind']): WithDocumentOptions {
  *   `replaceWorksheetCells` mints on every write. They are renamed by
  *   position (`rowOrder[i]` → `r<i>`, `colOrder[j]` → `c<j>`), which keeps
  *   every cell's place in the grid — so a changed, added or moved cell still
- *   changes the hash — while making two writes of the same content agree.
+ *   changes the hash — while making two writes of the same content agree. The
+ *   renaming is injective ({@link renameAxisIds}), without which a cell could
+ *   be injected under a key that already reads as a positional name and the
+ *   hash would not move.
+ *
+ * Exported for `seed-templates.spec.ts`, which hashes crafted roots directly.
  */
-function hashRootJson(json: string): string {
+export function hashRootJson(json: string): string {
   const root = JSON.parse(json) as Record<string, unknown>;
   const sheets = root.sheets;
   if (sheets && typeof sheets === 'object') {
@@ -102,7 +107,26 @@ function pendingRootHash(root: Record<string, unknown>): string {
   return hashRootJson((root as unknown as { toJSON(): string }).toJSON());
 }
 
-/** Rename a worksheet's axis ids by position; see {@link rootHash}. */
+/**
+ * A part that already reads as a positional name (`r0`, `c12`, and any
+ * `~`-escaped form of one). Such a part is escaped rather than passed through,
+ * which is what keeps the renaming **injective** — see {@link renameAxisIds}.
+ */
+const POSITIONAL_NAME = /^~*[rc]\d+$/;
+
+/**
+ * Rename a worksheet's axis ids by position; see {@link rootHash}.
+ *
+ * The renaming has to be injective, or the hash it feeds stops distinguishing
+ * two different worksheets: a key that is not an axis id but is literally
+ * equal to a positional name (`"r0|c0"` among the cells, `"r0"` among
+ * `rowHeights`) would otherwise canonicalize to itself and collide with a
+ * renamed key, and rebuilding the object silently keeps only one of the two.
+ * So the two namespaces are kept disjoint — a renamed part is a bare
+ * `r<i>`/`c<j>`, and a literal part that looks like one gains a `~` — and the
+ * rebuild still refuses a collision rather than dropping a member, since a
+ * hash that cannot be trusted must fail the seed, not pass it.
+ */
 function renameAxisIds(ws: unknown): unknown {
   if (!ws || typeof ws !== 'object') return ws;
   const { rowOrder, colOrder } = ws as {
@@ -120,20 +144,31 @@ function renameAxisIds(ws: unknown): unknown {
       (id, i) => typeof id === 'string' && names.set(id, `c${i}`),
     );
   }
-  if (names.size === 0) return ws;
   // Cell keys are `<rowId>|<colId>`; anything else is a bare id or not one.
+  const renamePart = (part: string): string => {
+    const name = names.get(part);
+    if (name !== undefined) return name;
+    return POSITIONAL_NAME.test(part) ? `~${part}` : part;
+  };
   const rename = (text: string): string =>
-    text
-      .split('|')
-      .map((part) => names.get(part) ?? part)
-      .join('|');
+    text.split('|').map(renamePart).join('|');
   const walk = (value: unknown): unknown => {
     if (typeof value === 'string') return rename(value);
     if (Array.isArray(value)) return value.map(walk);
     if (value && typeof value === 'object') {
-      return Object.fromEntries(
-        Object.entries(value).map(([k, v]) => [rename(k), walk(v)]),
-      );
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value)) {
+        const key = rename(k);
+        if (Object.prototype.hasOwnProperty.call(out, key)) {
+          throw new Error(
+            `worksheet key ${JSON.stringify(k)} collides with ` +
+              `${JSON.stringify(key)} after axis-id renaming, so its root ` +
+              'cannot be hashed',
+          );
+        }
+        out[key] = walk(v);
+      }
+      return out;
     }
     return value;
   };
