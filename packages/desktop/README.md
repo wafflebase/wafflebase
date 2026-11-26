@@ -8,8 +8,10 @@ Sign-in runs in the system browser and comes back through the loopback + PKCE
 flow the CLI uses. The design is
 [docs/design/desktop-app.md](../../docs/design/desktop-app.md).
 
-Status: Phase 0 + 1 (unsigned builds for the team). Google desktop sign-in,
-signing, notarization and the updater are Phase 2.
+Status: Phase 0 + 1, plus the release half of Phase 2: signed and notarized
+macOS builds and the in-app updater, published by `desktop-v*` tags (see
+[Releasing](#releasing)). Google desktop sign-in, Authenticode for Windows and
+`test:webkit` in CI are still open.
 
 ## Layout
 
@@ -20,6 +22,7 @@ signing, notarization and the updater are Phase 2.
 | `src-tauri/src/navigation.rs` | Navigation, new-window and download policy (pure, tested) |
 | `src-tauri/src/login.rs` | Loopback listener + PKCE, with the CLI's rules (tested) |
 | `src-tauri/src/signin.rs` | Sign-in orchestration: providers check, browser, handoff |
+| `src-tauri/src/update.rs` | Updater: launch/daily/menu checks, download, Restart Now / Later |
 | `src-tauri/src/lib.rs` | Windows, hooks, menu, plugins, commands |
 | `src-tauri/capabilities/local.json` | IPC for the bundled pages only |
 | `app-icon.svg` | Icon source; `pnpm icon` regenerates `src-tauri/icons/` |
@@ -198,3 +201,76 @@ WAFFLEBASE_DESKTOP_BROWSER=/tmp/fake-browser.sh \
 `curl` cannot click the backend's confirmation page, so against a real backend
 the stand-in browser has to do that step itself, or point at a fake backend
 that redirects straight to the callback.
+
+## Releasing
+
+A `desktop-vX.Y.Z` tag runs `.github/workflows/desktop-release.yml`: a
+universal macOS `.dmg` (signed, notarized, stapled), a Windows NSIS installer
+(not Authenticode-signed yet), and the updater packages, published to the
+`desktop-vX.Y.Z` release with `latest.json`. A final version also refreshes
+the rolling `desktop-latest` release, which is what installed apps poll and
+what download links point at:
+
+```
+https://github.com/wafflebase/wafflebase/releases/download/desktop-latest/Wafflebase_universal.dmg
+https://github.com/wafflebase/wafflebase/releases/download/desktop-latest/Wafflebase_x64-setup.exe
+```
+
+The why — and why not `releases/latest` — is in
+[desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
+
+### Cutting a release
+
+1. Bump `version` in `package.json` and `src-tauri/Cargo.toml` to the same
+   value (`tauri.conf.json` reads `package.json`), and refresh `Cargo.lock`
+   with `cargo check`. Merge it.
+2. Tag the merge commit and push the tag:
+   `git tag desktop-v0.1.1 && git push origin desktop-v0.1.1`. A tag with a
+   suffix (`desktop-v0.2.0-beta.1`) publishes a prerelease and is not offered
+   to installed apps.
+3. Approve the `desktop-release` deployment in the run. The first job fails
+   if the tag and the two versions disagree.
+4. After it publishes, open the `.dmg` on a Mac that has never run the app;
+   Gatekeeper must open it without a warning. Then let an older install pick
+   the update up through **Check for Updates…**.
+
+### The `desktop-release` Environment
+
+Required reviewers: the maintainers. Deployment tags: `desktop-v*`.
+
+| Name | Kind | Value |
+|------|------|-------|
+| `APPLE_CERTIFICATE` | secret | `base64 -i <developer-id>.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | secret | The `.p12` password |
+| `APPLE_SIGNING_IDENTITY` | variable | `Developer ID Application: Youngteac Hong (WRGGVTC2RN)` |
+| `APPLE_API_KEY_ID` | secret | App Store Connect Team API key ID (role: Developer) |
+| `APPLE_API_ISSUER` | secret | Its issuer ID |
+| `APPLE_API_KEY_P8` | secret | The `.p8` file's contents |
+| `TAURI_SIGNING_PRIVATE_KEY` | secret | The updater minisign private key (file contents) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Its password |
+
+**The updater key cannot be replaced.** Its public half is compiled into every
+installed app, which refuses any package it did not sign. Keep an offline
+backup; losing it means every user reinstalls by hand.
+
+**The Developer ID certificate expires yearly** (the current one on
+2027-12-26). Before then, issue a new *Developer ID Application* certificate
+(G2 Sub-CA) from a CSR whose key never enters a keychain
+(`openssl genrsa` + `openssl req -new`), bundle it as a `.p12` with
+`openssl pkcs12 -export -legacy` (the runner's `security import` reads the
+legacy format), and replace the two `APPLE_CERTIFICATE*` secrets. Apps
+already signed keep running: the signature is timestamped.
+
+### Testing an update locally
+
+Build two versions against a local manifest, without touching the shipped
+endpoint, by merging a config at build time:
+
+```bash
+cfg='{"version":"0.1.1","plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
+TAURI_SIGNING_PRIVATE_KEY=... TAURI_SIGNING_PRIVATE_KEY_PASSWORD=... \
+  pnpm --filter @wafflebase/desktop tauri build --bundles app -c "$cfg"
+```
+
+Serve the newer `Wafflebase.app.tar.gz` and a `latest.json` naming it from
+`127.0.0.1:8765`, run the older build, and use **Check for Updates…**.

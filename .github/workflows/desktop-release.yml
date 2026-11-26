@@ -1,0 +1,274 @@
+name: desktop-release
+
+# Builds, signs and publishes the desktop app (packages/desktop) from a
+# `desktop-vX.Y.Z` tag. Design: docs/design/desktop-app.md §7; procedure and
+# secrets: packages/desktop/README.md "Releasing".
+#
+# WHERE THINGS GO. Server releases own this repository's "Latest" release, so
+# nothing here may become it (`--latest=false`), and the updater cannot use
+# `releases/latest/download/...`. Each version gets its own `desktop-vX.Y.Z`
+# release; the rolling `desktop-latest` release carries `latest.json` (the
+# endpoint compiled into the app) and stable-named installers for the
+# homepage's download links. A prerelease tag (`desktop-v0.2.0-beta.1`) gets
+# its versioned release only and leaves `desktop-latest`, and so every
+# installed app, alone.
+#
+# WHO MAY RUN IT. The signing jobs run in the `desktop-release` Environment,
+# which holds every secret below and requires a maintainer's approval. The
+# agent App has `contents: write` and can push a tag, so its tags are refused
+# outright as well (see release-guard.test.mjs for the same rule on releases).
+# No job restores an Actions cache (trusted-cache.test.mjs).
+#
+# Windows builds are NOT Authenticode-signed yet: SmartScreen warns on first
+# run. The updater package is still minisign-signed, which is what the
+# installed app checks.
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions: {}
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: "1.90"
+
+jobs:
+  version:
+    if: github.actor != 'yorkie-agent[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The tag, package.json (which tauri.conf.json reads) and Cargo.toml
+      # must agree, or the app would report one version and ship another.
+      - name: Check the tag against the package versions
+        id: v
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#desktop-v}"
+          pkg=$(node -p "require('./packages/desktop/package.json').version")
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/desktop/src-tauri/Cargo.toml | head -1)
+          if [ "$version" != "$pkg" ] || [ "$version" != "$crate" ]; then
+            echo "::error::tag $TAG, package.json $pkg and Cargo.toml $crate disagree"
+            exit 1
+          fi
+          case "$version" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    environment: desktop-release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Tauri CLI
+        run: pnpm install --frozen-lockfile --filter @wafflebase/desktop
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal \
+            -t aarch64-apple-darwin -t x86_64-apple-darwin
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Write the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/api-key.p8"
+
+      # Tauri imports the certificate into a temporary keychain, signs with
+      # the hardened runtime, notarizes the .app with the API key and staples
+      # it, then signs the updater package with the minisign key.
+      - name: Build, sign and notarize (universal)
+        working-directory: packages/desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/api-key.p8
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --ci --target universal-apple-darwin --bundles app,dmg
+
+      # The .app inside is notarized and stapled; the disk image the user
+      # downloads is a separate quarantined file and gets its own ticket.
+      - name: Notarize and staple the disk image
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          bundle=packages/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          dmg="$bundle/dmg/Wafflebase_${VERSION}_universal.dmg"
+          xcrun notarytool submit "$dmg" --wait \
+            --key "$RUNNER_TEMP/api-key.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+          xcrun stapler staple "$dmg"
+
+      - name: Verify signatures
+        run: |
+          bundle=packages/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          codesign --verify --deep --strict --verbose=2 "$bundle/macos/Wafflebase.app"
+          spctl --assess --type execute --verbose=2 "$bundle/macos/Wafflebase.app"
+          xcrun stapler validate "$bundle/macos/Wafflebase.app"
+          xcrun stapler validate "$bundle/dmg/Wafflebase_${VERSION}_universal.dmg"
+          lipo -archs "$bundle/macos/Wafflebase.app/Contents/MacOS/wafflebase-desktop" | grep -q "x86_64 arm64"
+
+      - name: Collect
+        run: |
+          bundle=packages/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir out
+          cp "$bundle/dmg/Wafflebase_${VERSION}_universal.dmg" out/
+          cp "$bundle/macos/Wafflebase.app.tar.gz" "out/Wafflebase_${VERSION}_universal.app.tar.gz"
+          cp "$bundle/macos/Wafflebase.app.tar.gz.sig" "out/Wafflebase_${VERSION}_universal.app.tar.gz.sig"
+
+      - name: Remove the API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/api-key.p8"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    environment: desktop-release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Tauri CLI
+        run: pnpm install --frozen-lockfile --filter @wafflebase/desktop
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Build (NSIS)
+        working-directory: packages/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --ci --bundles nsis
+
+      - name: Collect
+        shell: bash
+        run: |
+          nsis=packages/desktop/src-tauri/target/release/bundle/nsis
+          mkdir out
+          cp "$nsis/Wafflebase_${VERSION}_x64-setup.exe" out/
+          cp "$nsis/Wafflebase_${VERSION}_x64-setup.exe.sig" out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [version, macos, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      # One universal package serves both Mac architectures. The updater
+      # looks up `<os>-<arch>`; the URLs point at the versioned release, so
+      # an installed app never downloads a package that moved under it.
+      - name: Write the update manifest
+        run: |
+          base="https://github.com/${GH_REPO}/releases/download/${TAG}"
+          mac="Wafflebase_${VERSION}_universal.app.tar.gz"
+          win="Wafflebase_${VERSION}_x64-setup.exe"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg notes "https://github.com/${GH_REPO}/releases/tag/${TAG}" \
+            --arg mac_url "$base/$mac" --rawfile mac_sig "out/$mac.sig" \
+            --arg win_url "$base/$win" --rawfile win_sig "out/$win.sig" \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: {
+               "darwin-aarch64": {url: $mac_url, signature: $mac_sig},
+               "darwin-x86_64":  {url: $mac_url, signature: $mac_sig},
+               "windows-x86_64": {url: $win_url, signature: $win_sig}}}' \
+            > latest.json
+          cat latest.json
+
+      - name: Publish the versioned release
+        run: |
+          flags=(--latest=false --verify-tag --title "Wafflebase Desktop ${VERSION}" --generate-notes)
+          [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+          gh release create "$TAG" "${flags[@]}" out/* latest.json
+
+      # Stable names, so the homepage can link to the newest installer.
+      - name: Point desktop-latest at this release
+        if: env.PRERELEASE != 'true'
+        run: |
+          cp "out/Wafflebase_${VERSION}_universal.dmg" Wafflebase_universal.dmg
+          cp "out/Wafflebase_${VERSION}_x64-setup.exe" Wafflebase_x64-setup.exe
+          if ! gh release view desktop-latest >/dev/null 2>&1; then
+            gh release create desktop-latest --latest=false --target "$GITHUB_SHA" \
+              --title "Wafflebase Desktop (latest)" \
+              --notes "The newest desktop app. Installed apps read latest.json here to update."
+          fi
+          gh release upload desktop-latest --clobber \
+            Wafflebase_universal.dmg Wafflebase_x64-setup.exe latest.json

@@ -234,11 +234,26 @@ that would reach the system browser without cookies.
   cosmetic: without Edit menu items bound to Cmd+C/V/X/Z, those shortcuts never
   reach the webview. Editor shortcuts stay in the page (Google parity).
 - **Plugins.** `window-state`, `single-instance` (a second launch focuses the
-  existing window), `updater`, `opener` (system browser).
-- **Updates.** Signed update manifests published with GitHub Releases. The
-  app updates only the shell. The UI updates when the server does.
-- **Signing.** Apple Developer ID with notarization on macOS, Authenticode on
-  Windows. Signing secrets are used only by tag-triggered release jobs.
+  existing window), `updater`, `dialog` (the update prompt), `opener` (system
+  browser). `updater` and `dialog` are driven from Rust only; no capability
+  grants their commands to any page.
+- **Updates.** The app updates only the shell; the UI updates when the server
+  does. `src-tauri/src/update.rs` checks at launch and once a day (release
+  builds), and on **Check for Updates…** in the app menu. A found update is
+  downloaded and its minisign signature verified against the public key
+  compiled into `tauri.conf.json` before the user is asked anything. Then
+  **Restart Now** installs and relaunches, and **Later** keeps the package
+  and installs it on quit, so the next launch runs it without asking again.
+  On Windows the NSIS installer runs passively; deferred to quit, it does
+  not relaunch the app the user just closed. A failed background check is
+  logged, not shown.
+- **Signing.** Apple Developer ID (G2 intermediate) with notarization on macOS.
+  Windows builds are minisign-signed for the updater but not yet
+  Authenticode-signed, so SmartScreen warns on first run until a signing route
+  is chosen (Azure Artifact Signing, or an OV certificate in a cloud HSM —
+  EV no longer buys SmartScreen reputation). Signing secrets live only in the
+  `desktop-release` GitHub Environment, which requires a maintainer's
+  approval.
 
 ### 6. WebKit checklist
 
@@ -266,9 +281,40 @@ It exists today but no workflow runs it.
 
 `@wafflebase/desktop` has its own version and `desktop-v*` tags, separate from
 the server's lockstep version, because it carries no server or frontend code.
-A release job builds a universal macOS bundle and a Windows installer, signs
-them and publishes them to GitHub Releases with the update manifest. The
-desktop release is not a step in the server release procedure.
+`.github/workflows/desktop-release.yml` builds a universal macOS bundle
+(signed, notarized, stapled; the disk image notarized separately) and a
+Windows NSIS installer, and publishes them to GitHub Releases. The desktop
+release is not a step in the server release procedure. The procedure and the
+secrets it needs are in [`packages/desktop/README.md`](../../packages/desktop/README.md#releasing).
+
+Distribution is GitHub Releases only. The Mac App Store would require the
+sandbox, under which the loopback sign-in listener and direct writes to
+Downloads need entitlements and review for what is a thin shell; the
+Microsoft Store adds a review cycle for no capability the installer lacks.
+Homebrew and winget manifests can point at the same assets later.
+
+**Where the manifest lives.** Server releases own the repository's "Latest"
+release, so the updater cannot use `releases/latest/download/latest.json`: it
+would follow the server's release and 404. Each version publishes to its own
+`desktop-vX.Y.Z` release with `--latest=false`, and the rolling
+`desktop-latest` release carries `latest.json` plus stable-named installers
+for download links. The endpoint is compiled into every installed app, so it
+cannot move without a manual reinstall; a unit test pins it. The manifest's
+package URLs point at the versioned release, never at `desktop-latest`, so a
+download in flight cannot change under the app. A prerelease tag
+(`desktop-v0.2.0-beta.1`) publishes its versioned release only and leaves
+installed apps alone.
+
+**Keys that cannot be lost.**
+
+| Key | Where | If lost |
+|-----|-------|---------|
+| Updater minisign private key | `TAURI_SIGNING_PRIVATE_KEY` secret + offline backup | Every installed app refuses every future update; users must reinstall by hand. Its public key is in `tauri.conf.json` |
+| Developer ID Application certificate | `APPLE_CERTIFICATE` secret + offline backup | Reissue; nothing breaks. Apps signed with a timestamp keep running after it expires |
+
+The certificate issued for the first release expires 2027-12-26. Newly
+issued Developer ID certificates are valid for about 13 months, so renewal is
+a yearly step in the README procedure.
 
 ### 8. Rollout
 
@@ -276,7 +322,7 @@ desktop release is not a step in the server release procedure.
 |-------|-------|
 | 0. Spike | Unsigned shell that loads a deployment; run the §6 checklist on macOS. Go or no-go for Tauri |
 | 1. Sign-in | Backend `mode=desktop` (GitHub), `/auth/desktop/session`, providers field. Shell: picker, navigation policy, login, downloads, menus. Unsigned macOS + Windows builds for the team |
-| 2. Release | Google `mode=desktop`; signing, notarization, updater; `test:webkit` in CI; public release |
+| 2. Release | Google `mode=desktop`; signing, notarization, updater (shipped: `desktop-release.yml`, `update.rs`); Authenticode; `test:webkit` in CI; public release |
 | Later | Linux; file associations into import; deep links; offline (separate design) |
 
 ### 9. What the Phase 0 spike found
@@ -317,7 +363,9 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | WebView tracking prevention drops the cookies set by the cross-site handoff POST | Verified in the spike. Fallback: write the cookies through each platform's native cookie store |
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
-| Signing certificates and their cost | Secrets scoped to tag-triggered jobs; Phase 1 builds are unsigned and internal |
+| Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment (maintainer approval); Phase 1 builds are unsigned and internal |
+| The agent App can push a `desktop-v*` tag (`contents: write`) | Its tags are refused by the workflow's first job, and the signing jobs wait for a maintainer's approval on the Environment |
+| The updater key leaks | An attacker who can also serve the manifest could ship a signed update. The manifest is on GitHub Releases, writable only by the repository; rotating the key requires a release that trusts both keys before the old one is dropped |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the frontend URL, and `navigation::is_secure_origin` applies the same rule to the backend origin the login link names, so no exchange runs over cleartext |
 | The window's URL is read after a `/auth/github` navigation is cancelled (client-side routing to `/login` fires no event), so a foreign sign-in link clicked just as the window itself moves to `/login` is taken over against the foreign origin | Accepted. The race needs the click and an app-driven route change within one main-thread turn. The foreign backend then holds that attempt's nonce, so it can cancel a real sign-in in progress or finish the attempt against itself, but its OAuth page opens in the system browser with an address bar, and its session POST sets no cookie on the chosen server. Requiring the link to be on the frontend origin is not an option: the backend may have its own (`VITE_BACKEND_API_URL`). Pinning the backend origin after the first sign-in is the follow-up if this needs closing |
 | Every Tauri app on the machine serves its bundled pages from the same origins (`tauri://localhost`, `http://tauri.localhost`), so another installed Tauri app, or one that renders untrusted HTML in its bundled origin, can POST an attacker's code with an allowed `Origin` (login CSRF) | Accepted. It needs a hostile or vulnerable app already on the machine. Tauri offers no per-app origin to check instead; binding the code to the app would need a secret the app holds and a page cannot read, which is a larger change than this risk warrants today |

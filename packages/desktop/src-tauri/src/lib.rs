@@ -10,6 +10,7 @@ mod login;
 mod navigation;
 mod server;
 mod signin;
+mod update;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
@@ -37,6 +38,7 @@ macro_rules! dlog {
 
 const MAIN_WINDOW: &str = "main";
 const CHANGE_SERVER_ID: &str = "change-server";
+const CHECK_UPDATES_ID: &str = "check-updates";
 
 /// Development override for the saved server.
 const SERVER_ENV: &str = "WAFFLEBASE_DESKTOP_SERVER";
@@ -387,9 +389,17 @@ fn focus_main<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// The default app menu (with its Edit menu, which macOS needs for
-/// Cmd+C/V/X/Z/A to reach the webview) plus "Change server…".
+/// Cmd+C/V/X/Z/A to reach the webview) plus "Check for Updates…" and
+/// "Change server…".
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
+    let updates = MenuItem::with_id(
+        app,
+        CHECK_UPDATES_ID,
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
     let change = MenuItem::with_id(app, CHANGE_SERVER_ID, "Change server…", true, None::<&str>)?;
     let items = menu.items()?;
     // macOS: the first submenu is the app menu. Elsewhere: the File menu.
@@ -406,10 +416,10 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         Some(submenu) => {
             // After "About" and its separator on macOS; first in File elsewhere.
             let at = if cfg!(target_os = "macos") { 2 } else { 0 };
-            submenu.insert(&change, at)?;
+            submenu.insert_items(&[&updates, &change], at)?;
         }
         None => {
-            let file = Submenu::with_items(app, "File", true, &[&change])?;
+            let file = Submenu::with_items(app, "File", true, &[&updates, &change])?;
             menu.prepend(&file)?;
         }
     }
@@ -509,6 +519,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_server,
             set_server,
@@ -518,7 +530,9 @@ pub fn run() {
         ])
         .menu(build_menu)
         .on_menu_event(|app, event| {
-            if event.id() == CHANGE_SERVER_ID {
+            if event.id() == CHECK_UPDATES_ID {
+                update::check_from_menu(app);
+            } else if event.id() == CHANGE_SERVER_ID {
                 app.state::<AppState>().signin.cancel();
                 if let Some(window) = window_or_any(app, MAIN_WINDOW) {
                     let _ = window.navigate(bundled_url("index.html"));
@@ -545,10 +559,17 @@ pub fn run() {
                 None => WebviewUrl::App("index.html".into()),
             };
             build_window(app.handle(), MAIN_WINDOW, url)?;
+            app.manage(update::Updates::default());
+            update::start(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the Wafflebase desktop app");
+        .build(tauri::generate_context!())
+        .expect("error while building the Wafflebase desktop app")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                update::install_pending_on_exit(app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -563,6 +584,28 @@ mod tests {
             csp.split(';').any(|d| d.trim() == "frame-ancestors 'none'"),
             "{csp}"
         );
+    }
+
+    /// The update endpoint is compiled in, so a wrong one strands every
+    /// install. Server releases own this repository's "Latest" release, so
+    /// `releases/latest/...` would answer with the server's assets (or 404);
+    /// the manifest lives on the rolling `desktop-latest` release instead.
+    #[test]
+    fn update_endpoint_is_the_rolling_desktop_release() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let updater = &conf["plugins"]["updater"];
+        let endpoints = updater["endpoints"].as_array().unwrap();
+        assert_eq!(endpoints.len(), 1, "{endpoints:?}");
+        let endpoint = endpoints[0].as_str().unwrap();
+        assert!(endpoint.starts_with("https://"), "{endpoint}");
+        assert!(!endpoint.contains("/releases/latest/"), "{endpoint}");
+        assert!(
+            endpoint.ends_with("/releases/download/desktop-latest/latest.json"),
+            "{endpoint}"
+        );
+        assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
+        assert!(!updater["pubkey"].as_str().unwrap().is_empty());
     }
 
     /// The deployment's origin gets no capability.
