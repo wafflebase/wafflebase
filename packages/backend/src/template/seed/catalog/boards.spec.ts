@@ -53,7 +53,7 @@ function overlapRatio(
 
 /*
  * The markers a board client keys on, written out independently of the
- * `@wafflebase/board` factories `boards.ts` builds with: a palette change
+ * `@wafflebase/board` factories `board/sections.ts` builds with: a palette change
  * there is a change to every existing board, so it should fail here too.
  */
 const SECTION_PAIRS = new Set([
@@ -74,9 +74,11 @@ const STICKY_FILLS = new Set([
 ]);
 
 describe('board templates', () => {
+  // `BOARD_TEMPLATES` is filtered out of the catalogue, so membership holds by
+  // construction; what can go wrong is the filter matching nothing, which
+  // would let every rule below pass vacuously.
   it('are in the catalogue', () => {
-    for (const seed of BOARD_TEMPLATES)
-      expect(TEMPLATE_CATALOG).toContain(seed);
+    expect(BOARD_TEMPLATES.length).toBeGreaterThan(0);
   });
 
   it.each(BOARD_TEMPLATES.map((s) => [s.slug, s] as const))(

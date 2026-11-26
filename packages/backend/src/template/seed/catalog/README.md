@@ -51,9 +51,13 @@ glob.
    **As a new family**: create `<kind>/<family>.ts` (lower kebab case) ending
    in `export const seeds: TemplateSeed[] = [...]`, then add one import to
    `index.ts`, keeping the imports sorted, and append its `...seeds` to the
-   **end** of `TEMPLATE_CATALOG`. That list is the gallery order and only
-   grows at the end; `catalog.spec.ts` pins the order of the templates that
-   already exist.
+   **end** of `TEMPLATE_CATALOG`.
+
+   A new template may therefore land between existing ones (appending to a
+   family that is not last puts it before every later family). That is
+   allowed: a seed is found by its slug, never by position.
+   `catalog.spec.ts` pins only the *relative* order of the templates that
+   already exist — never rename, drop or reorder one of those.
 
    Themed slides decks use `themedDeck()` from `../../builders`. Board
    templates build sections and stickies with the helpers in

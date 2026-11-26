@@ -47,8 +47,10 @@ describe('template seed catalogue', () => {
   );
 
   // The catalogue's order as it stood when registration moved to one import
-  // per file. New templates append after it; nothing listed here may be
-  // renamed, dropped or reordered — a re-run finds each document by its slug.
+  // per file. Nothing listed here may be renamed, dropped or reordered — a
+  // re-run finds each document by its slug — but a new template may land
+  // anywhere, including in the middle of an existing family's file, so this
+  // pins the listed slugs' *relative* order rather than a prefix.
   it('keeps the existing templates in their order', () => {
     const pinned = [
       'weekly-business-review',
@@ -90,9 +92,10 @@ describe('template seed catalogue', () => {
       'board-weekly-team-sync',
       'board-pricing-workshop',
     ];
-    expect(TEMPLATE_CATALOG.slice(0, pinned.length).map((s) => s.slug)).toEqual(
-      pinned,
-    );
+    const kept = new Set(pinned);
+    expect(
+      TEMPLATE_CATALOG.map((s) => s.slug).filter((slug) => kept.has(slug)),
+    ).toEqual(pinned);
   });
 
   it('maps every slug to a distinct, stable document id', () => {
@@ -400,11 +403,17 @@ describe('template seed catalogue', () => {
   // the committed one only while the two hash the same, which
   // `expectedRootHash` computes both of and refuses the seed over. Running it
   // across the catalogue is what turns that into a guarantee.
-  it('hashes every seed root the same before and after commit', () => {
-    const hashes = new Map<string, string>();
-    for (const seed of TEMPLATE_CATALOG) {
-      hashes.set(seed.slug, expectedRootHash(seed.content));
-    }
-    expect(hashes.size).toBe(TEMPLATE_CATALOG.length);
-  });
+  it.each(TEMPLATE_CATALOG.map((s) => [s.slug, s] as const))(
+    'hashes %s the same before and after commit, and on every build',
+    (_, seed) => {
+      // `expectedRootHash` throws when the half-built and committed roots
+      // disagree, so not throwing is the before/after half.
+      const first = expectedRootHash(seed.content);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      // A second build mints fresh random ids (sheet axis ids, layout
+      // placeholders) in a fresh document; the canonical root must not move,
+      // or every sync would refuse the write it just made.
+      expect(expectedRootHash(seed.content)).toBe(first);
+    },
+  );
 });
