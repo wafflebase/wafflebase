@@ -133,6 +133,7 @@ model Document {
 
   notifications Notification[]
   templateListing TemplateListing?
+  templateSeedRecord TemplateSeedRecord?
   webhookContentPending WebhookContentPending?
   chatRefs  ChatDocumentRef[]
 
@@ -422,6 +423,37 @@ model TemplateListing {
   /// The workspace gallery's query.
   @@index([workspaceId, visibility])
   reports     TemplateReport[]
+}
+
+/// What `pnpm backend sync:templates` last applied to one seeded template
+/// (docs/design/template-catalog-scaling.md §3).
+///
+/// Seed-only state kept off `TemplateListing`, so the listing stays exactly
+/// what a person's publish produces and the command is idempotent without
+/// becoming a second writer of listing columns. Keyed on the seeded document,
+/// whose id is derived from the slug.
+model TemplateSeedRecord {
+  documentId       String    @id
+  document         Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  slug             String    @unique
+  /// sha256 of the catalogue content this command last wrote (or adopted at
+  /// first publish).
+  contentHash      String
+  /// sha256 of title, description, category and tags as last applied.
+  cardHash         String
+  /// sha256 of the thumbnail bytes last uploaded. Identical bytes skip the
+  /// upload, so a deterministic renderer causes no card churn.
+  thumbnailHash    String
+  /// The content watermark this command attests to: the listing's
+  /// `contentChangedAt` observed after its own last write, or the publish time
+  /// when it never wrote. A `contentChangedAt` later than this means somebody
+  /// else edited the document, and the command refuses to approve.
+  appliedAt        DateTime
+  /// When this command wrote content whose `DocumentRootChanged` event it has
+  /// not yet observed; null once observed. Lets an interrupted run resume the
+  /// wait instead of mistaking its own edit for somebody else's.
+  contentWrittenAt DateTime?
+  updatedAt        DateTime  @updatedAt
 }
 
 /// Someone flagging a listing for a reviewer — see

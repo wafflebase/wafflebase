@@ -1118,6 +1118,28 @@ describe('TemplateService.submit', () => {
     expect(data).not.toHaveProperty('visibility');
   });
 
+  it('notifies the reviewers unless an in-process caller asks for quiet', async () => {
+    // `quiet` is an argument, not a DTO field: `sync:templates` decides its
+    // own submissions in the same run, and a request body cannot reach it.
+    openPublicTier();
+    const loud = makeService();
+    await loud.service.submit('tpl-1', 7, { acceptLicense: true });
+    expect(
+      loud.notificationService.createTemplateReviewQueued,
+    ).toHaveBeenCalledTimes(1);
+
+    const quiet = makeService();
+    await quiet.service.submit(
+      'tpl-1',
+      7,
+      { acceptLicense: true },
+      { quiet: true },
+    );
+    expect(
+      quiet.notificationService.createTemplateReviewQueued,
+    ).not.toHaveBeenCalled();
+  });
+
   it('requires the license grant', async () => {
     openPublicTier();
     const { service } = makeService();

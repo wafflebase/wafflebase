@@ -143,6 +143,12 @@ function cardReviewReset(
  * `workspaceId` and `createdBy` are internal, and `previewToken` is a
  * capability that only a permitted viewer may receive.
  */
+/** In-process-only options for {@link TemplateService.submit}. */
+export interface SubmitOptions {
+  /** Do not notify the reviewer allowlist of this submission. */
+  quiet?: boolean;
+}
+
 export interface TemplateListingView {
   id: string;
   documentId: string;
@@ -488,11 +494,17 @@ export class TemplateService {
    *
    * Manager-gated like publishing, and for the same reason: it offers the
    * document to an audience membership no longer bounds.
+   *
+   * `options.quiet` skips the reviewer notification. It is a separate
+   * argument rather than a DTO field on purpose: no request body can reach
+   * it, so only an in-process caller — `sync:templates`, which decides its own
+   * submissions in the same run — can submit without telling the allowlist.
    */
   async submit(
     id: string,
     userId: number,
     dto: SubmitTemplateDto,
+    options: SubmitOptions = {},
   ): Promise<TemplateListingView> {
     const listing = await this.prisma.templateListing.findUnique({
       where: { id },
@@ -565,9 +577,11 @@ export class TemplateService {
 
     // Best-effort, like every other notification here: the submission is
     // recorded and visible in the queue either way.
-    await this.notifyReviewers(updated, userId).catch((err) => {
-      this.logger.warn(`failed to notify reviewers of ${id}: ${err}`);
-    });
+    if (!options.quiet) {
+      await this.notifyReviewers(updated, userId).catch((err) => {
+        this.logger.warn(`failed to notify reviewers of ${id}: ${err}`);
+      });
+    }
     return toView(updated, true);
   }
 

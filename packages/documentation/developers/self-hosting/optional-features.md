@@ -141,19 +141,21 @@ Reviewers decide submissions at `/admin/templates` and are notified when one arr
    pnpm backend seed:templates:build --workspace <workspaceId> --author <userId>
    ```
 
-2. Install Chromium for the registration step:
+2. Render their thumbnails offline. This needs Chromium, but no running frontend or backend:
 
    ```bash
    pnpm --filter @wafflebase/frontend exec playwright install chromium
+   pnpm backend template:dump --out catalog.json
+   pnpm frontend render:thumbnails catalog.json --out thumbs/
    ```
 
-3. With the frontend and backend running, publish, submit, and approve each one:
+3. Publish, submit, and approve each one, on a host with the backend's environment:
 
    ```bash
-   pnpm backend register:templates:build --author <userId> --frontend https://app.example.com
+   pnpm backend sync:templates:build --author <userId> --thumbnails thumbs/
    ```
 
-The second command skips documents that already have a listing. Add `--reset` to unpublish and publish them again.
+Run steps 2 and 3 again whenever the catalogue changes: the last command only updates what changed and re-approves it, and keeps every preview link already handed out. Slides and note templates are published today; spreadsheet, board, and document templates are skipped until their thumbnails can be rendered offline.
 
 ## Related
 

@@ -667,10 +667,10 @@ Three rules define the namespace:
   the three verbs a publisher needs, not the moderation pipeline.
 
 A CLI publish also carries no thumbnail: a listing's picture is captured by
-whichever editor is mounted at publish time, and a terminal has no editor (the
-same reason `register:templates` drives the real Share dialog through
-Playwright). The listing works without one; the card simply shows no preview
-image.
+whichever editor is mounted at publish time, and a terminal has no editor. (The
+operator-only `sync:templates` renders seed thumbnails offline instead; see
+[template-catalog-scaling.md](template-catalog-scaling.md) §3.) The listing
+works without one; the card simply shows no preview image.
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
 slide's elements (text boxes, shape labels, table cells, flattened

@@ -62,7 +62,7 @@ describe('TEMPLATE_CATEGORY_TREE', () => {
 
   it('gives every option a distinct label', () => {
     // The picker is a flat list of tops and leaves; two equal labels would be
-    // indistinguishable there, and `register:templates` picks options by name.
+    // indistinguishable there.
     const labels = TEMPLATE_CATEGORY_TREE.flatMap((t) => [
       t.label,
       ...t.children.map((l) => l.label),

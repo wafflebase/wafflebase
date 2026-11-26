@@ -981,19 +981,18 @@ other failure.
 
 A new deployment's gallery is empty, and there is no way to fill it from
 outside a browser: publishing is JWT-only and the CLI has no `templates`
-namespace. Two operator commands close that, and the split between them falls
-out of the thumbnail rule above.
+namespace. Operator commands close that.
 
 `pnpm backend seed:templates` creates the documents and writes their content,
 using the writers the v1 content endpoints already use. It **does not publish
-them**. `pnpm backend register:templates` drives the real Share dialog with
-Playwright — publish, category, tags, submit — and then the reviewer queue.
+them**. `pnpm backend template:dump` and `pnpm frontend render:thumbnails`
+render each seed's thumbnail offline with the editors' own model-driven
+renderers, and `pnpm backend sync:templates` publishes, updates and approves
+the listings in-process through `TemplateService`
+([template-catalog-scaling.md](template-catalog-scaling.md) §3).
 
-Registering through the UI rather than through `TemplateService` is not
-ceremony. The picture is taken by whichever editor is mounted at publish time,
-so a headless publish produces a listing with no thumbnail; and the ordering
-the UI happens to take is the *only* one the review rules permit, because
-`thumbnailId` is a `CARD_FIELD`:
+The ordering the review rules permit still decides when the thumbnail is
+attached, because `thumbnailId` is a `CARD_FIELD`:
 
 | When the thumbnail is attached | What happens |
 | --- | --- |
@@ -1001,15 +1000,18 @@ the UI happens to take is the *only* one the review rules permit, because
 | while `pending` | `assertCardEditable` refuses it outright |
 | after publish, before submit | accepted; neither guard applies |
 
-Keeping a service-level publish path beside the UI one was rejected for the
-reason `publish()` itself gives: it would be a second, unguarded way to swap an
-approved gallery card.
+`sync:templates` passes it into `publish()` itself, and a changed thumbnail
+goes through `update()`, which returns an approved listing to review like any
+other card edit.
 
-> **Proposed revision:** [template-catalog-scaling.md](template-catalog-scaling.md)
-> §3 re-examines this for an *in-process operator command* that calls only the
-> guarded `TemplateService` methods and passes an offline-rendered
-> `thumbnailId` into `publish()`, and proposes `sync:templates` to replace
-> this Playwright path. The rejection stands for any network-reachable path.
+This replaced an earlier Playwright command, `register:templates`, which drove
+the real Share dialog because the only thumbnail renderers then lived inside
+the mounted editors. A service-level publish path was rejected at the time as
+"a second, unguarded way to swap an approved gallery card"; that rejection
+still holds for any **network-reachable** path. It does not hold for an
+in-process operator command that calls only the guarded `publish` / `update` /
+`submit` / `review` methods — the guards live in those methods, not in the
+dialog — and that writes no `TemplateListing` column itself.
 
 The catalogue lives in `packages/backend/src/template/seed/catalog/` as
 TypeScript rather than JSON or binaries, so it typechecks against the real
@@ -1021,7 +1023,7 @@ from them may be seeded.
 
 Operational preconditions, and the one ordering trap, are in
 [`packages/backend/README.md`](../../packages/backend/README.md) — in
-particular that `register:templates` requires the Yorkie auth webhook to be
+particular that `sync:templates` requires the Yorkie auth webhook to be
 enforced, while `seed:templates` needs no such ordering: it writes through
 `YorkieService`, which authenticates to the webhook as this backend
 (`src/yorkie/yorkie-service-token.ts`).

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -16,7 +15,10 @@ import { SlidesYorkieRoot, writeSlidesRoot } from '../../yorkie/slides-tree';
 import { NoteYorkieRoot, writeNoteRoot } from '../../yorkie/note-content';
 import type { BoardRoot } from './board';
 import { TEMPLATE_CATALOG } from './catalog';
+import { seedDocumentId } from './seed-hash';
 import type { SeedContent, TemplateSeed } from './types';
+
+export { seedDocumentId };
 
 /**
  * Fill the public template gallery (docs/design/template-gallery.md).
@@ -28,35 +30,11 @@ import type { SeedContent, TemplateSeed } from './types';
  * writers the v1 content endpoints use.
  *
  * It stops at the documents. Registering them as templates is
- * `register-templates.ts`, which drives the product's own Share dialog — see
- * there for why that cannot be done headlessly.
+ * `sync-templates.ts`, which publishes them through `TemplateService` with
+ * thumbnails rendered offline by `pnpm frontend render:thumbnails`.
  */
 
 const logger = new Logger('SeedTemplates');
-
-/**
- * A stable document id per seed slug.
- *
- * Idempotency has to key on *something*, and every alternative is worse: a
- * title match breaks the moment somebody renames the document, and a
- * side-file of ids is state to lose. Deriving the id from the slug means a
- * re-run finds exactly the document it created last time, on any deployment,
- * with nothing to keep in sync. Formatted as a v5-shaped UUID because the
- * column is one.
- */
-export function seedDocumentId(slug: string): string {
-  const h = createHash('sha1')
-    .update(`wafflebase-template-seed:${slug}`)
-    .digest('hex');
-  return [
-    h.slice(0, 8),
-    h.slice(8, 12),
-    `5${h.slice(13, 16)}`,
-    ((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16) +
-      h.slice(18, 20),
-    h.slice(20, 32),
-  ].join('-');
-}
 
 /** `Document.type` for a seed's content. */
 function documentType(content: SeedContent): string {
@@ -67,7 +45,12 @@ function documentType(content: SeedContent): string {
 // Content
 // --------------------------------------------------------------------------
 
-async function writeContent(
+/**
+ * Replace a seeded document's content with `content`. Exported for
+ * `sync:templates`, which rewrites a listed seed when its catalogue content
+ * changes.
+ */
+export async function writeContent(
   yorkie: YorkieService,
   documentId: string,
   content: SeedContent,
@@ -160,12 +143,10 @@ async function writeContent(
 /**
  * Create the document and write its content — and stop there.
  *
- * Registering it as a template is deliberately **not** here. That happens
- * through the product's own Share dialog, driven by `register-templates.ts`,
- * because the thumbnail is taken by whichever editor is mounted at publish
- * time and a headless publish has none. Leaving a second, service-level
- * publish path in this file would also be exactly the "second unguarded way
- * to swap an approved gallery card" that `publish()` guards against.
+ * Registering it as a template is deliberately **not** here: that is
+ * `sync-templates.ts`, which needs a rendered thumbnail per seed and calls
+ * only the guarded `TemplateService` methods — never a second writer of
+ * listing columns.
  *
  * Content is written only when the document is new, unless asked otherwise: a
  * re-run must not clobber edits somebody made to a seeded template.
@@ -289,8 +270,8 @@ async function main(): Promise<void> {
       `Done. ${Object.entries(tally)
         .map(([k, n]) => `${n} ${k}`)
         .join(', ')}. ` +
-        'Register them with: pnpm backend register:templates --author ' +
-        `${authorId}`,
+        'Register them with: pnpm backend sync:templates --author ' +
+        `${authorId} --thumbnails <dir>`,
     );
   } finally {
     await app.close();

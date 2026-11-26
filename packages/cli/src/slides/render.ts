@@ -9,8 +9,8 @@ import type { CliConfig } from '../config/config.js';
  * the product's own renderer.
  *
  * Every renderer lives in the browser, so this drives a real headless
- * Chromium to the deck's editor route (`/p/:id`) — the same approach as the
- * backend's `register:templates` — and asks the mounted editor, through the
+ * Chromium to the deck's editor route (`/p/:id`) and asks the mounted
+ * editor, through the
  * `window.__wafflebaseSlideRender` hook (frontend
  * `app/slides/slide-render-hook.ts`), for each slide. The hook paints with
  * `renderThumbnail` at the deck's logical size (1920 px wide), so the PNG is

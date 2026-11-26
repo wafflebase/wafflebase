@@ -416,6 +416,47 @@ bells (`:561-566`).
   cross-workspace seeds are refused (`seed-templates.ts:191-208`); an
   unobserved event webhook is reported, not attested.
 
+#### As implemented (Phase 1, PR4)
+
+Where the shipped command differs from the proposal above, and why:
+
+- **`contentHash` canonicalizes ids.** The catalogue is not deterministic
+  across module loads — `applyLayoutToSlide` keys placeholders with
+  `generateId()`, and the builder counters shift with import order — so a
+  hash over raw content changed on every run. `seedContentHash` renumbers
+  every `id` (and strings that are, or are prefixed by, one) in traversal
+  order before hashing, so it captures which element refers to which, not the
+  names. A spec loads the catalogue twice and asserts equal hashes.
+- **`thumbnailHash` is the sha256 of the uploaded bytes**, the literal
+  "identical bytes skip the upload" condition. Freshness against content is
+  enforced separately: `render:thumbnails` echoes the `contentHash` it
+  rendered from into its manifest, and `sync:templates` refuses a thumbnail
+  whose hash no longer matches the catalogue. `rendererVersion` is not
+  computed; a renderer change shows up as different bytes.
+- **`TemplateSeedRecord` has one more column, `contentWrittenAt`.**
+  `appliedAt` is the watermark attested to — the `contentChangedAt` observed
+  after the command's own write — and an interrupted wait has to be told apart
+  from somebody else's edit on the next run. With only `appliedAt`, our own
+  event and a stranger's both read as "later than `appliedAt`".
+- **Two table rows cannot be reached through the service and are reported
+  instead.** A `public` listing that a reviewer *rejected* after an edit
+  cannot be resubmitted (`submit()` refuses `visibility: 'public'`), and a
+  `pending` listing whose card the catalogue changed cannot be updated
+  (`assertCardEditable`) or honestly approved. Both are skipped with a reason.
+- **Card before content.** When both changed on an approved listing, `update()`
+  runs first: it moves the listing to `pending` synchronously, whereas the
+  content event does so asynchronously, after which a card edit is refused.
+- **The event wait has two halves**: the watermark reaching the write, and —
+  for a listing that was `public` + `listed` — the status flip that follows it.
+- **Thumbnails cover slides and notes only.** Sheet, board and doc seeds are
+  `skipped` in the manifest and left unpublished by `sync:templates`, per
+  "fail that seed instead of publishing an icon-only card"; their renderers
+  are Phase 2. A listing those types already have keeps its state.
+- **First publish trusts `seed:templates`.** A seed the command has never
+  written is published as `seed:templates` left it; a listing with no record
+  (one `register:templates` made) counts as entirely changed, so its content
+  is rewritten and re-approved once.
+
 ### 4. Gallery browse v2
 
 Today: one `type`, one `category`, one `tag`, and an unindexed `ILIKE`
