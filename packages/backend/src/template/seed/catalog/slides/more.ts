@@ -15,7 +15,7 @@ const sprintRetrospective: TemplateSeed = {
   title: 'Sprint Retrospective',
   description:
     'A short, honest look back at a sprint: what to keep, what to change, and the one thing the team commits to next time.',
-  category: 'Project management',
+  category: 'work/retro-workshop',
   tags: ['deck', 'retro', 'agile', 'meeting'],
   content: {
     kind: 'slides',
@@ -65,7 +65,7 @@ const okrReview: TemplateSeed = {
   title: 'OKR Review',
   description:
     'A quarterly check on objectives and key results: where each one landed, what moved the numbers, and what carries into next quarter.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'okr', 'goals', 'quarterly'],
   content: {
     kind: 'slides',
@@ -116,7 +116,7 @@ const productLaunchPlan: TemplateSeed = {
   title: 'Product Launch Plan',
   description:
     'Everything a launch has to line up before the date: the pitch, the goal, the channels, the timeline, and the go / no-go call.',
-  category: 'Marketing',
+  category: 'marketing/campaign',
   tags: ['deck', 'launch', 'go-to-market', 'product'],
   content: {
     kind: 'slides',
@@ -170,7 +170,7 @@ const techTalk: TemplateSeed = {
   title: 'Tech Talk / Paper Study',
   description:
     'A structure for presenting a paper or a technical topic: the problem, the key idea, the trade-offs, and what you would take away.',
-  category: 'Education',
+  category: 'education/study-notes',
   tags: ['deck', 'talk', 'paper', 'study', 'engineering'],
   content: {
     kind: 'slides',
@@ -220,7 +220,7 @@ const productRoadmap: TemplateSeed = {
   title: 'Product Roadmap',
   description:
     'A now / next / later roadmap that shows direction without over-promising dates, plus what the team is deliberately not doing.',
-  category: 'Project management',
+  category: 'work/plan-roadmap',
   tags: ['deck', 'roadmap', 'planning', 'product'],
   content: {
     kind: 'slides',

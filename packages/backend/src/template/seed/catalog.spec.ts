@@ -23,7 +23,7 @@ import {
   parseRef,
   replaceWorksheetCells,
 } from '@wafflebase/sheets';
-import { TEMPLATE_CATEGORIES } from '../template-taxonomy';
+import { ALL_CATEGORY_SLUGS } from '../template-taxonomy';
 
 describe('template seed catalogue', () => {
   it('is not empty', () => {
@@ -118,7 +118,11 @@ describe('template seed catalogue', () => {
     (_slug, seed) => {
       expect(seed.title.trim()).not.toBe('');
       expect(seed.description.trim()).not.toBe('');
-      expect(TEMPLATE_CATEGORIES).toContain(seed.category);
+      expect(ALL_CATEGORY_SLUGS).toContain(seed.category);
+      // Seeds are filed under their most precise leaf, never a bare top: a
+      // top is the fallback for a listing that fits no leaf, and the catalog
+      // is authored to fit.
+      expect(seed.category).toContain('/');
       expect(seed.tags.length).toBeGreaterThan(0);
       for (const tag of seed.tags) expect(tag.trim()).not.toBe('');
     },

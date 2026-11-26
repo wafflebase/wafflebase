@@ -284,7 +284,7 @@ const retroStartStopContinue: TemplateSeed = {
   title: 'Retro (Start / Stop / Continue)',
   description:
     'A team retrospective on a board: Start, Stop and Continue sections with prompt stickies, and an action-items row to close on.',
-  category: 'Project management',
+  category: 'work/retro-workshop',
   tags: ['retro', 'agile', 'board', 'workshop'],
   content: {
     kind: 'board',
@@ -352,7 +352,7 @@ const brainstormAffinityMap: TemplateSeed = {
   title: 'Brainstorm (affinity map)',
   description:
     'Collect ideas as stickies, then cluster them into named themes. An Ideas section to fill and four theme sections to sort into.',
-  category: 'Design',
+  category: 'work/retro-workshop',
   tags: ['brainstorm', 'affinity map', 'board', 'workshop'],
   content: {
     kind: 'board',
@@ -432,7 +432,7 @@ const weeklyTeamSync: TemplateSeed = {
   title: 'Weekly team sync',
   description:
     'A board for a weekly team meeting: wins, updates, blockers, and decisions with owners, filled in before the call.',
-  category: 'Business',
+  category: 'work/meeting',
   tags: ['meeting', 'team', 'board', 'weekly'],
   content: {
     kind: 'board',
@@ -537,7 +537,7 @@ const pricingWorkshop: TemplateSeed = {
   title: 'Pricing workshop',
   description:
     'A board for working out how to price a product: goals and constraints, candidate pricing options, tiers to test, risks, and the decisions you leave with.',
-  category: 'Business',
+  category: 'work/retro-workshop',
   tags: ['pricing', 'strategy', 'board', 'workshop'],
   content: {
     kind: 'board',

@@ -14,7 +14,7 @@ const marketingCampaign: TemplateSeed = {
   title: 'Marketing Campaign',
   description:
     'A one-pass plan for a campaign: who it is for, the big idea, the channels and message, the timeline, the KPI that matters, and the budget.',
-  category: 'Marketing',
+  category: 'marketing/campaign',
   tags: ['deck', 'marketing', 'campaign'],
   content: {
     kind: 'slides',
@@ -77,7 +77,7 @@ const brandPitch: TemplateSeed = {
   title: 'Brand Pitch',
   description:
     'A short pitch for a brand: who we are, the opportunity in front of us, how we position against it, the numbers behind it, and the ask.',
-  category: 'Marketing',
+  category: 'work/pitch-proposal',
   tags: ['deck', 'brand', 'pitch'],
   content: {
     kind: 'slides',
@@ -128,7 +128,7 @@ const equityAnalysis: TemplateSeed = {
   title: 'Equity Analysis',
   description:
     'A structured read on a stock: the company snapshot, the investment thesis, valuation, the key metric, the risks, and a recommendation.',
-  category: 'Finance',
+  category: 'finance/financial-model',
   tags: ['deck', 'finance', 'equity', 'stocks'],
   content: {
     kind: 'slides',
@@ -190,7 +190,7 @@ const designReviewUx: TemplateSeed = {
   title: 'Design Review (Product/UX)',
   description:
     'A frame for reviewing a product or UX change: the problem, the users and context, the proposal, before and after, open questions, and the feedback needed.',
-  category: 'Design',
+  category: 'design/design-review',
   tags: ['deck', 'design', 'ux', 'review'],
   content: {
     kind: 'slides',

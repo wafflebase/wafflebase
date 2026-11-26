@@ -1,24 +1,43 @@
-/**
- * The template gallery's category taxonomy (docs/design/template-gallery.md).
- *
- * A **constant, not a table**. Facets are only useful if the values are
- * closed, and a per-workspace table would let each workspace invent its own
- * spelling of "Finance" — which the public gallery would then have to merge
- * after the fact. The list changes at release cadence, so a deploy is the
- * right granularity for changing it.
- */
-export const TEMPLATE_CATEGORIES = [
-  'Business',
-  'Education',
-  'Personal',
-  'Project management',
-  'Finance',
-  'Marketing',
-  'Design',
-  'Other',
-] as const;
+import {
+  ALL_CATEGORY_SLUGS,
+  childrenOf,
+  LEGACY_CATEGORY_ALIASES,
+  resolveCategory,
+  type TemplateCategorySlug,
+} from '@wafflebase/core/templates';
 
-export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
+/**
+ * The template gallery's category taxonomy (docs/design/template-gallery.md,
+ * docs/design/template-catalog-scaling.md §1 "Taxonomy v2").
+ *
+ * The tree itself lives in `@wafflebase/core/templates`, shared with the
+ * frontend so the picker and this enforcing side read one definition. It is a
+ * code constant rather than a table — see that module for why.
+ */
+export { ALL_CATEGORY_SLUGS };
+export type { TemplateCategorySlug };
+
+/**
+ * What browse's `?category=` accepts: every slug, plus the v1 labels for one
+ * release so an old link or client keeps filtering. Writes accept slugs only
+ * (`ALL_CATEGORY_SLUGS`).
+ */
+export const BROWSE_CATEGORY_VALUES: readonly string[] = [
+  ...ALL_CATEGORY_SLUGS,
+  ...Object.keys(LEGACY_CATEGORY_ALIASES),
+];
+
+/**
+ * The stored values a browse for `category` matches: the value itself, plus
+ * every leaf when it is a top — so `work` finds `work/meeting` too. A legacy
+ * label is resolved first. Anything unknown matches only itself, which finds
+ * nothing rather than widening the query.
+ */
+export function categoryFilterValues(category: string): string[] {
+  const slug = resolveCategory(category);
+  if (!slug) return [category];
+  return [slug, ...childrenOf(slug)];
+}
 
 /** Tags are freeform, but a listing may carry at most this many. */
 export const MAX_TEMPLATE_TAGS = 10;

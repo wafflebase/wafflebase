@@ -5,7 +5,7 @@ const weeklyOneOnOne: TemplateSeed = {
   title: 'Weekly 1:1',
   description:
     'A running markdown note for a recurring 1:1. Newest week on top, with the standing questions that make the meeting worth having.',
-  category: 'Business',
+  category: 'work/meeting',
   tags: ['1:1', 'manager', 'markdown'],
   content: {
     kind: 'note',
@@ -62,7 +62,7 @@ const siteVisitNotes: TemplateSeed = {
   title: 'Site Visit Notes',
   description:
     'A markdown note for recording an on-site visit or inspection: what you checked, what you found, and who follows up on what.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['site visit', 'inspection', 'field notes', 'markdown'],
   content: {
     kind: 'note',

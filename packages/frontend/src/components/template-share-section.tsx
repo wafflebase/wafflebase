@@ -18,11 +18,11 @@ import {
   submitTemplateForReview,
   unpublishTemplate,
   updateTemplate,
-  TEMPLATE_CATEGORIES,
   type TemplateListing,
   type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { TemplateCategoryItems } from "@/components/template-category-items";
 import { userFacingError } from "@/api/http-error";
 import { imageUrl, postSharedImage } from "@/api/images";
 import { captureThumbnail, hasThumbnailSource } from "@/lib/thumbnail-capture";
@@ -608,11 +608,7 @@ function TemplateMetaEditor({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_CATEGORY}>None</SelectItem>
-              {TEMPLATE_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
+              <TemplateCategoryItems />
             </SelectContent>
           </Select>
         </div>

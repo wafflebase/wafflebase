@@ -84,7 +84,7 @@ const retrospectiveBoard: TemplateSeed = {
   title: 'Retrospective Board',
   description:
     'Three columns and a stack of blank stickies, ready to drag. Went well, could improve, action items — double-click a sticky to type.',
-  category: 'Project management',
+  category: 'work/retro-workshop',
   tags: ['retro', 'agile', 'workshop'],
   content: {
     kind: 'board',

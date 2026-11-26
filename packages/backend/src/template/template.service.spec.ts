@@ -350,7 +350,7 @@ describe('TemplateService.publish', () => {
         ...LISTING,
         title: 'Renamed',
         description: 'why',
-        category: 'Finance',
+        category: 'finance',
         tags: ['ops'],
       },
     });
@@ -359,7 +359,7 @@ describe('TemplateService.publish', () => {
       {
         title: 'Renamed',
         description: 'why',
-        category: 'Finance',
+        category: 'finance',
         tags: ['ops'],
         thumbnailId: 'a.png',
       },
@@ -478,6 +478,34 @@ describe('TemplateService.browse', () => {
     expect(
       prisma.templateListing.findMany.mock.calls[0][0].where,
     ).toMatchObject({ document: { workspaceId: 'ws-1' } });
+  });
+
+  it('expands a top category to its leaves', async () => {
+    // `design` is a facet over `design/*`: a card filed under its precise
+    // leaf must still show up when the visitor picks the top.
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'design' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({
+      category: { in: ['design', 'design/design-review', 'design/moodboard'] },
+    });
+  });
+
+  it('matches a leaf category exactly', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'work/meeting' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ category: { in: ['work/meeting'] } });
+  });
+
+  it('still filters on a v1 label, through its alias', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'Project management' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ category: { in: ['work/project-tracker'] } });
   });
 
   it('has no scope that selects unlisted listings', async () => {
@@ -632,13 +660,13 @@ describe('TemplateService.update', () => {
 
   it('lets a manager edit listing metadata', async () => {
     const { service, prisma } = makeService();
-    await service.update('tpl-1', 7, { title: 'Renamed', category: 'Finance' });
+    await service.update('tpl-1', 7, { title: 'Renamed', category: 'finance' });
     expect(prisma.templateListing.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'tpl-1' },
         data: expect.objectContaining({
           title: 'Renamed',
-          category: 'Finance',
+          category: 'finance',
         }) as unknown,
       }),
     );

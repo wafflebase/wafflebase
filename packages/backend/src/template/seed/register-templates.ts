@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { categoryLabel } from '@wafflebase/core/templates';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DOCUMENT_ROUTES } from '@wafflebase/core/document-link';
@@ -327,7 +328,8 @@ async function registerOne(
   if (seed.category) {
     await page.click('#template-category');
     await page
-      .getByRole('option', { name: seed.category, exact: true })
+      // The picker shows labels, not slugs.
+      .getByRole('option', { name: categoryLabel(seed.category), exact: true })
       .click();
   }
   await page.fill('#template-tags', seed.tags.join(', '));

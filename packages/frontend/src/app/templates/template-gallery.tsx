@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { categoryLabel } from "@wafflebase/core/templates";
 import {
   browseTemplates,
-  TEMPLATE_CATEGORIES,
   type TemplateBrowsePage,
   type TemplateCard,
 } from "@/api/templates";
@@ -12,6 +12,7 @@ import { typeMeta, TYPE_OPTIONS } from "@/app/documents/document-type-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TemplateCategoryItems } from "@/components/template-category-items";
 import {
   Select,
   SelectContent,
@@ -174,11 +175,7 @@ export function TemplateGallery({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>All categories</SelectItem>
-            {TEMPLATE_CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
+            <TemplateCategoryItems />
           </SelectContent>
         </Select>
 
@@ -420,7 +417,7 @@ function MarketingGalleryCard({
               <span
                 className="rounded-full bg-[color:var(--wb-wash)] px-2.5 py-1 font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
               >
-                {card.category}
+                {categoryLabel(card.category)}
               </span>
             )}
             {card.tags.slice(0, 3).map((tag) => (
@@ -502,7 +499,7 @@ function TemplateGalleryCard({
         <div className="mt-3 flex flex-wrap gap-1">
           {card.category && (
             <span className="bg-muted rounded px-2 py-0.5 text-xs">
-              {card.category}
+              {categoryLabel(card.category)}
             </span>
           )}
           {card.tags.slice(0, 3).map((tag) => (

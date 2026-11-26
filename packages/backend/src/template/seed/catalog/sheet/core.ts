@@ -49,7 +49,7 @@ const monthlyBudgetTracker: TemplateSeed = {
   title: 'Monthly Budget Tracker',
   description:
     'Track planned against actual spending by category, with the variance calculated for you. Replace the sample rows and the totals follow.',
-  category: 'Finance',
+  category: 'finance/budget',
   tags: ['budget', 'personal', 'formulas'],
   content: {
     kind: 'sheet',
@@ -83,7 +83,7 @@ const sprintTaskTracker: TemplateSeed = {
   title: 'Sprint Task Tracker',
   description:
     'One row per task: owner, status, estimate and actual. The summary counts each status for you, so standup reads off the sheet.',
-  category: 'Project management',
+  category: 'work/project-tracker',
   tags: ['sprint', 'agile', 'tracker'],
   content: {
     kind: 'sheet',
@@ -174,7 +174,7 @@ const contentCalendar: TemplateSeed = {
   title: 'Content Calendar',
   description:
     'Plan posts across channels: what publishes when, who writes it, where it goes, and whether it actually shipped.',
-  category: 'Marketing',
+  category: 'marketing/content-calendar',
   tags: ['content', 'calendar', 'planning'],
   content: {
     kind: 'sheet',
@@ -241,7 +241,7 @@ const invoice: TemplateSeed = {
   title: 'Invoice',
   description:
     'A single-page invoice: your details, their details, line items, and a total that adds tax for you.',
-  category: 'Finance',
+  category: 'finance/invoice-quote',
   tags: ['invoice', 'billing', 'freelance'],
   content: {
     kind: 'sheet',
@@ -325,7 +325,7 @@ const regionalSalesReport: TemplateSeed = {
   title: 'Regional Sales Report',
   description:
     'Compare revenue by region across the four quarters, with year totals, each region’s share and quarter-on-quarter change worked out for you.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['sales', 'quarterly', 'report', 'formulas'],
   content: {
     kind: 'sheet',
@@ -419,7 +419,7 @@ const teamDirectory: TemplateSeed = {
   title: 'Team Directory',
   description:
     'Keep everyone’s role, team, contact details and time zone in one shared list that new joiners can read on day one.',
-  category: 'Business',
+  category: 'people/directory-org',
   tags: ['team', 'contacts', 'directory', 'onboarding'],
   content: {
     kind: 'sheet',
@@ -481,7 +481,7 @@ const sharedExpenseSplitter: TemplateSeed = {
   title: 'Shared Expense Splitter',
   description:
     'Log what each flatmate paid for the household and see who is owed and who owes, with every cost split evenly for you.',
-  category: 'Personal',
+  category: 'personal/personal-finance',
   tags: ['household', 'flatmates', 'split', 'formulas'],
   content: {
     kind: 'sheet',

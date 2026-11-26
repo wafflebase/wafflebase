@@ -1087,11 +1087,16 @@ fields rather than special:
 
 ### Taxonomy
 
-Facets are only useful if the values are closed. `category` becomes a fixed list
-shared between backend validation and the frontend picker (roughly: Business,
-Education, Personal, Project management, Finance, Marketing, Design, Other) —
-a constant, not a table, because it changes at release cadence and a table would
-invite per-workspace divergence that the public gallery could not merge. `tags`
+Facets are only useful if the values are closed. `category` is a fixed list
+shared between backend validation and the frontend picker — a constant, not a
+table, because it changes at release cadence and a table would invite
+per-workspace divergence that the public gallery could not merge. It shipped as
+eight flat labels (Business, Education, Personal, Project management, Finance,
+Marketing, Design, Other) and is now a two-level slug tree (`work`,
+`work/meeting`, …) in `@wafflebase/core/templates`, where browsing a top also
+matches its leaves and the old labels are browse-only aliases for one release;
+see [template-catalog-scaling.md](template-catalog-scaling.md) §1 "Taxonomy
+v2" for the tree and the label → slug data migration. `tags`
 stay freeform but are normalized on write (trimmed, lowercased, de-duplicated,
 max 10), so `Budget`, `budget ` and `budget` are one facet.
 

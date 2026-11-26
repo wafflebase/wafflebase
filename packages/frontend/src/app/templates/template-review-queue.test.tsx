@@ -39,7 +39,7 @@ const SUBMISSION = {
   documentType: "sheet",
   title: "Weekly Report",
   description: "A weekly status sheet",
-  category: "Business",
+  category: "work",
   tags: [],
   thumbnailId: null,
   visibility: "workspace" as const,

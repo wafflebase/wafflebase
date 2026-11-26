@@ -29,7 +29,7 @@ import {
   UpdateTemplateDto,
   UseTemplateDto,
 } from './template.dto';
-import { normalizeTags } from './template-taxonomy';
+import { categoryFilterValues, normalizeTags } from './template-taxonomy';
 import { findExternalDataTabs } from './template-content-guard';
 import {
   assertDecisionAllowed,
@@ -1110,7 +1110,10 @@ export class TemplateService {
 
     if (dto.type) documentWhere.type = dto.type;
     where.document = documentWhere;
-    if (dto.category) where.category = dto.category;
+    // A top expands to itself and its leaves; a v1 label resolves first.
+    if (dto.category) {
+      where.category = { in: categoryFilterValues(dto.category) };
+    }
     // Never emit `has: undefined` — Prisma drops an undefined filter, which
     // turns "show me this tag" into "show me everything". The DTO already
     // refuses a value that normalizes to nothing; this is the second gate, so

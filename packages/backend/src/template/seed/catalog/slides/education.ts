@@ -14,7 +14,7 @@ const seminarDeck: TemplateSeed = {
   title: 'Seminar Deck',
   description:
     'A clear structure for a seminar or talk: the topic, the background it rests on, the core content, and a close that invites questions.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'seminar', 'talk'],
   content: {
     kind: 'slides',
@@ -68,7 +68,7 @@ const universityLecture: TemplateSeed = {
   title: 'University Lecture',
   description:
     'A lecture that moves from objectives to a concept, works an example, contrasts mistakes with the right approach, and points to further reading.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'lecture', 'academic'],
   content: {
     kind: 'slides',
@@ -137,7 +137,7 @@ const studentPresentation: TemplateSeed = {
   title: 'Student Presentation',
   description:
     'A simple frame for a class or assignment presentation: the topic and question, what you did, the numbers, and what you learned.',
-  category: 'Education',
+  category: 'education/study-notes',
   tags: ['deck', 'student', 'assignment'],
   content: {
     kind: 'slides',
@@ -190,7 +190,7 @@ const workshopTraining: TemplateSeed = {
   title: 'Workshop / Training',
   description:
     'A hands-on session that sets what people will learn, walks the agenda, moves into practice step by step, and wraps up with resources.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'workshop', 'training'],
   content: {
     kind: 'slides',

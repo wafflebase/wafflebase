@@ -14,7 +14,7 @@ const devDesignReview: TemplateSeed = {
   title: 'Design Review (Engineering)',
   description:
     'A structure for reviewing an engineering design: the problem, the goals, the proposed approach, the alternatives considered, and the decision that is actually needed.',
-  category: 'Business',
+  category: 'design/design-review',
   tags: ['deck', 'engineering', 'design-doc'],
   content: {
     kind: 'slides',
@@ -85,7 +85,7 @@ const projectProposal: TemplateSeed = {
   title: 'Project Proposal',
   description:
     'A concise case for starting a project: the problem, the proposed solution, what is in and out of scope, the plan, the cost, and the ask.',
-  category: 'Project management',
+  category: 'work/pitch-proposal',
   tags: ['deck', 'proposal', 'planning'],
   content: {
     kind: 'slides',
@@ -158,7 +158,7 @@ const allHandsUpdate: TemplateSeed = {
   title: 'All-Hands Update',
   description:
     'A short company or team update for an all-hands: where we are, the highlights, the headline metric, what comes next, and a thank-you.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'allhands', 'update'],
   content: {
     kind: 'slides',
@@ -211,7 +211,7 @@ const caseStudy: TemplateSeed = {
   title: 'Case Study',
   description:
     'A before-and-after story of a customer engagement: the challenge, the approach, the results, and the lessons worth reusing.',
-  category: 'Business',
+  category: 'marketing/brand-press',
   tags: ['deck', 'case-study'],
   content: {
     kind: 'slides',
@@ -272,7 +272,7 @@ const customerOnboardingReview: TemplateSeed = {
   title: 'Customer Onboarding Review',
   description:
     'A review of how new customers get started, built from interviews and funnel data: what we heard, where onboarding stalls, and what we will change first.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'customer-research', 'onboarding'],
   content: {
     kind: 'slides',

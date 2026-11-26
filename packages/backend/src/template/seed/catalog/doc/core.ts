@@ -6,7 +6,7 @@ const productRequirementsDoc: TemplateSeed = {
   title: 'Product Requirements Doc',
   description:
     'A one-page spec that answers the questions a reviewer will ask anyway: the problem, who has it, what is out of scope, and how you will know it worked.',
-  category: 'Project management',
+  category: 'work/plan-roadmap',
   tags: ['spec', 'product', 'planning'],
   content: {
     kind: 'doc',
@@ -53,7 +53,7 @@ const meetingNotes: TemplateSeed = {
   title: 'Meeting Notes',
   description:
     'Attendees, decisions and action items, in the order you actually need them afterwards — decisions first, discussion last.',
-  category: 'Business',
+  category: 'work/meeting',
   tags: ['meeting', 'notes', 'team'],
   content: {
     kind: 'doc',
@@ -88,7 +88,7 @@ const partnerNewsletter: TemplateSeed = {
   title: 'Partner Newsletter',
   description:
     'A periodic update for partners or customers that leads with what changed for them, flags what they need to act on, and ends with how to reach you.',
-  category: 'Marketing',
+  category: 'marketing/brand-press',
   tags: ['newsletter', 'partners', 'communication'],
   content: {
     kind: 'doc',
@@ -140,7 +140,7 @@ const vendorOnboarding: TemplateSeed = {
   title: 'Vendor Onboarding',
   description:
     'A setup plan for bringing a new supplier on board, from signed agreement to first purchase order, with owners and the paperwork to collect.',
-  category: 'Business',
+  category: 'people/onboarding',
   tags: ['vendor', 'procurement', 'onboarding', 'checklist'],
   content: {
     kind: 'doc',

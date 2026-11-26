@@ -163,6 +163,17 @@ Migration:
    would knock every approved card back into review for a relabel that changed
    no content.
 
+*Shipped (PR1 of Phase 1).* The tree, `ALL_CATEGORY_SLUGS`, `childrenOf`,
+`categoryLabel` and `LEGACY_CATEGORY_ALIASES` live in
+`packages/core/src/templates/`, which makes `@wafflebase/core` a runtime
+dependency of the backend (the image now copies `packages/core/dist`, and core
+gained `typesVersions` because the backend's CommonJS resolution ignores
+`exports`). Labels are English strings in that module for now; moving them to
+frontend i18n keyed by slug is deferred to the ko locale work. The migration is
+`20261126000000_template_category_slugs`, and a backend spec pins its `CASE`
+arms to the alias map. Seeds are filed under a leaf (`catalog.spec.ts` refuses
+a bare top), and the picker lists each top followed by its leaves.
+
 #### Theme variants at "Use template"
 
 One listing per slides structure; the "Use template" dialog offers theme

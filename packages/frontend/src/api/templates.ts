@@ -65,22 +65,6 @@ export type TemplateBrowsePage = {
   nextCursor: string | null;
 };
 
-/**
- * The category taxonomy, mirroring `packages/backend/src/template/
- * template-taxonomy.ts`. Closed on both sides so the facet means something;
- * the backend is the enforcing copy.
- */
-export const TEMPLATE_CATEGORIES = [
-  "Business",
-  "Education",
-  "Personal",
-  "Project management",
-  "Finance",
-  "Marketing",
-  "Design",
-  "Other",
-] as const;
-
 export type BrowseTemplatesQuery = {
   scope: "workspace" | "public";
   workspaceId?: string;

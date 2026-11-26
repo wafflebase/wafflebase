@@ -97,9 +97,9 @@ export const sprintRetrospective: TemplateSeed = {
   slug: 'sprint-retrospective',      // identity, never changes
   title: 'Sprint Retrospective',
   description: 'One sentence on what the template is for.',
-  category: 'Project management',    // a TemplateCategory: Business | Education |
-                                     // Personal | Project management | Finance |
-                                     // Marketing | Design | Other
+  category: 'work/retro-workshop',   // a taxonomy slug, `top/leaf` — the most
+                                     // precise leaf in TEMPLATE_CATEGORY_TREE
+                                     // (@wafflebase/core/templates)
   tags: ['deck', 'retro', 'agile'],  // freeform, <=10, lowercased on write
   content: {
     kind: 'slides',
