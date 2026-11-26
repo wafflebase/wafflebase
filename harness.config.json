@@ -120,6 +120,46 @@
       "advisoryReason": "Two shapes, both requiring a `reason`. `pattern` downgrades every finding in the design docs whose relative path it matches — for a spec whose whole subject is unbuilt. `doc` + `ref` downgrades one named reference and is the shape to prefer, because the rest of that doc keeps blocking: a doc carrying a planned-file name today still fails on real drift tomorrow. Nothing here is silent — every advisory finding is printed on every run, prefixed `(advisory)`. These are not refs anyone forgot to fix: a design doc that names a file in order to say it does NOT exist (\"there is no `mixed-controls.tsx`\") is doing its job, and rewriting it to satisfy the checker would delete accurate documentation.",
       "advisory": [
         {
+          "doc": "README.md",
+          "ref": "provenance.json",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "review.json",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "near-duplicate.spec.ts",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "near-duplicate-allow.ts",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "reference/rubric.md",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "reference/reviewer.md",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "provenance.json",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
+          "doc": "template-catalog-scaling.md",
+          "ref": "provenance.spec.ts",
+          "reason": "Planned file named by the template catalog scaling design (Phase 1 pipeline or Phase 3 import); it does not exist until that phase ships. Remove this entry when it lands."
+        },
+        {
           "doc": "slides/slides-image-crop.md",
           "ref": "interactions/crop.ts",
           "reason": "A negative reference. The doc says the crop session lives in `view/editor/editor.ts` and explicitly *not* in a separate `interactions/crop.ts` — the file is named in order to record that it was not created."
