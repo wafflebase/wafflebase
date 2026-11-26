@@ -25,3 +25,19 @@
   release made the "Latest" problem disappear. What the separate version was
   protecting (no update nags) is better bought in the update UX (silent,
   installed on quit).
+
+## Self-review
+
+- **Round 1** (security / blast-radius / design-fit did not run: HTTP 429
+  usage limit — not a clean result). Correctness: "Check for Updates…" was
+  silent while the launch check ran (`busy` early return) — fixed: a manual
+  request joins the running check, state under one mutex so the join cannot
+  race the finish; decisions pulled into pure `begin`/`tell` with tests. `jq
+  --rawfile` would carry a `.sig` trailing newline into the manifest — fixed
+  via `$(cat …)` (local e2e used `$(cat …)`, which is why it passed). Also
+  fixed the minors: failed Restart Now keeps the package, `lipo -verify_arch`
+  instead of grepping `-archs` order, explicit `codesign --verify` on the
+  `.dmg`, `createUpdaterArtifacts` pinned, and the workflow comment that
+  called the 404 window "no update" (it is a logged failure, retried daily).
+  Test-adequacy "update.rs untested" — addressed by the pure decision
+  functions; the Tauri glue stays covered by the local e2e only.

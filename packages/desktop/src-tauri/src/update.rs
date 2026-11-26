@@ -13,8 +13,7 @@
 //! launch runs it. Only "Check for Updates…" talks to the user: "Restart
 //! Now" installs and relaunches, "Later" leaves it for quit.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager, Runtime};
@@ -27,16 +26,74 @@ use crate::dlog;
 const RECHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Default)]
-pub struct Updates {
-    /// A check or download is running; a second request is dropped.
-    busy: AtomicBool,
+pub struct Updates(Mutex<State>);
+
+/// One lock for all of it, so "is a check running" and "does someone want
+/// its answer" cannot be read apart.
+#[derive(Default)]
+struct State {
+    /// A check or download is running.
+    busy: bool,
+    /// The user asked while it was running; it answers them when done.
+    answer: bool,
     /// Downloaded and verified, waiting for a restart or for quit.
-    pending: Mutex<Option<(Update, Vec<u8>)>>,
+    pending: Option<(Update, Vec<u8>)>,
 }
 
 impl Updates {
-    fn pending(&self) -> std::sync::MutexGuard<'_, Option<(Update, Vec<u8>)>> {
-        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// What a check request does with the state it finds.
+#[derive(Debug, PartialEq)]
+enum Begin {
+    /// Fetch the manifest (and the package, if newer).
+    Fetch,
+    /// A package is already waiting: offer it instead of fetching again.
+    /// A newer release is picked up after the launch that installs it.
+    Offer,
+    /// A check is running; its result answers this request.
+    Join,
+    /// Nothing to do: a background request with a check running or a
+    /// package already waiting.
+    Skip,
+}
+
+fn begin(pending: bool, busy: bool, manual: bool) -> Begin {
+    match (pending, busy, manual) {
+        (true, _, true) => Begin::Offer,
+        (false, true, true) => Begin::Join,
+        (true, _, false) | (false, true, false) => Begin::Skip,
+        (false, false, _) => Begin::Fetch,
+    }
+}
+
+/// How a finished check ended.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Downloaded,
+    UpToDate,
+    Failed,
+}
+
+/// What the user is told. A background check tells nothing; a check the
+/// user asked for (directly, or by joining one) always answers.
+#[derive(Debug, PartialEq)]
+enum Tell {
+    Nothing,
+    Offer,
+    UpToDate,
+    Failed,
+}
+
+fn tell(outcome: Outcome, asked: bool) -> Tell {
+    match (outcome, asked) {
+        (_, false) => Tell::Nothing,
+        (Outcome::Downloaded, true) => Tell::Offer,
+        (Outcome::UpToDate, true) => Tell::UpToDate,
+        (Outcome::Failed, true) => Tell::Failed,
     }
 }
 
@@ -64,12 +121,12 @@ pub fn check_from_menu<R: Runtime>(app: &AppHandle<R>) {
 /// Installs a downloaded package: one the background check fetched, or one
 /// the user deferred with "Later". Called on `RunEvent::Exit`; on Windows the
 /// installer takes over and the process exits here, without relaunching the
-/// app the user just quit.
+/// app the user just quit. A failure is logged; the next launch checks again.
 pub fn install_pending_on_exit<R: Runtime>(app: &AppHandle<R>) {
-    let Some(state) = app.try_state::<Updates>() else {
+    let Some(updates) = app.try_state::<Updates>() else {
         return;
     };
-    let Some((update, bytes)) = state.pending().take() else {
+    let Some((update, bytes)) = updates.lock().pending.take() else {
         return;
     };
     dlog!("installing {} on quit", update.version);
@@ -80,53 +137,65 @@ pub fn install_pending_on_exit<R: Runtime>(app: &AppHandle<R>) {
 }
 
 async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
-    let state = app.state::<Updates>();
-    if state.pending().is_some() {
-        // Already downloaded and waiting for quit. Offer it rather than
-        // fetching again; a newer release is picked up after that launch.
-        if manual {
-            prompt_restart(app);
-        }
-        return;
-    }
-    if state.busy.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let result = fetch(app).await;
-    state.busy.store(false, Ordering::Release);
-
-    match result {
-        Ok(Some(downloaded)) => {
-            dlog!(
-                "update {} downloaded, installs on quit",
-                downloaded.0.version
-            );
-            *state.pending() = Some(downloaded);
-            if manual {
+    let updates = app.state::<Updates>();
+    {
+        let mut state = updates.lock();
+        match begin(state.pending.is_some(), state.busy, manual) {
+            Begin::Fetch => state.busy = true,
+            Begin::Offer => {
+                drop(state);
                 prompt_restart(app);
+                return;
+            }
+            Begin::Join => {
+                state.answer = true;
+                return;
+            }
+            Begin::Skip => return,
+        }
+    }
+
+    let result = fetch(app).await;
+
+    let (outcome, asked, error) = {
+        let mut state = updates.lock();
+        state.busy = false;
+        let asked = manual || std::mem::take(&mut state.answer);
+        match result {
+            Ok(Some(downloaded)) => {
+                dlog!(
+                    "update {} downloaded, installs on quit",
+                    downloaded.0.version
+                );
+                state.pending = Some(downloaded);
+                (Outcome::Downloaded, asked, None)
+            }
+            Ok(None) => (Outcome::UpToDate, asked, None),
+            Err(e) => {
+                eprintln!("[wafflebase-desktop] update check failed: {e}");
+                (Outcome::Failed, asked, Some(e.to_string()))
             }
         }
-        Ok(None) => {
-            if manual {
-                let version = app.package_info().version.to_string();
-                app.dialog()
-                    .message(format!("Wafflebase {version} is the latest version."))
-                    .title("You're up to date")
-                    .kind(MessageDialogKind::Info)
-                    .show(|_| {});
-            }
+    };
+
+    match tell(outcome, asked) {
+        Tell::Nothing => {}
+        Tell::Offer => prompt_restart(app),
+        Tell::UpToDate => {
+            let version = app.package_info().version.to_string();
+            app.dialog()
+                .message(format!("Wafflebase {version} is the latest version."))
+                .title("You're up to date")
+                .kind(MessageDialogKind::Info)
+                .show(|_| {});
         }
-        Err(e) => {
-            // A failed background check is not the user's problem; a failed
-            // check they asked for is.
-            eprintln!("[wafflebase-desktop] update check failed: {e}");
-            if manual {
-                app.dialog()
-                    .message(format!("Could not check for updates.\n\n{e}"))
-                    .title("Update check failed")
-                    .kind(MessageDialogKind::Warning)
-                    .show(|_| {});
-            }
+        Tell::Failed => {
+            let e = error.unwrap_or_default();
+            app.dialog()
+                .message(format!("Could not check for updates.\n\n{e}"))
+                .title("Update check failed")
+                .kind(MessageDialogKind::Warning)
+                .show(|_| {});
         }
     }
 }
@@ -146,7 +215,8 @@ async fn fetch<R: Runtime>(
 fn prompt_restart<R: Runtime>(app: &AppHandle<R>) {
     let Some(version) = app
         .state::<Updates>()
-        .pending()
+        .lock()
+        .pending
         .as_ref()
         .map(|(u, _)| u.version.clone())
     else {
@@ -172,20 +242,71 @@ fn prompt_restart<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn restart_into_update<R: Runtime>(app: &AppHandle<R>) {
-    let Some((update, bytes)) = app.state::<Updates>().pending().take() else {
+    let updates = app.state::<Updates>();
+    let Some((update, bytes)) = updates.lock().pending.take() else {
         return;
     };
     // Windows: the installer runs, exits this process and relaunches the app.
     // macOS: the bundle is replaced in place; relaunch to run it.
-    match update.install(bytes) {
+    match update.install(&bytes) {
         Ok(()) => app.restart(),
         Err(e) => {
             eprintln!("[wafflebase-desktop] update install failed: {e}");
+            // Keep the verified package: quitting tries again.
+            updates.lock().pending = Some((update, bytes));
             app.dialog()
-                .message(format!("The update could not be installed.\n\n{e}"))
+                .message(format!(
+                    "The update could not be installed now. It will be tried \
+                     again when you quit.\n\n{e}"
+                ))
                 .title("Update failed")
                 .kind(MessageDialogKind::Error)
                 .show(|_| {});
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_idle_check_fetches_whoever_asks() {
+        assert_eq!(begin(false, false, false), Begin::Fetch);
+        assert_eq!(begin(false, false, true), Begin::Fetch);
+    }
+
+    /// The menu item must answer even when the launch check got there first.
+    #[test]
+    fn asking_during_a_running_check_joins_it() {
+        assert_eq!(begin(false, true, true), Begin::Join);
+    }
+
+    #[test]
+    fn a_waiting_package_is_offered_not_fetched_again() {
+        assert_eq!(begin(true, false, true), Begin::Offer);
+        assert_eq!(begin(true, false, false), Begin::Skip);
+    }
+
+    #[test]
+    fn a_background_check_never_doubles_up() {
+        assert_eq!(begin(false, true, false), Begin::Skip);
+    }
+
+    #[test]
+    fn a_joined_check_answers_the_user() {
+        // `asked` is `manual || answer`; a background check that someone
+        // joined answers like a manual one.
+        assert_eq!(tell(Outcome::Downloaded, true), Tell::Offer);
+        assert_eq!(tell(Outcome::UpToDate, true), Tell::UpToDate);
+        assert_eq!(tell(Outcome::Failed, true), Tell::Failed);
+    }
+
+    /// The app ships with every server release; the background path is silent.
+    #[test]
+    fn a_background_check_tells_nothing() {
+        assert_eq!(tell(Outcome::Downloaded, false), Tell::Nothing);
+        assert_eq!(tell(Outcome::UpToDate, false), Tell::Nothing);
+        assert_eq!(tell(Outcome::Failed, false), Tell::Nothing);
     }
 }

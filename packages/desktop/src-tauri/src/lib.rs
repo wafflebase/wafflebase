@@ -606,6 +606,8 @@ mod tests {
         );
         assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
         assert!(!updater["pubkey"].as_str().unwrap().is_empty());
+        // Without it the bundler emits no `.sig`, and there is nothing to update to.
+        assert_eq!(conf["bundle"]["createUpdaterArtifacts"], true);
     }
 
     /// The deployment's origin gets no capability.
