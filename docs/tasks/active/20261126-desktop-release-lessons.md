@@ -131,3 +131,30 @@
 - **Revert spike edits to shipped code before the run.** A debug-only
   `eval_with_callback` probe in `lib.rs` was built into the scratch binary and
   the file restored before launching it, so it could not ride into a commit.
+
+## Unreachable-server view
+
+- **Check for a failure callback in the dependency before designing around
+  one.** wry 0.57 forwards no `didFailProvisionalNavigation` on WKWebView (a
+  failed first load fires no page-load event at all) and reports WebView2's
+  `NavigationCompleted` as `Finished` without reading `IsSuccess`. So the
+  shell probes before it loads, instead of reacting to a failure it cannot
+  see.
+- **A page polling shell state races the shell's own navigation away from
+  it.** The first e2e run showed a second probe right after recovery: the
+  offline page polled while `location.replace` was in flight, read `idle`
+  and retried. Fixed with an `opening` state that lasts until another page
+  loads. Only an end-to-end run with the debug log showed it.
+- **A test server's `Content-Type` decides whether WebKit renders or
+  downloads.** `python -m http.server` served an extensionless `/login` as
+  octet-stream and the app saved it to `~/Downloads`; serve
+  `login/index.html` instead, and clean up anything a test run writes there.
+- **A `MutexGuard` temporary lives to the end of its statement.**
+  `c.mark_shown(c.lock().generation)` held the lock while `mark_shown` took
+  it again, and `cargo test` hung silently for 20 minutes behind a `grep`
+  filter. Bind the value first; when a test run seems slow, look for a test
+  binary that has been running for minutes.
+- **Isolate a local debug run** with
+  `TAURI_CONFIG='{"identifier":"io.wafflebase.desktop.<name>"}' cargo build`,
+  so single-instance cannot hand over to an installed app and the run does
+  not touch the real `server.json`.

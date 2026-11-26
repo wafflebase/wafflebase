@@ -11,6 +11,8 @@ fn main() {
             "login_status",
             "cancel_login",
             "take_handoff",
+            "connection_status",
+            "retry_connection",
         ]),
     ))
     .expect("failed to run tauri-build");

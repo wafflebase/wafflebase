@@ -6,6 +6,7 @@
 //! Everything the desktop does for it is driven from the navigation,
 //! new-window and download hooks below.
 
+mod connection;
 mod login;
 mod navigation;
 mod server;
@@ -50,6 +51,7 @@ pub struct AppState {
     store: ServerStore,
     frontend: RwLock<Option<Url>>,
     signin: signin::SignIn,
+    connection: connection::Connection,
     window_seq: AtomicU32,
     #[cfg(debug_assertions)]
     smoke_signin_started: std::sync::atomic::AtomicBool,
@@ -276,14 +278,23 @@ fn build_window<R: Runtime>(
             true
         })
         .on_page_load(|window, payload| {
-            if payload.event() != PageLoadEvent::Finished {
-                return;
-            }
-            dlog!("page loaded {}", log_url(payload.url()));
             let state = window.state::<AppState>();
             let on_frontend = state
                 .frontend()
                 .is_some_and(|f| f.origin() == payload.url().origin());
+            if payload.event() != PageLoadEvent::Finished {
+                // A commit: the only sign, on macOS, that a load of the
+                // unreachable server's start page is being served from a
+                // Service Worker's cache.
+                state.connection.page_started(window.label(), on_frontend);
+                return;
+            }
+            dlog!("page loaded {}", log_url(payload.url()));
+            state.connection.page_loaded(
+                window.label(),
+                connection::is_offline_page(payload.url()),
+                on_frontend,
+            );
             let bundled = navigation::is_bundled(payload.url());
             if state
                 .signin
@@ -520,7 +531,7 @@ fn get_server(state: tauri::State<'_, AppState>) -> ServerInfo {
     }
 }
 
-/// Points this app at `origin` and opens it in `window`.
+/// Points this app at `origin` and opens it in `window` once it answers.
 fn switch_server<R: Runtime>(
     app: &AppHandle<R>,
     window: &WebviewWindow<R>,
@@ -535,10 +546,20 @@ fn switch_server<R: Runtime>(
             let _ = other.close();
         }
     }
-    window
-        .navigate(server::start_url(&origin))
-        .map_err(|e| e.to_string())?;
-    Ok(server::origin_string(&origin))
+    let shown = server::origin_string(&origin);
+    connection::open(app, window.label(), origin);
+    Ok(shown)
+}
+
+/// Opens the chosen server in `window` once it answers, or the picker when
+/// there is none.
+fn open_current_server<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
+    match app.state::<AppState>().frontend() {
+        Some(origin) => connection::open(app, window.label(), origin),
+        None => {
+            let _ = window.navigate(bundled_url("index.html"));
+        }
+    }
 }
 
 #[tauri::command]
@@ -576,15 +597,30 @@ fn login_status(state: tauri::State<'_, AppState>) -> signin::Status {
 }
 
 #[tauri::command]
-fn cancel_login<R: Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, AppState>) {
+fn cancel_login<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    state: tauri::State<'_, AppState>,
+) {
     // Only this window's own attempt: a stale page here must not cancel one
     // running in another window.
     state.signin.cancel_in(window.label());
-    let target = state
-        .frontend()
-        .map(|origin| server::start_url(&origin))
-        .unwrap_or_else(|| bundled_url("index.html"));
-    let _ = window.navigate(target);
+    open_current_server(&app, &window);
+}
+
+/// What the unreachable-server page shows.
+#[tauri::command]
+fn connection_status(state: tauri::State<'_, AppState>) -> connection::Status {
+    state.connection.status()
+}
+
+/// Probe the chosen server now and open it once it answers: the offline
+/// page's Try again and `online` event, and the picker's Cancel. Starts the
+/// backoff over.
+#[tauri::command]
+fn retry_connection<R: Runtime>(app: AppHandle<R>, window: WebviewWindow<R>) {
+    dlog!("connection retry requested");
+    open_current_server(&app, &window);
 }
 
 #[tauri::command]
@@ -626,9 +662,19 @@ pub fn run() {
             use_official_server,
             login_status,
             cancel_login,
-            take_handoff
+            take_handoff,
+            connection_status,
+            retry_connection
         ])
         .menu(build_menu)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window
+                    .state::<AppState>()
+                    .connection
+                    .window_closed(window.label());
+            }
+        })
         .on_menu_event(|app, event| {
             let page_script = match event.id().as_ref() {
                 BACK_ID => Some("history.back()"),
@@ -643,7 +689,9 @@ pub fn run() {
             } else if event.id() == CHECK_UPDATES_ID {
                 update::check_from_menu(app);
             } else if event.id() == CHANGE_SERVER_ID {
-                app.state::<AppState>().signin.cancel();
+                let state = app.state::<AppState>();
+                state.signin.cancel();
+                state.connection.stop();
                 if let Some(window) = window_or_any(app, MAIN_WINDOW) {
                     let _ = window.navigate(bundled_url("index.html"));
                     let _ = window.unminimize();
@@ -660,15 +708,14 @@ pub fn run() {
                 store,
                 frontend: RwLock::new(Some(initial.clone())),
                 signin: signin::SignIn::default(),
+                connection: connection::Connection::default(),
                 window_seq: AtomicU32::new(1),
                 #[cfg(debug_assertions)]
                 smoke_signin_started: std::sync::atomic::AtomicBool::new(false),
             });
-            build_window(
-                app.handle(),
-                MAIN_WINDOW,
-                WebviewUrl::External(server::start_url(&initial)),
-            )?;
+            // Builds the main window once the server answers (or with the
+            // unreachable-server page if it does not).
+            connection::open(app.handle(), MAIN_WINDOW, initial);
             app.manage(update::Updates::default());
             update::start(app.handle());
             Ok(())

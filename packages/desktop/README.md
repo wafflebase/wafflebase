@@ -17,8 +17,9 @@ macOS builds and the in-app updater, published with every server release (see
 
 | Path | What |
 |------|------|
-| `src/` | Bundled pages, plain HTML/CSS/JS: server picker (`index.html`), sign-in status (`signin.html`), sign-in handoff (`handoff.html`) |
+| `src/` | Bundled pages, plain HTML/CSS/JS: server picker (`index.html`), sign-in status (`signin.html`), sign-in handoff (`handoff.html`), unreachable server (`offline.html`) |
 | `src-tauri/src/server.rs` | Server profile: URL validation, `server.json` in the app config dir |
+| `src-tauri/src/connection.rs` | Reachability probe before a server is opened, retry backoff, the unreachable-server page's state (tested) |
 | `src-tauri/src/navigation.rs` | Navigation, new-window and download policy (pure, tested) |
 | `src-tauri/src/login.rs` | Loopback listener + PKCE, with the CLI's rules (tested) |
 | `src-tauri/src/signin.rs` | Sign-in orchestration: providers check, browser, handoff |
@@ -79,6 +80,37 @@ message on stderr, when invalid. Against a local `pnpm dev`:
 WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 pnpm --filter @wafflebase/desktop dev
 ```
 
+### When the server does not answer
+
+Before the window loads a server (at launch, after picking one, after
+cancelling sign-in, and on the picker's Cancel), the shell sends one `GET` to
+its `/login` and loads it only once something answers. **Any** HTTP response
+counts, a 4xx or 5xx or a redirect included (redirects are not followed); a
+server that connects but is slow to answer counts too, and the webview waits
+for it. Only a failure to connect does not: no DNS answer, refused, a TLS
+failure (a captive portal), or no connection within 8 seconds. Only the
+frontend origin is probed, never the backend.
+
+If it does not answer, the window loads the start page once anyway: a Service
+Worker from an earlier visit may boot the cached app, which shows its own
+offline screen (design doc §10). The shell asks the page whether a worker
+controls it; if none does, or nothing committed within 3 seconds, the window
+shows `offline.html`: the server's address, a likely cause,
+**Try again** and **Change server…**. The shell probes again after 2 s,
+doubling to 30 s, and opens the server as soon as it answers; Try again and
+the system coming back online (`online` event) probe at once and start the
+backoff over. A first probe still running after 1.5 s brings the page up in
+its "Connecting…" state, so the window is never blank meanwhile. Leaving the
+page, changing server or closing the window stops the probing.
+
+A connection that drops after the server's page has loaded is the web app's
+business (its sync-status chip and reconnect), not the shell's. To try the
+page, point the app at a port nothing listens on:
+
+```bash
+WAFFLEBASE_DESKTOP_SERVER=http://127.0.0.1:59321 pnpm --filter @wafflebase/desktop dev
+```
+
 ## Links and windows
 
 Links to another site open in the system browser, and so does the docs site
@@ -126,7 +158,7 @@ open one). If the backend's redirect leaves the chosen server (its
   capability lists it under `remote.urls`, for app commands as well as plugin
   commands (`Webview::on_message` checks the ACL whenever the origin is not
   local). On top of that, `build.rs` declares an app manifest, so even the
-  bundled pages reach only the five commands the capability grants. No plugin
+  bundled pages reach only the commands the capability grants. No plugin
   permission is granted to any page: the opener is used from Rust only.
 - **Navigation policy** (`navigation.rs`): the frontend origin stays in the
   window, bundled pages are allowed (exactly `tauri://localhost` on macOS and

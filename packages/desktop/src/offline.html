@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connecting · Wafflebase</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="offline.js" defer></script>
+  </head>
+  <body>
+    <main aria-live="polite">
+      <img class="mark" src="mark.svg" alt="" />
+      <h1 id="title">Connecting…</h1>
+      <p id="message">Checking the server.</p>
+      <p id="retry" class="hint" hidden></p>
+      <div class="actions">
+        <button id="change" type="button">Change server…</button>
+        <button id="again" class="primary" type="button" hidden>Try again</button>
+      </div>
+    </main>
+  </body>
+</html>

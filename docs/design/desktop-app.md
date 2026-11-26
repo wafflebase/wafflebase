@@ -65,7 +65,7 @@ the remote origin gets no native API at all by default. The comparison is in
 ```text
 packages/desktop/
 ├── package.json          # @wafflebase/desktop (tauri CLI scripts)
-├── src/                  # Bundled pages: picker, sign-in status, handoff
+├── src/                  # Bundled pages: picker, sign-in status, handoff, unreachable server
 └── src-tauri/
     ├── tauri.conf.json
     ├── capabilities/
@@ -74,6 +74,7 @@ packages/desktop/
         ├── main.rs
         ├── lib.rs        # Windows, webview hooks, menus, commands
         ├── server.rs     # Server profile: URL validation, persistence
+        ├── connection.rs # Reachability probe, retry backoff, offline page (§2)
         ├── navigation.rs # Pure navigation and download decisions (§4)
         ├── signin.rs     # Sign-in state machine (§3)
         └── login.rs      # Loopback listener + PKCE (§3)
@@ -83,7 +84,7 @@ The webview shows two kinds of content:
 
 | Content | Origin | IPC |
 |---------|--------|-----|
-| Server picker, sign-in status, handoff page | Bundled (`tauri://localhost` on macOS, `http://tauri.localhost` on Windows) | `get_server`, `set_server`, `login_status`, `cancel_login`, `take_handoff` |
+| Server picker, sign-in status, handoff page, unreachable-server page | Bundled (`tauri://localhost` on macOS, `http://tauri.localhost` on Windows) | `get_server`, `set_server`, `use_official_server`, `login_status`, `cancel_login`, `take_handoff`, `connection_status`, `retry_connection` |
 | The deployment's frontend | The team's server | **None** |
 
 The remote origin is granted no capability. Everything the desktop needs from
@@ -124,6 +125,75 @@ is backend-only, and the frontend is built against `VITE_BACKEND_API_URL`. The
 shell never needs to be told the backend origin. API calls are `fetch`es,
 which the navigation policy does not touch. The one top-level navigation to
 the backend, the sign-in link, carries its origin in the URL (§3).
+
+#### When the server does not answer
+
+A webview that cannot load its page shows a blank window and says nothing,
+and the shell is not told either: wry 0.57 implements no
+`didFailProvisionalNavigation` on WKWebView, so a failed first load fires no
+page-load event at all, and on WebView2 it hooks `NavigationCompleted`
+without reading `IsSuccess`, so a failure arrives as an ordinary `Finished`.
+There is no failure signal to react to, so the shell asks before it loads.
+`connection::open` is the one path that sends a window to a server's start
+page (launch, `set_server`, `use_official_server`, sign-in cancel, the
+picker's Cancel). It sends `GET <origin>/login` from Rust and loads the page
+only once that answers.
+
+- **What counts as an answer.** Any HTTP response, whatever its status,
+  redirects included and not followed: a self-hosted deployment may answer
+  `/login` with anything, a redirect could fail somewhere else and call this
+  server down, and what the page then shows is the deployment's business.
+  A request that connected and then timed out (15 s) also counts as up: the
+  server is slow, and the webview can wait for it longer than the probe
+  should. Only connection-level failures mean unreachable: no DNS answer;
+  refused; TLS failed, which is what a captive portal intercepting `https://`
+  produces; no connection within 8 s; or a connection closed before any
+  answer. `connection::verdict` is the pure rule, tested over reqwest's
+  `is_connect` / `is_dns` / `is_timeout`, and against real loopback sockets
+  for an error status, an unfollowed redirect, a refused port and a server
+  that never answers.
+- **Only the frontend origin is probed.** The backend may be on another
+  origin (above), and it is the frontend that the window loads; a backend
+  that is down is the web app's to report.
+- **The cached app first.** When the first probe of an attempt fails, the
+  window still loads the start page once, since a Service Worker from an
+  earlier visit may serve the cached UI (§10), which then handles the outage
+  with its own offline screen. The shell decides from page-load events: a
+  frontend commit (`PageLoadEvent::Started`) within 3 s, then, once it
+  finishes (or after 10 s), `navigator.serviceWorker.controller` read with
+  `eval_with_callback`. A controlled document means the cached app booted
+  and the shell steps aside. No commit (macOS without a worker fires no
+  page-load event at all) or an uncontrolled document (WebView2 commits and
+  finishes its own error page under the frontend's URL) means it did not,
+  and the offline page follows. Backoff probes and Try again do not repeat
+  this. `connection::after_probe` and `after_cached_try` are the pure rules.
+- **While it does not answer**, the window shows the bundled `offline.html`:
+  the origin, the likely cause in plain words (`navigator.onLine` false
+  overrides it), **Try again** and **Change server…**. The shell probes again
+  after 2, 4, 8 and 16 s, then every 30 s (Rocket.Chat's desktop schedule),
+  and opens the server as soon as it answers. Try again and the page's
+  `online` event start a fresh attempt: an immediate probe and the backoff
+  from the beginning. A first probe still running after 1.5 s brings the page
+  up in its "Connecting…" state, so a slow server never leaves the window
+  blank.
+- **History stays clean.** At launch the main window is created only once
+  the first probe has answered, or failed, or passed 1.5 s, so a reachable
+  server is its first page, with no blank or bundled page under it for Back
+  to reach. Leaving a loaded offline page for the server uses
+  `location.replace`.
+- **Stopping.** One attempt runs at a time. A new attempt supersedes the old
+  one, and leaving the page, **Change server…** and closing the window stop
+  it; a `tokio::sync::Notify` wakes the running probe or backoff sleep, so the
+  task ends at once rather than at its next timer.
+- **Cost.** One extra request before every server load, so a launch waits a
+  round trip (and a TLS handshake) longer before the first byte of the page.
+  Offline without a cached app, the offline page appears about 3 s after the
+  probe fails rather than at once, the price of giving a worker the chance.
+- **After the page has loaded,** a dropped connection is the web app's to
+  handle: its sync-status chip and Yorkie's reconnect ([sync-status.md](sync-status.md)).
+  The shell neither probes nor takes the window away from a loaded
+  frontend, and a failed navigation within it (View → Reload while offline)
+  is not caught, for want of the same failure signal.
 
 ### 3. Sign-in
 
@@ -478,16 +548,19 @@ over IPC, and should not learn to, but it does not need to:
    `window.eval_with_callback("!!(navigator.serviceWorker && navigator.serviceWorker.controller)", …)`.
    `true`: the cached UI booted; stop, and leave recovery to the page's own
    Try again and `online` handling. `false`: show the bundled page.
-4. No `Finished` within a few seconds (macOS with no worker, measured above):
-   show the bundled page.
+4. No frontend commit (`PageLoadEvent::Started`) within 3 s (macOS with no
+   worker fires no page-load event at all, measured above): show the bundled
+   page. Once a commit arrives the shell waits for `Finished` up to 10 s, so a
+   cached app booting slowly on a busy machine is not navigated away mid-boot
+   (§2 "When the server does not answer" has the implemented rule).
 
 Step 3's check is needed on Windows, where wry fires `Finished` on WebView2's
 `NavigationCompleted` whether or not the navigation succeeded, so an error page
 would otherwise look like a booted app. Only the shell evaluates script, and
 the page cannot start anything. A page that lies only stops the shell from
 replacing it. `eval_with_callback` was run against the offline frontend in the
-spike and returned the expected value. This is the only `lib.rs` change offline
-boot needs, and it belongs to the unreachable-server work.
+spike and returned the expected value. The unreachable-server work implements
+it in `connection.rs` (`after_probe`, `after_cached_try`).
 
 **Follow-ups: reading and editing offline.** Each is a separate design, in
 this order:
@@ -516,6 +589,7 @@ this order:
 |------|------------|
 | WKWebView differs from Safari (clipboard, downloads, fullscreen) | §6 spike before Phase 1. The shell is small, so falling back to Electron costs little until Phase 1 lands |
 | WebKit regressions reach desktop users unnoticed | `test:webkit` in CI (Phase 2) |
+| The server is unreachable and the webview reports no failure (§2) | Probe before every load, bundled offline page with backoff retry. A probe can still disagree with the webview (a proxy or certificate setting only one of them honours); a false "unreachable" keeps retrying and Change server… is always on the page, a false "reachable" is the old blank window |
 | App and self-hosted server versions drift | No frontend in the app; `desktop` field in `/auth/providers` turns an old server into a clear message, not a timeout |
 | WebView tracking prevention drops the cookies set by the cross-site handoff POST | Verified in the spike. Fallback: write the cookies through each platform's native cookie store |
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |

@@ -9,7 +9,8 @@ const connect = document.getElementById("connect");
 const back = document.getElementById("back");
 const official = document.getElementById("official");
 
-// The server's sign-in page, where "Cancel" returns to.
+// The server's sign-in page, where "Cancel" returns to. Only its presence
+// matters here: the shell opens it, once it answers.
 let start = null;
 
 invoke("get_server")
@@ -23,7 +24,7 @@ invoke("get_server")
   .catch(() => {});
 
 back.addEventListener("click", () => {
-  if (start) window.location.replace(start);
+  if (start) invoke("retry_connection").catch(() => {});
 });
 
 official.addEventListener("click", async () => {
