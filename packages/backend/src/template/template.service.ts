@@ -586,6 +586,36 @@ export class TemplateService {
   }
 
   /**
+   * Throw unless `userId` manages `documentId` — the check `publish`,
+   * `update` and `submit` start with, for an in-process caller that is about
+   * to act on the document before reaching any of them. `sync:templates`
+   * replaces a seed document's whole root through the backend's own Yorkie
+   * identity, which the auth webhook does not gate, so it must hold the
+   * document-management authority first rather than learn at `submit()` that
+   * it never had it.
+   */
+  async assertCanManage(documentId: string, userId: number): Promise<void> {
+    await this.assertManager(documentId, userId);
+  }
+
+  /**
+   * The reviewer notification a quiet {@link submit} skipped. For an
+   * in-process caller that submitted quietly because it meant to decide the
+   * submission itself, and then could not: the listing is `pending` either
+   * way, and without this nobody would be told it is waiting. Best-effort,
+   * like the notification `submit` sends.
+   */
+  async notifyReviewQueued(id: string, actorId: number): Promise<void> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+    });
+    if (!listing || listing.status !== 'pending') return;
+    await this.notifyReviewers(listing, actorId).catch((err) => {
+      this.logger.warn(`failed to notify reviewers of ${id}: ${err}`);
+    });
+  }
+
+  /**
    * Tell the allowlist there is something to look at. Without it
    * `/admin/templates` is a page somebody has to remember to open.
    */
@@ -700,14 +730,32 @@ export class TemplateService {
     // leaves a row reading "removed" while the content stays anonymously
     // readable). Together they are all-or-nothing, so the ordering question
     // stops existing.
+    //
+    // An approval is also conditional on the content watermark it was checked
+    // against above. An edit's event landing between that read and this write
+    // moves `contentChangedAt` without moving `status` (the listing is already
+    // `pending`, so there is no transition to make), and an unconditional
+    // write would record the older `reviewedContentAt` on a `public` +
+    // `listed` row: hidden by `isVisibleTo`, absent from the queue, and
+    // decided by nobody. A takedown is not conditioned on it — removing
+    // content must never fail because the content changed.
     const updated = await this.prisma.$transaction(async (tx) => {
       const changed = await tx.templateListing.updateMany({
-        where: { id, status: listing.status },
+        where:
+          dto.decision === 'approve'
+            ? {
+                id,
+                status: listing.status,
+                contentChangedAt: listing.contentChangedAt,
+              }
+            : { id, status: listing.status },
         data,
       });
       if (changed.count === 0) {
         throw new ConflictException(
-          'This template was decided by someone else while you were reviewing it',
+          dto.decision === 'approve'
+            ? 'This template was decided by someone else, or its content changed, while you were reviewing it. Reload the queue and look again'
+            : 'This template was decided by someone else while you were reviewing it',
         );
       }
       if (dto.decision === 'takedown') {

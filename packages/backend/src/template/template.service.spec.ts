@@ -1577,6 +1577,87 @@ describe('public-tier preconditions and the review window', () => {
     ).toMatchObject({ reviewedContentAt: contentAt });
   });
 
+  it('notifies the allowlist of a pending listing a quiet submit left behind', async () => {
+    openPublicTier();
+    const { service, notificationService } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await service.notifyReviewQueued('tpl-1', 7);
+    expect(
+      notificationService.createTemplateReviewQueued,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies nobody once the listing is no longer pending', async () => {
+    openPublicTier();
+    const { service, notificationService } = makeService({
+      listing: { ...LISTING, status: 'listed' },
+    });
+    await service.notifyReviewQueued('tpl-1', 7);
+    expect(
+      notificationService.createTemplateReviewQueued,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('assertCanManage refuses a non-manager', async () => {
+    const { service } = makeService({ members: {} });
+    await expect(service.assertCanManage('doc-1', 999)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('conditions the approval write on the watermark it checked', async () => {
+    // An edit's event landing between the pre-read and the write moves
+    // `contentChangedAt` but not `status`. Without the watermark in the WHERE
+    // the approval would still match and record a stale `reviewedContentAt`
+    // on a public row: hidden, out of the queue, decided by nobody.
+    openPublicTier();
+    const contentAt = new Date('2026-09-02T12:00:00Z');
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending', contentChangedAt: contentAt },
+    });
+    await service.review('tpl-1', 99, {
+      decision: 'approve',
+      contentAt: contentAt.toISOString(),
+    });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      status: 'pending',
+      contentChangedAt: contentAt,
+    });
+  });
+
+  it('answers 409 when the watermark moved under the approval', async () => {
+    openPublicTier();
+    const contentAt = new Date('2026-09-02T12:00:00Z');
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending', contentChangedAt: contentAt },
+      staleWrite: true,
+    });
+    await expect(
+      service.review('tpl-1', 99, {
+        decision: 'approve',
+        contentAt: contentAt.toISOString(),
+      }),
+    ).rejects.toThrow(/its content changed/);
+  });
+
+  it('does not condition a takedown on the watermark', async () => {
+    const { service, prisma } = makeService({
+      listing: {
+        ...LISTING,
+        visibility: 'public',
+        status: 'listed',
+        contentChangedAt: new Date('2026-09-02T12:00:00Z'),
+      },
+    });
+    await service.review('tpl-1', 99, { decision: 'takedown' });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      status: 'listed',
+    });
+  });
+
   it('hides a public listing whose content moved past its approval', async () => {
     // The webhook-independent half. A status is only as good as the write that
     // set it, and the event webhook is per-project configuration a deployment
