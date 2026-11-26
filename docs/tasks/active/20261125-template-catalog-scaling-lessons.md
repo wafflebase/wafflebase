@@ -70,3 +70,13 @@
   message files; give each agent its own subdirectory.
 - A failing DB e2e in a reused local database was a missing migration: run
   integration suites on a fresh, migrated scratch database before blaming code.
+- CodeRabbit follow-up (6): all valid and fixed — card-edit guard made atomic
+  with its write, thumbnail kept on a failed re-read, stale service comments,
+  a vacuous regression test (wrong expected token), two self-host doc gaps.
+- Never discard stderr on an outward-facing command: a `gh pr comment` with an
+  unsupported flag failed silently and was reported as posted. Check the URL it
+  prints.
+- A backgrounded `git push` can die with SIGPIPE (141) after its hook passes;
+  confirm with `git status -sb` that the branch is no longer ahead.
+- A regression test must be shown to fail on the pre-fix code; CodeRabbit
+  caught one that passed either way.
