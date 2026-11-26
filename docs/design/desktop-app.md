@@ -183,7 +183,13 @@ only once that answers.
 - **Stopping.** One attempt runs at a time. A new attempt supersedes the old
   one, and leaving the page, **Change server…** and closing the window stop
   it; a `tokio::sync::Notify` wakes the running probe or backoff sleep, so the
-  task ends at once rather than at its next timer.
+  task ends at once rather than at its next timer. The task sends the window
+  anywhere only from the main thread, after checking there that its attempt
+  is still current: the menu, the pages' commands and page loads all run on
+  that thread, so a stop cannot fall between the check and the navigation
+  and a stale attempt cannot replace the picker. A navigation the webview
+  refuses is retried on the backoff, with its own cause on the offline page,
+  rather than leaving the page at "Opening Wafflebase…".
 - **Cost.** One extra request before every server load, so a launch waits a
   round trip (and a TLS handshake) longer before the first byte of the page.
   Offline without a cached app, the offline page appears about 3 s after the
@@ -345,12 +351,17 @@ that would reach the system browser without cookies.
   next launch runs it. Only **Check for Updates…** in the app menu talks to
   the user: "up to date", or **Restart Now** / **Later** (Later leaves it for
   quit). The install at quit runs on `RunEvent::Exit` (macOS's Quit sends
-  no `ExitRequested`), on a worker thread the quit waits for at most 30
-  seconds: on macOS an install that needs administrator rights hands its
-  prompt to the main thread and blocks, so installing on the main thread
-  would hang the quit. In that case nothing has been moved yet when it
-  blocks, so the quit proceeds with the current app intact; **Restart Now**,
-  with the main thread free, is the way to install there. A check is bounded at ten minutes as a
+  no `ExitRequested`). On macOS the quit waits for it with no time limit:
+  where the file system cannot swap the two bundles in one step, the plugin
+  moves the current app away and then the new one in, and exiting between
+  the two would leave no app to launch. Waiting on the main thread is only
+  safe because the quit first checks that this user can write the bundle and
+  the folder holding it: an install that needs administrator rights instead
+  hands its prompt to the main thread and blocks, which would hang the quit.
+  Such an update is not installed at quit (the next launch checks again);
+  **Restart Now**, with the main thread free, is the way to install it. On
+  Windows the install runs on a worker the quit waits on for at most 30
+  seconds. A check is bounded at ten minutes as a
   whole, since the plugin's per-request timeout does not reach the package
   download. On Windows the NSIS installer runs passively and, run at quit,
   does not relaunch the app the user just closed. A failed background check is

@@ -158,3 +158,15 @@
   `TAURI_CONFIG='{"identifier":"io.wafflebase.desktop.<name>"}' cargo build`,
   so single-instance cannot hand over to an installed app and the run does
   not touch the real `server.json`.
+
+## CodeRabbit review
+
+- **Round 1: a generation check is only as good as the thread it runs on.**
+  The probe task checked "still current" and then navigated from a worker,
+  so Change server… (stop + picker, both on the main thread) could fall in
+  between and be overtaken. Do the check and the navigation in one
+  `run_on_main_thread` closure; and wake `Notify` waiters under the lock
+  that bumped the generation. "Exit after a timeout" was not safe for the
+  updater either: the macOS fallback's two renames leave no app between
+  them, so the quit now waits without a limit and skips the one case
+  (administrator rights) whose prompt needs the main thread.

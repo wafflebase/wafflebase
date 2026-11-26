@@ -20,6 +20,7 @@ const CAUSE = {
     `${origin} did not answer. The server may be down, or the network may be slow or blocking it.`,
   closed: (origin) =>
     `${origin} closed the connection without answering. The server may be restarting.`,
+  load: (origin) => `${origin} answered, but the window could not open it.`,
 };
 
 function host(origin) {

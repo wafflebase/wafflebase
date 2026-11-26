@@ -13,6 +13,7 @@
 //! launch runs it. Only "Check for Updates…" talks to the user: "Restart
 //! Now" installs and relaunches, "Later" leaves it for quit.
 
+use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -125,23 +126,30 @@ pub fn check_from_menu<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move { check(&app, true).await });
 }
 
-/// How long quitting waits for an install. A writable bundle is swapped in a
-/// second or two; see `install_pending_at_exit` for the case that never ends.
+/// How long quitting waits for an install on Windows, where the installer
+/// takes over and the process exits inside `install`.
+#[cfg(not(target_os = "macos"))]
 const EXIT_INSTALL_WAIT: Duration = Duration::from_secs(30);
 
 /// Installs a waiting package as the app quits. Called on `RunEvent::Exit`,
 /// which is the event macOS's Quit (Cmd+Q, an Apple Event `quit`) reaches;
 /// `ExitRequested` is not sent there.
 ///
-/// That runs on the main thread, and on macOS an install that needs
-/// administrator rights hands its prompt to the main thread and blocks on it,
-/// so installing here directly would hang the quit. The install runs on a
-/// worker and the quit waits at most `EXIT_INSTALL_WAIT`. In the admin case
-/// the plugin has moved nothing yet when it blocks (the atomic bundle swap
-/// failed with a permission error), so exiting leaves the current app intact
-/// and the next launch checks again; "Restart Now" handles that case, since
-/// the main thread is free then. On Windows the installer takes over and the
-/// process exits inside `install`, without relaunching the app the user quit.
+/// macOS: the quit must not end the process while the bundle is being
+/// replaced. Where the file system cannot swap the two bundles in one step,
+/// the plugin moves the current app away and then the new one in, and an
+/// exit between the two leaves nothing at the install path. So the install
+/// runs to the end here, with no time limit. That is only safe while the
+/// plugin never needs the main thread, which this is: an install that needs
+/// administrator rights hands its prompt to the main thread and blocks on
+/// it. So the quit first decides which case it is in (`at_exit`). A bundle
+/// this user can replace is installed; one they cannot (an app put by an
+/// administrator in a folder this user cannot write) is left alone, the next
+/// launch checks again, and "Restart Now", with the main thread free, is the
+/// way to install it.
+///
+/// Windows: the installer takes over and the process exits inside `install`,
+/// without relaunching the app the user quit.
 pub fn install_pending_at_exit<R: Runtime>(app: &AppHandle<R>) {
     let Some(updates) = app.try_state::<Updates>() else {
         return;
@@ -149,20 +157,96 @@ pub fn install_pending_at_exit<R: Runtime>(app: &AppHandle<R>) {
     let Some((update, bytes)) = updates.lock().pending.take() else {
         return;
     };
-    let (done, finished) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    #[cfg(target_os = "macos")]
+    {
+        if at_exit(bundle_path().as_deref()) == AtExit::Skip {
+            eprintln!(
+                "[wafflebase-desktop] update {} needs administrator rights; not installing on \
+                 quit (Check for Updates… then Restart Now installs it)",
+                update.version
+            );
+            return;
+        }
         dlog!("installing {} on quit", update.version);
         let update = update.restart_after_install(false);
         if let Err(e) = update.install(bytes) {
             eprintln!("[wafflebase-desktop] update install failed: {e}");
         }
-        let _ = done.send(());
-    });
-    if finished.recv_timeout(EXIT_INSTALL_WAIT).is_err() {
-        eprintln!(
-            "[wafflebase-desktop] update install did not finish on quit; left for the next launch"
-        );
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            dlog!("installing {} on quit", update.version);
+            let update = update.restart_after_install(false);
+            if let Err(e) = update.install(bytes) {
+                eprintln!("[wafflebase-desktop] update install failed: {e}");
+            }
+            let _ = done.send(());
+        });
+        if finished.recv_timeout(EXIT_INSTALL_WAIT).is_err() {
+            eprintln!(
+                "[wafflebase-desktop] update install did not finish on quit; left for the next launch"
+            );
+        }
+    }
+}
+
+/// What quitting does with a waiting package on macOS.
+#[derive(Debug, PartialEq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+enum AtExit {
+    /// This user can replace the bundle: the plugin renames it on the
+    /// installing thread, so the quit can wait for it to finish.
+    Install,
+    /// They cannot: the plugin would ask for administrator rights on the
+    /// main thread, which is the thread the quit is holding.
+    Skip,
+}
+
+/// The plugin takes the privileged route on a permission error from
+/// renaming the bundle, which needs write access to the folder holding it
+/// and, to move a folder to another parent, to the bundle itself. Probed by
+/// creating a file in each, which is refused for the same reasons (App
+/// Management included). `bundle` is `None` when there is none to replace.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn at_exit(bundle: Option<&Path>) -> AtExit {
+    match bundle {
+        Some(bundle) if bundle.parent().is_some_and(writable) && writable(bundle) => {
+            AtExit::Install
+        }
+        _ => AtExit::Skip,
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn writable(dir: &Path) -> bool {
+    let probe = dir.join(format!(".wafflebase-update-probe-{}", std::process::id()));
+    let created = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+        .is_ok();
+    if created {
+        let _ = std::fs::remove_file(&probe);
+    }
+    created
+}
+
+/// The `.app` bundle the updater replaces, found the way the plugin finds it.
+#[cfg(target_os = "macos")]
+fn bundle_path() -> Option<std::path::PathBuf> {
+    let exe = tauri::utils::platform::current_exe().ok()?;
+    tauri_plugin_updater::extract_path_from_executable(&exe).ok()
+}
+
+/// Whether a finished check answers the user: they asked for it, or asked
+/// while it ran. The join flag is cleared either way; left set by a manual
+/// check that someone joined, it would make the next background check speak.
+fn take_asked(manual: bool, joined: &mut bool) -> bool {
+    let joined = std::mem::take(joined);
+    manual || joined
 }
 
 async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
@@ -195,7 +279,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
     let (outcome, asked, error) = {
         let mut state = updates.lock();
         state.busy = false;
-        let asked = manual || std::mem::take(&mut state.answer);
+        let asked = take_asked(manual, &mut state.answer);
         match result {
             Ok(Some(downloaded)) => {
                 dlog!(
@@ -332,11 +416,71 @@ mod tests {
 
     #[test]
     fn a_joined_check_answers_the_user() {
-        // `asked` is `manual || answer`; a background check that someone
-        // joined answers like a manual one.
+        // A background check that someone joined answers like a manual one.
+        let mut joined = true;
+        assert!(take_asked(false, &mut joined));
         assert_eq!(tell(Outcome::Downloaded, true), Tell::Offer);
         assert_eq!(tell(Outcome::UpToDate, true), Tell::UpToDate);
         assert_eq!(tell(Outcome::Failed, true), Tell::Failed);
+    }
+
+    /// A menu request that joined a manual check is answered by it, and must
+    /// not make the next background check open a dialog nobody asked for.
+    #[test]
+    fn joining_a_manual_check_is_used_up_by_it() {
+        let mut joined = true;
+        assert!(take_asked(true, &mut joined));
+        assert!(!joined);
+        assert!(!take_asked(false, &mut joined));
+    }
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "wafflebase-update-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Wafflebase.app")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_bundle_this_user_can_replace_is_installed_at_quit() {
+        let dir = scratch_dir("writable");
+        let bundle = dir.join("Wafflebase.app");
+        assert_eq!(at_exit(Some(&bundle)), AtExit::Install);
+        // The probes leave nothing behind.
+        assert_eq!(std::fs::read_dir(&bundle).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn no_bundle_is_not_installed_at_quit() {
+        assert_eq!(at_exit(None), AtExit::Skip);
+        let missing = std::env::temp_dir().join("wafflebase-update-test-missing/Wafflebase.app");
+        assert_eq!(at_exit(Some(&missing)), AtExit::Skip);
+    }
+
+    /// The case whose administrator prompt would need the main thread.
+    #[cfg(unix)]
+    #[test]
+    fn a_bundle_needing_administrator_rights_is_left_at_quit() {
+        use std::os::unix::fs::PermissionsExt;
+        let read_only = std::fs::Permissions::from_mode(0o555);
+        let writable_again = std::fs::Permissions::from_mode(0o755);
+        for locked in ["folder", "bundle"] {
+            let dir = scratch_dir(locked);
+            let bundle = dir.join("Wafflebase.app");
+            let target = if locked == "folder" { &dir } else { &bundle };
+            std::fs::set_permissions(target, read_only.clone()).unwrap();
+            // Root writes anyway; nothing to learn from this run then.
+            if !writable(target) {
+                assert_eq!(at_exit(Some(&bundle)), AtExit::Skip, "{locked}");
+            }
+            std::fs::set_permissions(target, writable_again.clone()).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     /// The app ships with every server release; the background path is silent.

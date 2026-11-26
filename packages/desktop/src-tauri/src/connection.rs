@@ -80,6 +80,8 @@ pub enum Cause {
     Timeout,
     /// Connected, then the connection ended before any answer.
     Closed,
+    /// It answered, but the window could not be sent to it.
+    Load,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,31 +287,31 @@ impl Connection {
     /// Start a new attempt to open `origin` in window `label`, superseding
     /// any running one. Returns the attempt's generation.
     fn begin(&self, label: &str, origin: &Url) -> u64 {
-        let generation = {
-            let mut inner = self.lock();
-            inner.generation += 1;
-            if inner.window.as_deref() != Some(label) {
-                inner.page_ready = false;
-            }
-            inner.window = Some(label.to_string());
-            inner.origin = Some(origin.clone());
-            inner.phase = Phase::Checking;
-            // A window already on the offline page (Try again) keeps it.
-            inner.shown = inner.page_ready;
-            inner.generation
-        };
+        let mut inner = self.lock();
+        inner.generation += 1;
+        if inner.window.as_deref() != Some(label) {
+            inner.page_ready = false;
+        }
+        inner.window = Some(label.to_string());
+        inner.origin = Some(origin.clone());
+        inner.phase = Phase::Checking;
+        // A window already on the offline page (Try again) keeps it.
+        inner.shown = inner.page_ready;
+        // Woken with the lock still held, like in `stop`.
         self.cancel.notify_waiters();
-        generation
+        inner.generation
     }
 
     /// Stop the running attempt, if any.
     pub fn stop(&self) {
-        {
-            let mut inner = self.lock();
-            inner.generation += 1;
-            inner.phase = Phase::Idle;
-            inner.shown = false;
-        }
+        let mut inner = self.lock();
+        inner.generation += 1;
+        inner.phase = Phase::Idle;
+        inner.shown = false;
+        // Wakes the waiters of earlier generations only. Outside the lock,
+        // the wake could land after a newer attempt had registered its own
+        // waiter (each is created before its attempt checks the generation
+        // under this lock) and end that attempt while it is current.
         self.cancel.notify_waiters();
     }
 
@@ -384,15 +386,25 @@ impl Connection {
         true
     }
 
-    /// Record that this attempt sent the window to the offline page.
-    /// Returns whether it was there already.
-    fn mark_shown(&self, generation: u64) -> bool {
+    /// Record that this attempt is sending the window to the offline page.
+    /// Returns whether it was there already, or `None` if the attempt was
+    /// superseded or stopped: a stale attempt must not take that as leave to
+    /// show the page over whatever replaced it (the picker).
+    fn mark_shown(&self, generation: u64) -> Option<bool> {
         let mut inner = self.lock();
-        let already = inner.shown;
-        if inner.generation == generation {
-            inner.shown = true;
+        if inner.generation != generation {
+            return None;
         }
-        already
+        Some(std::mem::replace(&mut inner.shown, true))
+    }
+
+    /// Sending the window on failed: it is still on the page it was on, so
+    /// `shown` again says whether that is the offline page.
+    fn not_shown(&self, generation: u64) {
+        let mut inner = self.lock();
+        if inner.generation == generation {
+            inner.shown = inner.page_ready;
+        }
     }
 
     /// The server answered: end the attempt. Returns whether the window
@@ -550,7 +562,15 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
             // Without a client there is no way to ask; load it as before.
             dlog!("no HTTP client for the reachability probe ({e}); loading directly");
             if connection.finish(generation).is_some() {
-                show(app, label, Page::Server(&start), may_create, false);
+                show(
+                    app,
+                    label,
+                    generation,
+                    Page::Server(&start),
+                    may_create,
+                    false,
+                )
+                .await;
             }
             return;
         }
@@ -577,14 +597,9 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
                 None => return,
                 Some(Ok(verdict)) => verdict,
                 Some(Err(_)) => {
-                    // No window to show it in: closed (which already
-                    // stopped this attempt) or never built.
-                    if !connection.mark_shown(generation)
-                        && !show(app, label, Page::Offline, may_create, false)
-                    {
+                    if !show_offline(app, label, connection, generation, &mut may_create).await {
                         return;
                     }
-                    may_create = false;
                     match unless_cancelled(pending, cancelled).await {
                         Some(verdict) => verdict,
                         None => return,
@@ -600,12 +615,22 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
         dlog!("probe of {} -> {verdict:?}", log_url(&start));
 
         let next = after_probe(verdict, attempt, began_on_offline_page);
-        match verdict {
+        let cause = match verdict {
             Verdict::Reachable => {
-                if let Some(page_ready) = connection.finish(generation) {
-                    show(app, label, Page::Server(&start), may_create, page_ready);
+                let Some(page_ready) = connection.finish(generation) else {
+                    return;
+                };
+                let page = Page::Server(&start);
+                match show(app, label, generation, page, may_create, page_ready).await {
+                    Shown::Sent | Shown::Gone => return,
+                    // Rather than sit at `Opening` with nothing on its way,
+                    // back off and ask again, as if it had not answered.
+                    Shown::Failed => {
+                        connection.not_shown(generation);
+                        may_create = false;
+                        Cause::Load
+                    }
                 }
-                return;
             }
             Verdict::Unreachable(cause) => {
                 if next == Next::TryCachedUi {
@@ -621,32 +646,60 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
                         Some(_) => may_create = false,
                     }
                 }
-                let delay = retry_delay(attempt);
-                attempt = attempt.saturating_add(1);
-                let phase = Phase::Unreachable {
-                    cause,
-                    retry_at: Instant::now() + delay,
-                };
-                let cancelled = connection.cancel.notified();
-                if !connection.set_phase(generation, phase) {
-                    return;
-                }
-                if !connection.mark_shown(generation) {
-                    if !show(app, label, Page::Offline, may_create, false) {
-                        return;
-                    }
-                    may_create = false;
-                }
-                if unless_cancelled(tokio::time::sleep(delay), cancelled)
-                    .await
-                    .is_none()
-                {
-                    return;
-                }
-                if !connection.set_phase(generation, Phase::Checking) {
-                    return;
-                }
+                cause
             }
+        };
+        let delay = retry_delay(attempt);
+        attempt = attempt.saturating_add(1);
+        let phase = Phase::Unreachable {
+            cause,
+            retry_at: Instant::now() + delay,
+        };
+        let cancelled = connection.cancel.notified();
+        if !connection.set_phase(generation, phase) {
+            return;
+        }
+        if !show_offline(app, label, connection, generation, &mut may_create).await {
+            return;
+        }
+        if unless_cancelled(tokio::time::sleep(delay), cancelled)
+            .await
+            .is_none()
+        {
+            return;
+        }
+        if !connection.set_phase(generation, Phase::Checking) {
+            return;
+        }
+    }
+}
+
+/// Send the window to the offline page unless this attempt already did.
+/// `false` when the attempt is over: superseded, stopped, or no window to
+/// show it in (closed, which already stopped it, or never built). A page
+/// the window refused is tried again at the next probe.
+async fn show_offline<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    connection: &Connection,
+    generation: u64,
+    may_create: &mut bool,
+) -> bool {
+    match connection.mark_shown(generation) {
+        None => return false,
+        Some(true) => return true,
+        Some(false) => {}
+    }
+    match show(app, label, generation, Page::Offline, *may_create, false).await {
+        Shown::Gone => false,
+        Shown::Sent => {
+            *may_create = false;
+            true
+        }
+        Shown::Failed => {
+            connection.not_shown(generation);
+            *may_create = false;
+            true
         }
     }
 }
@@ -663,8 +716,23 @@ async fn try_cached_ui<R: Runtime>(
     may_create: bool,
 ) -> Option<Next> {
     let page_ready = connection.try_cached_ui(generation)?;
-    if !show(app, label, Page::Server(start), may_create, page_ready) {
-        return None;
+    match show(
+        app,
+        label,
+        generation,
+        Page::Server(start),
+        may_create,
+        page_ready,
+    )
+    .await
+    {
+        Shown::Sent => {}
+        Shown::Gone => return None,
+        // Still on the page it was on: on to the offline page.
+        Shown::Failed => {
+            connection.not_shown(generation);
+            return Some(Next::ShowOffline);
+        }
     }
     let committed = connection
         .wait_cached(generation, CACHED_UI_COMMIT_WAIT, |i| i.cached_committed)
@@ -710,49 +778,95 @@ enum Page<'a> {
     Server(&'a Url),
 }
 
-/// Send window `label` to `page`. `create` allows building the window when
-/// it does not exist yet (launch); otherwise a missing window was closed
-/// meanwhile. `replace` opens the server by `location.replace`, for a window
-/// showing a loaded offline page, so the page is not left in the history.
-/// Returns `false` if there is no window to show it in.
-fn show<R: Runtime>(
+/// How sending the window on went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    /// The page is on its way.
+    Sent,
+    /// The window is there but the navigation could not be started.
+    Failed,
+    /// No window to show it in (closed, or never built), or the attempt was
+    /// superseded or stopped and the window is no longer its to send.
+    Gone,
+}
+
+/// Send window `label` to `page`, if attempt `generation` is still current.
+/// `create` allows building the window when it does not exist yet (launch);
+/// otherwise a missing window was closed meanwhile. `replace` opens the
+/// server by `location.replace`, for a window showing a loaded offline page,
+/// so the page is not left in the history.
+async fn show<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
+    generation: u64,
     page: Page<'_>,
     create: bool,
     replace: bool,
-) -> bool {
-    match app.get_webview_window(label) {
-        Some(window) => {
-            let result = match page {
-                Page::Offline => window.navigate(bundled_url(OFFLINE_PAGE)),
-                Page::Server(url) if replace => {
-                    let target = serde_json::to_string(url.as_str())
-                        .expect("a URL serializes to a JSON string");
-                    window.eval(format!("location.replace({target})"))
-                }
-                Page::Server(url) => window.navigate(url.clone()),
-            };
-            if let Err(e) = result {
-                dlog!("could not send the window on: {e}");
-            }
-            true
+) -> Shown {
+    if app.get_webview_window(label).is_none() {
+        if !create || !app.state::<AppState>().connection.is_current(generation) {
+            return Shown::Gone;
         }
-        None if create => {
-            let url = match page {
-                Page::Offline => WebviewUrl::App(OFFLINE_PAGE.into()),
-                Page::Server(url) => WebviewUrl::External(url.clone()),
-            };
-            match crate::build_window(app, label, url) {
-                Ok(_) => true,
-                Err(e) => {
-                    eprintln!("[wafflebase-desktop] could not open the window: {e}");
-                    false
-                }
+        let url = match page {
+            Page::Offline => WebviewUrl::App(OFFLINE_PAGE.into()),
+            Page::Server(url) => WebviewUrl::External(url.clone()),
+        };
+        return match crate::build_window(app, label, url) {
+            Ok(_) => Shown::Sent,
+            Err(e) => {
+                eprintln!("[wafflebase-desktop] could not open the window: {e}");
+                Shown::Gone
             }
+        };
+    }
+    let (url, replace) = match page {
+        Page::Offline => (bundled_url(OFFLINE_PAGE), false),
+        Page::Server(url) => (url.clone(), replace),
+    };
+    // Checked and sent on the main thread, where everything that stops an
+    // attempt and sends the window elsewhere runs (menu items, the bundled
+    // pages' commands, page loads, window events). Change server… stops the
+    // probe and loads the picker in one go there, so this navigation either
+    // comes first and is overtaken by the picker, or sees it is stale.
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    let label = label.to_string();
+    let dispatched = app.run_on_main_thread(move || {
+        let _ = tx.send(send_if_current(&handle, &label, generation, &url, replace));
+    });
+    if dispatched.is_err() {
+        // The event loop is gone: the app is quitting.
+        return Shown::Gone;
+    }
+    rx.await.unwrap_or(Shown::Gone)
+}
+
+fn send_if_current<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    generation: u64,
+    url: &Url,
+    replace: bool,
+) -> Shown {
+    if !app.state::<AppState>().connection.is_current(generation) {
+        return Shown::Gone;
+    }
+    let Some(window) = app.get_webview_window(label) else {
+        return Shown::Gone;
+    };
+    let result = if replace {
+        let target =
+            serde_json::to_string(url.as_str()).expect("a URL serializes to a JSON string");
+        window.eval(format!("location.replace({target})"))
+    } else {
+        window.navigate(url.clone())
+    };
+    match result {
+        Ok(()) => Shown::Sent,
+        Err(e) => {
+            dlog!("could not send the window on: {e}");
+            Shown::Failed
         }
-        // Closed while the probe ran.
-        None => false,
     }
 }
 
@@ -913,7 +1027,7 @@ mod tests {
         // Before the page was sent, other loads (the picker) are not leaving.
         c.page_loaded("main", false, true);
         assert!(c.is_current(generation));
-        assert!(!c.mark_shown(generation));
+        assert_eq!(c.mark_shown(generation), Some(false));
         c.page_loaded("main", true, false);
         // Another window's load is not this one's.
         c.page_loaded("window-1", false, true);
@@ -929,11 +1043,51 @@ mod tests {
         c.mark_shown(first);
         c.page_loaded("main", true, false);
         let second = c.begin("main", &origin());
-        assert!(c.mark_shown(second), "already on the offline page");
+        assert_eq!(
+            c.mark_shown(second),
+            Some(true),
+            "already on the offline page"
+        );
         assert_eq!(c.finish(second), Some(true));
         // A new attempt in another window does not inherit the page.
         let third = c.begin("window-1", &origin());
-        assert!(!c.mark_shown(third));
+        assert_eq!(c.mark_shown(third), Some(false));
+    }
+
+    /// Change server… just as a slow first probe is about to show the
+    /// "Connecting…" page: the menu stops the attempt and clears `shown`, and
+    /// the old attempt must read that as "stale", not as "not shown yet", or
+    /// it would replace the picker with the offline page.
+    #[test]
+    fn a_stopped_attempt_is_not_told_to_show_the_page() {
+        let c = Connection::default();
+        let generation = c.begin("main", &origin());
+        c.stop();
+        assert_eq!(c.mark_shown(generation), None);
+        assert!(!c.lock().shown);
+        // The current attempt still may.
+        let current = c.begin("main", &origin());
+        assert_eq!(c.mark_shown(current), Some(false));
+    }
+
+    /// A window that refused a navigation is still where it was, so the next
+    /// probe shows the page again, or does not if the page is already up.
+    #[test]
+    fn a_refused_navigation_is_not_counted_as_shown() {
+        let c = Connection::default();
+        let generation = c.begin("main", &origin());
+        assert_eq!(c.mark_shown(generation), Some(false));
+        c.not_shown(generation);
+        assert_eq!(c.mark_shown(generation), Some(false));
+        // Refused while leaving a loaded offline page for the server.
+        c.page_loaded("main", true, false);
+        assert_eq!(c.finish(generation), Some(true));
+        c.not_shown(generation);
+        assert_eq!(c.mark_shown(generation), Some(true));
+        // A stale attempt changes nothing.
+        c.stop();
+        c.not_shown(generation);
+        assert!(!c.lock().shown);
     }
 
     #[test]
@@ -994,6 +1148,8 @@ mod tests {
                 "retryInSecs": 4,
             })
         );
+        // offline.js has words for each cause.
+        assert_eq!(serde_json::to_value(Cause::Load).unwrap(), "load");
     }
 
     fn test_client(answer: Duration) -> reqwest::Client {

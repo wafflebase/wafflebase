@@ -8,10 +8,14 @@
     <script src="offline.js" defer></script>
   </head>
   <body>
-    <main aria-live="polite">
+    <main>
       <img class="mark" src="mark.svg" alt="" />
-      <h1 id="title">Connecting…</h1>
-      <p id="message">Checking the server.</p>
+      <!-- Announces status changes only: the countdown below ticks every
+           second and stays out of the live region. -->
+      <div aria-live="polite">
+        <h1 id="title">Connecting…</h1>
+        <p id="message">Checking the server.</p>
+      </div>
       <p id="retry" class="hint" hidden></p>
       <div class="actions">
         <button id="change" type="button">Change server…</button>
