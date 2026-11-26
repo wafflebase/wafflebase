@@ -9,6 +9,9 @@ name: desktop-release
 # A SEPARATE WORKFLOW, on purpose. Notarization waits on Apple and can take
 # half an hour or fail; none of that may hold up or fail the server image.
 #
+# desktop-release.test.mjs pins the asset names this file must agree on
+# (Collect steps → manifest → upload) and the release overlay on both builds.
+#
 # WHAT IT ATTACHES. Installers under stable names, so the homepage can link to
 # `releases/latest/download/Wafflebase_universal.dmg`, and `latest.json`,
 # uploaded LAST: the installed apps poll
@@ -21,9 +24,13 @@ name: desktop-release
 #
 # WHO MAY RUN IT. The agent App can publish a release (`contents: write`), so
 # the first job refuses one it authored, and every job reading a secret
-# depends on it (release-guard.test.mjs). The secrets live in the
-# `desktop-release` Environment, restricted to `v*` tags. No job restores an
-# Actions cache (trusted-cache.test.mjs).
+# depends on it (release-guard.test.mjs). That guard lives in this file, and a
+# release runs the file at the TAGGED commit, so a tag on a commit that edits
+# it could drop the guard. The secrets therefore live only in the
+# `desktop-release` Environment, which MUST have a required reviewer: an
+# Environment's secrets reach only a job that names it, and such a job waits
+# for a person whatever the file says. No job restores an Actions cache
+# (trusted-cache.test.mjs).
 #
 # Windows builds are NOT Authenticode-signed yet: SmartScreen warns on first
 # run. The updater package is still minisign-signed, which is what the
@@ -56,7 +63,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # desktop-version.test.mjs keeps these in lockstep on main; this catches
+      # desktop-release.test.mjs keeps these in lockstep on main; this catches
       # a release cut from a commit where they drifted.
       - name: Check the tag against the desktop versions
         id: v
@@ -110,7 +117,9 @@ jobs:
 
       # Tauri imports the certificate into a temporary keychain, signs with
       # the hardened runtime, notarizes the .app with the API key and staples
-      # it, then signs the updater package with the minisign key.
+      # it, then signs the updater package with the minisign key. The release
+      # overlay turns the updater package on; the base config leaves it off so
+      # a local build needs no updater key.
       - name: Build, sign and notarize (universal)
         working-directory: packages/desktop
         env:
@@ -122,7 +131,9 @@ jobs:
           APPLE_API_KEY_PATH: ${{ runner.temp }}/api-key.p8
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --ci --target universal-apple-darwin --bundles app,dmg
+        run: >-
+          pnpm tauri build --ci --target universal-apple-darwin --bundles app,dmg
+          --config src-tauri/tauri.release.conf.json
 
       # The .app inside is notarized and stapled; the disk image the user
       # downloads is a separate quarantined file and gets its own ticket.
@@ -200,7 +211,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --ci --bundles nsis
+        run: pnpm tauri build --ci --bundles nsis --config src-tauri/tauri.release.conf.json
 
       - name: Collect
         shell: bash

@@ -606,8 +606,12 @@ mod tests {
         );
         assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
         assert!(!updater["pubkey"].as_str().unwrap().is_empty());
-        // Without it the bundler emits no `.sig`, and there is nothing to update to.
-        assert_eq!(conf["bundle"]["createUpdaterArtifacts"], true);
+        // On in the release overlay only, so a local `tauri build` needs no
+        // updater key; without it a release would have no `.sig` to ship.
+        assert!(conf["bundle"].get("createUpdaterArtifacts").is_none());
+        let release: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
+        assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
     }
 
     /// The deployment's origin gets no capability.

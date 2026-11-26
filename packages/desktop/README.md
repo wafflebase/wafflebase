@@ -225,19 +225,22 @@ The why is in [desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
 - The version bump covers `packages/desktop/package.json`,
   `src-tauri/Cargo.toml` and the `wafflebase-desktop` entry in
   `src-tauri/Cargo.lock` (`tauri.conf.json` reads `package.json`).
-  `scripts/test/desktop-version.test.mjs` fails until all three match the
+  `scripts/test/desktop-release.test.mjs` fails until all three match the
   root `package.json`.
-- After publishing, watch the `desktop-release` run (about half an hour,
-  mostly notarization). Until it finishes the new release has no installers
+- After publishing, approve the `desktop-release` deployment and watch the
+  run (about half an hour, mostly notarization). Until it finishes the new release has no installers
   and no `latest.json`; a failure there does not affect the server image.
 - Then open the `.dmg` on a Mac that has never run the app: Gatekeeper must
   open it without a warning.
 
 ### The `desktop-release` Environment
 
-Deployment branches and tags: `v*` tags only. A required reviewer is
-optional; it closes the cases the workflow's author guard cannot (a draft a
-human created and the agent App published).
+Deployment branches and tags: `v*` tags only. **Required reviewers: the
+maintainers — not optional.** A release runs the workflow file at the tagged
+commit, so a tag on a commit that edits the file could drop its agent-App
+guard; the Environment's approval is enforced by GitHub whatever the file
+says, and its secrets reach no job that skips it. Approve the run after each
+release is published.
 
 | Name | Kind | Value |
 |------|------|-------|
@@ -266,10 +269,12 @@ already signed keep running: the signature is timestamped.
 
 Build the current version and a higher one against a local manifest, without
 touching the shipped endpoint, by merging a config at build time (once with
-`"version"` omitted, once with it set):
+`"version"` omitted, once with it set). The updater package is off in the base
+config, so a plain `build` needs no updater key; releases turn it on with
+`src-tauri/tauri.release.conf.json`, and so does this:
 
 ```bash
-cfg='{"version":"99.0.0","plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
+cfg='{"version":"99.0.0","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
 TAURI_SIGNING_PRIVATE_KEY=... TAURI_SIGNING_PRIVATE_KEY_PASSWORD=... \
   pnpm --filter @wafflebase/desktop tauri build --bundles app -c "$cfg"
 ```

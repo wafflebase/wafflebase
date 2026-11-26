@@ -40,7 +40,7 @@ other half of Phase 2 and are not in this task.
 - [x] ~~Endpoint env override~~ — not needed: a test build merges
       `-c '{"plugins":{"updater":{...}}}'`, so the shipped binary has no knob
 - [x] Single version source (`tauri.conf.json` reads `package.json`); desktop
-      joins the lockstep version (0.6.18), `scripts/test/desktop-version.test.mjs`
+      joins the lockstep version (0.6.18), `scripts/test/desktop-release.test.mjs`
 - [x] `.github/workflows/desktop-release.yml` on `release: published`: macOS
       universal (signed + notarized) + Windows NSIS, attached to the release,
       `latest.json` last
@@ -70,7 +70,7 @@ Verified locally (2026-11-26):
 
 After the switch to one release + silent updates: `cargo test` (55, endpoint
 now `releases/latest`), all of `scripts/test` (incl. `release-guard` over the
-new `release: published` trigger and `desktop-version`), actionlint,
+new `release: published` trigger and `desktop-release`), actionlint,
 `verify:fast`. Re-ran the updater (arm64, test config): a 0.6.18 build
 fetched the manifest and a 99.0.0 package at launch and, on quit, the bundle
 on disk was 99.0.0.

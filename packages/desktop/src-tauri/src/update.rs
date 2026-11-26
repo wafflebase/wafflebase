@@ -25,6 +25,11 @@ use crate::dlog;
 /// How often a running app looks again after the launch check.
 const RECHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Per request (the manifest, then the package). Without it a stalled
+/// connection would hold `busy` for the rest of the session: the daily check
+/// would skip forever and the menu item would never answer.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
 #[derive(Default)]
 pub struct Updates(Mutex<State>);
 
@@ -203,7 +208,8 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
 async fn fetch<R: Runtime>(
     app: &AppHandle<R>,
 ) -> tauri_plugin_updater::Result<Option<(Update, Vec<u8>)>> {
-    let Some(update) = app.updater()?.check().await? else {
+    let updater = app.updater_builder().timeout(REQUEST_TIMEOUT).build()?;
+    let Some(update) = updater.check().await? else {
         return Ok(None);
     };
     dlog!("update {} available, downloading", update.version);

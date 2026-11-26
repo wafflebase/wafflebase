@@ -253,7 +253,10 @@ that would reach the system browser without cookies.
   Authenticode-signed, so SmartScreen warns on first run until a signing route
   is chosen (Azure Artifact Signing, or an OV certificate in a cloud HSM —
   EV no longer buys SmartScreen reputation). Signing secrets live only in the
-  `desktop-release` GitHub Environment, restricted to `v*` tags.
+  `desktop-release` GitHub Environment, restricted to `v*` tags and gated by
+  a required reviewer (§ Risks). The updater package and its `.sig` are
+  turned on by `src-tauri/tauri.release.conf.json`, which only the release
+  workflow passes, so a local `tauri build` needs no updater key.
 
 ### 6. WebKit checklist
 
@@ -292,7 +295,7 @@ One version means one number in release notes, bug reports and the About
 box, and no second release procedure. It is a release number, not a
 compatibility contract: a 0.7.0 app opens a self-hosted 0.6.x server like any
 other, and what a server supports is read from `/auth/providers` (§3).
-`scripts/test/desktop-version.test.mjs` keeps `packages/desktop/package.json`,
+`scripts/test/desktop-release.test.mjs` keeps `packages/desktop/package.json`,
 `Cargo.toml` and `Cargo.lock` on the root version, so a release bump that
 misses them fails before the tag; the workflow's first job checks the tag
 again.
@@ -385,7 +388,8 @@ against a local backend whose GitHub endpoints pointed at a fake OAuth server:
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
 | Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment, restricted to `v*` tags; Phase 1 builds are unsigned and internal |
-| The agent App can publish a release (`contents: write`) | The workflow's first job refuses a release it authored, and every job that reads a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. A required reviewer on the Environment closes the residual cases that guard names (an App-published draft a human created) |
+| The agent App can publish a release (`contents: write`), and a release runs the workflow file at the tagged commit, so a tag on a commit that edits the file could drop its guard | The first job refuses a release the App authored and every job reading a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. That guard is in the file, so the backstop is the Environment: its secrets reach only a job that names it, and a **required reviewer** makes every such job wait for a maintainer whatever the file says |
+| The manifest names an asset the release does not carry | Every installed app logs a 404 and nobody sees it. `desktop-release.test.mjs` checks that the names agree across the Collect steps, the manifest, the upload and the README's download links |
 | Every server release ships the app, most without shell changes | Silent background update, installed on quit (§5); one ~10 MB download per release |
 | The updater key leaks | An attacker who can also serve the manifest could ship a signed update. The manifest is on GitHub Releases, writable only by the repository; rotating the key requires a release that trusts both keys before the old one is dropped |
 | Deployments on plain `http://` cannot sign in | Same constraint as CLI sign-in; the picker says so when validating the frontend URL, and `navigation::is_secure_origin` applies the same rule to the backend origin the login link names, so no exchange runs over cleartext |

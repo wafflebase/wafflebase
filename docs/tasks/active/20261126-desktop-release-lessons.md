@@ -41,3 +41,15 @@
   called the 404 window "no update" (it is a logged failure, retried daily).
   Test-adequacy "update.rs untested" — addressed by the pure decision
   functions; the Tauri glue stays covered by the local e2e only.
+- **Round 2** (all six lenses ran; docs + design-fit clean). Correctness: no
+  request timeout, so a stalled fetch latched `busy` for the session — fixed
+  (5-minute per-request timeout via `updater_builder`). Test-adequacy: nothing
+  tied manifest URLs to uploaded assets — fixed: `desktop-release.test.mjs`
+  (renamed from `desktop-version`) checks Collect → manifest → upload →
+  README links and the release overlay on both builds; mutation-checked.
+  Security: a `release` runs the workflow at the tagged commit, so the
+  in-file App guard can be edited away — agreed; the Environment's required
+  reviewer is now mandatory in the docs, not optional (it binds whatever the
+  file says). Blast-radius: `createUpdaterArtifacts: true` broke a local
+  `tauri build` without the updater key — fixed: moved to
+  `tauri.release.conf.json`, passed only by the workflow.
