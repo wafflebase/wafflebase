@@ -20,8 +20,8 @@ Two surfaces share the same slide model; pick by where the deck must land:
 - **A live workspace** → the CLI: `wafflebase slides create` + `wafflebase
   slides set-content` (this skill's main path).
 - **The shipped template gallery** → the backend seed catalogue
-  (`packages/backend/src/template/seed/catalog/slides.ts`), authored in
-  TypeScript with the `deck()` / `slide()` helpers in `../builders`. Same
+  (`packages/backend/src/template/seed/catalog/slides/*.ts`), authored in
+  TypeScript with the `deck()` / `slide()` helpers in `../../builders`. Same
   layouts, same rules; see "Seed-catalogue form" below.
 
 ## The layout vocabulary
@@ -87,8 +87,9 @@ what an unfilled placeholder is — leave it for the user to fill).
 
 ## Seed-catalogue form (shipped gallery)
 
-Add a `TemplateSeed` to `catalog/slides.ts` (or a new `catalog/slides-*.ts`),
-register it in `catalog/index.ts`, then `pnpm backend test -- seed` (runs every
+Add a `TemplateSeed` to a `catalog/slides/<family>.ts` and list it in that
+file's `seeds` (a new file also needs one import in `catalog/index.ts`; see
+`catalog/README.md`), then `pnpm backend test -- seed` (runs every
 seed through the same validators `PUT /documents/:id/content` applies). Shape:
 
 ```ts

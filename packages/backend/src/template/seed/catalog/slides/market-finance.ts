@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Marketing, finance, and design slide templates for the gallery, authored
@@ -9,7 +9,7 @@ import type { TemplateSeed } from '../types';
  * is original to this repository — see `README.md` for the licensing rule.
  */
 
-export const marketingCampaign: TemplateSeed = {
+const marketingCampaign: TemplateSeed = {
   slug: 'marketing-campaign',
   title: 'Marketing Campaign',
   description:
@@ -72,7 +72,7 @@ export const marketingCampaign: TemplateSeed = {
   },
 };
 
-export const brandPitch: TemplateSeed = {
+const brandPitch: TemplateSeed = {
   slug: 'brand-pitch',
   title: 'Brand Pitch',
   description:
@@ -123,7 +123,7 @@ export const brandPitch: TemplateSeed = {
   },
 };
 
-export const equityAnalysis: TemplateSeed = {
+const equityAnalysis: TemplateSeed = {
   slug: 'equity-analysis',
   title: 'Equity Analysis',
   description:
@@ -185,7 +185,7 @@ export const equityAnalysis: TemplateSeed = {
   },
 };
 
-export const designReviewUx: TemplateSeed = {
+const designReviewUx: TemplateSeed = {
   slug: 'design-review-ux',
   title: 'Design Review (Product/UX)',
   description:
@@ -246,3 +246,11 @@ export const designReviewUx: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  marketingCampaign,
+  brandPitch,
+  equityAnalysis,
+  designReviewUx,
+];

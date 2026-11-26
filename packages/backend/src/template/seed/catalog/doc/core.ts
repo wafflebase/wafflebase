@@ -1,7 +1,7 @@
-import { bullet, heading, para, title } from '../builders';
-import type { TemplateSeed } from '../types';
+import { bullet, heading, para, title } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
-export const productRequirementsDoc: TemplateSeed = {
+const productRequirementsDoc: TemplateSeed = {
   slug: 'product-requirements-doc',
   title: 'Product Requirements Doc',
   description:
@@ -48,7 +48,7 @@ export const productRequirementsDoc: TemplateSeed = {
   },
 };
 
-export const meetingNotes: TemplateSeed = {
+const meetingNotes: TemplateSeed = {
   slug: 'meeting-notes',
   title: 'Meeting Notes',
   description:
@@ -83,7 +83,7 @@ export const meetingNotes: TemplateSeed = {
   },
 };
 
-export const partnerNewsletter: TemplateSeed = {
+const partnerNewsletter: TemplateSeed = {
   slug: 'partner-newsletter',
   title: 'Partner Newsletter',
   description:
@@ -135,7 +135,7 @@ export const partnerNewsletter: TemplateSeed = {
   },
 };
 
-export const vendorOnboarding: TemplateSeed = {
+const vendorOnboarding: TemplateSeed = {
   slug: 'vendor-onboarding',
   title: 'Vendor Onboarding',
   description:
@@ -192,3 +192,11 @@ export const vendorOnboarding: TemplateSeed = {
     },
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  productRequirementsDoc,
+  meetingNotes,
+  partnerNewsletter,
+  vendorOnboarding,
+];

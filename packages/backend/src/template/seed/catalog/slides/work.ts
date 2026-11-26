@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Work-oriented slide templates for the gallery, authored natively against the
@@ -9,7 +9,7 @@ import type { TemplateSeed } from '../types';
  * repository — see `README.md` for the licensing rule.
  */
 
-export const devDesignReview: TemplateSeed = {
+const devDesignReview: TemplateSeed = {
   slug: 'dev-design-review',
   title: 'Design Review (Engineering)',
   description:
@@ -80,7 +80,7 @@ export const devDesignReview: TemplateSeed = {
   },
 };
 
-export const projectProposal: TemplateSeed = {
+const projectProposal: TemplateSeed = {
   slug: 'project-proposal',
   title: 'Project Proposal',
   description:
@@ -153,7 +153,7 @@ export const projectProposal: TemplateSeed = {
   },
 };
 
-export const allHandsUpdate: TemplateSeed = {
+const allHandsUpdate: TemplateSeed = {
   slug: 'all-hands-update',
   title: 'All-Hands Update',
   description:
@@ -206,7 +206,7 @@ export const allHandsUpdate: TemplateSeed = {
   },
 };
 
-export const caseStudy: TemplateSeed = {
+const caseStudy: TemplateSeed = {
   slug: 'case-study',
   title: 'Case Study',
   description:
@@ -267,7 +267,7 @@ export const caseStudy: TemplateSeed = {
   },
 };
 
-export const customerOnboardingReview: TemplateSeed = {
+const customerOnboardingReview: TemplateSeed = {
   slug: 'customer-onboarding-review',
   title: 'Customer Onboarding Review',
   description:
@@ -341,3 +341,12 @@ export const customerOnboardingReview: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  devDesignReview,
+  projectProposal,
+  allHandsUpdate,
+  caseStudy,
+  customerOnboardingReview,
+];

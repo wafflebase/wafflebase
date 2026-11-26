@@ -6,8 +6,8 @@ import {
   buildSectionInit,
   buildStickyInit,
 } from '@wafflebase/board';
-import type { SlidesElement } from '../../../yorkie/yorkie.types';
-import type { TemplateSeed } from '../types';
+import type { SlidesElement } from '../../../../yorkie/yorkie.types';
+import type { TemplateSeed } from '../../types';
 
 /*
  * Board templates built from the board's own objects: sections, sticky
@@ -279,7 +279,7 @@ function retroElements(): SlidesElement[] {
   ];
 }
 
-export const retroStartStopContinue: TemplateSeed = {
+const retroStartStopContinue: TemplateSeed = {
   slug: 'board-retro-start-stop-continue',
   title: 'Retro (Start / Stop / Continue)',
   description:
@@ -347,7 +347,7 @@ function brainstormElements(): SlidesElement[] {
   ];
 }
 
-export const brainstormAffinityMap: TemplateSeed = {
+const brainstormAffinityMap: TemplateSeed = {
   slug: 'board-brainstorm-affinity-map',
   title: 'Brainstorm (affinity map)',
   description:
@@ -427,7 +427,7 @@ function syncElements(): SlidesElement[] {
   ];
 }
 
-export const weeklyTeamSync: TemplateSeed = {
+const weeklyTeamSync: TemplateSeed = {
   slug: 'board-weekly-team-sync',
   title: 'Weekly team sync',
   description:
@@ -532,7 +532,7 @@ function pricingElements(): SlidesElement[] {
   ];
 }
 
-export const pricingWorkshop: TemplateSeed = {
+const pricingWorkshop: TemplateSeed = {
   slug: 'board-pricing-workshop',
   title: 'Pricing workshop',
   description:
@@ -547,3 +547,11 @@ export const pricingWorkshop: TemplateSeed = {
     },
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  retroStartStopContinue,
+  brainstormAffinityMap,
+  weeklyTeamSync,
+  pricingWorkshop,
+];

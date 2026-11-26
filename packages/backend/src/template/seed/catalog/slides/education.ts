@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Education-focused slide templates for the gallery, authored natively against
@@ -9,7 +9,7 @@ import type { TemplateSeed } from '../types';
  * this repository — see `README.md` for the licensing rule.
  */
 
-export const seminarDeck: TemplateSeed = {
+const seminarDeck: TemplateSeed = {
   slug: 'seminar-deck',
   title: 'Seminar Deck',
   description:
@@ -63,7 +63,7 @@ export const seminarDeck: TemplateSeed = {
   },
 };
 
-export const universityLecture: TemplateSeed = {
+const universityLecture: TemplateSeed = {
   slug: 'university-lecture',
   title: 'University Lecture',
   description:
@@ -132,7 +132,7 @@ export const universityLecture: TemplateSeed = {
   },
 };
 
-export const studentPresentation: TemplateSeed = {
+const studentPresentation: TemplateSeed = {
   slug: 'student-presentation',
   title: 'Student Presentation',
   description:
@@ -185,7 +185,7 @@ export const studentPresentation: TemplateSeed = {
   },
 };
 
-export const workshopTraining: TemplateSeed = {
+const workshopTraining: TemplateSeed = {
   slug: 'workshop-training',
   title: 'Workshop / Training',
   description:
@@ -251,3 +251,11 @@ export const workshopTraining: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  seminarDeck,
+  universityLecture,
+  studentPresentation,
+  workshopTraining,
+];

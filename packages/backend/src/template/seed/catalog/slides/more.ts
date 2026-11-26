@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Additional slide templates for the gallery, authored natively against the
@@ -10,7 +10,7 @@ import type { TemplateSeed } from '../types';
  * `README.md` for the licensing rule.
  */
 
-export const sprintRetrospective: TemplateSeed = {
+const sprintRetrospective: TemplateSeed = {
   slug: 'sprint-retrospective',
   title: 'Sprint Retrospective',
   description:
@@ -60,7 +60,7 @@ export const sprintRetrospective: TemplateSeed = {
   },
 };
 
-export const okrReview: TemplateSeed = {
+const okrReview: TemplateSeed = {
   slug: 'okr-review',
   title: 'OKR Review',
   description:
@@ -111,7 +111,7 @@ export const okrReview: TemplateSeed = {
   },
 };
 
-export const productLaunchPlan: TemplateSeed = {
+const productLaunchPlan: TemplateSeed = {
   slug: 'product-launch-plan',
   title: 'Product Launch Plan',
   description:
@@ -165,7 +165,7 @@ export const productLaunchPlan: TemplateSeed = {
   },
 };
 
-export const techTalk: TemplateSeed = {
+const techTalk: TemplateSeed = {
   slug: 'tech-talk-paper-study',
   title: 'Tech Talk / Paper Study',
   description:
@@ -215,7 +215,7 @@ export const techTalk: TemplateSeed = {
   },
 };
 
-export const productRoadmap: TemplateSeed = {
+const productRoadmap: TemplateSeed = {
   slug: 'product-roadmap',
   title: 'Product Roadmap',
   description:
@@ -265,3 +265,12 @@ export const productRoadmap: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  sprintRetrospective,
+  okrReview,
+  productLaunchPlan,
+  techTalk,
+  productRoadmap,
+];

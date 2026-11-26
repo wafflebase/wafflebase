@@ -1,6 +1,6 @@
 import type { Cell, CellStyle } from '@wafflebase/sheets';
-import { cell, formula, money, moneyFormula, rows } from '../builders';
-import type { TemplateSeed } from '../types';
+import { cell, formula, money, moneyFormula, rows } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /*
  * One visual grammar for every sheet in this file, so the seven templates
@@ -44,7 +44,7 @@ const label = (v: string): Cell => cell(v, { tc: NOTE_TC });
 /** Guidance text. */
 const note = (v: string): Cell => cell(v, { i: true, tc: NOTE_TC });
 
-export const monthlyBudgetTracker: TemplateSeed = {
+const monthlyBudgetTracker: TemplateSeed = {
   slug: 'monthly-budget-tracker',
   title: 'Monthly Budget Tracker',
   description:
@@ -78,7 +78,7 @@ export const monthlyBudgetTracker: TemplateSeed = {
   },
 };
 
-export const sprintTaskTracker: TemplateSeed = {
+const sprintTaskTracker: TemplateSeed = {
   slug: 'sprint-task-tracker',
   title: 'Sprint Task Tracker',
   description:
@@ -169,7 +169,7 @@ export const sprintTaskTracker: TemplateSeed = {
   },
 };
 
-export const contentCalendar: TemplateSeed = {
+const contentCalendar: TemplateSeed = {
   slug: 'content-calendar',
   title: 'Content Calendar',
   description:
@@ -236,7 +236,7 @@ export const contentCalendar: TemplateSeed = {
   },
 };
 
-export const invoice: TemplateSeed = {
+const invoice: TemplateSeed = {
   slug: 'invoice',
   title: 'Invoice',
   description:
@@ -320,7 +320,7 @@ const pct = (f: string, v: string) => formula(f, v, { nf: 'percent' });
 /** A derived figure read beside the table rather than as part of it. */
 const aside = (c: Cell): Cell => styled(c, { i: true, tc: NOTE_TC });
 
-export const regionalSalesReport: TemplateSeed = {
+const regionalSalesReport: TemplateSeed = {
   slug: 'regional-sales-report',
   title: 'Regional Sales Report',
   description:
@@ -414,7 +414,7 @@ export const regionalSalesReport: TemplateSeed = {
   },
 };
 
-export const teamDirectory: TemplateSeed = {
+const teamDirectory: TemplateSeed = {
   slug: 'team-directory',
   title: 'Team Directory',
   description:
@@ -476,7 +476,7 @@ export const teamDirectory: TemplateSeed = {
   },
 };
 
-export const sharedExpenseSplitter: TemplateSeed = {
+const sharedExpenseSplitter: TemplateSeed = {
   slug: 'shared-expense-splitter',
   title: 'Shared Expense Splitter',
   description:
@@ -586,3 +586,14 @@ export const sharedExpenseSplitter: TemplateSeed = {
     },
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  monthlyBudgetTracker,
+  sprintTaskTracker,
+  contentCalendar,
+  invoice,
+  regionalSalesReport,
+  teamDirectory,
+  sharedExpenseSplitter,
+];

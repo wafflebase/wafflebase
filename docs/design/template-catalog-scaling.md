@@ -220,7 +220,7 @@ catalog file), and the near-duplicate judgement lives in nobody's head.
 Any **R** finding rejects; any **F** finding sends it back for a fix.
 
 Per page: (1) typos and grammar, including placeholder syntax `<team>`
-(`slides-work.ts:20`) — F; (2) language mismatch between title, description,
+(`slides/work.ts:22`) — F; (2) language mismatch between title, description,
 canvas text and listing locale — R; (3) hierarchy: one focal element, title
 visibly dominant — F; (4) contrast where the `contrast` lint rule cannot see,
 e.g. text over images (`packages/slides/src/lint/index.ts:36-43`) — F;

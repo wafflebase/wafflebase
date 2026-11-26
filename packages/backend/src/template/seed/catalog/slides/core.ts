@@ -1,7 +1,7 @@
-import { deck, slide } from '../builders';
-import type { TemplateSeed } from '../types';
+import { deck, slide } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
-export const weeklyBusinessReview: TemplateSeed = {
+const weeklyBusinessReview: TemplateSeed = {
   slug: 'weekly-business-review',
   title: 'Weekly Business Review',
   description:
@@ -66,7 +66,7 @@ export const weeklyBusinessReview: TemplateSeed = {
   },
 };
 
-export const projectKickoff: TemplateSeed = {
+const projectKickoff: TemplateSeed = {
   slug: 'project-kickoff',
   title: 'Project Kickoff',
   description:
@@ -130,3 +130,6 @@ export const projectKickoff: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [weeklyBusinessReview, projectKickoff];

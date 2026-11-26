@@ -1112,7 +1112,7 @@ the option is a decision rather than an oversight.
 #### Briefs are authoring guidance, not slots
 
 The seed catalogue's slides templates each carry a `TemplateBrief`
-(`catalog/brief.ts`, `catalog/briefs*.ts`): a list of the values an agent should
+(`catalog/brief.ts`, `catalog/slides/*.briefs.ts`): a list of the values an agent should
 ask a user for — team, quarter, three wins, action/owner pairs — before it
 writes a deck from that template. That looks like the parameterization declined
 above, and it is deliberately not:

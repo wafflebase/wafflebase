@@ -35,6 +35,66 @@ describe('template seed catalogue', () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
+  // A slug is the seed's identity (it derives the document id below), so the
+  // shape is fixed once, here, rather than left to taste: lower kebab case, a
+  // `.ko` suffix for a Korean variant, short enough to read in a URL.
+  it.each(TEMPLATE_CATALOG.map((s) => [s.slug] as const))(
+    'slug %s is lower kebab case, at most 48 characters',
+    (slug) => {
+      expect(slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*(\.ko)?$/);
+      expect(slug.length).toBeLessThanOrEqual(48);
+    },
+  );
+
+  // The catalogue's order as it stood when registration moved to one import
+  // per file. New templates append after it; nothing listed here may be
+  // renamed, dropped or reordered — a re-run finds each document by its slug.
+  it('keeps the existing templates in their order', () => {
+    const pinned = [
+      'weekly-business-review',
+      'project-kickoff',
+      'sprint-retrospective',
+      'okr-review',
+      'product-launch-plan',
+      'tech-talk-paper-study',
+      'product-roadmap',
+      'seminar-deck',
+      'university-lecture',
+      'student-presentation',
+      'workshop-training',
+      'dev-design-review',
+      'project-proposal',
+      'all-hands-update',
+      'case-study',
+      'customer-onboarding-review',
+      'marketing-campaign',
+      'brand-pitch',
+      'equity-analysis',
+      'design-review-ux',
+      'monthly-budget-tracker',
+      'sprint-task-tracker',
+      'content-calendar',
+      'invoice',
+      'regional-sales-report',
+      'team-directory',
+      'shared-expense-splitter',
+      'product-requirements-doc',
+      'meeting-notes',
+      'partner-newsletter',
+      'vendor-onboarding',
+      'weekly-one-on-one',
+      'site-visit-notes',
+      'retrospective-board',
+      'board-retro-start-stop-continue',
+      'board-brainstorm-affinity-map',
+      'board-weekly-team-sync',
+      'board-pricing-workshop',
+    ];
+    expect(TEMPLATE_CATALOG.slice(0, pinned.length).map((s) => s.slug)).toEqual(
+      pinned,
+    );
+  });
+
   it('maps every slug to a distinct, stable document id', () => {
     const ids = TEMPLATE_CATALOG.map((s) => seedDocumentId(s.slug));
     expect(new Set(ids).size).toBe(ids.length);

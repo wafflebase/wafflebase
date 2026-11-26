@@ -1,12 +1,12 @@
-import type { TemplateBrief } from './brief';
+import type { TemplateBrief } from '../brief';
 
 /**
  * Authoring briefs for the market/finance/design templates: what an author
  * should collect from a user before writing a deck from the template with the
- * same `slug` in `slides-market-finance.ts`. Guidance only — see `brief.ts`.
+ * same `slug` in `market-finance.ts`. Guidance only — see `brief.ts`.
  */
 
-export const marketingCampaignBrief: TemplateBrief = {
+const marketingCampaignBrief: TemplateBrief = {
   slug: 'marketing-campaign',
   summary:
     'A campaign plan: audience, the big idea, channels and message, timeline, the KPI, and budget.',
@@ -22,7 +22,7 @@ export const marketingCampaignBrief: TemplateBrief = {
   ],
 };
 
-export const brandPitchBrief: TemplateBrief = {
+const brandPitchBrief: TemplateBrief = {
   slug: 'brand-pitch',
   summary:
     'A short brand pitch: who we are, the opportunity, how we position, the number behind it, and the ask.',
@@ -37,7 +37,7 @@ export const brandPitchBrief: TemplateBrief = {
   ],
 };
 
-export const equityAnalysisBrief: TemplateBrief = {
+const equityAnalysisBrief: TemplateBrief = {
   slug: 'equity-analysis',
   summary:
     'A read on a stock: company snapshot, investment thesis, valuation, the key multiple, risks, and a recommendation.',
@@ -53,7 +53,7 @@ export const equityAnalysisBrief: TemplateBrief = {
   ],
 };
 
-export const designReviewUxBrief: TemplateBrief = {
+const designReviewUxBrief: TemplateBrief = {
   slug: 'design-review-ux',
   summary:
     'A design/UX review: the problem, users and context, before and after, open questions, and the feedback needed.',
@@ -67,3 +67,11 @@ export const designReviewUxBrief: TemplateBrief = {
     { key: 'feedbackNeeded', label: 'The feedback we need', type: 'line', example: 'Is the single-page flow worth the extra build time?' },
   ],
 };
+
+/** This file's briefs, in the order `../briefs.ts` lists them. */
+export const briefs: TemplateBrief[] = [
+  marketingCampaignBrief,
+  brandPitchBrief,
+  equityAnalysisBrief,
+  designReviewUxBrief,
+];

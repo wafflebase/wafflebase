@@ -1,12 +1,12 @@
-import type { TemplateBrief } from './brief';
+import type { TemplateBrief } from '../brief';
 
 /**
- * Authoring briefs for the original two slides templates in `slides.ts`:
+ * Authoring briefs for the original two slides templates in `core.ts`:
  * what an author should collect from a user before writing a deck from the
  * template with the same `slug`. Guidance only — see `brief.ts`.
  */
 
-export const weeklyBusinessReviewBrief: TemplateBrief = {
+const weeklyBusinessReviewBrief: TemplateBrief = {
   slug: 'weekly-business-review',
   summary: 'A weekly review: headline numbers, what moved, risks, decisions, owners.',
   fields: [
@@ -20,7 +20,7 @@ export const weeklyBusinessReviewBrief: TemplateBrief = {
   ],
 };
 
-export const projectKickoffBrief: TemplateBrief = {
+const projectKickoffBrief: TemplateBrief = {
   slug: 'project-kickoff',
   summary: 'A kickoff: problem, success, scope, owners, plan, risks.',
   fields: [
@@ -34,3 +34,9 @@ export const projectKickoffBrief: TemplateBrief = {
     { key: 'risks', label: 'Risks', type: 'list', min: 1, max: 3 },
   ],
 };
+
+/** This file's briefs, in the order `../briefs.ts` lists them. */
+export const briefs: TemplateBrief[] = [
+  weeklyBusinessReviewBrief,
+  projectKickoffBrief,
+];
