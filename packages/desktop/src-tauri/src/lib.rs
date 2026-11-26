@@ -427,18 +427,18 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 /// The server to open at launch: the environment override, then the saved
-/// profile. `None` shows the picker.
-fn initial_server(store: &ServerStore) -> Option<Url> {
+/// profile, then the official server. The picker is reached from the menu.
+fn initial_server(store: &ServerStore) -> Url {
     if let Some(raw) = std::env::var_os(SERVER_ENV) {
         match server::parse_server_origin(&raw.to_string_lossy()) {
             Ok(url) => {
                 dlog!("{SERVER_ENV} overrides the saved server");
-                return Some(url);
+                return url;
             }
             Err(e) => eprintln!("[wafflebase-desktop] ignoring {SERVER_ENV}: {e}"),
         }
     }
-    store.load()
+    store.load().unwrap_or_else(server::official_server)
 }
 
 // ---------------------------------------------------------------------------
@@ -447,14 +447,41 @@ fn initial_server(store: &ServerStore) -> Option<Url> {
 #[derive(Serialize)]
 struct ServerInfo {
     origin: Option<String>,
+    /// Where "Cancel" returns to: the server's sign-in page.
+    start: Option<String>,
+    official: bool,
 }
 
 #[tauri::command]
 fn get_server(state: tauri::State<'_, AppState>) -> ServerInfo {
     dlog!("picker asked for the saved server");
+    let frontend = state.frontend();
     ServerInfo {
-        origin: state.frontend().map(|u| server::origin_string(&u)),
+        origin: frontend.as_ref().map(server::origin_string),
+        start: frontend.as_ref().map(|u| server::start_url(u).to_string()),
+        official: frontend.is_some_and(|u| u.origin() == server::official_server().origin()),
     }
+}
+
+/// Points this app at `origin` and opens it in `window`.
+fn switch_server<R: Runtime>(
+    app: &AppHandle<R>,
+    window: &WebviewWindow<R>,
+    state: &AppState,
+    origin: Url,
+) -> Result<String, String> {
+    state.signin.cancel();
+    state.set_frontend(Some(origin.clone()));
+    // Other windows belong to the previous server.
+    for (label, other) in app.webview_windows() {
+        if label != window.label() {
+            let _ = other.close();
+        }
+    }
+    window
+        .navigate(server::start_url(&origin))
+        .map_err(|e| e.to_string())?;
+    Ok(server::origin_string(&origin))
 }
 
 #[tauri::command]
@@ -469,16 +496,21 @@ fn set_server<R: Runtime>(
         .store
         .save(&origin)
         .map_err(|e| format!("Could not save the server: {e}"))?;
-    state.signin.cancel();
-    state.set_frontend(Some(origin.clone()));
-    // Other windows belong to the previous server.
-    for (label, other) in app.webview_windows() {
-        if label != window.label() {
-            let _ = other.close();
-        }
-    }
-    window.navigate(origin.clone()).map_err(|e| e.to_string())?;
-    Ok(server::origin_string(&origin))
+    switch_server(&app, &window, &state, origin)
+}
+
+/// Forgets the saved server and opens the official one.
+#[tauri::command]
+fn use_official_server<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    state
+        .store
+        .clear()
+        .map_err(|e| format!("Could not reset the server: {e}"))?;
+    switch_server(&app, &window, &state, server::official_server())
 }
 
 #[tauri::command]
@@ -493,6 +525,7 @@ fn cancel_login<R: Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, Ap
     state.signin.cancel_in(window.label());
     let target = state
         .frontend()
+        .map(|origin| server::start_url(&origin))
         .unwrap_or_else(|| bundled_url("index.html"));
     let _ = window.navigate(target);
 }
@@ -524,6 +557,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_server,
             set_server,
+            use_official_server,
             login_status,
             cancel_login,
             take_handoff
@@ -548,17 +582,17 @@ pub fn run() {
             let initial = initial_server(&store);
             app.manage(AppState {
                 store,
-                frontend: RwLock::new(initial.clone()),
+                frontend: RwLock::new(Some(initial.clone())),
                 signin: signin::SignIn::default(),
                 window_seq: AtomicU32::new(1),
                 #[cfg(debug_assertions)]
                 smoke_signin_started: std::sync::atomic::AtomicBool::new(false),
             });
-            let url = match initial {
-                Some(origin) => WebviewUrl::External(origin),
-                None => WebviewUrl::App("index.html".into()),
-            };
-            build_window(app.handle(), MAIN_WINDOW, url)?;
+            build_window(
+                app.handle(),
+                MAIN_WINDOW,
+                WebviewUrl::External(server::start_url(&initial)),
+            )?;
             app.manage(update::Updates::default());
             update::start(app.handle());
             Ok(())

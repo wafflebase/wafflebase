@@ -24,8 +24,9 @@ the remote origin gets no native API at all by default. The comparison is in
 
 ### Goals
 
-- Install one app and point it at any Wafflebase deployment. A server picker
-  runs on first launch, remembers the choice and can switch later.
+- Install one app and point it at any Wafflebase deployment. It opens the
+  official server by default; a server picker in the app menu switches to any
+  other, remembers the choice and can switch back.
 - Keep the app independent of server upgrades. The shell carries no frontend
   code, so a self-hosted server upgrading does not need a new app release, and
   an old app keeps working against a new server.
@@ -89,13 +90,25 @@ desktop-specific code and no `window.__TAURI__` checks.
 
 ### 2. Choosing a server
 
-On first launch the bundled picker asks for the deployment's URL, which is the
-frontend origin users already visit. The URL must be `https://`, or `http://`
-on a loopback host for local development. That is the same rule the backend
-applies before it offers CLI sign-in (`cliLoginAvailable()`), and §3 depends
-on it. The shell saves the origin as the server profile and loads it. A
-"Change server…" menu item returns to the picker. One server per app instance
-is enough for the first release.
+The app opens the official server, `https://wafflebase.io`, until someone
+picks another, since that is where most people sign in. A team on its own
+deployment uses **Change server…** in the app menu, which opens the bundled
+picker. The picker asks for the deployment's URL, the frontend origin users
+already visit. The URL must be `https://`, or `http://` on a loopback host for
+local development. That is the same rule the backend applies before it offers
+CLI sign-in (`cliLoginAvailable()`), and §3 depends on it. The shell saves the
+origin as the server profile and loads it; **Use wafflebase.io** deletes the
+profile. The official server is never written to the profile, so "no
+profile" keeps meaning "the official server" if its address changes. One
+server per app instance is enough for the first release; preconfiguring a
+server for a managed fleet (MDM) is later work.
+
+The app opens a server at `/login`, not at `/`: signed out, `/` is the
+marketing homepage. The frontend's login page sends a visitor who is already
+signed in on to the app (to a same-site `returnTo`, or `/`, which redirects
+into their workspace), so a signed-in launch lands on their documents. That
+redirect needs a frontend from the same release as desktop sign-in; a server
+too old for it is too old for desktop sign-in anyway (§3).
 
 The origin chosen here has to be the server's own address, the one its
 backend redirects to after sign-in (`FRONTEND_URL`). An alias or a `www.`

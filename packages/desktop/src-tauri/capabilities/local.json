@@ -6,6 +6,7 @@
   "permissions": [
     "allow-get-server",
     "allow-set-server",
+    "allow-use-official-server",
     "allow-login-status",
     "allow-cancel-login",
     "allow-take-handoff"

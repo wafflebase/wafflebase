@@ -58,13 +58,18 @@ WebKitGTK development libraries.
 
 ## Choosing a server
 
-On first launch the picker asks for the deployment's address, the one people
-open in a browser. It must be `https://`, or `http://` on `localhost`,
-`127.0.0.1` or `[::1]`, the same rule the backend applies before it offers
-desktop sign-in. The origin is saved to `server.json` in the app config
-directory (`~/Library/Application Support/io.wafflebase.desktop/` on macOS) and
-loaded directly on later launches. The app menu's **Change server…** returns
-to the picker.
+The app opens the official server, `https://wafflebase.io`, until another is
+chosen, and it opens every server at `/login` (a signed-in user is sent on to
+their documents from there).
+
+The app menu's **Change server…** opens the picker, which asks for the
+deployment's address, the one people open in a browser. It must be
+`https://`, or `http://` on `localhost`, `127.0.0.1` or `[::1]`, the same rule
+the backend applies before it offers desktop sign-in. The origin is saved to
+`server.json` in the app config directory
+(`~/Library/Application Support/io.wafflebase.desktop/` on macOS) and loaded
+directly on later launches. **Use wafflebase.io** in the picker deletes that
+file; the official server itself is never saved.
 
 `WAFFLEBASE_DESKTOP_SERVER=<url>` overrides the saved server for one run,
 without saving it. It is validated like the picker's input and ignored, with a

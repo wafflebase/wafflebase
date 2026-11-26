@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
-import { fetchAuthProviders } from "@/api/auth";
+import { fetchAuthProviders, fetchMeOptional } from "@/api/auth";
+import { Loader } from "@/components/loader";
 import { LoginForm } from "@/components/login-form";
 import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
 import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
@@ -11,11 +13,30 @@ import { useBrandFonts } from "@/lib/brand-fonts";
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
 /**
+ * Where a visitor who is already signed in goes instead: `returnTo` when it
+ * is a path on this site, the app's root otherwise. A protocol-relative
+ * `//host` or a backslash variant would leave the site, so only a single
+ * leading `/` counts.
+ */
+function signedInTarget(returnTo: string | null): string {
+  if (returnTo && /^\/(?![/\\])/.test(returnTo)) return returnTo;
+  return "/";
+}
+
+/**
  * Renders the login page.
  */
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
   useBrandFonts();
+  // A visitor who is already signed in has nothing to do here. The desktop
+  // shell opens /login at launch, so this is what takes a signed-in user
+  // straight to their documents.
+  const { data: user, isLoading: userLoading } = useQuery({
+    queryKey: ["me-optional"],
+    queryFn: fetchMeOptional,
+    retry: false,
+  });
   // Which providers this deployment actually has — Google is optional and
   // configured server-side. Starts false so the page renders GitHub straight
   // away rather than waiting on a request; the call never rejects, so an
@@ -35,6 +56,11 @@ export default function LoginPage() {
       cancelled = true;
     };
   }, []);
+
+  if (userLoading) return <Loader />;
+  if (user) {
+    return <Navigate to={signedInTarget(searchParams.get("returnTo"))} replace />;
+  }
 
   return (
     <div className="relative min-h-svh bg-[color:var(--wb-bg)] text-[color:var(--wb-ink)] overflow-hidden flex flex-col">

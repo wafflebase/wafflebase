@@ -7,21 +7,35 @@ const input = document.getElementById("server");
 const error = document.getElementById("error");
 const connect = document.getElementById("connect");
 const back = document.getElementById("back");
+const official = document.getElementById("official");
 
-let current = null;
+// The server's sign-in page, where "Cancel" returns to.
+let start = null;
 
 invoke("get_server")
   .then((info) => {
-    current = info.origin;
-    if (current) {
-      input.value = current;
-      back.hidden = false;
-    }
+    start = info.start;
+    if (info.origin) input.value = info.origin;
+    back.hidden = !start;
+    // Offered only when another server is chosen: resetting forgets it.
+    official.hidden = info.official;
   })
   .catch(() => {});
 
 back.addEventListener("click", () => {
-  if (current) window.location.replace(current);
+  if (start) window.location.replace(start);
+});
+
+official.addEventListener("click", async () => {
+  error.textContent = "";
+  official.disabled = true;
+  try {
+    // On success the shell navigates this window to the official server.
+    await invoke("use_official_server");
+  } catch (message) {
+    error.textContent = String(message);
+    official.disabled = false;
+  }
 });
 
 form.addEventListener("submit", async (event) => {

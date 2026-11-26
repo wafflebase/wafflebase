@@ -47,6 +47,12 @@ other half of Phase 2 and are not in this task.
 - [x] Docs: desktop-app.md §5/§7, desktop README release procedure
 - [x] Verify: cargo fmt/clippy/test; local signed universal build;
       local 0.1.0 → 0.1.1 update against a local manifest
+- [x] Default to the official server (`https://wafflebase.io`, never
+      saved), picker via "Change server…" with "Use wafflebase.io"; open every
+      server at `/login`, which now sends a signed-in visitor on to the app
+- [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
+      (`/auth/providers` has no `desktop` field on 0.6.18), or the default
+      server answers "too old"
 - [ ] User: App Store Connect API access + Team key; Environment secrets;
       first server release that carries the app
 

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// The page first asks whether the visitor is already signed in (and sends
+// them on if so; see app/login/__tests__). Every test here is signed out.
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  fetchMeOptional: vi.fn(async () => null),
+}));
 
 import { LoginForm } from "@/components/login-form";
 import LoginPage from "@/app/login/page";
@@ -122,9 +130,13 @@ describe("LoginPage", () => {
 
   function renderPage(entry = "/login") {
     render(
-      <MemoryRouter initialEntries={[entry]}>
-        <LoginPage />
-      </MemoryRouter>,
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={[entry]}>
+          <LoginPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
   }
 
@@ -165,7 +177,7 @@ describe("LoginPage", () => {
       screen.queryByRole("link", { name: /continue with google/i }),
     ).toBeNull();
     expect(
-      screen.getByRole("link", { name: /continue with github/i }),
+      await screen.findByRole("link", { name: /continue with github/i }),
     ).toBeTruthy();
   });
 
@@ -178,28 +190,21 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(
-      screen.getByRole("link", { name: /continue with github/i }),
+      await screen.findByRole("link", { name: /continue with github/i }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("link", { name: /continue with google/i }),
     ).toBeNull();
   });
 
-  it("wires ?error= from the URL into the form", () => {
-    render(
-      <MemoryRouter initialEntries={["/login?error=oauth_state"]}>
-        <LoginPage />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole("alert").textContent).toContain("expired");
+  it("wires ?error= from the URL into the form", async () => {
+    renderPage("/login?error=oauth_state");
+    expect((await screen.findByRole("alert")).textContent).toContain("expired");
   });
 
-  it("renders no alert on a plain visit", () => {
-    render(
-      <MemoryRouter initialEntries={["/login"]}>
-        <LoginPage />
-      </MemoryRouter>,
-    );
+  it("renders no alert on a plain visit", async () => {
+    renderPage("/login");
+    await screen.findByRole("link", { name: /continue with github/i });
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
