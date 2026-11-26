@@ -105,7 +105,7 @@ report into; see [sync-status.md](sync-status.md).
 
 #### Offline app shell
 
-A production build writes a service worker, `dist/sw.js`, so the app's own UI
+A production build writes a service worker, dist/sw.js, so the app's own UI
 opens with no network: the desktop app launched on a plane, or a tab reopened
 while the server is down. It caches the app, never the data. Signed-in pages
 still need the server, and saying so honestly is half of the feature. The
@@ -131,7 +131,7 @@ The pieces, in `packages/frontend`:
   which is what `index.html` loads before first render, plus the same closure
   for `PrivateRoute`, the one lazy chunk every signed-in route needs before it
   can show anything), and the list of all hashed assets.
-- **`src/lib/service-worker.ts`** — registers `/sw.js` after `load`, in
+- **`src/lib/service-worker.ts`** — registers /sw.js after `load`, in
   production builds only, with `updateViaCache: "none"`.
 
 **No stale build.** This is what most often goes wrong with app-shell

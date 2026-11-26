@@ -505,7 +505,7 @@ shell.
   `limitsNavigationsToAppBoundDomains` on iOS only. App-Bound Domains, which
   gate Service Workers in a third-party WKWebView on iOS, do not apply on
   macOS.
-- A test page reported `'serviceWorker' in navigator`, registered `/sw.js`,
+- A test page reported `'serviceWorker' in navigator`, registered /sw.js,
   reached `ready` and got `controllerchange` within 120 ms of first load.
 - After quitting the app and **stopping the server**, a relaunch loaded the
   page with `navigator.serviceWorker.controller` set, `workerStart > 0` in its
