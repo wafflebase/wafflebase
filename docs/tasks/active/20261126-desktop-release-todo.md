@@ -56,6 +56,11 @@ other half of Phase 2 and are not in this task.
       View menu Back / Forward / Reload without accelerators; `target=_blank`
       links did nothing (opener's injected link script needs IPC the page
       does not have) → script off, policy decides; verified by a user click
+- [ ] ① Unreachable-server view (Rocket.Chat-style): bundled failure page,
+      backoff probe (2s → 30s), auto-reload on recovery, Retry / Change server
+- [ ] ② Offline boot, first slice (Slack-style asset cache): verify Service
+      Worker support in WKWebView/Tauri, then make the app open its UI with no
+      network; recent-document read-only only if it lands cleanly, else design
 - [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
       (`/auth/providers` has no `desktop` field on 0.6.18), or the default
       server answers "too old"
