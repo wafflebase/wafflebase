@@ -108,11 +108,10 @@ server per app instance is enough for the first release; preconfiguring a
 server for a managed fleet (MDM) is later work.
 
 The app opens a server at `/login`, not at `/`: signed out, `/` is the
-marketing homepage. The frontend's login page sends a visitor who is already
-signed in on to the app (to a same-site `returnTo`, or `/`, which redirects
-into their workspace), so a signed-in launch lands on their documents. That
-redirect needs a frontend from the same release as desktop sign-in; a server
-too old for it is too old for desktop sign-in anyway (§3).
+marketing homepage. `/login` sits under the frontend's `PublicRoute`, which
+already sent a signed-in visitor on to `/` (and from there into their
+workspace), so a signed-in launch lands on their documents on any server. This
+release adds only that it honours a same-site `returnTo` first.
 
 The origin chosen here has to be the server's own address, the one its
 backend redirects to after sign-in (`FRONTEND_URL`). An alias or a `www.`
