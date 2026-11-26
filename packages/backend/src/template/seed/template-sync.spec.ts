@@ -18,6 +18,11 @@ import type { TemplateSeed } from './types';
  * the one state transition each real method makes and nothing else, so what
  * is asserted is the order and choice of calls, not the service's own rules
  * (those are `template.service.spec.ts`).
+ *
+ * Two clocks, deliberately far apart: `localClock` is the sync host's, and
+ * only measures waiting; `yorkieClock` issues event instants. The sync host
+ * is set decades *ahead* of Yorkie, so any comparison between the two would
+ * wedge every content write.
  */
 
 const AUTHOR = 7;
@@ -38,6 +43,12 @@ const THUMB: SeedThumbnail = {
   sha256: 'thumb-sha',
   contentHash: CONTENT_HASH,
 };
+/** A Yorkie-issued watermark from a previous, observed write of ours. */
+const OURS = new Date(1_000);
+const GOOD_CONFIG: Record<string, string> = {
+  WAFFLEBASE_TEMPLATE_REVIEWER_IDS: `${AUTHOR}`,
+  YORKIE_AUTH_WEBHOOK_ENFORCE: 'true',
+};
 
 function listingRow(overrides: Partial<TemplateListing> = {}): TemplateListing {
   return {
@@ -54,8 +65,8 @@ function listingRow(overrides: Partial<TemplateListing> = {}): TemplateListing {
     visibility: 'public',
     status: 'listed',
     submittedAt: null,
-    contentChangedAt: null,
-    reviewedContentAt: null,
+    contentChangedAt: OURS,
+    reviewedContentAt: OURS,
     reviewedAt: null,
     reviewedBy: null,
     reviewNote: null,
@@ -78,9 +89,8 @@ function recordRow(
     contentHash: CONTENT_HASH,
     cardHash: CARD_HASH,
     thumbnailHash: THUMB.sha256,
-    appliedAt: new Date(1_000),
-    contentWrittenAt: null,
-    updatedAt: new Date(1_000),
+    appliedAt: OURS,
+    updatedAt: new Date(0),
     ...overrides,
   };
 }
@@ -97,18 +107,50 @@ type CardDto = {
 interface World {
   listing: TemplateListing | null;
   record: TemplateSeedRecord | null;
-  clock: number;
-  /** Called on every listing read — lets a test land an event mid-poll. */
-  onRead?: (world: World) => void;
+  /** The sync host's clock (ms). */
+  localClock: number;
+  /** Yorkie's clock (ms); every event instant comes from here. */
+  yorkieClock: number;
+  /** Whether the Yorkie event webhook reaches this backend at all. */
+  eventsRegistered: boolean;
+  /** Listing reads to let pass before a pending event lands. */
+  eventDelayReads: number;
+  /** Writes whose event has not landed yet. */
+  pendingEvents: number;
 }
 
-function setup(initial: Partial<World> = {}) {
+/** The Yorkie event for a write, as `TemplateReviewSyncService` applies it. */
+function landEvent(world: World): void {
+  world.yorkieClock += 10;
+  const at = world.yorkieClock;
+  const l = world.listing;
+  if (!l) return; // no listing → the watermark is not recorded anywhere
+  world.listing = {
+    ...l,
+    contentChangedAt: new Date(at),
+    ...(l.visibility === 'public' &&
+    l.status === 'listed' &&
+    (!l.reviewedContentAt || l.reviewedContentAt.getTime() < at)
+      ? { status: 'pending' }
+      : {}),
+  };
+}
+
+function setup(
+  initial: Partial<World> = {},
+  config: Record<string, string> = GOOD_CONFIG,
+) {
   const world: World = {
     listing: null,
     record: null,
-    clock: 10_000,
+    localClock: Date.UTC(2090, 0, 1),
+    yorkieClock: 5_000,
+    eventsRegistered: true,
+    eventDelayReads: 2,
+    pendingEvents: 0,
     ...initial,
   };
+  let readsSinceWrite = 0;
   const prisma = {
     document: {
       findUnique: jest.fn(() =>
@@ -122,7 +164,13 @@ function setup(initial: Partial<World> = {}) {
     },
     templateListing: {
       findUnique: jest.fn(() => {
-        world.onRead?.(world);
+        if (
+          world.pendingEvents > 0 &&
+          ++readsSinceWrite > world.eventDelayReads
+        ) {
+          world.pendingEvents -= 1;
+          landEvent(world);
+        }
         return Promise.resolve(world.listing ? { ...world.listing } : null);
       }),
     },
@@ -140,7 +188,7 @@ function setup(initial: Partial<World> = {}) {
         }) => {
           world.record = world.record
             ? { ...world.record, ...update }
-            : { ...create, updatedAt: new Date(world.clock) };
+            : { ...create, updatedAt: new Date(0) };
           return Promise.resolve({ ...world.record });
         },
       ),
@@ -152,6 +200,8 @@ function setup(initial: Partial<World> = {}) {
         visibility: 'unlisted',
         status: 'listed',
         thumbnailId: dto.thumbnailId,
+        contentChangedAt: null,
+        reviewedContentAt: null,
       });
       return Promise.resolve({});
     }),
@@ -188,45 +238,39 @@ function setup(initial: Partial<World> = {}) {
     upload: jest.fn(() => Promise.resolve({ id: 'new-thumb.webp', url: '/x' })),
     delete: jest.fn(() => Promise.resolve(undefined)),
   };
-  const writeContent = jest.fn(() => Promise.resolve(undefined));
+  const writeContent = jest.fn(() => {
+    if (world.eventsRegistered) {
+      world.pendingEvents += 1;
+      readsSinceWrite = 0;
+    }
+    return Promise.resolve(undefined);
+  });
   const deps: TemplateSyncDeps = {
     prisma: prisma as unknown as TemplateSyncDeps['prisma'],
     templates: templates as unknown as TemplateSyncDeps['templates'],
     images: images as unknown as TemplateSyncDeps['images'],
+    config: { get: <T>(key: string) => config[key] as T | undefined },
     writeContent,
-    now: () => new Date(world.clock),
+    now: () => new Date(world.localClock),
     sleep: (ms) => {
-      world.clock += ms;
+      world.localClock += ms;
       return Promise.resolve();
     },
   };
-  const sync = new TemplateSync(deps, {
-    authorId: AUTHOR,
-    eventTimeoutMs: 5_000,
-    pollIntervalMs: 500,
-  });
-  return { world, sync, prisma, templates, images, writeContent };
-}
-
-/** The Yorkie event for a write, as `TemplateReviewSyncService` applies it. */
-function landEvent(world: World, at: number): void {
-  const l = world.listing!;
-  world.listing = {
-    ...l,
-    contentChangedAt: new Date(at),
-    ...(l.visibility === 'public' &&
-    l.status === 'listed' &&
-    (!l.reviewedContentAt || l.reviewedContentAt.getTime() < at)
-      ? { status: 'pending' }
-      : {}),
-  };
+  const make = () =>
+    new TemplateSync(deps, {
+      authorId: AUTHOR,
+      eventTimeoutMs: 5_000,
+      pollIntervalMs: 500,
+    });
+  return { world, make, prisma, templates, images, writeContent };
 }
 
 describe('TemplateSync', () => {
-  it('publishes with the thumbnail, submits quietly and approves a new seed', async () => {
-    const { world, sync, templates, images } = setup();
+  it('publishes, writes the catalogue content itself, then approves its own watermark', async () => {
+    const { world, make, templates, images, writeContent } = setup();
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome).toMatchObject({ result: 'published' });
     expect(images.upload).toHaveBeenCalledWith(
@@ -243,15 +287,21 @@ describe('TemplateSync', () => {
       visibility: 'unlisted',
       acceptLicense: true,
     });
+    // Written after the listing exists, so its event is recorded on it.
+    expect(writeContent).toHaveBeenCalledWith(DOC_ID, SEED.content);
+    expect(templates.publish.mock.invocationCallOrder[0]).toBeLessThan(
+      writeContent.mock.invocationCallOrder[0],
+    );
     expect(templates.submit).toHaveBeenCalledWith(
       'listing-1',
       AUTHOR,
       { acceptLicense: true },
       { quiet: true },
     );
+    const watermark = new Date(world.yorkieClock).toISOString();
     expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
       decision: 'approve',
-      contentAt: undefined,
+      contentAt: watermark,
     });
     expect(world.listing).toMatchObject({
       status: 'listed',
@@ -261,35 +311,86 @@ describe('TemplateSync', () => {
       contentHash: CONTENT_HASH,
       cardHash: CARD_HASH,
       thumbnailHash: THUMB.sha256,
-      contentWrittenAt: null,
+    });
+    expect(world.record!.appliedAt!.toISOString()).toBe(watermark);
+  });
+
+  it('never compares Yorkie instants with the host clock (skew in either direction)', async () => {
+    for (const localClock of [Date.UTC(2090, 0, 1), 0]) {
+      const { make, templates } = setup({
+        localClock,
+        yorkieClock: Date.UTC(2040, 0, 1),
+      });
+      const outcome = await make().syncOne(SEED, THUMB);
+      expect(outcome.result).toBe('published');
+      expect(templates.review).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('fails closed without the event webhook: content written, nothing approved', async () => {
+    const { world, make, templates, writeContent } = setup({
+      eventsRegistered: false,
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/Register the Yorkie event webhook/);
+    expect(writeContent).toHaveBeenCalledTimes(1);
+    expect(templates.submit).not.toHaveBeenCalled();
+    expect(templates.review).not.toHaveBeenCalled();
+    // Nothing attested, so the next run rewrites and waits again.
+    expect(world.record?.appliedAt).toBeNull();
+
+    world.eventsRegistered = true;
+    const retry = await make().syncOne(SEED, THUMB);
+    expect(retry.result).toBe('approved');
+    expect(writeContent).toHaveBeenCalledTimes(2);
+    expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      decision: 'approve',
+      contentAt: new Date(world.yorkieClock).toISOString(),
     });
   });
 
+  it('never approves with an undefined watermark', async () => {
+    // An existing listing, never written by this command, events off.
+    const { make, templates } = setup({
+      listing: listingRow({ visibility: 'unlisted', contentChangedAt: null }),
+      eventsRegistered: false,
+    });
+
+    await make().syncOne(SEED, THUMB);
+
+    expect(templates.review).not.toHaveBeenCalled();
+  });
+
   it('is a no-op on a listed public seed whose hashes are equal', async () => {
-    const { sync, templates, images, writeContent } = setup({
+    const { make, templates, images, writeContent } = setup({
       listing: listingRow(),
       record: recordRow(),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('unchanged');
     expect(images.upload).not.toHaveBeenCalled();
     expect(writeContent).not.toHaveBeenCalled();
-    for (const fn of Object.values(templates))
+    for (const fn of Object.values(templates)) {
       expect(fn).not.toHaveBeenCalled();
+    }
   });
 
   it('updates a changed card without re-uploading identical thumbnail bytes', async () => {
-    const { world, sync, templates, images } = setup({
+    const { world, make, templates, images, writeContent } = setup({
       listing: listingRow(),
       record: recordRow({ cardHash: 'old-card' }),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('approved');
     expect(images.upload).not.toHaveBeenCalled();
+    expect(writeContent).not.toHaveBeenCalled();
     expect(templates.update).toHaveBeenCalledWith('listing-1', AUTHOR, {
       title: SEED.title,
       description: SEED.description,
@@ -297,17 +398,20 @@ describe('TemplateSync', () => {
       tags: SEED.tags,
     });
     expect(templates.submit).not.toHaveBeenCalled();
-    expect(templates.review).toHaveBeenCalledTimes(1);
+    expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      decision: 'approve',
+      contentAt: OURS.toISOString(),
+    });
     expect(world.record?.cardHash).toBe(CARD_HASH);
   });
 
   it('uploads and attaches a thumbnail only when its bytes changed', async () => {
-    const { sync, templates, images } = setup({
+    const { make, templates, images } = setup({
       listing: listingRow(),
       record: recordRow({ thumbnailHash: 'older-bytes' }),
     });
 
-    await sync.syncOne(SEED, THUMB);
+    await make().syncOne(SEED, THUMB);
 
     expect(images.upload).toHaveBeenCalledTimes(1);
     expect(templates.update).toHaveBeenCalledWith('listing-1', AUTHOR, {
@@ -316,62 +420,33 @@ describe('TemplateSync', () => {
     expect(templates.review).toHaveBeenCalledTimes(1);
   });
 
-  it('writes changed content, waits for its event, then approves that watermark', async () => {
-    const { world, sync, templates, writeContent } = setup({
-      listing: listingRow({ reviewedContentAt: new Date(500) }),
+  it('rewrites changed content, waits for its event, then approves that watermark', async () => {
+    const { world, make, templates, writeContent } = setup({
+      listing: listingRow(),
       record: recordRow({ contentHash: 'old-content' }),
+      eventDelayReads: 4,
     });
-    let reads = 0;
-    world.onRead = (w) => {
-      // The event lands on the third poll, a little after the write.
-      if (++reads === 3) landEvent(w, w.clock + 1);
-    };
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('approved');
     expect(writeContent).toHaveBeenCalledWith(DOC_ID, SEED.content);
-    const at = world.listing!.reviewedContentAt!.toISOString();
+    const at = new Date(world.yorkieClock).toISOString();
     expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
       decision: 'approve',
       contentAt: at,
     });
-    expect(world.record).toMatchObject({
-      contentHash: CONTENT_HASH,
-      contentWrittenAt: null,
-    });
-    expect(world.record!.appliedAt.toISOString()).toBe(at);
+    expect(world.record!.appliedAt!.toISOString()).toBe(at);
+    expect(world.record!.contentHash).toBe(CONTENT_HASH);
   });
 
-  it('fails loudly when the event never lands, and the next run resumes', async () => {
-    const { world, sync, templates } = setup({
-      listing: listingRow(),
-      record: recordRow({ contentHash: 'old-content' }),
-    });
-
-    const first = await sync.syncOne(SEED, THUMB);
-
-    expect(first.result).toBe('failed');
-    expect(first.detail).toMatch(/no content event/);
-    expect(templates.review).not.toHaveBeenCalled();
-    // The write is remembered, so the next run waits instead of rewriting.
-    expect(world.record?.contentHash).toBe(CONTENT_HASH);
-    expect(world.record?.contentWrittenAt).not.toBeNull();
-
-    landEvent(world, world.clock);
-    const second = await sync.syncOne(SEED, THUMB);
-
-    expect(second.result).toBe('approved');
-    expect(templates.review).toHaveBeenCalledTimes(1);
-  });
-
-  it('approves a pending seed with equal hashes (an interrupted run)', async () => {
-    const { sync, templates } = setup({
+  it('approves a pending seed whose watermark is still its own (an interrupted run)', async () => {
+    const { make, templates } = setup({
       listing: listingRow({ visibility: 'unlisted', status: 'pending' }),
       record: recordRow(),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome).toMatchObject({
       result: 'approved',
@@ -382,12 +457,12 @@ describe('TemplateSync', () => {
   });
 
   it('resubmits and approves a rejected seed below the public tier', async () => {
-    const { sync, templates } = setup({
+    const { make, templates } = setup({
       listing: listingRow({ visibility: 'unlisted', status: 'rejected' }),
       record: recordRow(),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('approved');
     expect(templates.submit).toHaveBeenCalledTimes(1);
@@ -395,30 +470,31 @@ describe('TemplateSync', () => {
   });
 
   it('skips a removed listing without calling the service', async () => {
-    const { sync, templates, images, writeContent } = setup({
+    const { make, templates, images, writeContent } = setup({
       listing: listingRow({ status: 'removed', visibility: 'unlisted' }),
       record: recordRow({ contentHash: 'old', cardHash: 'old' }),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('skipped');
     expect(images.upload).not.toHaveBeenCalled();
     expect(writeContent).not.toHaveBeenCalled();
-    for (const fn of Object.values(templates))
+    for (const fn of Object.values(templates)) {
       expect(fn).not.toHaveBeenCalled();
+    }
   });
 
   it('refuses to approve content somebody else edited after it was applied', async () => {
-    const { sync, templates } = setup({
+    const { make, templates } = setup({
       listing: listingRow({
         status: 'pending',
         contentChangedAt: new Date(2_000),
       }),
-      record: recordRow({ appliedAt: new Date(1_000) }),
+      record: recordRow(),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('failed');
     expect(outcome.detail).toMatch(/edited by someone else/);
@@ -426,9 +502,9 @@ describe('TemplateSync', () => {
   });
 
   it('refuses a thumbnail rendered from other content', async () => {
-    const { sync, templates, images } = setup();
+    const { make, templates, images } = setup();
 
-    const outcome = await sync.syncOne(SEED, {
+    const outcome = await make().syncOne(SEED, {
       ...THUMB,
       contentHash: 'stale',
     });
@@ -439,12 +515,12 @@ describe('TemplateSync', () => {
   });
 
   it('skips a pending listing whose card it has not applied', async () => {
-    const { sync, templates } = setup({
+    const { make, templates } = setup({
       listing: listingRow({ status: 'pending' }),
       record: recordRow({ cardHash: 'old-card' }),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('skipped');
     expect(templates.update).not.toHaveBeenCalled();
@@ -452,28 +528,23 @@ describe('TemplateSync', () => {
   });
 
   it('skips a public rejected listing, which the service cannot resubmit', async () => {
-    const { sync, templates } = setup({
+    const { make, templates } = setup({
       listing: listingRow({ status: 'rejected' }),
       record: recordRow(),
     });
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('skipped');
     expect(templates.submit).not.toHaveBeenCalled();
   });
 
   it('treats a listing without a record as entirely changed', async () => {
-    const { world, sync, templates, images, writeContent } = setup({
-      listing: listingRow({ reviewedContentAt: new Date(500) }),
+    const { make, templates, images, writeContent } = setup({
+      listing: listingRow(),
     });
-    world.onRead = (w) => {
-      if (w.record?.contentWrittenAt && !w.listing!.contentChangedAt) {
-        landEvent(w, w.clock);
-      }
-    };
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome.result).toBe('approved');
     expect(images.upload).toHaveBeenCalledTimes(1);
@@ -483,13 +554,44 @@ describe('TemplateSync', () => {
   });
 
   it('deletes the uploaded thumbnail when publishing fails', async () => {
-    const { sync, templates, images } = setup();
+    const { make, templates, images } = setup();
     templates.publish.mockRejectedValueOnce(new Error('boom'));
 
-    const outcome = await sync.syncOne(SEED, THUMB);
+    const outcome = await make().syncOne(SEED, THUMB);
 
     expect(outcome).toMatchObject({ result: 'failed', detail: 'boom' });
     expect(images.delete).toHaveBeenCalledWith('new-thumb.webp');
+  });
+
+  describe('authorization lives in the class, not only the CLI', () => {
+    it('refuses an author outside the reviewer allowlist', () => {
+      const { make } = setup(
+        {},
+        { ...GOOD_CONFIG, WAFFLEBASE_TEMPLATE_REVIEWER_IDS: '1,2' },
+      );
+      expect(make).toThrow(/not in WAFFLEBASE_TEMPLATE_REVIEWER_IDS/);
+    });
+
+    it('refuses a deployment whose Yorkie auth webhook is not enforced', () => {
+      const { make } = setup(
+        {},
+        { WAFFLEBASE_TEMPLATE_REVIEWER_IDS: `${AUTHOR}` },
+      );
+      expect(make).toThrow();
+    });
+
+    it('re-checks before each seed, so a run cannot outlive a revoked author', async () => {
+      const config = { ...GOOD_CONFIG };
+      const { make, templates } = setup({}, config);
+      const sync = make();
+      config.WAFFLEBASE_TEMPLATE_REVIEWER_IDS = '99';
+
+      const outcome = await sync.syncOne(SEED, THUMB);
+
+      expect(outcome.result).toBe('failed');
+      expect(templates.publish).not.toHaveBeenCalled();
+      expect(templates.review).not.toHaveBeenCalled();
+    });
   });
 });
 

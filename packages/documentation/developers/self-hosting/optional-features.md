@@ -155,6 +155,8 @@ Reviewers decide submissions at `/admin/templates` and are notified when one arr
    pnpm backend sync:templates:build --author <userId> --thumbnails thumbs/
    ```
 
+This step writes each template's content and approves only once the Yorkie event webhook (`/internal/yorkie/events`) has reported that write back, so that webhook must be registered on your Yorkie project. Without it, every template fails with a message saying so and nothing is approved.
+
 Run steps 2 and 3 again whenever the catalogue changes: the last command only updates what changed and re-approves it, and keeps every preview link already handed out. Slides and note templates are published today; spreadsheet, board, and document templates are skipped until their thumbnails can be rendered offline.
 
 ## Related

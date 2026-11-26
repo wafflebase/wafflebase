@@ -5,8 +5,7 @@ CREATE TABLE "TemplateSeedRecord" (
     "contentHash" TEXT NOT NULL,
     "cardHash" TEXT NOT NULL,
     "thumbnailHash" TEXT NOT NULL,
-    "appliedAt" TIMESTAMP(3) NOT NULL,
-    "contentWrittenAt" TIMESTAMP(3),
+    "appliedAt" TIMESTAMP(3),
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "TemplateSeedRecord_pkey" PRIMARY KEY ("documentId")

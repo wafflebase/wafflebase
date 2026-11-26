@@ -5,6 +5,11 @@ import type {
 } from '@prisma/client';
 import type { PrismaService } from '../../database/prisma.service';
 import type { ImageService } from '../../image/image.service';
+import {
+  assertPublicTierOpen,
+  assertYorkieAuthEnforced,
+  parseReviewerIds,
+} from '../template-review';
 import type { TemplateService } from '../template.service';
 import { seedCardHash, seedContentHash, seedDocumentId } from './seed-hash';
 import type { SeedContent, TemplateSeed } from './types';
@@ -55,6 +60,9 @@ export interface TemplateSyncDeps {
   templates: Pick<TemplateService, 'publish' | 'update' | 'submit' | 'review'>;
   images: Pick<ImageService, 'upload' | 'delete'>;
   writeContent: (documentId: string, content: SeedContent) => Promise<void>;
+  /** Reads `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` and `YORKIE_AUTH_WEBHOOK_ENFORCE`. */
+  config: { get<T = string>(key: string): T | undefined };
+  /** Measures elapsed time while waiting; never compared with Yorkie's. */
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -89,6 +97,31 @@ export class TemplateSync {
     this.now = deps.now ?? (() => new Date());
     this.sleep =
       deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.assertAuthorized();
+  }
+
+  /**
+   * The gates `review(approve)` relies on its HTTP route for. The reviewer
+   * allowlist is enforced by `TemplateReviewerGuard` on the route, not inside
+   * `TemplateService.review()`, so any in-process caller of this class has to
+   * be held to it here — not only the CLI entry that happens to construct it.
+   * Checked at construction (fail before touching anything) and again before
+   * every seed, since a setting can change during a long run.
+   */
+  private assertAuthorized(): void {
+    const reviewers = parseReviewerIds(
+      this.deps.config.get<string>('WAFFLEBASE_TEMPLATE_REVIEWER_IDS'),
+    );
+    if (!reviewers.has(this.options.authorId)) {
+      throw new Error(
+        `User ${this.options.authorId} is not in WAFFLEBASE_TEMPLATE_REVIEWER_IDS; ` +
+          'only a reviewer may approve seeded templates.',
+      );
+    }
+    assertPublicTierOpen();
+    assertYorkieAuthEnforced(
+      this.deps.config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'),
+    );
   }
 
   /**
@@ -118,6 +151,7 @@ export class TemplateSync {
     seed: TemplateSeed,
     thumbnail: SeedThumbnail,
   ): Promise<{ result: SyncResult; detail: string }> {
+    this.assertAuthorized();
     const { prisma } = this.deps;
     const documentId = seedDocumentId(seed.slug);
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
@@ -149,27 +183,30 @@ export class TemplateSync {
       throw new SeedStop('skipped', 'removed by a reviewer; left alone');
     }
 
+    // No record, or no observed write of ours, counts as content changed: an
+    // approval may only attest to content this command wrote and saw land.
+    // A first publish therefore writes the catalogue content too, rather
+    // than trusting whatever `seed:templates` (or anyone since) left there.
+    const contentChanged =
+      !record || !record.appliedAt || record.contentHash !== contentHash;
     let applied: 'published' | 'updated' | null = null;
 
     if (!listing) {
       listing = await this.publish(documentId, seed, thumbnail);
       record = await this.saveRecord(documentId, seed.slug, {
-        contentHash,
+        contentHash: record?.contentHash ?? '',
         cardHash,
         thumbnailHash: thumbnail.sha256,
-        appliedAt: this.now(),
-        contentWrittenAt: null,
+        appliedAt: record?.appliedAt ?? null,
       });
       applied = 'published';
     } else {
       this.assertResubmittable(listing);
 
       // A missing record — a listing this command did not create, such as one
-      // `register:templates` made — counts as everything changed, so the
-      // command attests only to state it applied itself.
+      // the retired Playwright command made — counts as everything changed.
       const cardChanged = record?.cardHash !== cardHash;
       const thumbnailChanged = record?.thumbnailHash !== thumbnail.sha256;
-      const contentChanged = record?.contentHash !== contentHash;
 
       if (cardChanged || thumbnailChanged) {
         // `assertCardEditable` refuses a card edit while a submission is under
@@ -193,47 +230,39 @@ export class TemplateSync {
           contentHash: record?.contentHash ?? '',
           cardHash,
           thumbnailHash: thumbnail.sha256,
-          appliedAt: record?.appliedAt ?? this.now(),
-          contentWrittenAt: record?.contentWrittenAt ?? null,
+          appliedAt: record?.appliedAt ?? null,
         });
         applied = 'updated';
       }
+    }
 
-      if (contentChanged) {
-        const writtenAt = this.now();
-        await this.deps.writeContent(documentId, seed.content);
-        record = await this.saveRecord(documentId, seed.slug, {
-          contentHash,
-          cardHash: record?.cardHash ?? cardHash,
-          thumbnailHash: record?.thumbnailHash ?? thumbnail.sha256,
-          appliedAt: record?.appliedAt ?? writtenAt,
-          contentWrittenAt: writtenAt,
-        });
-        applied = 'updated';
-      }
+    if (contentChanged) {
+      // After the listing exists, so this write's event is recorded on it
+      // (`TemplateReviewSyncService` keeps a watermark only for a document
+      // with a listing). The baseline is read just before the write and is
+      // compared only with Yorkie-issued instants — never with this
+      // process's clock.
+      const baseline = (await this.readListing(documentId)).contentChangedAt;
+      await this.deps.writeContent(documentId, seed.content);
+      const observed = await this.awaitContentEvent(documentId, baseline);
+      record = await this.saveRecord(documentId, seed.slug, {
+        contentHash,
+        cardHash: record?.cardHash ?? cardHash,
+        thumbnailHash: record?.thumbnailHash ?? thumbnail.sha256,
+        appliedAt: observed.contentChangedAt,
+      });
+      applied ??= 'updated';
     }
 
     // ---- Approval ----------------------------------------------------------
-    if (!record) {
-      // Unreachable: every branch above leaves a record. Guarded so that an
-      // approval can never happen for a seed this command has no state for.
-      throw new SeedStop('failed', 'no seed record; nothing to attest');
-    }
-
-    if (record.contentWrittenAt) {
-      listing = await this.awaitContentEvent(
-        documentId,
-        record.contentWrittenAt,
+    // Every approval echoes a watermark this command observed for its own
+    // write. Without one there is nothing it may attest to.
+    const attested = record?.appliedAt;
+    if (!record || !attested) {
+      throw new SeedStop(
+        'failed',
+        'no observed content write to attest to; not approving',
       );
-      // What this command attests to from here on is the watermark its own
-      // write produced, not the wall-clock time it wrote at.
-      record = await this.saveRecord(documentId, seed.slug, {
-        contentHash: record.contentHash,
-        cardHash: record.cardHash,
-        thumbnailHash: record.thumbnailHash,
-        appliedAt: listing.contentChangedAt!,
-        contentWrittenAt: null,
-      });
     }
 
     listing = await this.readListing(documentId);
@@ -242,15 +271,15 @@ export class TemplateSync {
     }
     this.assertResubmittable(listing);
 
-    // An operator does not attest to content it did not write.
-    if (
-      listing.contentChangedAt &&
-      listing.contentChangedAt.getTime() > record.appliedAt.getTime()
-    ) {
+    // An operator does not attest to content it did not write. Equality of
+    // two Yorkie-issued instants: any later event means the document is no
+    // longer what this command wrote.
+    if (listing.contentChangedAt?.getTime() !== attested.getTime()) {
       throw new SeedStop(
         'failed',
-        `edited by someone else at ${listing.contentChangedAt.toISOString()}, ` +
-          'after this command last applied it; not approving',
+        'edited by someone else (content watermark ' +
+          `${listing.contentChangedAt?.toISOString() ?? 'none'}, this command ` +
+          `wrote ${attested.toISOString()}); not approving`,
       );
     }
 
@@ -262,9 +291,9 @@ export class TemplateSync {
 
     const { authorId } = this.options;
     if (listing.status !== 'pending') {
-      // `listed` below the public tier (an interrupted first run) or
-      // `rejected`. Quiet: this run decides the submission itself, and a
-      // queued notification per seed would bury the reviewers' bell.
+      // `listed` below the public tier (a first publish, or an interrupted
+      // one) or `rejected`. Quiet: this run decides the submission itself,
+      // and a queued notification per seed would bury the reviewers' bell.
       await this.deps.templates.submit(
         listing.id,
         authorId,
@@ -274,10 +303,10 @@ export class TemplateSync {
     }
 
     // By listing id — never a title match — and echoing the watermark this
-    // command just checked, which `review()` re-checks under its own CAS.
+    // command observed, which `review()` re-checks under its own CAS.
     await this.deps.templates.review(listing.id, authorId, {
       decision: 'approve',
-      contentAt: listing.contentChangedAt?.toISOString(),
+      contentAt: attested.toISOString(),
     });
     return {
       result: applied === 'published' ? 'published' : 'approved',
@@ -384,46 +413,51 @@ export class TemplateSync {
   }
 
   /**
-   * Wait for the `DocumentRootChanged` event of this command's own write.
+   * Wait for the `DocumentRootChanged` event of this command's own write: the
+   * listing's `contentChangedAt` strictly advancing past `baseline`, the value
+   * read just before the write. Both sides are Yorkie-issued instants, so the
+   * sync host's clock never enters the comparison; this process's clock only
+   * measures how long it has waited.
    *
-   * The event is what moves an approved listing back to `pending`
-   * (`TemplateReviewSyncService`), so approving before it lands would be
-   * undone by it. Two halves: the watermark reaching the write, and — for a
-   * listing that was public and listed — the status flip that follows it in
-   * the same request.
+   * The event is also what moves an approved listing back to `pending`
+   * (`TemplateReviewSyncService`), so for a listing that was public and
+   * listed the wait includes the status flip that follows the watermark in
+   * the same request — approving before it would be undone by it.
+   *
+   * Fails closed: an event never observed (an unregistered event webhook)
+   * leaves no watermark to attest to, so the seed is not approved.
    */
   private async awaitContentEvent(
     documentId: string,
-    writtenAt: Date,
+    baseline: Date | null,
   ): Promise<TemplateListing & { contentChangedAt: Date }> {
+    const advanced = (l: TemplateListing | null): boolean =>
+      !!l?.contentChangedAt &&
+      (baseline === null || l.contentChangedAt.getTime() > baseline.getTime());
     const deadline = this.now().getTime() + this.options.eventTimeoutMs;
     let last: TemplateListing | null = null;
     for (;;) {
       last = await this.deps.prisma.templateListing.findUnique({
         where: { documentId },
       });
-      const observed =
-        !!last?.contentChangedAt &&
-        last.contentChangedAt.getTime() >= writtenAt.getTime();
       const flipped =
         !!last && !(last.visibility === 'public' && last.status === 'listed');
-      if (last && observed && flipped) {
+      if (advanced(last) && flipped) {
         return last as TemplateListing & { contentChangedAt: Date };
       }
       if (this.now().getTime() >= deadline) break;
       await this.sleep(this.options.pollIntervalMs);
     }
-    const observed =
-      !!last?.contentChangedAt &&
-      last.contentChangedAt.getTime() >= writtenAt.getTime();
     throw new SeedStop(
       'failed',
-      observed
+      advanced(last)
         ? 'the content event landed but the listing never returned to review; ' +
           'not approving'
-        : `no content event within ${Math.round(this.options.eventTimeoutMs / 1000)}s ` +
-          'of writing (is the Yorkie event webhook registered?); the next run ' +
-          'resumes the wait',
+        : 'wrote the content but observed no DocumentRootChanged event within ' +
+          `${Math.round(this.options.eventTimeoutMs / 1000)}s. Register the ` +
+          'Yorkie event webhook (POST /internal/yorkie/events) on the project; ' +
+          'without it nothing can be attested. Not approving; the next run ' +
+          'rewrites and waits again',
     );
   }
 

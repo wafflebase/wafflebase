@@ -433,11 +433,29 @@ Where the shipped command differs from the proposal above, and why:
   rendered from into its manifest, and `sync:templates` refuses a thumbnail
   whose hash no longer matches the catalogue. `rendererVersion` is not
   computed; a renderer change shows up as different bytes.
-- **`TemplateSeedRecord` has one more column, `contentWrittenAt`.**
-  `appliedAt` is the watermark attested to — the `contentChangedAt` observed
-  after the command's own write — and an interrupted wait has to be told apart
-  from somebody else's edit on the next run. With only `appliedAt`, our own
-  event and a stranger's both read as "later than `appliedAt`".
+- **`appliedAt` is a Yorkie instant, observed — never this host's clock.** A
+  write snapshots the listing's `contentChangedAt`, writes, and waits for the
+  watermark to strictly advance past the snapshot; that observed value is both
+  `appliedAt` and the `contentAt` sent to `review()`. Clock skew between the
+  sync host and Yorkie therefore cannot wedge a seed. `appliedAt` is nullable:
+  null means no write of ours has been observed, and nothing is approved. "Edited
+  by someone else" is the listing's watermark differing from `appliedAt`.
+- **Fails closed without the event webhook.** An event never observed within
+  `--event-timeout` fails the seed with a message naming the webhook, and no
+  approval is attempted — `review()` is never called with an undefined
+  `contentAt` for content this command wrote. The record keeps `appliedAt`
+  null, so the next run rewrites and waits again rather than resuming a wait
+  whose event it could not tell from a stranger's.
+- **First publish writes the content too.** "No record" is treated as "content
+  changed": publish (thumbnail attached), then write the catalogue content —
+  after the listing exists, since the watermark is kept only on a listing —
+  then wait for its event, submit, and approve that watermark. An approval
+  never attests to what `seed:templates`, or anyone since, left in the
+  document.
+- **Authorization lives in `TemplateSync`.** The reviewer allowlist (enforced
+  by a route guard, not inside `review()`) and the Yorkie-enforced setting are
+  checked by the class at construction and before every seed, so any in-process
+  caller is gated, not only the CLI.
 - **Two table rows cannot be reached through the service and are reported
   instead.** A `public` listing that a reviewer *rejected* after an edit
   cannot be resubmitted (`submit()` refuses `visibility: 'public'`), and a
@@ -452,10 +470,14 @@ Where the shipped command differs from the proposal above, and why:
   `skipped` in the manifest and left unpublished by `sync:templates`, per
   "fail that seed instead of publishing an icon-only card"; their renderers
   are Phase 2. A listing those types already have keeps its state.
-- **First publish trusts `seed:templates`.** A seed the command has never
-  written is published as `seed:templates` left it; a listing with no record
-  (one `register:templates` made) counts as entirely changed, so its content
-  is rewritten and re-approved once.
+- **A listing with no record** (one `register:templates` made) counts as
+  entirely changed, so its card, thumbnail and content are reapplied and
+  re-approved once.
+- **Known limitation:** the wait attributes the first watermark advance after
+  the snapshot to this write. An unrelated event landing in that window — a
+  stranger's edit, or a late event from `seed:templates`' own write — would be
+  attested instead; the next such event then moves the watermark past
+  `appliedAt` and the following run refuses with "edited by someone else".
 
 ### 4. Gallery browse v2
 

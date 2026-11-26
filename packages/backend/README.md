@@ -704,22 +704,26 @@ watermark it attests to (`appliedAt`), so a re-run does only what changed:
 
 | Listing | What the run does |
 | --- | --- |
-| none | upload thumbnail → `publish` (unlisted, licensed) → quiet `submit` → approve |
+| none | upload thumbnail → `publish` (unlisted, licensed) → write the catalogue content → wait for its event → quiet `submit` → approve that watermark |
 | public + listed, nothing changed | nothing |
 | card or thumbnail changed | `update` (returns it to review; the preview link is kept) → approve. Identical thumbnail bytes are not re-uploaded |
-| content changed | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
+| content changed, or no record of a write of ours | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
 | pending, nothing changed | approve (an interrupted run) |
 | rejected below the public tier | quiet `submit` → approve |
 | removed, or public + rejected | skipped and reported — moderation is never reversed, and the service cannot resubmit a public listing |
 | pending with a card it has not applied | skipped; decide it in `/admin/templates` first |
 
-It approves by listing id, only seeds it applied, echoing the `contentAt`
-watermark `review()` re-checks; a document whose content changed after the
-command last applied it was edited by somebody else, and the command refuses to
-approve it. A content write waits up to `--event-timeout` seconds (default 30)
-for the Yorkie event webhook and fails that seed loudly otherwise — the next
-run resumes the wait. Submissions are made without the reviewer notification,
-since the same run decides them. One run at a time: a
+Every approval attests only to content this command wrote and saw land. A write
+snapshots the listing's `contentChangedAt` first and waits, up to
+`--event-timeout` seconds (default 30), for it to strictly advance past that
+snapshot; the advanced value — a Yorkie-issued instant, never compared with
+this host's clock — is the `contentAt` echoed to `review()`. **It fails closed:**
+with the Yorkie event webhook unregistered no event arrives, nothing is
+approved, and the seed fails with a message saying so; the next run rewrites
+and waits again. Approval is by listing id, only for seeds with a record, and
+refused when the listing's watermark is anything other than the one this
+command observed — somebody else edited the document. Submissions are made
+without the reviewer notification, since the same run decides them. One run at a time: a
 `pg_try_advisory_lock` on a dedicated connection refuses a second run
 (`DATABASE_URL` must be a session-mode connection for that). A seed that fails
 does not stop the others; the run exits non-zero if any did.
@@ -728,16 +732,14 @@ does not stop the others; the run exits non-zero if any did.
 `YORKIE_AUTH_WEBHOOK_ENFORCE=true` the server demands, because a public
 listing's preview token would otherwise also grant write access — and
 `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the `--author`, who approves their
-own submissions. The reviewer guard sits on the HTTP route, so the command
-re-checks it; it mints no authority of its own. `seed:templates` needs no such
+own submissions. The reviewer guard sits on the HTTP route, so the
+`TemplateSync` class re-checks the allowlist and the enforcement setting itself
+— at construction and before every seed — rather than leaving it to the CLI
+that happens to call it; it mints no authority of its own. `seed:templates` needs no such
 ordering: it writes content through `YorkieService`, which authenticates to the
 webhook as this backend (`src/yorkie/yorkie-service-token.ts`), so its writes
 survive enforcement. The same token is what keeps the v1 content endpoints and
 `DocumentCopyService` working with the webhook methods registered.
-
-For a document it has never written, `sync:templates` trusts that
-`seed:templates` wrote the catalogue's content. After changing a seed's content
-before its first sync, run `seed:templates --force-content` first.
 
 #### Reports
 
