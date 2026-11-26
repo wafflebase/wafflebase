@@ -58,3 +58,15 @@
   merely stable: "two writes of the same content agree" is half the property,
   and the half that is easy to test. The other half — two different contents
   disagree — is the one an attacker reads.
+- PR review (CodeRabbit 18 inline + 2 outside-diff, panel round 4: 2 blocking).
+  All taken as fixes, except two panel claims rejected on evidence: "core
+  tests run in no CI lane" (`verify:fast` and the `core:test` lane run them)
+  and "make `--workspace` required" (the new manage-authority check is the
+  real boundary).
+- On this repo `@claude review` on a non-`agent/` branch still launched the
+  panel *and* its fix loop, which pushed 3 commits and hit its own bound.
+  Fetch before pushing after asking for a review.
+- Parallel agents sharing one scratchpad overwrote each other's commit
+  message files; give each agent its own subdirectory.
+- A failing DB e2e in a reused local database was a missing migration: run
+  integration suites on a fresh, migrated scratch database before blaming code.
