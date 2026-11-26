@@ -138,6 +138,33 @@ function cardReviewReset(
   };
 }
 
+/** Whether `dto` changes any card field of `listing` (tags excluded). */
+function changesCard(
+  listing: TemplateListing,
+  dto: PublishTemplateDto,
+): boolean {
+  return CARD_FIELDS.some(
+    (field) => dto[field] !== undefined && !isSame(dto[field], listing[field]),
+  );
+}
+
+/**
+ * A listing write that was conditioned on the status it was validated
+ * against matched no row: the status moved in between (a submission, a
+ * decision). `update` reports that as `P2025`; an `upsert` whose filtered
+ * lookup misses falls through to its create and collides on `documentId`
+ * (`P2002`).
+ */
+function isStaleListingWrite(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    (err.code === 'P2025' || err.code === 'P2002')
+  );
+}
+
+const STALE_CARD_EDIT =
+  'This template changed while you were editing it (it may have been submitted for review). Reload and try again';
+
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
  * `workspaceId` and `createdBy` are internal, and `previewToken` is a
@@ -403,22 +430,38 @@ export class TemplateService {
       shareLinkId,
     };
 
-    const listing = await this.prisma.templateListing.upsert({
-      where: { documentId },
-      create: {
-        documentId,
-        workspaceId: doc.workspaceId,
-        createdBy: userId,
-        ...data,
-      },
-      // The same re-review rule `update()` applies, and it has to be here too:
-      // `publish` is an upsert reachable on an *existing* listing, takes the
-      // same card fields, and preserves both `visibility: 'public'` and
-      // `status: 'listed'`. Without this it is a second, unguarded way to swap
-      // an approved gallery card for something else.
-      update: { ...data, ...cardReviewReset(existing, dto) },
-      include: LISTING_INCLUDE,
-    });
+    // On an existing listing the write is conditioned on the status read
+    // above. `assertCardEditable` and `cardReviewReset` both decided from that
+    // status, and `data` writes it back; a submission landing in between
+    // would otherwise have its frozen card replaced after the submitter (or
+    // `sync:templates`) checked it, and its `pending` reverted. Always, not
+    // only for card fields: this write carries `status` itself.
+    let listing: ListingWithRelations;
+    try {
+      listing = await this.prisma.templateListing.upsert({
+        where: existing
+          ? { documentId, status: existing.status }
+          : { documentId },
+        create: {
+          documentId,
+          workspaceId: doc.workspaceId,
+          createdBy: userId,
+          ...data,
+        },
+        // The same re-review rule `update()` applies, and it has to be here
+        // too: `publish` is an upsert reachable on an *existing* listing,
+        // takes the same card fields, and preserves both `visibility:
+        // 'public'` and `status: 'listed'`. Without this it is a second,
+        // unguarded way to swap an approved gallery card for something else.
+        update: { ...data, ...cardReviewReset(existing, dto) },
+        include: LISTING_INCLUDE,
+      });
+    } catch (err) {
+      if (existing && isStaleListingWrite(err)) {
+        throw new ConflictException(STALE_CARD_EDIT);
+      }
+      throw err;
+    }
     return toView(listing, true);
   }
 
@@ -442,24 +485,39 @@ export class TemplateService {
     }
     assertCardEditable(listing, dto);
 
-    const updated = await this.prisma.templateListing.update({
-      where: { id },
-      data: {
-        ...cardReviewReset(listing, dto),
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description }
-          : {}),
-        ...(dto.category !== undefined ? { category: dto.category } : {}),
-        ...(dto.tags !== undefined ? { tags: normalizeTags(dto.tags) } : {}),
-        ...(dto.thumbnailId !== undefined
-          ? { thumbnailId: dto.thumbnailId }
-          : {}),
-        ...(dto.visibility !== undefined ? { visibility } : {}),
-        ...(dto.acceptLicense ? { licensedAt: new Date() } : {}),
-      },
-      include: LISTING_INCLUDE,
-    });
+    // `assertCardEditable` read the status above; the write must not land on
+    // a different one. Without the condition a card edit that passed while
+    // the listing was `listed` could commit after a submission froze the card
+    // — after the submitter, or `sync:templates`, checked it — and `review()`
+    // would approve a card nobody reviewed. Card fields only: tags may change
+    // under review, so a tags-only edit is not refused by a concurrent submit.
+    const cardChanged = changesCard(listing, dto);
+    let updated: ListingWithRelations;
+    try {
+      updated = await this.prisma.templateListing.update({
+        where: cardChanged ? { id, status: listing.status } : { id },
+        data: {
+          ...cardReviewReset(listing, dto),
+          ...(dto.title !== undefined ? { title: dto.title } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description }
+            : {}),
+          ...(dto.category !== undefined ? { category: dto.category } : {}),
+          ...(dto.tags !== undefined ? { tags: normalizeTags(dto.tags) } : {}),
+          ...(dto.thumbnailId !== undefined
+            ? { thumbnailId: dto.thumbnailId }
+            : {}),
+          ...(dto.visibility !== undefined ? { visibility } : {}),
+          ...(dto.acceptLicense ? { licensedAt: new Date() } : {}),
+        },
+        include: LISTING_INCLUDE,
+      });
+    } catch (err) {
+      if (cardChanged && isStaleListingWrite(err)) {
+        throw new ConflictException(STALE_CARD_EDIT);
+      }
+      throw err;
+    }
     // A refreshed thumbnail replaces the old object rather than orphaning it —
     // "Update preview" is a repeatable action, so without this every press
     // leaks one publicly readable snapshot forever.
@@ -705,9 +763,14 @@ export class TemplateService {
             ...decided,
             status: 'listed',
             visibility: 'public',
-            // What the reviewer attested to. `isVisibleTo` compares the live
+            // What the reviewer attested to. `isVisibleTo` compares the
             // watermark against this, so an edit after approval hides the
-            // listing even if the webhook never fires.
+            // listing once its event has advanced `contentChangedAt`, even if
+            // the separate status flip to `pending` never lands. It does not
+            // help before that event arrives, or if it never does: the
+            // watermark only moves with the event, so until then the edited
+            // content is served (docs/design/template-catalog-scaling.md,
+            // "Residual window").
             reviewedContentAt: listing.contentChangedAt,
           }
         : dto.decision === 'reject'
@@ -1365,13 +1428,21 @@ function assertPublishable(visibility: string, current?: string): void {
  * Has this listing's content stayed where its reviewer left it?
  *
  * The second half of the bait-and-switch defence, and the half that does not
- * depend on a webhook having fired. `TemplateReviewSyncService` moves an edited
+ * depend on the status write. `TemplateReviewSyncService` handles an edit's
+ * event in two writes — it advances `contentChangedAt`, then moves an edited
  * public listing to `pending`, which is what removes it from the *collection*
- * query — but a status is only as good as the write that set it, and the event
- * webhook is per-project configuration that a deployment can simply not have
- * registered. This is a read-time re-check on the two paths where content
- * actually reaches somebody, so those fail closed rather than trusting a status
- * nobody may have written.
+ * query — and a status is only as good as the write that set it: the second
+ * can match nothing or never run. This is a read-time re-check on the two
+ * paths where content actually reaches somebody, so once the watermark has
+ * moved those fail closed rather than trusting a status nobody may have
+ * written.
+ *
+ * It is **not** independent of the event. `contentChangedAt` advances only
+ * when an edit's `DocumentRootChanged` event is processed, so before that
+ * event arrives — or forever, on a deployment that never registered the event
+ * webhook — this returns true and the edited content is served and copyable.
+ * Copies made in that window are not recalled
+ * (docs/design/template-catalog-scaling.md, "Residual window").
  *
  * A listing approved before these columns existed has neither, and is treated
  * as matching: the alternative is retroactively hiding every existing approval

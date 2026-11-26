@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { TemplateService } from './template.service';
 import * as reviewPolicy from './template-review';
 
@@ -41,7 +42,11 @@ const LISTING = {
 
 /** The shape `publish()` hands Prisma, so the upsert mock needs no casts. */
 type ListingFields = Record<string, unknown>;
-type UpsertArgs = { create: ListingFields; update: ListingFields };
+type UpsertArgs = {
+  where: ListingFields;
+  create: ListingFields;
+  update: ListingFields;
+};
 type UpdateArgs = { where: { id: string }; data: ListingFields };
 type UpsertReportArgs = {
   where: ListingFields;
@@ -663,13 +668,41 @@ describe('TemplateService.update', () => {
     await service.update('tpl-1', 7, { title: 'Renamed', category: 'finance' });
     expect(prisma.templateListing.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'tpl-1' },
+        // A card edit lands only on the status it was validated against.
+        where: { id: 'tpl-1', status: LISTING.status },
         data: expect.objectContaining({
           title: 'Renamed',
           category: 'finance',
         }) as unknown,
       }),
     );
+  });
+
+  it('does not condition a tags-only edit on the status', async () => {
+    // Tags may change under review, so a concurrent submission is no reason
+    // to refuse one.
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { tags: ['budget'] });
+    expect(prisma.templateListing.update.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+    });
+  });
+
+  it('refuses a card edit whose listing was submitted after it was read', async () => {
+    // The race: `update()` reads `listed` and passes `assertCardEditable`, a
+    // submission then freezes the card (and sync checks it), and only then
+    // does the title write run. Conditioned on the status read, it matches
+    // no row, so the frozen card is not swapped under the reviewer.
+    const { service, prisma } = makeService();
+    prisma.templateListing.update.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Record to update not found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      }),
+    );
+    await expect(
+      service.update('tpl-1', 7, { title: 'Swapped in' }),
+    ).rejects.toThrow(/changed while you were editing/);
   });
 
   it('leaves fields the body omits untouched', async () => {
@@ -1364,6 +1397,30 @@ describe('publish preserves the review state', () => {
     await service.publish('doc-1', 7, { tags: ['budget'] });
     const { update } = prisma.templateListing.upsert.mock.calls[0][0];
     expect(update.status).toBe('pending');
+  });
+
+  it('conditions a republish on the status it validated against', async () => {
+    const { service, prisma } = makeService();
+    await service.publish('doc-1', 7, { title: 'Renamed' });
+    expect(prisma.templateListing.upsert.mock.calls[0][0].where).toEqual({
+      documentId: 'doc-1',
+      status: LISTING.status,
+    });
+  });
+
+  it('refuses a republish whose listing was submitted after it was read', async () => {
+    // The filtered lookup misses, the upsert falls through to its create,
+    // and the create collides on the unique documentId.
+    const { service, prisma } = makeService();
+    prisma.templateListing.upsert.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    await expect(
+      service.publish('doc-1', 7, { title: 'Swapped in' }),
+    ).rejects.toThrow(/changed while you were editing/);
   });
 
   it('defaults a first publish to listed', async () => {

@@ -99,11 +99,16 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
 
   let onWrite: ((documentId: string) => void) | undefined;
 
-  function makeSync(authorId = ownerId): TemplateSync {
+  function makeSync(
+    authorId = ownerId,
+    service: ConstructorParameters<
+      typeof TemplateSync
+    >[0]['templates'] = templates,
+  ): TemplateSync {
     return new TemplateSync(
       {
         prisma,
-        templates,
+        templates: service,
         images: {
           upload: () =>
             Promise.resolve({ id: `${randomUUID()}.webp`, url: '/images/x' }),
@@ -392,6 +397,120 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
     const second = await listing();
     expect(second.id).not.toBe(first.id);
     expect(second).toMatchObject({ visibility: 'public', status: 'listed' });
+  });
+
+  describe('a card edit read before a submission and written after it', () => {
+    /**
+     * Make the service's next listing read return `stale` — the row as the
+     * editor saw it before the submission — while the database has moved on.
+     * That is the delayed write: validated against `listed`, landing on
+     * `pending`.
+     */
+    function readStaleOnce(stale: Awaited<ReturnType<typeof listing>>): void {
+      const original = prisma.templateListing.findUnique.bind(
+        prisma.templateListing,
+      );
+      jest
+        .spyOn(prisma.templateListing, 'findUnique')
+        .mockImplementationOnce((() => Promise.resolve(stale)) as never)
+        .mockImplementation(original as never);
+    }
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('is refused, so sync approves the card it checked', async () => {
+      // An unlisted listing (no record) that sync will submit and approve.
+      await templates.publish(DOC_ID, ownerId, {
+        title: SEED.title,
+        description: SEED.description,
+        category: SEED.category,
+        tags: SEED.tags,
+        thumbnailId: 'seed-thumb.webp',
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const beforeSubmit = await listing();
+      let delayed: Promise<unknown> | undefined;
+
+      // The edit's write lands after sync submitted and checked the frozen
+      // card, immediately before it approves.
+      const racing = {
+        publish: templates.publish.bind(templates),
+        update: templates.update.bind(templates),
+        submit: templates.submit.bind(templates),
+        assertCanManage: templates.assertCanManage.bind(templates),
+        notifyReviewQueued: templates.notifyReviewQueued.bind(templates),
+        review: async (...args: Parameters<TemplateService['review']>) => {
+          if (!delayed) {
+            readStaleOnce(beforeSubmit);
+            delayed = templates
+              .update(beforeSubmit.id, ownerId, { title: 'Swapped in' })
+              .catch((err: unknown) => err);
+            await delayed;
+          }
+          return templates.review(...args);
+        },
+      };
+
+      const outcome = await makeSync(ownerId, racing).syncOne(
+        SEED,
+        thumbnailFor(SEED),
+      );
+
+      expect(await delayed).toBeInstanceOf(ConflictException);
+      expect(outcome.result).toBe('approved');
+      expect(await listing()).toMatchObject({
+        title: SEED.title,
+        visibility: 'public',
+        status: 'listed',
+      });
+    });
+
+    it('is refused on the republish path too', async () => {
+      await templates.publish(DOC_ID, ownerId, {
+        title: SEED.title,
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const beforeSubmit = await listing();
+      await templates.submit(
+        beforeSubmit.id,
+        ownerId,
+        { acceptLicense: true },
+        { quiet: true },
+      );
+
+      readStaleOnce(beforeSubmit);
+      await expect(
+        templates.publish(DOC_ID, ownerId, { title: 'Swapped in' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await listing()).toMatchObject({
+        title: SEED.title,
+        status: 'pending',
+      });
+    });
+
+    it('still lets a tags-only edit through a concurrent submission', async () => {
+      await templates.publish(DOC_ID, ownerId, {
+        title: SEED.title,
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const beforeSubmit = await listing();
+      await templates.submit(
+        beforeSubmit.id,
+        ownerId,
+        { acceptLicense: true },
+        { quiet: true },
+      );
+
+      readStaleOnce(beforeSubmit);
+      await templates.update(beforeSubmit.id, ownerId, { tags: ['later'] });
+      expect(await listing()).toMatchObject({
+        tags: ['later'],
+        status: 'pending',
+      });
+    });
   });
 
   it('the review CAS the command relies on refuses a stale contentAt', async () => {

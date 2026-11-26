@@ -924,6 +924,48 @@ describe('TemplateSync', () => {
     });
   });
 
+  it('keeps the thumbnail and its record when the update committed but the re-read fails', async () => {
+    // The update attached the new thumbnail and then reported an error; the
+    // listing read that would tell the two cases apart fails too. Deleting
+    // the image here would leave the listing pointing at a missing object.
+    const { world, make, templates, images, prisma } = setup({
+      listing: listingRow(),
+      record: recordRow({ thumbnailHash: 'older-bytes' }),
+    });
+    templates.update.mockImplementationOnce(
+      (_id: string, _user: number, dto: CardDto) => {
+        world.listing = {
+          ...world.listing!,
+          ...dto,
+          status: 'pending',
+        } as TemplateListing;
+        // The next listing read — the error handler's — fails.
+        prisma.templateListing.findUnique.mockImplementationOnce(() =>
+          Promise.reject(new Error('db unreachable')),
+        );
+        return Promise.reject(new Error('lost the reply'));
+      },
+    );
+
+    const first = await make().syncOne(SEED, THUMB);
+
+    expect(first).toMatchObject({ result: 'failed', detail: 'lost the reply' });
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(world.record).toMatchObject({
+      thumbnailId: 'new-thumb.webp',
+      thumbnailHash: THUMB.sha256,
+    });
+
+    // And it resumes: the record matches what the listing shows.
+    const second = await make().syncOne(SEED, THUMB);
+    expect(second.result).toBe('approved');
+    expect(world.listing).toMatchObject({
+      status: 'listed',
+      visibility: 'public',
+      thumbnailId: 'new-thumb.webp',
+    });
+  });
+
   it('refuses to write a document the author does not manage', async () => {
     const { make, templates, writeContent, images } = setup({
       listing: listingRow({ visibility: 'unlisted' }),

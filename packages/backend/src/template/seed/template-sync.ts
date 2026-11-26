@@ -636,12 +636,22 @@ export class TemplateSync {
     } catch (err) {
       if (thumbnailId) {
         // An error is not proof the attachment did not commit. Only an
-        // upload the listing does not show is ours to discard; one it does
-        // show stays, and so does the record naming it.
-        const now = await this.deps.prisma.templateListing
-          .findUnique({ where: { documentId } })
-          .catch(() => null);
-        if (now?.thumbnailId !== thumbnailId) {
+        // upload a *successful* read shows is not attached is ours to
+        // discard; one it does show stays, and so does the record naming it.
+        // A read that itself fails proves nothing either way, so it keeps
+        // both: deleting a thumbnail the listing may show would leave it
+        // pointing at a missing image, while keeping an unattached one costs
+        // at most an orphaned object and a re-upload next run.
+        let shown: { attached: boolean } | null = null;
+        try {
+          const now = await this.deps.prisma.templateListing.findUnique({
+            where: { documentId },
+          });
+          shown = { attached: now?.thumbnailId === thumbnailId };
+        } catch {
+          shown = null;
+        }
+        if (shown && !shown.attached) {
           await this.discard(thumbnailId);
           // Put the record back to what the listing still shows.
           // Best-effort: a record left naming the discarded id only makes
