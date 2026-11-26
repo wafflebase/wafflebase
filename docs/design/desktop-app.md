@@ -321,10 +321,10 @@ Downloads need entitlements and review for what is a thin shell; the
 Microsoft Store adds a review cycle for no capability the installer lacks.
 Homebrew and winget manifests can point at the same assets later.
 
-**Where the manifest lives.** Every release carries `latest.json` and
+**Where the manifest lives.** Every release carries the update manifest, latest.json, and
 installers under stable names (`Wafflebase_universal.dmg`,
 `Wafflebase_x64-setup.exe`), so the app polls
-`releases/latest/download/latest.json` and download links use
+<https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json> and download links use
 `releases/latest/download/<name>`. The endpoint is compiled into every
 installed app and cannot move without a manual reinstall; a unit test pins
 it. The manifest's package URLs name the release's own tag, never `latest`,
@@ -333,7 +333,7 @@ so a download in flight cannot change under the app. A prerelease is never
 
 The manifest is uploaded last. Between publishing a release and the end of
 the desktop run (about half an hour, mostly notarization) the new "Latest"
-has no `latest.json` or installers: update checks get a 404 and try again the
+has no manifest or installers: update checks get a 404 and try again the
 next day, and download links are briefly dead. If the run fails for good,
 installed apps stay where they are until the next release.
 
