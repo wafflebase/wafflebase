@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { render } from '@testing-library/react';
 import { Document } from '@yorkie-js/sdk';
 import type { YorkieSlidesRoot } from '@/types/slides-document';
@@ -89,7 +90,7 @@ afterEach(() => {
 
 describe('SlidesView read-only remount', () => {
   it('rebuilds the editor when a share link is downgraded to viewer', () => {
-    const view = render(<SlidesView readOnly={false} />);
+    const view = render(<SlidesView readOnly={false} />, { wrapper: MemoryRouter });
     expect(initCalls).toEqual([false]);
 
     view.rerender(<SlidesView readOnly={true} />);
@@ -101,7 +102,7 @@ describe('SlidesView read-only remount', () => {
   });
 
   it('does not rebuild the editor when readOnly is unchanged', () => {
-    const view = render(<SlidesView readOnly={false} />);
+    const view = render(<SlidesView readOnly={false} />, { wrapper: MemoryRouter });
     expect(initCalls).toEqual([false]);
 
     view.rerender(<SlidesView readOnly={false} documentId="d1" />);

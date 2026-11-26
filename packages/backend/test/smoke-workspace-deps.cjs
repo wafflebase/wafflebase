@@ -25,11 +25,35 @@
 
 const path = require('node:path');
 
+/**
+ * What to `require` for one dependency: the package itself, or — for a
+ * subpath-only package like `@wafflebase/core`, whose `exports` map has no
+ * `.` entry — each JavaScript subpath it exports (`./tokens.css` is a
+ * stylesheet, not something Node loads).
+ */
+function entryPoints(name) {
+  // Read straight off the workspace link: an `exports` map that does not
+  // list `./package.json` refuses `require('<name>/package.json')`.
+  const manifest = require(
+    path.join(__dirname, '..', 'node_modules', name, 'package.json'),
+  );
+  const exportsMap = manifest.exports;
+  const keys =
+    exportsMap && typeof exportsMap === 'object' ? Object.keys(exportsMap) : [];
+  if (keys.length === 0 || keys.includes('.') || !keys[0].startsWith('./')) {
+    return [name];
+  }
+  return Object.keys(exportsMap)
+    .filter((key) => typeof exportsMap[key] === 'object')
+    .map((key) => `${name}/${key.slice(2)}`);
+}
+
 function main() {
   const manifest = require(path.join(__dirname, '..', 'package.json'));
   const specifiers = Object.keys(manifest.dependencies || {})
     .filter((name) => name.startsWith('@wafflebase/'))
-    .sort();
+    .sort()
+    .flatMap(entryPoints);
 
   if (specifiers.length === 0) {
     throw new Error(

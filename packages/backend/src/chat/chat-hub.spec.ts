@@ -1,7 +1,7 @@
 import { Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ChatBus } from './chat-bus';
-import { ChatHub, MEMBER_CACHE_TTL_MS } from './chat-hub';
+import { CHANNEL_CACHE_MAX, ChatHub, MEMBER_CACHE_TTL_MS } from './chat-hub';
 import { ChatBusEvent, ChatHubEvent } from './chat.types';
 
 type MsgEvent = Extract<ChatBusEvent, { t: 'msg' }>;
@@ -19,7 +19,8 @@ function harness() {
   const resets = new Subject<void>();
   const members = new Map<string, number[]>();
   // Workspaces each user belongs to; a user not listed belongs to `w1`, the
-  // workspace every `msg()` event is in.
+  // workspace every `msg()` event is in. Workspace-wide routing (a public
+  // channel) considers users 1–5.
   const workspacesOf = new Map<number, string[]>();
   type Where = {
     channelId: string;
@@ -39,9 +40,33 @@ function harness() {
         .map((userId) => ({ userId })),
     );
   });
+  // Channel kinds; a channel not listed is private, so routing is by
+  // channel membership unless a test makes it public.
+  const kinds = new Map<string, 'public' | 'private' | 'dm'>();
+  const findChannel = jest.fn(({ where }: { where: { id: string } }) =>
+    Promise.resolve({
+      kind: kinds.get(where.id) ?? 'private',
+      workspaceId: 'w1',
+    }),
+  );
+  // Every user listed in `workspacesOf`, or any user id below 100 by default,
+  // is a member of `w1`; see `workspacesOf`.
+  const workspaceUsers = new Set<number>([1, 2, 3, 4, 5]);
+  const findWorkspaceMembers = jest.fn(
+    ({ where }: { where: { workspaceId: string } }) =>
+      Promise.resolve(
+        [...workspaceUsers]
+          .filter((userId) =>
+            (workspacesOf.get(userId) ?? ['w1']).includes(where.workspaceId),
+          )
+          .map((userId) => ({ userId })),
+      ),
+  );
   const bus = { events$: events, resets$: resets } as unknown as ChatBus;
   const prisma = {
     chatChannelMember: { findMany },
+    chatChannel: { findUnique: findChannel },
+    workspaceMember: { findMany: findWorkspaceMembers },
   } as unknown as PrismaService;
   const hub = new ChatHub(bus, prisma);
   hub.onModuleInit();
@@ -52,12 +77,24 @@ function harness() {
     return { seen, stop: () => sub.unsubscribe() };
   }
 
-  return { events, resets, members, workspacesOf, findMany, hub, collect };
+  return {
+    events,
+    resets,
+    members,
+    workspacesOf,
+    kinds,
+    workspaceUsers,
+    findMany,
+    findChannel,
+    findWorkspaceMembers,
+    hub,
+    collect,
+  };
 }
 
 /** Let the hub's sequential routing drain its pending cache loads. */
 async function flush(): Promise<void> {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
+  for (let i = 0; i < 30; i++) await Promise.resolve();
 }
 
 describe('ChatHub', () => {
@@ -320,5 +357,265 @@ describe('ChatHub', () => {
 
     expect(h.findMany).toHaveBeenCalledTimes(3);
     expect(a.seen.filter((e) => e.t === 'msg')).toEqual([]);
+  });
+  it('delivers a public channel event to every workspace member, joined or not', async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    h.members.set('pub', [1]);
+    // User 2 previews the channel without having joined it.
+    const member = h.collect(1);
+    const previewer = h.collect(2);
+    // User 9 belongs to another workspace only.
+    h.workspaceUsers.add(9);
+    h.workspacesOf.set(9, ['other']);
+    const outsider = h.collect(9);
+
+    h.events.next(msg('pub', 1));
+    await flush();
+
+    expect(member.seen).toEqual([msg('pub', 1)]);
+    expect(previewer.seen).toEqual([msg('pub', 1)]);
+    expect(outsider.seen).toEqual([]);
+    expect(h.findWorkspaceMembers.mock.calls[0][0].where).toEqual({
+      workspaceId: 'w1',
+    });
+  });
+
+  it('never routes a private channel or a DM to non-members', async () => {
+    const h = harness();
+    h.kinds.set('priv', 'private');
+    h.kinds.set('dm', 'dm');
+    h.members.set('priv', [1]);
+    h.members.set('dm', [1]);
+    const member = h.collect(1);
+    const outsider = h.collect(2);
+
+    h.events.next(msg('priv', 1));
+    h.events.next(msg('dm', 1));
+    h.events.next({ t: 'chn', c: 'priv', w: 'w1' });
+    await flush();
+
+    // The member did get all three, so the outsider's silence is withholding,
+    // not a router that delivers to nobody.
+    expect(member.seen).toEqual([
+      msg('priv', 1),
+      msg('dm', 1),
+      { t: 'chn', c: 'priv', w: 'w1' },
+    ]);
+    expect(outsider.seen).toEqual([]);
+    expect(h.findWorkspaceMembers).not.toHaveBeenCalled();
+  });
+
+  it('routes a channel metadata event like a message', async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    h.members.set('priv', [1]);
+    const a = h.collect(1);
+    const b = h.collect(2);
+
+    h.events.next({ t: 'chn', c: 'pub', w: 'w1' });
+    h.events.next({ t: 'chn', c: 'priv', w: 'w1' });
+    await flush();
+
+    expect(a.seen).toEqual([
+      { t: 'chn', c: 'pub', w: 'w1' },
+      { t: 'chn', c: 'priv', w: 'w1' },
+    ]);
+    expect(b.seen).toEqual([{ t: 'chn', c: 'pub', w: 'w1' }]);
+  });
+
+  it("uses the channel's own workspace, not the one an event names", async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    h.workspaceUsers.add(9);
+    h.workspacesOf.set(9, ['other']);
+    const reader = h.collect(1);
+    const outsider = h.collect(9);
+
+    h.events.next({ ...msg('pub', 1), w: 'other' });
+    await flush();
+
+    expect(reader.seen).toEqual([{ ...msg('pub', 1), w: 'other' }]);
+    expect(outsider.seen).toEqual([]);
+    expect(h.findWorkspaceMembers.mock.calls[0][0].where).toEqual({
+      workspaceId: 'w1',
+    });
+  });
+
+  it("re-reads a channel's kind on `chn`, on a reset, and after the TTL", async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const h = harness();
+      h.kinds.set('c', 'public');
+      const previewer = h.collect(2);
+
+      h.events.next(msg('c', 1));
+      await flush();
+      expect(previewer.seen).toEqual([msg('c', 1)]);
+
+      // Were a channel ever made private, its `chn` must stop the
+      // workspace-wide fan-out from that event on.
+      h.kinds.set('c', 'private');
+      h.events.next({ t: 'chn', c: 'c', w: 'w1' });
+      h.events.next(msg('c', 2));
+      await flush();
+      expect(previewer.seen).toEqual([msg('c', 1)]);
+      expect(h.findChannel).toHaveBeenCalledTimes(2);
+
+      // A reset forgets the kind as it forgets member sets.
+      h.kinds.set('c', 'public');
+      h.resets.next();
+      h.events.next(msg('c', 3));
+      await flush();
+      expect(previewer.seen).toEqual([
+        msg('c', 1),
+        { t: 'ready' },
+        msg('c', 3),
+      ]);
+      expect(h.findChannel).toHaveBeenCalledTimes(3);
+
+      // And an entry ages out, in case neither arrives.
+      h.kinds.set('c', 'private');
+      now.mockReturnValue(1_000_000 + MEMBER_CACHE_TTL_MS + 1);
+      h.events.next(msg('c', 4));
+      await flush();
+      expect(previewer.seen).toEqual([
+        msg('c', 1),
+        { t: 'ready' },
+        msg('c', 3),
+      ]);
+      expect(h.findChannel).toHaveBeenCalledTimes(4);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('caches workspace readers until any membership changes', async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    const removed = h.collect(2);
+
+    h.events.next(msg('pub', 1));
+    h.events.next(msg('pub', 2));
+    await flush();
+    expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(1);
+    expect(h.findChannel).toHaveBeenCalledTimes(1);
+
+    // Removing someone from the workspace announces `mem` for their
+    // channels (#general at least), which is not this channel.
+    h.workspacesOf.set(2, ['other']);
+    h.events.next({ t: 'mem', c: 'general' });
+    h.events.next(msg('pub', 3));
+    await flush();
+
+    expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(2);
+    expect(removed.seen).toEqual([msg('pub', 1), msg('pub', 2)]);
+  });
+
+  it('forgets cached workspace readers when the bus reconnects', async () => {
+    const h = harness();
+    h.kinds.set('pub', 'public');
+    const removed = h.collect(2);
+    h.events.next(msg('pub', 1));
+    await flush();
+
+    // Removed from the workspace while the LISTEN connection was down, so
+    // the `mem` that would have evicted the set never arrives.
+    h.workspacesOf.set(2, ['other']);
+    h.resets.next();
+    h.events.next(msg('pub', 2));
+    await flush();
+
+    expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(2);
+    expect(removed.seen).toEqual([msg('pub', 1), { t: 'ready' }]);
+  });
+
+  it('expires cached workspace readers', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const h = harness();
+      h.kinds.set('pub', 'public');
+      const removed = h.collect(2);
+      h.events.next(msg('pub', 1));
+      await flush();
+
+      const stays = h.collect(3);
+      h.workspacesOf.set(2, ['other']);
+      now.mockReturnValue(1_000_000 + MEMBER_CACHE_TTL_MS + 1);
+      h.events.next(msg('pub', 2));
+      await flush();
+
+      // The positive control: routing of msg 2 finished, through a fresh
+      // load, and the member who stayed got it.
+      expect(h.findWorkspaceMembers).toHaveBeenCalledTimes(2);
+      expect(stays.seen).toEqual([msg('pub', 2)]);
+      expect(removed.seen).toEqual([msg('pub', 1)]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('does not cache a channel kind read across a reconnect', async () => {
+    const h = harness();
+    h.kinds.set('c', 'public');
+    const previewer = h.collect(2);
+    let release: () => void = () => undefined;
+    h.findChannel.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          // The read saw `public`; it answers only after the reset below.
+          release = () => resolve({ kind: 'public', workspaceId: 'w1' });
+        }),
+    );
+
+    h.events.next(msg('c', 1));
+    await flush();
+    // The channel became private while the listener was down; that `chn`
+    // is lost.
+    h.kinds.set('c', 'private');
+    h.resets.next();
+    release();
+    await flush();
+    h.events.next(msg('c', 2));
+    await flush();
+
+    expect(previewer.seen).toEqual([{ t: 'ready' }]);
+    // The interrupted read is retried at once, and its answer is cached.
+    expect(h.findChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the channel cache', async () => {
+    const h = harness();
+    h.members.set('c0', [1]);
+    h.collect(1);
+    for (let i = 0; i < CHANNEL_CACHE_MAX; i++) {
+      h.events.next(msg(`c${i}`, 1));
+      await flush();
+    }
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX);
+
+    // Still cached: the cache holds exactly CHANNEL_CACHE_MAX entries.
+    h.events.next(msg('c0', 2));
+    await flush();
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX);
+
+    // One more channel overflows it and drops every entry, `c0` included.
+    h.events.next(msg('overflow', 1));
+    await flush();
+    h.events.next(msg('c0', 3));
+    await flush();
+    expect(h.findChannel).toHaveBeenCalledTimes(CHANNEL_CACHE_MAX + 2);
+  });
+
+  it('drops an event for a channel that no longer exists', async () => {
+    const h = harness();
+    const a = h.collect(1);
+    h.findChannel.mockResolvedValueOnce(null as never);
+
+    h.events.next(msg('gone', 1));
+    await flush();
+
+    expect(a.seen).toEqual([]);
+    expect(h.findMany).not.toHaveBeenCalled();
   });
 });

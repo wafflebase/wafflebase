@@ -54,6 +54,8 @@ import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
+import { useSendToChat } from "@/components/chat/use-send-to-chat";
+import { sheetSendToChatAnchor } from "./chat-anchor";
 import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import {
@@ -909,6 +911,17 @@ export function SheetView({
       await sheet.deleteColumns(sel.from, count);
     }
   }, []);
+
+  // "Send to chat": a link to the selection, anchored by the axis ids of its
+  // top-left cell (`chat-anchor.ts`). Selecting already grew the axis to
+  // cover it wherever this mount may write, so this only reads; where the
+  // ids are missing (a viewer past the written area) the link goes out
+  // document-level rather than pointing at the wrong cells.
+  const sendToChat = useSendToChat("sheet", documentId);
+  const handleSendToChat = useCallback(() => {
+    if (!sendToChat) return;
+    sendToChat(sheetSendToChatAnchor(sheetRef.current, doc?.getRoot(), tabId));
+  }, [sendToChat, doc, tabId]);
 
   // Open the comment popover/composer for the currently active cell,
   // even if the cell has no existing threads yet. Pin activeCellForComment
@@ -1904,6 +1917,7 @@ export function SheetView({
             }
           }}
           onInsertComment={readOnly ? undefined : openCommentComposerForActiveCell}
+          onSendToChat={sendToChat ? handleSendToChat : undefined}
           onOpenDataValidation={readOnly ? undefined : handleOpenDataValidation}
         >
           <div className="relative h-full w-full">

@@ -145,3 +145,16 @@ export function switcherItems(
   // Array.prototype.sort is stable, so ties keep sidebar order.
   return hits.sort((a, b) => starts(a) - starts(b));
 }
+
+/**
+ * What a channel row's badge or dot means, read after its name. The number
+ * is the one the badge shows (`channelCount`): the mentions when there are
+ * any, else a DM's unread.
+ */
+export function unreadDescription(channel: ChannelSummary): string | undefined {
+  const plural = (n: number, word: string) => `${n} unread ${word}${n === 1 ? "" : "s"}`;
+  if (channel.mentionCount > 0) return plural(channel.mentionCount, "mention");
+  if (channel.unreadCount <= 0) return undefined;
+  if (channel.kind === "dm") return plural(channel.unreadCount, "message");
+  return "unread messages";
+}

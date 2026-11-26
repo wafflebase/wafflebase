@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { fetchWithAuth, isAuthExpiredError } from "@/api/auth";
 import {
   CHAT_PAGE_SIZE,
   chatStreamUrl,
@@ -16,6 +17,7 @@ import {
   lastSeqOf,
   markMessageDeleted,
   mergeMessages,
+  parseStreamChannel,
   parseStreamMessage,
   parseStreamUpdate,
   replaceMessage,
@@ -47,6 +49,25 @@ export function getOpenChatChannel(): OpenChatChannel | null {
 const MAX_CATCH_UP_PAGES = 20;
 /** Coalesce channel-list refreshes when messages arrive in a burst. */
 const CHANNELS_REFRESH_MS = 1000;
+/** First wait before reopening a stream the browser gave up on. */
+const RECOVER_BASE_MS = 1000;
+/** Longest wait between attempts to reopen it. */
+const RECOVER_MAX_MS = 30_000;
+
+/**
+ * Whether the session can open a stream again. A stream the browser gave up
+ * on was most often answered 401 — the access cookie expired, say while the
+ * laptop slept — and `EventSource` cannot refresh it. `fetchWithAuth` does:
+ * it refreshes on a 401 and, when that fails too, signs out and throws
+ * `AuthExpiredError`. Anything else thrown (offline, a 5xx) is worth another
+ * try later.
+ */
+async function checkSession(): Promise<void> {
+  const res = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/auth/me`,
+  );
+  if (!res.ok) throw new Error(`session check answered ${res.status}`);
+}
 
 const inFlight = new Map<string, Promise<void>>();
 /**
@@ -230,13 +251,19 @@ export async function refreshMessage(
  *
  * The stream carries ids only. A `message` event marks another channel
  * unread, fetches what the open channel is missing, and invalidates a thread.
- * An `update` event (an edit or delete) refetches that one message.
+ * An `update` event (an edit or delete) refetches that one message, and a
+ * `channel` event (a rename, topic or archive change) the channel list.
  * `ready` arrives on every (re)connect, and again when the server's bus
  * listener reconnected. Anything may have been missed — appends, but also
  * edits and deletes — so it refreshes every channel list, re-reads the open
  * channel's whole loaded range in place (keeping the history scrolled back
  * through), and invalidates every thread and every other cached channel, which
  * then refetch when shown.
+ *
+ * When the browser gives up on the stream (`CLOSED`, usually a 401 after the
+ * access cookie expired) it is reopened here once the session checks out,
+ * backing off while it does not, and at once when the network or the tab
+ * comes back.
  */
 export function useChatStream(enabled: boolean): void {
   const queryClient = useQueryClient();
@@ -246,9 +273,6 @@ export function useChatStream(enabled: boolean): void {
     // load, they just do not update live.
     if (!enabled || typeof EventSource === "undefined") return;
 
-    const source = new EventSource(chatStreamUrl(), {
-      withCredentials: true,
-    });
     // One timer per workspace: a burst in one must not cancel another's
     // pending refresh.
     const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -308,8 +332,11 @@ export function useChatStream(enabled: boolean): void {
 
       if (channels) queryClient.setQueryData(listKey, outcome.channels);
       // The list orders DMs by recency and owns the mention count, and an
-      // unknown channel is a DM someone just opened with us.
-      scheduleChannelsRefresh(e.workspaceId);
+      // unknown channel is a DM someone just opened with us. A public
+      // channel the reader has not joined shows no counts, and its events
+      // reach every workspace member, so it does not refetch on each one.
+      const known = channels?.find((c) => c.id === e.channelId);
+      if (!known || known.isMember) scheduleChannelsRefresh(e.workspaceId);
 
       if (outcome.fetchAfter) {
         void catchUpChannel(
@@ -337,28 +364,112 @@ export function useChatStream(enabled: boolean): void {
       if (e) void refreshMessage(queryClient, e);
     };
 
+    const onChannel = (event: MessageEvent<string>) => {
+      const e = parseStreamChannel(event.data);
+      if (!e) return;
+      // A rename, topic or archive change: the list (and an open
+      // conversation's header and composer, which read it) follows.
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.channels(e.workspaceId),
+      });
+    };
+
+    const listeners: [string, EventListener][] = [
+      ["ready", (() => {
+        attempt = 0;
+        onReady();
+      }) as EventListener],
+      ["message", onMessage as EventListener],
+      ["update", onUpdate as EventListener],
+      ["channel", onChannel as EventListener],
+      ["error", (() => onError()) as EventListener],
+    ];
+
+    let source: EventSource | null = null;
+    let stopped = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // A session check in flight: `online` and the tab being shown often
+    // arrive together, and one check answers both.
+    let checking = false;
+
+    const connect = () => {
+      source = new EventSource(chatStreamUrl(), { withCredentials: true });
+      for (const [type, fn] of listeners) source.addEventListener(type, fn);
+    };
+    const disconnect = () => {
+      if (!source) return;
+      for (const [type, fn] of listeners) source.removeEventListener(type, fn);
+      source.close();
+      source = null;
+    };
+
+    // Check the session, then open a new stream; its `ready` catches up on
+    // whatever the outage swallowed. A failed check waits longer each time,
+    // up to `RECOVER_MAX_MS`, and keeps trying: the network coming back is
+    // also announced (`online`, the tab shown again), which tries at once.
+    const recover = async () => {
+      retryTimer = null;
+      if (checking) return;
+      checking = true;
+      try {
+        await checkSession();
+      } catch (err) {
+        checking = false;
+        if (stopped) return;
+        if (isAuthExpiredError(err)) {
+          // Signed out; `fetchWithAuth` is already sending them to log in.
+          setChatConnection("stopped");
+          return;
+        }
+        scheduleRecover();
+        return;
+      }
+      checking = false;
+      if (stopped || source) return;
+      connect();
+    };
+    const scheduleRecover = () => {
+      if (stopped || retryTimer) return;
+      const delay = Math.min(RECOVER_MAX_MS, RECOVER_BASE_MS * 2 ** attempt);
+      attempt += 1;
+      retryTimer = setTimeout(() => void recover(), delay);
+    };
+    const recoverNow = () => {
+      if (stopped || source || checking) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      attempt = 0;
+      void recover();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") recoverNow();
+    };
+
     // While CONNECTING the browser is retrying on its own; CLOSED means it
-    // gave up, and only a reload starts a new stream.
-    const onError = () => {
+    // gave up (a non-200 answer, typically a 401), and a new stream has to
+    // be opened here.
+    function onError() {
+      if (!source) return;
       if (source.readyState === EventSource.CLOSED) {
-        console.warn("[chat] stream closed; live updates stopped");
-        setChatConnection("stopped");
+        console.warn("[chat] stream closed; reopening");
+        disconnect();
+        setChatConnection("reconnecting");
+        scheduleRecover();
       } else {
         setChatConnection("reconnecting");
       }
-    };
+    }
 
-    source.addEventListener("ready", onReady);
-    source.addEventListener("message", onMessage as EventListener);
-    source.addEventListener("update", onUpdate as EventListener);
-    source.addEventListener("error", onError);
+    connect();
+    window.addEventListener("online", recoverNow);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      stopped = true;
       for (const timer of refreshTimers.values()) clearTimeout(timer);
-      source.removeEventListener("ready", onReady);
-      source.removeEventListener("message", onMessage as EventListener);
-      source.removeEventListener("update", onUpdate as EventListener);
-      source.removeEventListener("error", onError);
-      source.close();
+      if (retryTimer) clearTimeout(retryTimer);
+      window.removeEventListener("online", recoverNow);
+      document.removeEventListener("visibilitychange", onVisible);
+      disconnect();
       setChatConnection("connecting");
     };
   }, [enabled, queryClient]);

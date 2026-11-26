@@ -1,5 +1,8 @@
 /**
- * Platform detection helpers shared by the text-formatting toolbar components.
+ * Platform detection: whether this is a Mac (or iOS), where Mod is ⌘. The one
+ * sniff for every shortcut label and key binding — the text-formatting
+ * toolbars, the shortcuts help dialog, the chat page — so they cannot
+ * disagree.
  *
  * Evaluated once at module load time so the values are stable across renders.
  * The `typeof navigator` guard makes them safe in SSR / test environments where

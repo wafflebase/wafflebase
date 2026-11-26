@@ -1,9 +1,12 @@
+import type { ShortcutItem } from "@/components/shortcuts-help-dialog";
+
 export type ChatShortcut =
   | "prev"
   | "next"
   | "prev-unread"
   | "next-unread"
-  | "switcher";
+  | "switcher"
+  | "help";
 
 /**
  * The Chat page's own keys, Slack's bindings:
@@ -11,6 +14,7 @@ export type ChatShortcut =
  * - Alt+↑ / Alt+↓ — previous / next channel in sidebar order
  * - Alt+Shift+↑ / Alt+Shift+↓ — previous / next channel with unread
  * - Mod+K — the channel switcher
+ * - Mod+/ — the shortcut sheet
  *
  * Alt+arrows are taken even from the composer: there they would only jump
  * the caret to a paragraph edge, which Home/End and Mod+arrows also do.
@@ -35,7 +39,57 @@ export function chatShortcut(e: KeyboardEvent): ChatShortcut | null {
   ) {
     return "switcher";
   }
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.code === "Slash" || e.key === "/")
+  ) {
+    return "help";
+  }
   return null;
+}
+
+export const CHAT_SHORTCUT_CATEGORIES = [
+  "Channels",
+  "Composer",
+  "Messages",
+  "Help",
+] as const;
+
+/**
+ * The Chat page's shortcut sheet (Mod+/): the page's own keys above, the
+ * composer's, and the message log's roving keys (`useRovingMessages`).
+ */
+export const CHAT_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
+  { category: "Channels", keys: ["Mod+K"], description: "Jump to a channel or person" },
+  { category: "Channels", keys: ["Alt+↑", "Alt+↓"], description: "Previous / next channel" },
+  { category: "Channels", keys: ["Alt+Shift+↑", "Alt+Shift+↓"], description: "Previous / next unread channel" },
+
+  { category: "Composer", keys: ["Enter"], description: "Send" },
+  { category: "Composer", keys: ["Shift+Enter"], description: "New line" },
+  { category: "Composer", keys: ["@"], description: "Mention someone" },
+  { category: "Composer", keys: ["↑"], description: "Edit your last message (in an empty box)" },
+
+  { category: "Messages", keys: ["↑", "↓"], description: "Previous / next message" },
+  { category: "Messages", keys: ["Home", "End"], description: "First / last message" },
+  { category: "Messages", keys: ["Enter"], description: "Open the message's thread" },
+  { category: "Messages", keys: ["Esc"], description: "Back to the composer; close a thread" },
+
+  { category: "Help", keys: ["Mod+/"], description: "Show keyboard shortcuts" },
+];
+
+/** "Mod+Shift+K" as the platform writes it: "⌘⇧K" or "Ctrl+Shift+K". */
+export function formatChatCombo(combo: string, isMac: boolean): string {
+  return combo
+    .split("+")
+    .map((part) => {
+      if (part === "Mod") return isMac ? "⌘" : "Ctrl";
+      if (part === "Shift") return isMac ? "⇧" : "Shift";
+      if (part === "Alt") return isMac ? "⌥" : "Alt";
+      return part;
+    })
+    .join(isMac ? "" : "+");
 }
 
 /**

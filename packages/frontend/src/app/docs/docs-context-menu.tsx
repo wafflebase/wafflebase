@@ -6,7 +6,13 @@ import {
   useState,
 } from "react";
 import type { EditorAPI, SpellError } from "@wafflebase/docs";
-import { IconLink, IconScissors, IconCopy, IconClipboard } from "@tabler/icons-react";
+import {
+  IconLink,
+  IconScissors,
+  IconCopy,
+  IconClipboard,
+  IconMessages,
+} from "@tabler/icons-react";
 import { InsertCommentMenuItem } from "./comments/InsertCommentMenuItem";
 import { modKey } from "@/components/text-formatting/platform";
 import {
@@ -28,6 +34,12 @@ interface Props {
   canComment: boolean;
   /** Called when the user picks "Add comment". Should run beginCompose. */
   onInsertComment: () => void;
+  /**
+   * "Send to chat", given the right-clicked point (for a bare caret, whose
+   * block is the one under the pointer). Omitted where there is no chat
+   * panel to send to. Not a write, so a read-only editor offers it too.
+   */
+  onSendToChat?: (point: MenuPosition) => void;
 }
 
 interface MenuPosition {
@@ -41,6 +53,8 @@ type SuggestionsState =
 
 interface OpenState {
   position: MenuPosition;
+  /** Where the user right-clicked; `position` is later clamped on screen. */
+  point: MenuPosition;
   spellErr: SpellError | undefined;
   hasSelection: boolean;
 }
@@ -49,8 +63,10 @@ interface OpenState {
  * Unified context menu for body (non-table) text: spell suggestions,
  * clipboard actions (cut/copy/paste), and insert actions (link + comment).
  *
- * In-table right-clicks are handled by DocsTableContextMenu and are
- * passed through here without interception (isInTable() guard).
+ * In-table right-clicks in an editable document are handled by
+ * DocsTableContextMenu and are passed through here without interception
+ * (isInTable() guard). A read-only editor has no table menu — every row of
+ * it is an edit — so there this menu takes in-table right-clicks too.
  *
  * Plain positioned overlay — Radix ContextMenu blocks Canvas pointer
  * events, so we replicate the same pattern used by DocsTableContextMenu
@@ -62,6 +78,7 @@ export function DocsContextMenu({
   readOnly = false,
   canComment,
   onInsertComment,
+  onSendToChat,
 }: Props) {
   const [open, setOpen] = useState<OpenState | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionsState | null>(null);
@@ -78,7 +95,7 @@ export function DocsContextMenu({
   const handleContextMenu = useCallback(
     (e: MouseEvent) => {
       if (!editor) return;
-      if (editor.isInTable()) return;
+      if (!readOnly && editor.isInTable()) return;
       e.preventDefault();
 
       const spellErr = readOnly
@@ -91,7 +108,7 @@ export function DocsContextMenu({
       // Paste always shows when editable, so it covers the group there. In
       // read-only the group is Copy alone, which needs a selection.
       const hasClipboardGroup = !readOnly || hasSelection;
-      const hasInsertGroup = !readOnly;
+      const hasInsertGroup = !readOnly || !!onSendToChat;
 
       // Don't open a blank overlay — every group is empty.
       if (!hasSpellGroup && !hasClipboardGroup && !hasInsertGroup) return;
@@ -100,7 +117,8 @@ export function DocsContextMenu({
       // from a prior open can never land in state after this new open.
       const gen = ++genRef.current;
 
-      setOpen({ position: { x: e.clientX, y: e.clientY }, spellErr, hasSelection });
+      const point = { x: e.clientX, y: e.clientY };
+      setOpen({ position: point, point, spellErr, hasSelection });
 
       if (spellErr && !readOnly) {
         setSuggestions({ status: "loading" });
@@ -115,7 +133,7 @@ export function DocsContextMenu({
         setSuggestions(null);
       }
     },
-    [editor, readOnly],
+    [editor, readOnly, onSendToChat],
   );
 
   useEffect(() => {
@@ -176,7 +194,7 @@ export function DocsContextMenu({
 
   if (!open) return null;
 
-  const { position, spellErr, hasSelection } = open;
+  const { position, point, spellErr, hasSelection } = open;
 
   // The highlight is focus, not hover: the pointer moves focus (see
   // `handleMenuPointerMove`), so the mouse and the arrow keys light the
@@ -217,8 +235,10 @@ export function DocsContextMenu({
   const hasClipboardGroup = showCut || showCopy || showPaste;
 
   // Insert actions — hidden in readOnly. Add link covers the group there, so
-  // it is non-empty whenever the editor is editable.
-  const hasInsertGroup = !readOnly;
+  // it is non-empty whenever the editor is editable. "Send to chat" sits with
+  // them and is the one entry a read-only editor keeps.
+  const showAddLink = !readOnly;
+  const hasInsertGroup = showAddLink || !!onSendToChat;
   // Insert comment: needs a selection *and* a session that can comment.
   // `beginCompose` has two preconditions and refuses on either, silently —
   // it anchors the thread to a text range, so it returns early for a bare
@@ -230,7 +250,7 @@ export function DocsContextMenu({
   // is hidden, and the table menu hides this same row on the same
   // conditions. The disabled style is reserved for the spell group's status
   // text ("Checking…"), which is not an action.
-  const showInsertComment = hasInsertGroup && hasSelection && canComment;
+  const showInsertComment = !readOnly && hasSelection && canComment;
 
   // Separators: only between groups that both exist
   const sepAfterSpell = hasSpellGroup && (hasClipboardGroup || hasInsertGroup);
@@ -326,16 +346,18 @@ export function DocsContextMenu({
       {/* ── Group 3: Insert ── */}
       {hasInsertGroup && (
         <>
-          <button
-            role="menuitem"
-            tabIndex={-1}
-            className={item}
-            onClick={act(() => editor!.requestLink())}
-          >
-            <IconLink size={iconSize} className="text-muted-foreground" />
-            Add link
-            <span className={shortcut}>{modKey}K</span>
-          </button>
+          {showAddLink && (
+            <button
+              role="menuitem"
+              tabIndex={-1}
+              className={item}
+              onClick={act(() => editor!.requestLink())}
+            >
+              <IconLink size={iconSize} className="text-muted-foreground" />
+              Add link
+              <span className={shortcut}>{modKey}K</span>
+            </button>
+          )}
           {showInsertComment && (
             <InsertCommentMenuItem
               className={item}
@@ -345,6 +367,22 @@ export function DocsContextMenu({
                 close();
               }}
             />
+          )}
+          {onSendToChat && (
+            <button
+              role="menuitem"
+              tabIndex={-1}
+              className={item}
+              // Not `act`: the chat panel's composer takes focus, and
+              // handing it back to the caret would pull it away again.
+              onClick={() => {
+                onSendToChat(point);
+                close();
+              }}
+            >
+              <IconMessages size={iconSize} className="text-muted-foreground" />
+              Send to chat
+            </button>
           )}
         </>
       )}

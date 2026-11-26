@@ -188,3 +188,100 @@ describe("MessageLine on a coarse pointer", () => {
     expect(screen.getByRole("group", { name: "Confirm delete" })).toBeInTheDocument();
   });
 });
+
+describe("MessageLine tap to select on a coarse pointer", () => {
+  beforeEach(() => setPointer(true));
+
+  it("selects the row on a tap, which shows its actions trigger", () => {
+    const { line } = renderLine(msg());
+    const trigger = screen.getByRole("button", { name: "Message actions" });
+    // Not sr-only: a sighted finger has to be able to find it.
+    expect(trigger).not.toHaveClass("sr-only");
+    expect(trigger).toHaveClass("group-focus-within/message:opacity-100");
+    fireEvent.click(line.querySelector("p, span, div")!);
+    expect(line).toHaveFocus();
+  });
+
+  it("leaves a tap on a control in the row to that control", () => {
+    const { line, onOpenThread } = renderLine(msg({ replyCount: 2 }));
+    fireEvent.click(screen.getByRole("button", { name: /2 replies/ }));
+    expect(onOpenThread).toHaveBeenCalledWith("m1");
+    expect(line).not.toHaveFocus();
+  });
+});
+
+describe("a failed send", () => {
+  beforeEach(() => setPointer(false));
+
+  const failed = (failure?: { reason: string | null; retryable: boolean }) =>
+    ({
+      ...msg({ id: "local-k1" }),
+      localState: "failed",
+      clientId: "k1",
+      failure,
+    }) as ChatMessageDto;
+
+  it("offers Retry and Discard when sending again may work", () => {
+    renderLine(failed());
+    expect(screen.getByText("Not sent")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("says why and offers only Discard when the server refused it for good", () => {
+    renderLine(
+      failed({ reason: "This channel is archived, so it no longer takes messages.", retryable: false }),
+    );
+    expect(
+      screen.getByText("This channel is archived, so it no longer takes messages."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("tells a reader who is sending too fast to slow down, and still offers Retry", () => {
+    renderLine(
+      failed({
+        reason: "You're sending messages too quickly. Wait a moment and try again.",
+        retryable: true,
+      }),
+    );
+    expect(screen.getByText(/sending messages too quickly/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});
+
+describe("EditBox", () => {
+  beforeEach(() => setPointer(false));
+
+  it("measures the limit after picked mentions expand", async () => {
+    render(
+      <ol>
+        <MessageGroupView
+          group={{ author: msg().author, first: msg(), rest: [] }}
+          workspaceId="w1"
+          me={1}
+          editingId="m1"
+          onEdit={vi.fn()}
+          members={[{ userId: "123456", username: "minji" }]}
+        />
+      </ol>,
+    );
+    const box = screen.getByRole("combobox", { name: "Edit message" });
+    const save = screen.getByRole("button", { name: "Save" });
+    // `@minji` (6) becomes `@[minji](123456)` (16) when saved.
+    const prefix = "x".repeat(4000 - 7);
+    fireEvent.change(box, {
+      target: { value: `${prefix} @min`, selectionStart: prefix.length + 5 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /minji/ }));
+    // As typed it is exactly the limit; as saved it is ten over.
+    expect(box).toHaveValue(`${prefix} @minji `);
+    expect(save).toBeDisabled();
+    expect(box).toHaveAttribute("aria-invalid", "true");
+
+    // Ten characters shorter, it fits as saved.
+    fireEvent.change(box, { target: { value: `${prefix.slice(10)} @minji ` } });
+    expect(save).toBeEnabled();
+  });
+});

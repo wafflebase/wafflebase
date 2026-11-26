@@ -25,11 +25,13 @@ function Wrapper({
   readOnly = false,
   canComment = true,
   onInsertComment,
+  onSendToChat,
 }: {
   editor: EditorAPI;
   readOnly?: boolean;
   canComment?: boolean;
   onInsertComment?: () => void;
+  onSendToChat?: (point: { x: number; y: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   return (
@@ -41,6 +43,7 @@ function Wrapper({
         readOnly={readOnly}
         canComment={canComment}
         onInsertComment={onInsertComment}
+        onSendToChat={onSendToChat}
       />
     </>
   );
@@ -233,5 +236,27 @@ describe('DocsTableContextMenu keyboard model', () => {
     press('Escape');
     expect(screen.queryByRole('menu')).toBeNull();
     expect(editor.focus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DocsTableContextMenu Send to chat', () => {
+  it('is hidden without a chat panel', () => {
+    render(<Wrapper editor={makeEditor()} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 1, clientY: 2 });
+    expect(screen.getByText('Delete table')).toBeDefined();
+    expect(screen.queryByText('Send to chat')).toBeNull();
+  });
+
+  // The body menu leaves an editable in-table right-click to this one, so
+  // the entry has to be here too or a table cell could never be sent.
+  it('hands over the right-clicked point and closes without refocusing', () => {
+    const editor = makeEditor();
+    const onSendToChat = vi.fn();
+    render(<Wrapper editor={editor} onSendToChat={onSendToChat} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 12, clientY: 34 });
+    fireEvent.click(screen.getByText('Send to chat'));
+    expect(onSendToChat).toHaveBeenCalledWith({ x: 12, y: 34 });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(editor.focus).not.toHaveBeenCalled();
   });
 });

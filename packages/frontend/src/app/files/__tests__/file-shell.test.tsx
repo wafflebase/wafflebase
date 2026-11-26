@@ -33,7 +33,10 @@ if (typeof window.matchMedia !== "function") {
 
 const toastError = vi.fn();
 vi.mock("sonner", () => ({ toast: { error: (m: string) => toastError(m) } }));
-vi.mock("@/api/auth", () => ({ isAuthExpiredError: () => false }));
+vi.mock("@/api/auth", () => ({
+  isAuthExpiredError: () => false,
+  fetchMe: vi.fn(async () => ({ id: 1 })),
+}));
 vi.mock("@/api/documents", () => ({
   fetchDocument: vi.fn(),
   renameDocument: vi.fn(async () => {}),
@@ -51,6 +54,7 @@ vi.mock("@/components/notifications/notification-bell", () => ({
 import { fetchDocument } from "@/api/documents";
 import { fetchWorkspaces } from "@/api/workspaces";
 import { FileShell } from "@/app/files/file-shell";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const workspaces = [
   { id: "w1", name: "First", slug: "first", createdAt: "" },
@@ -74,6 +78,8 @@ function renderShell(headerLeading?: React.ReactNode) {
     client,
     ...render(
       <QueryClientProvider client={client}>
+        {/* The app root's; the header's panel toggles need it. */}
+        <TooltipProvider>
         <MemoryRouter initialEntries={["/f/d1"]}>
           <Routes>
             <Route
@@ -81,7 +87,7 @@ function renderShell(headerLeading?: React.ReactNode) {
               element={
                 <FileShell
                   documentId="d1"
-                  headerActions={null}
+                  headerActions={{}}
                   headerLeading={headerLeading}
                 >
                   <div>body</div>
@@ -91,6 +97,7 @@ function renderShell(headerLeading?: React.ReactNode) {
             <Route path="*" element={<LocationProbe />} />
           </Routes>
         </MemoryRouter>
+        </TooltipProvider>
       </QueryClientProvider>,
     ),
   };

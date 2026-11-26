@@ -1,3 +1,4 @@
+import type { ChatDocumentAnchor } from "@wafflebase/core/document-link";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 import { seg } from "./url";
@@ -74,6 +75,40 @@ export interface ChatMessageDto {
   editedAt: string | null;
   deleted: boolean;
   createdAt: string;
+  /**
+   * Document cards: links in `body` naming a live document of this channel's
+   * workspace, one per document; match by `documentId`. Absent on a message
+   * this client has not had back from the server yet (an optimistic send).
+   */
+  refs?: ChatDocumentRefDto[];
+}
+
+/**
+ * Where a card points inside its document (`docs/design/chat.md` § Document
+ * Cards and Anchors). The shapes and the rule that validates them are shared
+ * with the backend through `@wafflebase/core/document-link`.
+ */
+export type {
+  ChatDocumentAnchor,
+  DocAnchor,
+  SheetAnchor,
+  SlidesAnchor,
+} from "@wafflebase/core/document-link";
+
+export interface ChatDocumentRefDto {
+  documentId: string;
+  /** The document's type (`sheet`, `doc`, `slides`, …), as a plain string. */
+  type: string;
+  title: string;
+  anchor: ChatDocumentAnchor | null;
+}
+
+/** A row of a channel's Files list: a document at its latest share. */
+export interface ChatFileDto extends ChatDocumentRefDto {
+  messageId: string;
+  /** Null once the sharer's account is deleted. */
+  sharedBy: ChatUserSummary | null;
+  sharedAt: string;
 }
 
 /** The `message` event of `GET /chat/stream`. Carries no body. */
@@ -96,6 +131,15 @@ export interface StreamUpdateEvent {
   channelId: string;
   messageId: string;
   threadRootId: string | null;
+}
+
+/**
+ * The `channel` event of `GET /chat/stream`: a channel's name, topic or
+ * archive state changed. Ids only; the client refetches its channel list.
+ */
+export interface StreamChannelEvent {
+  workspaceId: string;
+  channelId: string;
 }
 
 /** One page of messages, as the server sizes it. */
@@ -251,15 +295,80 @@ export async function fetchMessages(
   return res.json();
 }
 
+/**
+ * Whether this backend takes a post's `clientId`. The frontend ships on merge
+ * while the backend is deployed later, and a backend from before `clientId`
+ * refuses the unknown property (`forbidNonWhitelisted`) with a 400 — which
+ * `classifySendFailure` rightly treats as final. So the first such refusal
+ * turns it off for the session, and posts go without it: a retry may then
+ * double a message, as it always could on that backend.
+ */
+let serverTakesClientId = true;
+
+/**
+ * The message Nest's `ValidationPipe` (`whitelist` + `forbidNonWhitelisted`,
+ * as `main.ts` configures it) gives for a body property the DTO does not
+ * declare.
+ */
+const UNKNOWN_CLIENT_ID = "property clientId should not exist";
+
+/**
+ * Whether `res` is a backend that predates `clientId` refusing a post that
+ * carries it. Nothing else such a backend says tells the two apart — it has
+ * no capability or version signal — so this reads its validation answer,
+ * whose exact shape is:
+ *
+ *   400 { "statusCode": 400, "message": ["property clientId should not exist", …], "error": "Bad Request" }
+ *
+ * matched on that one entry of `message` (a string or an array of them), so
+ * a 400 for any other reason stays the final failure it is. If a Nest
+ * upgrade rewords it, this stops matching and a skewed deployment's sends
+ * fail as 400s again — `api/chat.test.ts` pins the shape.
+ *
+ * Delete this, the flag above and the resend in `postMessage` once every
+ * deployment runs a backend that takes `clientId`.
+ */
+export async function isUnknownClientIdRefusal(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false;
+  try {
+    const body: unknown = await res.clone().json();
+    const message =
+      body && typeof body === "object"
+        ? (body as { message?: unknown }).message
+        : undefined;
+    const messages = Array.isArray(message) ? message : [message];
+    return messages.includes(UNKNOWN_CLIENT_ID);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Post a message. `clientId` is the send's own id, the same on every retry,
+ * so a retry whose first attempt reached the server gets that message back
+ * instead of posting it twice.
+ */
 export async function postMessage(
   workspaceId: string,
   channelId: string,
-  input: { body: string; threadRootId?: string; alsoInChannel?: boolean },
+  input: {
+    body: string;
+    threadRootId?: string;
+    alsoInChannel?: boolean;
+    clientId?: string;
+  },
 ): Promise<ChatMessageDto> {
-  const res = await fetchWithAuth(
-    `${channelBase(workspaceId, channelId)}/messages`,
-    json("POST", input),
+  const url = `${channelBase(workspaceId, channelId)}/messages`;
+  const { clientId, ...rest } = input;
+  const withId = clientId !== undefined && serverTakesClientId;
+  let res = await fetchWithAuth(
+    url,
+    json("POST", withId ? { ...rest, clientId } : rest),
   );
+  if (withId && (await isUnknownClientIdRefusal(res))) {
+    serverTakesClientId = false;
+    res = await fetchWithAuth(url, json("POST", rest));
+  }
   await assertOk(res, "Couldn't send the message", {
     statusMessages: {
       409: "This channel is archived, so it no longer takes messages.",
@@ -320,5 +429,47 @@ export async function fetchMessage(
   );
   if (res.status === 404) return null;
   await assertOk(res, "Couldn't load the message");
+  return res.json();
+}
+
+/** A channel a document was shared in, at its latest share there. */
+export interface ChatSharedIn {
+  channelId: string;
+  sharedAt: string;
+}
+
+/**
+ * The channels `documentId` was shared in that the caller belongs to, most
+ * recent first.
+ */
+export async function fetchDocumentSharedIn(
+  workspaceId: string,
+  documentId: string,
+): Promise<ChatSharedIn[]> {
+  const res = await fetchWithAuth(
+    `${chatBase(workspaceId)}/documents/${seg(documentId)}/channels`,
+  );
+  await assertOk(res, "Couldn't load where this document was shared");
+  const body: { channels: ChatSharedIn[] } = await res.json();
+  return body.channels;
+}
+
+/**
+ * A channel's Files: each document its messages link to, once, newest share
+ * first. `cursor` is the `before` of the next page, null on the last.
+ */
+export async function fetchChannelFiles(
+  workspaceId: string,
+  channelId: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<{ files: ChatFileDto[]; cursor: string | null }> {
+  const url = new URL(`${channelBase(workspaceId, channelId)}/files`);
+  if (opts.limit !== undefined) url.searchParams.set("limit", String(opts.limit));
+  if (opts.before) url.searchParams.set("before", opts.before);
+  const res = await fetchWithAuth(url.toString());
+  // A backend from before Files has no such route. The list is a convenience,
+  // so it reads as empty rather than as an error on every open.
+  if (res.status === 404) return { files: [], cursor: null };
+  await assertOk(res, "Couldn't load the channel's files");
   return res.json();
 }

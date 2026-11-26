@@ -40,6 +40,9 @@ import { uploadImageFile } from "@/app/spreadsheet/image-upload";
 import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import {
   EditingChrome,
@@ -90,7 +93,9 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const [showAuthors, setShowAuthors] = useState<boolean>(readShowAuthors);
   const isMobile = useIsMobile();
 
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // History and chat share the right-hand slot; see `useRightPanels`.
+  const { historyOpen, setHistoryOpen, chatOpen, setChatOpen } =
+    useRightPanels(isMobile);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount NotesView, dropping its local selection and
   // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
@@ -236,6 +241,11 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const previewing = Boolean(previewRevisionId && currentUser);
 
   return (
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -263,6 +273,9 @@ function NotesLayout({ documentId }: { documentId: string }) {
                 onPressedChange={setHistoryOpen}
               />
             ),
+            // Withheld during a preview, as the panel is: "Send to chat"
+            // reads the live selection the preview is covering.
+            chat: previewing ? null : <ChatPanelToggle />,
             share: <ShareDialog documentId={documentId} />,
             presence: <UserPresence />,
           }}
@@ -318,10 +331,17 @@ function NotesLayout({ documentId }: { documentId: string }) {
                 refreshKey={historyResetToken}
               />
             )}
+            {chatOpen && !previewing && documentData && (
+              <LazyChatPanel
+                workspaceId={documentData.workspaceId}
+                documentId={documentId}
+              />
+            )}
           </div>
         </div>
       </SidebarInset>
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 

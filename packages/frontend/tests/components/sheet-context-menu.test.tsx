@@ -302,3 +302,20 @@ describe('SheetContextMenu header freeze', () => {
     ).toBeNull();
   });
 });
+
+describe('SheetContextMenu Send to chat', () => {
+  it('is hidden without a chat panel to send to', async () => {
+    renderMenu(createSpreadsheet({}));
+    await screen.findAllByRole('menuitem');
+    expect(screen.queryByRole('menuitem', { name: /Send to chat/ })).toBeNull();
+  });
+
+  it('is offered, read-only included, and sends when picked', async () => {
+    const onSendToChat = vi.fn();
+    renderMenu(createSpreadsheet({}), { readOnly: true, onSendToChat });
+    const item = await screen.findByRole('menuitem', { name: /Send to chat/ });
+    expect(item.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(item);
+    await waitFor(() => expect(onSendToChat).toHaveBeenCalledTimes(1));
+  });
+});

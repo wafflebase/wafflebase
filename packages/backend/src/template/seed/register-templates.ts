@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { DOCUMENT_ROUTES } from '@wafflebase/core/document-link';
 import { AppModule } from '../../app.module';
 import { AuthService } from '../../auth/auth.service';
 import { sessionCookieName } from '../../auth/oauth-state';
@@ -39,23 +40,12 @@ import type { TemplateSeed } from './types';
 
 const logger = new Logger('RegisterTemplates');
 
-/** Mirrors `getDocumentPath` in the frontend. */
+/** The editor route the frontend mounts a document of this kind at. */
 function documentPath(
   id: string,
   kind: TemplateSeed['content']['kind'],
 ): string {
-  switch (kind) {
-    case 'doc':
-      return `/d/${id}`;
-    case 'slides':
-      return `/p/${id}`;
-    case 'note':
-      return `/n/${id}`;
-    case 'board':
-      return `/b/${id}`;
-    default:
-      return `/s/${id}`;
-  }
+  return `/${DOCUMENT_ROUTES[kind]}/${id}`;
 }
 
 function arg(name: string): string | undefined {

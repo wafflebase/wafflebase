@@ -49,8 +49,10 @@ vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => mobile.value,
 }));
 // The page's own logic is the subject; its columns are stand-ins.
+const conversationProps: { placeholder?: string } = {};
 vi.mock("@/components/chat/conversation", () => ({
-  Conversation: () => (
+  Conversation: (props: { placeholder?: string }) => (
+    Object.assign(conversationProps, { placeholder: props.placeholder }),
     <div data-testid="conversation">
       <div data-message-id="root1">
         <button type="button" data-thread-link>2 replies</button>
@@ -507,6 +509,138 @@ describe("ChatPage keyboard", () => {
     await user.keyboard("{Escape}");
     await settle();
     expect(location.current).toBe("/w/team/chat/alpha?thread=root1");
+  });
+});
+
+describe("ChatPage cold load", () => {
+  it("holds the header and the composer's name until the channel is known", async () => {
+    let resolve: (c: ChannelSummary[]) => void = () => {};
+    fetchChannelsSpy.mockReturnValue(
+      new Promise<ChannelSummary[]>((r) => (resolve = r)),
+    );
+    renderAt("/w/team/chat/c1");
+
+    await screen.findByTestId("conversation");
+    expect(screen.getByText("Loading channel…")).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(conversationProps.placeholder).toBeUndefined();
+    expect(screen.queryByRole("button", { name: /member/ })).toBeNull();
+
+    await act(async () => resolve([channel("c1")]));
+    // The channel's name is an h2: the site header's "Chat" is the page's h1.
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "c1" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(conversationProps.placeholder).toBe("Message #c1");
+    expect(
+      await screen.findByRole("button", { name: "2 members" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage missing channel", () => {
+  it("says a channel absent from the loaded list is gone, with a way back", async () => {
+    renderAt("/w/team/chat/gone");
+
+    expect(
+      await screen.findByText(/doesn't exist, or you don't have access to it/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Loading channel…")).toBeNull();
+    expect(screen.queryByTestId("conversation")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Back to chat" }).getAttribute("href"),
+    ).toBe("/w/team/chat");
+  });
+
+  it("opens an unjoined public channel from the list as a preview", async () => {
+    fetchChannelsSpy.mockResolvedValue([
+      channel("c1"),
+      channel("lobby", { isMember: false }),
+    ]);
+    renderAt("/w/team/chat/lobby");
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "lobby" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("conversation")).toBeInTheDocument();
+  });
+
+  it("offers a retry, not an endless skeleton, when the list fails", async () => {
+    // A phone shows the conversation alone, so the list's own error is not
+    // on screen to explain anything.
+    mobile.value = true;
+    fetchChannelsSpy.mockRejectedValueOnce(new Error("down"));
+    renderAt("/w/team/chat/c1");
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(screen.getByText("Couldn't load this channel.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading channel…")).toBeNull();
+
+    await userEvent.click(retry);
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "c1" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage thread column", () => {
+  it("is one Thread landmark that does not repeat the channel beside it", async () => {
+    renderAt("/w/team/chat/c1?thread=root1");
+    await screen.findByTestId("thread");
+    expect(screen.getAllByRole("region", { name: "Thread" })).toHaveLength(1);
+    expect(screen.queryByText("#c1")).toBeNull();
+  });
+
+  it("names the channel on a phone, where the thread stands alone", async () => {
+    mobile.value = true;
+    renderAt("/w/team/chat/c1?thread=root1");
+    await screen.findByTestId("thread");
+    expect(await screen.findByText("#c1")).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage shortcut sheet", () => {
+  it("opens on Mod+/ and lists the chat keys", async () => {
+    renderAt("/w/team/chat/c1");
+    await screen.findByTestId("conversation");
+    await act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "/",
+          code: "Slash",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const sheet = await screen.findByRole("dialog", {
+      name: "Chat keyboard shortcuts",
+    });
+    expect(sheet).toHaveTextContent("Previous / next unread channel");
+    expect(sheet).toHaveTextContent("Edit your last message");
+  });
+
+  it("points the switcher's input at no list when nothing matches", async () => {
+    renderAt("/w/team/chat/c1");
+    await screen.findByTestId("conversation");
+    await act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          code: "KeyK",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const input = await screen.findByRole("combobox");
+    expect(input).toHaveAttribute("aria-controls", "chat-switcher-list");
+    await userEvent.setup().type(input, "zzz");
+    expect(input).not.toHaveAttribute("aria-controls");
+    expect(input).toHaveAttribute("aria-expanded", "false");
   });
 });
 

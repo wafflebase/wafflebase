@@ -29,6 +29,7 @@ function createMockPrisma() {
       findMany: jest.fn(),
       count: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
   };
 }
@@ -594,6 +595,116 @@ describe('NotificationService', () => {
       // Still no internal bookkeeping: the unique index shape stays server-side.
       expect(select.dedupeKey).toBeUndefined();
       expect(select.recipientId).toBeUndefined();
+    });
+  });
+
+  describe('syncChatMessage', () => {
+    function edit(over: Partial<Record<string, unknown>> = {}) {
+      return {
+        workspaceId: WORKSPACE,
+        actorId: 1,
+        channelId: 'ch-1',
+        messageId: 'msg-1',
+        threadRootId: null,
+        recipients: [2],
+        preview: 'now @[bob](2)',
+        ...over,
+      } as Parameters<NotificationService['syncChatMessage']>[0];
+    }
+
+    it('rewrites the preview of every row quoting the message', async () => {
+      await service.syncChatMessage(edit());
+
+      expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+        where: {
+          workspaceId: WORKSPACE,
+          threadId: 'ch-1',
+          commentId: 'msg-1',
+          type: { in: ['chat_mention', 'chat_thread_reply'] },
+        },
+        data: { preview: 'now @bob' },
+      });
+    });
+
+    it('drops the mention rows of people edited out of the message', async () => {
+      prisma.notification.findMany.mockResolvedValue([
+        { id: 'n-3', recipientId: 3 },
+      ]);
+
+      await service.syncChatMessage(edit({ recipients: [2] }));
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith({
+        where: {
+          workspaceId: WORKSPACE,
+          threadId: 'ch-1',
+          commentId: 'msg-1',
+          type: 'chat_mention',
+          recipientId: { notIn: [2] },
+        },
+        select: { id: true, recipientId: true },
+      });
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['n-3'] } },
+      });
+    });
+
+    it('drops every mention row when the edit leaves no mention', async () => {
+      prisma.notification.findMany.mockResolvedValue([
+        { id: 'n-2', recipientId: 2 },
+      ]);
+
+      await service.syncChatMessage(edit({ recipients: [] }));
+
+      // No `notIn: []`: the filter is left out rather than trusted to
+      // match everything.
+      expect(prisma.notification.findMany).toHaveBeenCalledWith({
+        where: {
+          workspaceId: WORKSPACE,
+          threadId: 'ch-1',
+          commentId: 'msg-1',
+          type: 'chat_mention',
+        },
+        select: { id: true, recipientId: true },
+      });
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['n-2'] } },
+      });
+    });
+
+    it('notifies people the edit mentions, keyed so existing rows stay', async () => {
+      await service.syncChatMessage(edit({ recipients: [2, 3] }));
+
+      // `skipDuplicates` on the message key leaves an existing row (and its
+      // read state) alone; only a new recipient gets a new row.
+      expect(prisma.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({ recipientId: 2, dedupeKey: 'msg-1' }),
+          expect.objectContaining({ recipientId: 3, dedupeKey: 'msg-1' }),
+        ],
+        skipDuplicates: true,
+      });
+    });
+
+    it('refreshes the badge of somebody edited out of the message', async () => {
+      const seen: unknown[] = [];
+      const sub = hub.subscribe(3).subscribe((s) => seen.push(s));
+      // The mention lookup answers with the dropped row first; later reads
+      // are the recipient's fresh summary, which no longer counts it.
+      prisma.notification.findMany
+        .mockResolvedValueOnce([{ id: 'n-3', recipientId: 3 }])
+        .mockResolvedValue([{ id: 'n-older' }]);
+      prisma.notification.count.mockResolvedValue(0);
+
+      await service.syncChatMessage(edit({ recipients: [2] }));
+
+      expect(seen).toEqual([{ unreadCount: 0, latestId: 'n-older' }]);
+      sub.unsubscribe();
+    });
+
+    it('deletes nothing when every mention is still there', async () => {
+      await service.syncChatMessage(edit());
+
+      expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
     });
   });
 

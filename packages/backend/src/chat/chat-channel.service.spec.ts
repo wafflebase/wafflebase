@@ -53,6 +53,7 @@ function setup(
       deleteMany: jest.fn().mockResolvedValue({ count: removed }),
       count: jest.fn().mockResolvedValue(remaining),
     },
+    notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const prisma = {
     chatChannel: {
@@ -90,7 +91,13 @@ function setup(
     },
     $transaction: jest.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
   };
-  const bus = { notifyMembership: jest.fn().mockResolvedValue(undefined) };
+  Object.assign(prisma.chatChannel, {
+    update: jest.fn().mockResolvedValue({}),
+  });
+  const bus = {
+    notifyMembership: jest.fn().mockResolvedValue(undefined),
+    notifyChannel: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new ChatChannelService(
     prisma as unknown as PrismaService,
     bus as unknown as ChatBus,
@@ -134,6 +141,25 @@ describe('ChatChannelService.removeMember', () => {
       // The row is locked so a concurrent leave cannot empty the channel.
       expect(tx.$queryRaw).toHaveBeenCalled();
       expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
+    });
+
+    it("drops a removed member's bell rows for a private channel", async () => {
+      const { remove, tx } = setup({ kind: 'private', createdBy: CALLER });
+      await remove();
+      expect(tx.notification.deleteMany).toHaveBeenCalledWith({
+        where: {
+          recipientId: TARGET,
+          workspaceId: 'w1',
+          threadId: 'c1',
+          type: { in: ['chat_mention', 'chat_thread_reply'] },
+        },
+      });
+    });
+
+    it('keeps them for a public channel, which they can still read', async () => {
+      const { remove, tx } = setup({ createdBy: CALLER });
+      await remove();
+      expect(tx.notification.deleteMany).not.toHaveBeenCalled();
     });
 
     it('refuses a plain member of a private channel, though they may archive it', async () => {
@@ -216,5 +242,109 @@ describe('ChatChannelService.removeMember', () => {
     const { remove, bus } = setup();
     bus.notifyMembership.mockRejectedValue(new Error('bus down'));
     await expect(remove()).resolves.toBeUndefined();
+  });
+});
+
+describe('ChatChannelService.leave', () => {
+  it("drops the leaver's bell rows for a private channel", async () => {
+    const { service, tx } = setup({ kind: 'private' });
+    await service.leave(CALLER, 'c1');
+    expect(tx.notification.deleteMany).toHaveBeenCalledWith({
+      where: {
+        recipientId: CALLER,
+        workspaceId: 'w1',
+        threadId: 'c1',
+        type: { in: ['chat_mention', 'chat_thread_reply'] },
+      },
+    });
+  });
+
+  it('keeps them for a public channel, which stays readable', async () => {
+    const { service, tx } = setup({ kind: 'public' });
+    await service.leave(CALLER, 'c1');
+    expect(tx.chatChannelMember.deleteMany).toHaveBeenCalled();
+    expect(tx.notification.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('drops nothing when the caller was not in the channel', async () => {
+    const { service, tx } = setup({ kind: 'public', removed: 0 });
+    await service.leave(CALLER, 'c1');
+    expect(tx.notification.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatChannelService.openDm', () => {
+  it('restores a missing member at the channel tail', async () => {
+    const createMany = jest.fn().mockResolvedValue({ count: 1 });
+    const prisma = {
+      workspaceMember: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ workspaceId: 'w1', role: 'member' }),
+        count: jest.fn().mockResolvedValue(2),
+      },
+      chatChannel: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'dm1', lastSeq: 7n }),
+      },
+      chatChannelMember: { createMany },
+    };
+    const service = new ChatChannelService(
+      prisma as unknown as PrismaService,
+      { notifyMembership: jest.fn() } as unknown as ChatBus,
+    );
+    // The summary query is not what this pins.
+    jest.spyOn(service, 'summaryOf').mockResolvedValue({} as never);
+
+    await service.openDm(CALLER, 'w1', [TARGET]);
+
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { channelId: 'dm1', userId: CALLER, lastReadSeq: 7n },
+        { channelId: 'dm1', userId: TARGET, lastReadSeq: 7n },
+      ],
+      skipDuplicates: true,
+    });
+  });
+});
+
+describe('ChatChannelService.update', () => {
+  function updating(opts: Parameters<typeof setup>[0] = {}) {
+    const h = setup(opts);
+    jest.spyOn(h.service, 'summaryOf').mockResolvedValue({ id: 'c1' } as never);
+    return h;
+  }
+
+  it.each([
+    ['a rename', { name: 'renamed' }],
+    ['a topic', { topic: 'new topic' }],
+    ['an archive', { archived: true }],
+    ['an unarchive', { archived: false }],
+  ])('announces %s to every replica after it commits', async (_label, data) => {
+    const { service, prisma, bus } = updating();
+    await service.update(CALLER, 'c1', data);
+    expect(
+      (prisma.chatChannel as unknown as { update: jest.Mock }).update,
+    ).toHaveBeenCalled();
+    expect(bus.notifyChannel).toHaveBeenCalledWith({
+      t: 'chn',
+      c: 'c1',
+      w: 'w1',
+    });
+  });
+
+  it('announces nothing when the update is refused', async () => {
+    const { service, bus } = updating({ createdBy: 99, role: 'member' });
+    await expect(
+      service.update(CALLER, 'c1', { name: 'renamed' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bus.notifyChannel).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds when the channel notify fails', async () => {
+    const { service, bus } = updating();
+    bus.notifyChannel.mockRejectedValue(new Error('bus down'));
+    await expect(service.update(CALLER, 'c1', { topic: 't' })).resolves.toEqual(
+      { id: 'c1' },
+    );
   });
 });

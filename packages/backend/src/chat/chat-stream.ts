@@ -2,6 +2,7 @@ import { MessageEvent } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import {
   ChatHubEvent,
+  StreamChannelEvent,
   StreamMessageEvent,
   StreamUpdateEvent,
 } from './chat.types';
@@ -21,7 +22,9 @@ export interface ChatStreamSources {
  * connection self-corrects. The hub sends it again mid-stream when the bus
  * listener reconnected, since a NOTIFY sent during that outage never arrived.
  * `message` carries ids only — the client fetches what it shows — and so
- * does `update`, an edit or delete the client refetches by id. `ping`
+ * does `update`, an edit or delete the client refetches by id, and
+ * `channel`, a rename / topic / archive change the client answers by
+ * refetching its channel list. `ping`
  * exists only so an idle connection keeps flowing through proxies; Nest's
  * SSE writer has no comment lines, so it is an event the client ignores.
  */
@@ -39,6 +42,13 @@ export function chatStream(
           threadRootId: e.r,
         };
         return { type: 'update', data: update };
+      }
+      if (e.t === 'chn') {
+        const channel: StreamChannelEvent = {
+          workspaceId: e.w,
+          channelId: e.c,
+        };
+        return { type: 'channel', data: channel };
       }
       const data: StreamMessageEvent = {
         workspaceId: e.w,

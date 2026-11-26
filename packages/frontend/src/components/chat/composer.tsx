@@ -21,12 +21,19 @@ const MAX_TEXTAREA_HEIGHT_PX = 200;
 interface ComposerProps {
   /** Keys the draft; a thread passes its own key so drafts stay apart. */
   channelId: string;
+  /** The signed-in user, who owns the draft; none stores no draft. */
+  userId?: number;
   /** Sends the body; must not reject (see the component's note). */
   onSend: (body: string) => void | Promise<void>;
   members?: MentionMember[];
   placeholder?: string;
   /** Set when the channel cannot take messages; shown in place of sending. */
   disabledReason?: string;
+  /**
+   * The channel is not known yet: the box is inert, says nothing, and takes
+   * `autoFocus` only once this clears.
+   */
+  waiting?: boolean;
   /** Controls under the box, such as "Also send to channel". */
   footer?: ReactNode;
   autoFocus?: boolean;
@@ -50,27 +57,25 @@ interface ComposerProps {
  */
 export function Composer({
   channelId,
+  userId,
   onSend,
   members,
   placeholder = "Message",
   disabledReason,
+  waiting = false,
   footer,
   autoFocus = false,
   onArrowUpWhenEmpty,
 }: ComposerProps) {
-  const [body, setBody] = useState(() => draftStore.get(channelId));
+  const [body, setBody] = useState(() => draftStore.get(userId, channelId));
   const [sending, setSending] = useState(false);
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const update = (value: string) => {
-    setBody(value);
-    draftStore.set(channelId, value);
-  };
+  const update = (value: string) => setBody(value);
 
-  const disabled = !!disabledReason;
+  const disabled = !!disabledReason || waiting;
   const trimmed = body.trim();
-  const tooLong = body.length > CHAT_BODY_MAX;
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -99,13 +104,43 @@ export function Composer({
     onKeyDown: handleKey,
   });
 
-  // A different channel is a different draft.
-  const [draftKey, setDraftKey] = useState(channelId);
-  if (draftKey !== channelId) {
-    setDraftKey(channelId);
-    setBody(draftStore.get(channelId));
-    mention.reset();
+  // What is sent, and what the server measures: a picked `@name` grows into
+  // its `@[name](id)` token, so the limit is checked after that expansion.
+  const finalBody = mention.applyMentions(body).trim();
+  const tooLong = finalBody.length > CHAT_BODY_MAX;
+
+  // A different channel, or a different signed-in user, is a different
+  // draft. The user is often still loading on the first render, though: text
+  // typed in that window is the user's own, so it is kept and saved as their
+  // draft rather than replaced by whatever was stored.
+  const [draftFor, setDraftFor] = useState({ userId, channelId });
+  // Bumped when the box takes another draft; the mentions picked for the
+  // old one are dropped once that render commits.
+  const [draftSwaps, setDraftSwaps] = useState(0);
+  if (draftFor.userId !== userId || draftFor.channelId !== channelId) {
+    const resolved =
+      draftFor.userId === undefined && draftFor.channelId === channelId;
+    setDraftFor({ userId, channelId });
+    if (!resolved || !body) {
+      setBody(draftStore.get(userId, channelId));
+      setDraftSwaps((n) => n + 1);
+    }
   }
+  // Not while rendering: the picked mentions live in a ref, which a render
+  // React throws away would not roll back, leaving the kept draft's `@name`s
+  // to go out as plain text.
+  const resetMentions = mention.reset;
+  useEffect(() => {
+    if (draftSwaps > 0) resetMentions();
+  }, [draftSwaps, resetMentions]);
+
+  // The box is saved as the draft of whoever and wherever it now belongs to,
+  // after the render commits: rendering only reads storage, since React may
+  // render and then discard (StrictMode, an interrupted concurrent render).
+  useEffect(() => {
+    draftStore.set(userId, channelId, body);
+  }, [userId, channelId, body]);
+  useEffect(() => draftStore.dropLegacy(channelId), [channelId]);
 
   useLayoutEffect(() => {
     const ta = textareaRef.current;
@@ -132,7 +167,6 @@ export function Composer({
   // (`useSendMessage` queues them per channel), not here.
   const send = async () => {
     if (!trimmed || sending || disabled || tooLong) return;
-    const finalBody = mention.applyMentions(body).trim();
     setSending(true);
     update("");
     mention.reset();
@@ -146,7 +180,7 @@ export function Composer({
   // Shift+Enter is invisible until explained; a touch keyboard has its own
   // return key, so the hint is for fine pointers only.
   const showHint = focused && !!trimmed && !disabled && !tooLong;
-  const hasFooterContent = disabled || tooLong || !!footer;
+  const hasFooterContent = !!disabledReason || tooLong || !!footer;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -154,7 +188,7 @@ export function Composer({
         className={cn(
           "relative flex items-end gap-1 rounded-md border border-input-border bg-background p-1 transition-[color,box-shadow]",
           "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-          disabled && "opacity-60",
+          disabledReason && "opacity-60",
         )}
       >
         <textarea
@@ -168,7 +202,9 @@ export function Composer({
           placeholder={placeholder}
           aria-label={placeholder}
           aria-invalid={tooLong || undefined}
-          aria-describedby={disabled ? `${channelId}-composer-reason` : undefined}
+          aria-describedby={
+            disabledReason ? `${channelId}-composer-reason` : undefined
+          }
           // 16px below `md` so iOS does not zoom the page on focus.
           className="caret-primary placeholder:text-muted-foreground min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-base outline-none disabled:cursor-not-allowed md:text-sm"
         />
@@ -196,11 +232,11 @@ export function Composer({
           !hasFooterContent && "pointer-coarse:hidden",
         )}
       >
-        {disabled ? (
+        {disabledReason ? (
           <span id={`${channelId}-composer-reason`}>{disabledReason}</span>
         ) : tooLong ? (
           <span className="text-destructive">
-            {body.length - CHAT_BODY_MAX} characters over the{" "}
+            {finalBody.length - CHAT_BODY_MAX} characters over the{" "}
             {CHAT_BODY_MAX.toLocaleString()} limit
           </span>
         ) : (

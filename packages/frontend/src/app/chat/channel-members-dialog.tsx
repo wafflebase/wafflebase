@@ -43,10 +43,10 @@ export function ChannelMembersButton({
 }: ChannelMembersButtonProps) {
   const members = useChannelMembers(workspaceId, channelId, true);
   const count = members.data?.length;
-  const label =
-    count === undefined
-      ? "Members"
-      : `${count} ${count === 1 ? "member" : "members"}`;
+  // Nothing until the count is known: a bare people icon reads as a count
+  // that failed to load.
+  if (count === undefined) return null;
+  const label = `${count} ${count === 1 ? "member" : "members"}`;
   return (
     <Tooltip>
       <TooltipTrigger asChild>

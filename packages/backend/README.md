@@ -418,6 +418,11 @@ docker compose up -d              # Start PostgreSQL + Yorkie
 # Run database migrations:
 pnpm backend migrate
 
+# Build the workspace packages the backend loads at runtime (Node resolves
+# them to their built dist, not to source; re-run after pulling changes to
+# packages/core or an engine, or `nest start` fails with "Cannot find module"):
+pnpm core build && pnpm --filter @wafflebase/docs build && pnpm sheets build && pnpm slides build
+
 # Start dev server:
 pnpm dev                          # Starts frontend (:5173) + backend (:3000)
 
@@ -827,7 +832,9 @@ one they are not in, any channel once they leave the workspace — answers
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/me` | Leave (not a DM, not the default channel) |
 | `DELETE` | `/workspaces/:wid/chat/channels/:cid/members/:userId` | Remove someone else — the channel's creator or a workspace owner (an owner only by an owner); not a DM or the default channel |
 | `GET` | `/workspaces/:wid/chat/channels/:cid/messages` | 50 per page, ascending `seq`: `?before=` / `?after=<seq>`, `?thread=<rootId>` |
-| `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel? }`; 30 per 10 s per user |
+| `POST` | `/workspaces/:wid/chat/channels/:cid/messages` | `{ body, threadRootId?, alsoInChannel?, clientId? }`; 30 per 10 s per user. A repeated `clientId` returns the first message; a reply to a deleted root is `409` |
+| `GET` | `/workspaces/:wid/chat/documents/:documentId/channels` | Channels the caller is in where the document was most recently shared (≤20), for the editor chat panel |
+| `GET` | `/workspaces/:wid/chat/channels/:cid/files` | Documents linked in the channel, newest share first, one row per document (`?limit=` 1–100, `?before=<cursor>`); 120 per minute per user, as is the shared-in read |
 | `POST` | `/workspaces/:wid/chat/channels/:cid/read` | `{ seq }` — never moves backwards, capped at the channel's last `seq` |
 | `GET` | `/workspaces/:wid/chat/messages/:mid` | One message (a bell deep link learns whether it is a thread reply) |
 | `PATCH` | `/workspaces/:wid/chat/messages/:mid` | Edit one's own message (`{ body }`) |
@@ -844,12 +851,20 @@ plain `@name`. Mentions and thread replies reach the bell through the
 `Notification` table (`chat_mention`, `chat_thread_reply`), each recipient
 checked against their own access to the channel.
 
+A message body's links to this deployment's documents become
+`ChatDocumentRef` rows, each stored only for a live document in the
+channel's own workspace, and come back on the message as `refs` (title and
+type read at read time). An edit replaces them and a delete clears them.
+
 The stream carries ids only. `ready` opens every (re)connect and is the
 client's cue to re-read unread counts and catch the open channel up;
 `message` is `{ workspaceId, channelId, seq, threadRootId, authorId }`;
 `update` (an edit or delete) is `{ workspaceId, channelId, messageId,
-threadRootId }` and the client refetches that message; `ping` is a 25 s
-keep-alive. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
+threadRootId }` and the client refetches that message; `channel` (a rename,
+topic, archive or unarchive) is `{ workspaceId, channelId }` and the client
+refetches its channel list; `ping` is a 25 s keep-alive. A public channel's
+events go to every connected member of its workspace — any of them may read
+it — and a private channel's or DM's to its members. Delivery across replicas is Postgres `LISTEN/NOTIFY` on the
 `chat` channel (`ChatBus`), fanned out per replica by `ChatHub` to the
 connected members of the channel from a member cache that a membership event
 evicts, that expires after 60 s in case that event was lost, and that a
@@ -1262,12 +1277,22 @@ blob with none (see
 | `seq` | BigInt | Per-channel monotonic; `@@unique([channelId, seq])`. The pagination and catch-up cursor |
 | `authorId` | Int? | FK to User (`SetNull`) — a message survives its author |
 | `apiKeyId` | String? | Reserved for posts made with an API key (P3) |
+| `clientId` | String? | The poster's own id for a send; `@@unique([channelId, authorId, clientId])` makes a retry return the first copy |
 | `body` | String | Plain text, mentions as canonical `@[username](userId)`. Cleared on soft delete |
 | `threadRootId` | String? | Null = top-level |
 | `alsoInChannel` | Boolean | A reply also shown in the channel flow |
 | `replyCount` / `lastReplyAt` | | Thread summary on the root |
 | `editedAt` / `deletedAt` | DateTime? | Soft delete keeps the row so `seq` stays gap-free and a root keeps its replies |
 | `createdAt` | DateTime | Auto-set |
+
+**ChatDocumentRef** — a document a message links to
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `messageId` / `documentId` | | Composite PK; both FKs `Cascade`, so a deleted message or document leaves no ref |
+| `channelId` | String | The message's channel, denormalized (no FK) so the Files list reads `@@index([channelId, createdAt])` alone |
+| `anchor` | Json? | The parsed `?at=` anchor (sheet axis ids / doc block / slide, plus a display `label`), null for a document-level link or one that did not parse |
+| `createdAt` | DateTime | When it was first shared; an edit that keeps the link keeps it |
 
 ## Module Structure
 

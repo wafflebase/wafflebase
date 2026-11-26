@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chatShortcut, modalSurfaceOpen } from "@/app/chat/chat-shortcuts";
+import {
+  CHAT_SHORTCUTS,
+  chatShortcut,
+  formatChatCombo,
+  modalSurfaceOpen,
+} from "@/app/chat/chat-shortcuts";
 
 const key = (init: KeyboardEventInit & { keyCode?: number }) => {
   const e = new KeyboardEvent("keydown", { cancelable: true, ...init });
@@ -71,4 +76,26 @@ describe("modalSurfaceOpen", () => {
       expect(modalSurfaceOpen(doc)).toBe(true);
     },
   );
+});
+
+describe("chat shortcut sheet", () => {
+  it("maps Mod+/ to the sheet", () => {
+    expect(chatShortcut(key({ key: "/", code: "Slash", metaKey: true }))).toBe("help");
+    expect(chatShortcut(key({ key: "/", code: "Slash", ctrlKey: true }))).toBe("help");
+    expect(chatShortcut(key({ key: "/" }))).toBeNull();
+  });
+
+  it("writes combos the platform's way", () => {
+    expect(formatChatCombo("Mod+K", true)).toBe("⌘K");
+    expect(formatChatCombo("Alt+Shift+↑", true)).toBe("⌥⇧↑");
+    expect(formatChatCombo("Mod+K", false)).toBe("Ctrl+K");
+    expect(formatChatCombo("Alt+Shift+↑", false)).toBe("Alt+Shift+↑");
+  });
+
+  it("lists every key the page binds", () => {
+    const keys = CHAT_SHORTCUTS.flatMap((s) => s.keys);
+    for (const k of ["Mod+K", "Alt+↑", "Alt+Shift+↓", "Mod+/", "↑", "Home"]) {
+      expect(keys).toContain(k);
+    }
+  });
 });

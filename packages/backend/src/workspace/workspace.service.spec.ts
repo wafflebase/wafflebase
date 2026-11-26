@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { WorkspaceService } from './workspace.service';
+import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
 import type { WebhookEventService } from '../webhook/webhook-event.service';
 
 function createMockPrisma() {
@@ -52,6 +53,10 @@ function createMockPrisma() {
     chatChannel: {
       create: jest.fn().mockResolvedValue({}),
       findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    notification: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $executeRaw: jest.fn().mockResolvedValue(1),
@@ -388,6 +393,60 @@ describe('WorkspaceService', () => {
       });
       // One membership event per channel, so every hub evicts its cache.
       expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it('announces a membership change for a member in no channel', async () => {
+      // Every hub caches who may hear a public channel per workspace, and
+      // any `mem` evicts that. Somebody in no channel row (a workspace from
+      // before #general) still has to be announced, or their open stream
+      // keeps hearing public channels until the cache expires.
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+      prisma.chatChannelMember.findMany.mockResolvedValue([]);
+      prisma.chatChannel.findFirst.mockResolvedValue({ id: 'pub' });
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      expect(prisma.chatChannel.findFirst).toHaveBeenCalledWith({
+        where: {
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          kind: 'public',
+        },
+        select: { id: true },
+      });
+      const payloads = (prisma.$executeRaw.mock.calls as unknown[][]).map(
+        (c) => c.slice(1),
+      );
+      expect(payloads).toEqual([[CHAT_NOTIFY_CHANNEL, memPayload('pub')]]);
+    });
+
+    it("drops the removed member's chat and comment bell rows there", async () => {
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      // Public channels and document comments included: none of the
+      // workspace is readable now.
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: {
+          recipientId: 2,
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          type: {
+            in: [
+              'chat_mention',
+              'chat_thread_reply',
+              'comment_mention',
+              'comment_reply',
+              'thread_resolved',
+            ],
+          },
+        },
+      });
     });
 
     it('deletes a private channel the removal leaves with no members', async () => {

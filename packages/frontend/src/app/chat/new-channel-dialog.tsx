@@ -212,6 +212,7 @@ export function NewChannelDialog({
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="pointer-coarse:min-h-11"
                       onClick={() => openChannel(c.id)}
                     >
                       Preview
@@ -219,6 +220,7 @@ export function NewChannelDialog({
                     <Button
                       size="sm"
                       variant="outline"
+                      className="pointer-coarse:min-h-11"
                       disabled={join.isPending}
                       onClick={() =>
                         join.mutate(c.id, {

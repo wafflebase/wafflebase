@@ -48,6 +48,7 @@ export function BoardCollabProvider({
   workspaceId,
   currentUser,
   readOnly = false,
+  panel,
   children,
 }: {
   doc: Document<YorkieBoardRoot> | undefined;
@@ -55,6 +56,12 @@ export function BoardCollabProvider({
   workspaceId?: string;
   currentUser?: { id: number; username: string; photo?: string } | null;
   readOnly?: boolean;
+  /**
+   * The comments panel's open flag, when the host keeps it — the editor
+   * does, in `useRightPanels`, so comments share the right-hand slot with
+   * history and chat. Kept here otherwise (a share-link viewer).
+   */
+  panel?: readonly [boolean, (open: boolean) => void];
   children: ReactNode;
 }) {
   const store = useMemo(() => (doc ? new BoardCommentStore(doc) : null), [doc]);
@@ -67,7 +74,8 @@ export function BoardCollabProvider({
   const members = useWorkspaceMembers(workspaceId);
   const [threads, setThreads] = useState<Thread<BoardAnchor>[]>([]);
   const [liveIds, setLiveIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [panelOpen, setPanelOpen] = useState(false);
+  const localPanel = useState(false);
+  const [panelOpen, setPanelOpen] = panel ?? localPanel;
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingBoardComment | null>(null);
   const focusAnchorRef = useRef<((anchor: BoardAnchor) => void) | null>(null);
@@ -192,7 +200,7 @@ export function BoardCollabProvider({
     setActiveThreadId(thread.id);
     setPanelOpen(true);
     focusAnchorRef.current?.(thread.anchor);
-  }, []);
+  }, [setPanelOpen]);
 
   const value: BoardCollabValue = {
     documentId,

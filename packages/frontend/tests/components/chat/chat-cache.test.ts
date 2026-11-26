@@ -10,6 +10,7 @@ import {
   markChannelRead,
   markMessageDeleted,
   mergeMessages,
+  parseStreamChannel,
   parseStreamMessage,
   parseStreamUpdate,
   chatBadgeCount,
@@ -214,6 +215,21 @@ describe("parseStreamMessage", () => {
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":5,"authorId":1}')).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":1,"alsoInChannel":"yes"}')).toBeNull();
     expect(parseStreamMessage('{"workspaceId":"w","channelId":"c","seq":3,"threadRootId":null,"authorId":1}')).toBeNull();
+  });
+});
+
+describe("parseStreamChannel", () => {
+  it("accepts a channel frame", () => {
+    const frame = { workspaceId: "w1", channelId: "c1" };
+    expect(parseStreamChannel(JSON.stringify(frame))).toEqual(frame);
+  });
+
+  it("rejects malformed JSON and wrong types", () => {
+    expect(parseStreamChannel("nope")).toBeNull();
+    expect(parseStreamChannel("null")).toBeNull();
+    expect(parseStreamChannel('{"channelId":"c1"}')).toBeNull();
+    expect(parseStreamChannel('{"workspaceId":4,"channelId":"c1"}')).toBeNull();
+    expect(parseStreamChannel('{"workspaceId":"w1","channelId":4}')).toBeNull();
   });
 });
 

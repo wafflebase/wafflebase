@@ -79,7 +79,15 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { useOnePanelOnMobile } from "@/components/side-panel-layout";
+import { useRightPanels } from "@/components/use-right-panels";
+import { ChatPanelProvider } from "@/components/chat/chat-panel-provider";
+import type { SheetAnchor } from "@/components/chat/document-link";
+import { useAnchorParam } from "@/components/chat/use-anchor-param";
+import {
+  resolveSheetChatAnchor,
+  sheetAnchorSelectionType,
+} from "@/app/spreadsheet/chat-anchor";
+import { ChatPanelToggle, LazyChatPanel } from "@/components/chat/chat-panel-slot";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   EditingChrome,
@@ -141,7 +149,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const {
+    doc,
+    root: docRoot,
+    loading: docLoading,
+  } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
   const [showLakehouseSelector, setShowLakehouseSelector] = useState(false);
@@ -152,7 +164,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(
     null,
   );
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  // Comments, history and chat share the right-hand slot; see
+  // `useRightPanels`.
+  const {
+    commentsOpen: commentsPanelOpen,
+    setCommentsOpen: setCommentsPanelOpen,
+    historyOpen,
+    setHistoryOpen,
+    chatOpen,
+    setChatOpen,
+  } = useRightPanels(useIsMobile());
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
   const [undoJumpTarget, setUndoJumpTarget] = useState<UndoJumpTarget | null>(null);
   const commentJumpSeq = useRef(0);
@@ -176,13 +197,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
-  const [historyOpen, setHistoryOpen] = useState(false);
-  // Both panels are bottom sheets on a phone; keep only the latest.
-  useOnePanelOnMobile(
-    useIsMobile(),
-    [commentsPanelOpen, setCommentsPanelOpen],
-    [historyOpen, setHistoryOpen],
-  );
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount the active tab's view, dropping its local
   // selection/caret state. `doc.clearHistory()` (below) separately drops the
@@ -358,6 +372,48 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     );
     if (next !== activeTabId) setActiveTabId(next);
   }, [docRoot, activeTabId]);
+
+  // A document card's `?at=`: switch to its tab and select its range, through
+  // the same two-step hand-off an undo into another tab uses (the target
+  // tab's engine does not exist until the switch has rendered). Waits for the
+  // document to finish loading — before that the root is still the empty
+  // initial one, with no tab to find — and for the first tab to be resolved
+  // so that resolution cannot overwrite the switch.
+  // A tab, row or column deleted since the link was sent leaves the editor
+  // where it opened.
+  // Not while a revision preview is open, either: `SheetView` drops (and
+  // marks handled) a jump that arrives then, which is right for an undo step
+  // the preview may outlive but would lose an anchor that still names a
+  // place in the live document. Held back here, it is resolved against the
+  // document the preview closes onto — including one a restore replaced.
+  useAnchorParam<SheetAnchor>(
+    "sheet",
+    !docLoading && !!docRoot && activeTabId !== null && !previewing,
+    (anchor) => {
+      const root = doc?.getRoot();
+      if (!root || !isJumpableSheetTab(root.tabs?.[anchor.tabId])) return false;
+      const ws = root.sheets?.[anchor.tabId];
+      if (!ws) return false;
+      const range = resolveSheetChatAnchor(
+        anchor,
+        Array.from(ws.rowOrder ?? []) as string[],
+        Array.from(ws.colOrder ?? []) as string[],
+      );
+      if (!range) return false;
+      undoJumpSeq.current += 1;
+      setActiveTabId(anchor.tabId);
+      setUndoJumpTarget({
+        selection: {
+          tabId: anchor.tabId,
+          otherTab: false,
+          selectionType: sheetAnchorSelectionType(anchor),
+          range,
+        },
+        requestId: undoJumpSeq.current,
+      });
+      return true;
+    },
+  );
 
   // Backfill old documents that may already contain duplicate tab names.
   useEffect(() => {
@@ -732,6 +788,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
   return (
+    <ChatPanelProvider
+      open={chatOpen}
+      onOpenChange={setChatOpen}
+      available={!previewing}
+    >
     <SidebarProvider>
       <AppSidebar
         variant="inset"
@@ -779,6 +840,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 pressed={historyOpen}
                 onPressedChange={setHistoryOpen}
               />
+            ),
+            // Withheld during a preview like comments: "Send to chat" reads
+            // the live selection the preview is covering.
+            chat: (
+              <EditingChrome previewing={previewing}>
+                <ChatPanelToggle />
+              </EditingChrome>
             ),
             share: <ShareDialog documentId={documentId} />,
             // Who is here is read-only, so the avatars stay. The *jump* is
@@ -916,6 +984,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               refreshKey={historyResetToken}
             />
           )}
+          {chatOpen && !previewing && documentData && (
+            <LazyChatPanel
+              workspaceId={documentData.workspaceId}
+              documentId={documentId}
+            />
+          )}
         </div>
       </SidebarInset>
 
@@ -973,6 +1047,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         </ChunkBoundary>
       )}
     </SidebarProvider>
+    </ChatPanelProvider>
   );
 }
 

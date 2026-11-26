@@ -111,6 +111,11 @@ export function useMentionAutocomplete({
     null,
   );
   const [activeIndex, setActiveIndex] = useState(0);
+  // Stable, so a caller can run it from an effect keyed on what changed.
+  const reset = useCallback((mentions: MentionRef[] = []) => {
+    selectedRef.current = [...mentions];
+    setQuery(null);
+  }, []);
 
   const enabled = !!members && members.length > 0;
   const results =
@@ -231,9 +236,6 @@ export function useMentionAutocomplete({
     isComposing: () => composingRef.current,
     applyMentions: (text) => applySelectedMentions(text, selectedRef.current),
     mentions: () => [...selectedRef.current],
-    reset: (mentions = []) => {
-      selectedRef.current = [...mentions];
-      setQuery(null);
-    },
+    reset,
   };
 }
