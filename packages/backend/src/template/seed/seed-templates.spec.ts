@@ -1,4 +1,7 @@
-import { hashRootJson } from './seed-templates';
+import yorkieSdk from '@yorkie-js/sdk';
+import type { YorkieService } from '../../yorkie/yorkie.service';
+import { expectedRootHash, hashRootJson, writeContent } from './seed-templates';
+import type { SeedContent } from './types';
 
 /**
  * The root hash is what `writeContent` refuses a write over and what
@@ -89,5 +92,148 @@ describe('hashRootJson', () => {
     expect(hashRootJson(sheetRoot(moved))).not.toBe(
       hashRootJson(sheetRoot(clean)),
     );
+  });
+});
+
+/**
+ * Cell text is what a viewer reads, so it is hashed as stored — never renamed
+ * as if it were an axis reference. Renaming it folded a cell reading `ra`
+ * (the first row's id) into the positional name `r0`.
+ */
+describe('hashRootJson cell text', () => {
+  const root = (rowOrder: string[], v: string, f?: string): string =>
+    JSON.stringify({
+      tabOrder: ['tab'],
+      tabs: { tab: { name: 'Sheet1' } },
+      sheets: {
+        tab: {
+          rowOrder,
+          colOrder: ['ca'],
+          cells: { [`${rowOrder[0]}|ca`]: { v, ...(f ? { f } : {}) } },
+        },
+      },
+    });
+
+  it('moves when a cell is edited to read an axis id', () => {
+    expect(hashRootJson(root(['ra'], 'ra'))).not.toBe(
+      hashRootJson(root(['ra'], 'r0')),
+    );
+    expect(hashRootJson(root(['ra'], 'ra'))).not.toBe(
+      hashRootJson(root(['ra'], 'hello')),
+    );
+  });
+
+  it('does not let a re-minted grid carry different text under one hash', () => {
+    // Renaming text with the ids made `ra` over row `ra` and `rb` over row
+    // `rb` the same worksheet, though one reads "ra" and the other "rb".
+    expect(hashRootJson(root(['ra'], 'ra'))).not.toBe(
+      hashRootJson(root(['rb'], 'rb')),
+    );
+    // Same text over a re-minted id is still the same worksheet.
+    expect(hashRootJson(root(['ra'], 'ra'))).toBe(
+      hashRootJson(root(['rb'], 'ra')),
+    );
+  });
+
+  it('hashes formulas as written', () => {
+    expect(hashRootJson(root(['ra'], '1', '=ra'))).not.toBe(
+      hashRootJson(root(['ra'], '1', '=r0')),
+    );
+  });
+});
+
+/**
+ * `renameAxisIds` refuses a key that collides after renaming. That branch is
+ * unreachable by construction — the renaming is injective: an axis id becomes
+ * a bare `r<i>`/`c<j>`, a literal that looks like one gains a `~`, anything
+ * else is kept, and a JSON object cannot repeat a key — so there is no fixture
+ * that reaches it. What is tested instead is the property it stands behind:
+ * adversarial keys, each a plausible collision, survive as distinct members.
+ */
+describe('hashRootJson axis-id renaming is injective', () => {
+  const keys = ['ra|ca', 'r0|c0', '~r0|c0', '~~r0|~c0', 'ra|c0', 'r0|ca'];
+  const sheetWith = (present: string[]): string =>
+    JSON.stringify({
+      sheets: {
+        tab: {
+          rowOrder: ['ra'],
+          colOrder: ['ca'],
+          cells: Object.fromEntries(present.map((k) => [k, { v: 'x' }])),
+          rowHeights: Object.fromEntries(present.map((k) => [k, 1])),
+        },
+      },
+    });
+
+  it('never merges two members, so dropping any one moves the hash', () => {
+    const full = hashRootJson(sheetWith(keys));
+    for (const k of keys) {
+      expect(hashRootJson(sheetWith(keys.filter((x) => x !== k)))).not.toBe(
+        full,
+      );
+    }
+  });
+});
+
+describe('writeContent', () => {
+  const content = {
+    kind: 'note',
+    document: { content: '# Hello' },
+  } as unknown as SeedContent;
+
+  /**
+   * The refusal runs *inside* the updater, the only place it withholds the
+   * change. A root whose half-built state reports a member the catalogue never
+   * defined stands in for any write that would leave content behind.
+   */
+  it('refuses from inside the update, leaving nothing to push', async () => {
+    const doc = new yorkieSdk.Document<Record<string, unknown>>(
+      'seed-refusal-test',
+    );
+    const tainted = {
+      update(updater: (root: Record<string, unknown>) => void) {
+        doc.update((root) => {
+          updater(
+            new Proxy(root, {
+              get(target, prop, receiver) {
+                if (prop !== 'toJSON')
+                  return Reflect.get(target, prop, receiver) as unknown;
+                return () =>
+                  JSON.stringify({
+                    ...(JSON.parse(
+                      (target as unknown as { toJSON(): string }).toJSON(),
+                    ) as object),
+                    smuggled: true,
+                  });
+              },
+            }),
+          );
+        });
+      },
+    };
+    const yorkie = {
+      withDocument: (_id: string, cb: (d: unknown) => unknown) =>
+        Promise.resolve(cb(tainted)),
+    } as unknown as YorkieService;
+
+    await expect(writeContent(yorkie, 'doc-id', content)).rejects.toThrow(
+      /nothing was written/,
+    );
+    // Yorkie discarded the clone: no root change and no local change to ship.
+    expect(doc.toSortedJSON()).toBe('{}');
+    expect(doc.hasLocalChanges()).toBe(false);
+  });
+
+  it('writes and returns the catalogue hash when the root matches', async () => {
+    const doc = new yorkieSdk.Document<Record<string, unknown>>(
+      'seed-write-test',
+    );
+    const yorkie = {
+      withDocument: (_id: string, cb: (d: unknown) => unknown) => cb(doc),
+    } as unknown as YorkieService;
+
+    await expect(writeContent(yorkie, 'doc-id', content)).resolves.toBe(
+      expectedRootHash(content),
+    );
+    expect(doc.hasLocalChanges()).toBe(true);
   });
 });

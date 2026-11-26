@@ -125,7 +125,13 @@ const POSITIONAL_NAME = /^~*[rc]\d+$/;
  * So the two namespaces are kept disjoint — a renamed part is a bare
  * `r<i>`/`c<j>`, and a literal part that looks like one gains a `~` — and the
  * rebuild still refuses a collision rather than dropping a member, since a
- * hash that cannot be trusted must fail the seed, not pass it.
+ * hash that cannot be trusted must fail the seed, not pass it. With the
+ * namespaces disjoint that refusal is unreachable — it is an assertion of the
+ * injectivity `seed-templates.spec.ts` tests, kept so a future change to the
+ * renaming fails loudly instead of hashing two worksheets alike.
+ *
+ * Only structure is renamed: the `cells` map's keys, but never a cell's own
+ * members (see the end of this function).
  */
 function renameAxisIds(ws: unknown): unknown {
   if (!ws || typeof ws !== 'object') return ws;
@@ -152,34 +158,48 @@ function renameAxisIds(ws: unknown): unknown {
   };
   const rename = (text: string): string =>
     text.split('|').map(renamePart).join('|');
+  // Rebuilt through `Object.fromEntries`, never `out[key] = …`: a member named
+  // `__proto__` reaches `Object.prototype`'s setter on assignment and vanishes
+  // from the hash, which is the dropped member this guard exists to refuse.
+  // `JSON.parse` makes such a member an own property, so `Object.entries`
+  // does list it.
+  const rebuild = (
+    value: object,
+    mapChild: (key: string, child: unknown) => unknown,
+  ): unknown => {
+    const seen = new Set<string>();
+    const entries: Array<[string, unknown]> = [];
+    for (const [k, v] of Object.entries(value)) {
+      const key = rename(k);
+      if (seen.has(key)) {
+        throw new Error(
+          `worksheet key ${JSON.stringify(k)} collides with ` +
+            `${JSON.stringify(key)} after axis-id renaming, so its root ` +
+            'cannot be hashed',
+        );
+      }
+      seen.add(key);
+      entries.push([key, mapChild(k, v)]);
+    }
+    return Object.fromEntries(entries);
+  };
   const walk = (value: unknown): unknown => {
     if (typeof value === 'string') return rename(value);
     if (Array.isArray(value)) return value.map(walk);
-    if (value && typeof value === 'object') {
-      // Built through `Object.fromEntries`, never `out[key] = …`: a member
-      // named `__proto__` reaches `Object.prototype`'s setter on assignment
-      // and vanishes from the hash, which is the dropped member this guard
-      // exists to refuse. `JSON.parse` makes such a member an own property,
-      // so `Object.entries` does list it.
-      const seen = new Set<string>();
-      const entries: Array<[string, unknown]> = [];
-      for (const [k, v] of Object.entries(value)) {
-        const key = rename(k);
-        if (seen.has(key)) {
-          throw new Error(
-            `worksheet key ${JSON.stringify(k)} collides with ` +
-              `${JSON.stringify(key)} after axis-id renaming, so its root ` +
-              'cannot be hashed',
-          );
-        }
-        seen.add(key);
-        entries.push([key, walk(v)]);
-      }
-      return Object.fromEntries(entries);
-    }
+    if (value && typeof value === 'object')
+      return rebuild(value, (_, child) => walk(child));
     return value;
   };
-  return walk(ws);
+  // A cell's own members — its value `v`, formula `f`, style and spill anchor
+  // (an A1 `Sref`) — hold no axis id, and `v` / `f` are what the user reads,
+  // so a cell is hashed exactly as stored and only the `cells` map's *keys*
+  // are renamed. Walking into a cell would fold text that equals an axis id
+  // into that id's positional name.
+  return rebuild(ws, (key, member) =>
+    key === 'cells' && member && typeof member === 'object'
+      ? rebuild(member, (_, cell) => cell)
+      : walk(member),
+  );
 }
 
 /**

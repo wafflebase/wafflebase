@@ -73,7 +73,25 @@ function sha256(text: string): string {
  * string that is an id, or starts with `<id>-` (a block keyed off its
  * element), takes the token in its place. Object keys are renamed the same
  * way, for maps keyed by id.
+ *
+ * The renaming has to be **injective**, or two different contents share a
+ * hash and `sync:templates` skips a rewrite (or accepts a stale thumbnail)
+ * it needed. Two rules keep it so:
+ *
+ * - What the user reads is never an id. A string under a {@link LITERAL_KEYS}
+ *   key — a docs inline's `text`, a note's markdown `content`, a sheet cell's
+ *   `v` / `f` — is hashed as written, so text that happens to equal an id is
+ *   not folded into that id's token.
+ * - Everywhere else a string that is *not* an id but already reads like a
+ *   token (`#0`, `#0-p1`, or a `~`-escaped form of one) gains a `~`, so the
+ *   two namespaces stay disjoint: a token is a bare `#<n>`, a literal never
+ *   is.
  */
+const LITERAL_KEYS = new Set(['text', 'content', 'v', 'f']);
+
+/** A string that already reads as a token, or as a `~`-escaped one. */
+const TOKEN_LIKE = /^~*#\d+(?:-|$)/;
+
 function canonicalizeIds(value: unknown): unknown {
   const tokens = new Map<string, string>();
   const collect = (v: unknown): void => {
@@ -96,14 +114,19 @@ function canonicalizeIds(value: unknown): unknown {
       const token = tokens.get(s.slice(0, i));
       if (token) return token + s.slice(i);
     }
-    return s;
+    return TOKEN_LIKE.test(s) ? `~${s}` : s;
   };
-  const rewrite = (v: unknown): unknown => {
-    if (typeof v === 'string') return rename(v);
-    if (Array.isArray(v)) return v.map(rewrite);
+  const rewrite = (v: unknown, literal = false): unknown => {
+    if (typeof v === 'string') return literal ? v : rename(v);
+    if (Array.isArray(v)) return v.map((child) => rewrite(child));
     if (v && typeof v === 'object') {
+      // `Object.fromEntries`, never assignment, so a `__proto__` member stays
+      // an own property and stays in the hash.
       return Object.fromEntries(
-        Object.entries(v).map(([k, child]) => [rename(k), rewrite(child)]),
+        Object.entries(v).map(([k, child]) => [
+          rename(k),
+          rewrite(child, LITERAL_KEYS.has(k)),
+        ]),
       );
     }
     return v;
