@@ -24,6 +24,14 @@ describe('seedContentHash', () => {
       },
     }) as unknown as SeedContent;
 
+  // Tokens are numbered in collection order, depth first: the slide `s-1` is
+  // `#0`, the element is `#1`, its block `<id>-p0` is `#2`, the connector
+  // `c-1` is `#3`. The tests below name `#1` / `#2` because those are the
+  // tokens the element and its block really take; any other number is a
+  // literal the old canonicalization already kept apart, and proves nothing.
+  const ELEMENT_TOKEN = '#1';
+  const BLOCK_TOKEN = '#2';
+
   it('still ignores which id the builders happened to mint', () => {
     expect(seedContentHash(deck('a1b2c3d4', 'Hi'))).toBe(
       seedContentHash(deck('9f8e7d6c', 'Hi')),
@@ -31,10 +39,10 @@ describe('seedContentHash', () => {
   });
 
   it('moves when text is edited to read like a token', () => {
-    // `x` is the first id collected, so it renames to `#0`; text reading
-    // `#0` used to be left alone and so hashed the same as text reading `x`.
+    // `x` renames to `#1`. Text reading `x` used to take that token, and
+    // text reading `#1` was left alone, so the two decks hashed the same.
     expect(seedContentHash(deck('x', 'x'))).not.toBe(
-      seedContentHash(deck('x', '#0')),
+      seedContentHash(deck('x', ELEMENT_TOKEN)),
     );
   });
 
@@ -46,13 +54,18 @@ describe('seedContentHash', () => {
   });
 
   it('keeps a token-looking literal apart from a renamed reference', () => {
-    // A connector pointing at the element (`x` → `#0`) and one whose `from`
-    // is the literal string `#0` are different decks.
+    // A connector pointing at the element (`x` → `#1`) and one whose `from`
+    // is the literal string `#1` are different decks.
     expect(seedContentHash(deck('x', 'Hi', 'x'))).not.toBe(
-      seedContentHash(deck('x', 'Hi', '#0')),
+      seedContentHash(deck('x', 'Hi', ELEMENT_TOKEN)),
     );
-    expect(seedContentHash(deck('x', 'Hi', '#0-p0'))).not.toBe(
-      seedContentHash(deck('x', 'Hi', 'x-p0')),
+    // The same for the block id (`x-p0` → `#2`) …
+    expect(seedContentHash(deck('x', 'Hi', 'x-p0'))).not.toBe(
+      seedContentHash(deck('x', 'Hi', BLOCK_TOKEN)),
+    );
+    // … and for a string keyed off the element (`x-q` → `#1-q`).
+    expect(seedContentHash(deck('x', 'Hi', 'x-q'))).not.toBe(
+      seedContentHash(deck('x', 'Hi', `${ELEMENT_TOKEN}-q`)),
     );
   });
 });

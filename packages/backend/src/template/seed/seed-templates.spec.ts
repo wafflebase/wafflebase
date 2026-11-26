@@ -114,6 +114,9 @@ describe('hashRootJson cell text', () => {
       },
     });
 
+  // Within one grid this already held once 8232deb escaped literal positional
+  // names (`r0` → `~r0`); it guards that escaping. The tests that fail
+  // without verbatim cell text are the re-minted ones below.
   it('moves when a cell is edited to read an axis id', () => {
     expect(hashRootJson(root(['ra'], 'ra'))).not.toBe(
       hashRootJson(root(['ra'], 'r0')),
@@ -135,9 +138,12 @@ describe('hashRootJson cell text', () => {
     );
   });
 
-  it('hashes formulas as written', () => {
-    expect(hashRootJson(root(['ra'], '1', '=ra'))).not.toBe(
-      hashRootJson(root(['ra'], '1', '=r0')),
+  it('hashes a cell formula as written, not only its value', () => {
+    // The re-minted form, as above, on `f`. Renaming matched a whole string
+    // (or a `|`-separated part) equal to an id, so it is an `f` reading
+    // exactly the row id that folded — `=ra` was never renamed.
+    expect(hashRootJson(root(['ra'], '1', 'ra'))).not.toBe(
+      hashRootJson(root(['rb'], '1', 'rb')),
     );
   });
 });
