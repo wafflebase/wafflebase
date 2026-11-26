@@ -479,9 +479,12 @@ Where the shipped command differs from the proposal above, and why:
   so it stays — restricted to sheet, doc and board, refusing slides and note
   with a pointer at `sync:templates`, while sync's skip message for the other
   three points at `register:templates` (`seed-routing.ts` holds the split, so
-  the two never write the same listing). Its approve step now matches the
-  queue row's title exactly and refuses when two rows share it, instead of
-  the substring match that let "Budget" approve "Budget Tracker". When the
+  the two never write the same listing). Its approve step no longer touches the
+  admin page: the old substring title match let "Budget" approve "Budget
+  Tracker" and could pick a stranger's row once the 100-row queue truncated
+  the seed's own, so it now approves in-process by the id of the listing it
+  just published, and re-files a drifted card of an already-approved listing
+  the same way. When the
   Phase 2 renderers land, `register-templates.ts`, its scripts and the
   backend Playwright devDependency are deleted.
 - **A listing with no record** (one `register:templates` made) counts as

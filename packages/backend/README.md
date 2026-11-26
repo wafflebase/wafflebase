@@ -680,9 +680,13 @@ have no offline thumbnail yet, so sync skips them (its message says to use
 through the real Share dialog instead — refusing slides and note, which are
 sync's. It needs Chromium
 (`pnpm --filter @wafflebase/frontend exec playwright install chromium`) and a
-running frontend and API, is not idempotent (an existing listing is skipped;
-`--reset` unpublishes first), approves by the queue row's exact title, and is
-deleted, with the backend Playwright devDependency, once every type renders
+running frontend and API. It approves in-process through
+`TemplateService.review()` by the id of the listing it just published (the
+review queue renders no listing id, so no UI row is ever matched). Without
+`--reset` an existing listing is not republished, but a card that drifted from
+the catalogue is updated and re-approved, and only while the listing is public
+and its reviewed content is still the current content; `--reset` unpublishes
+first. It is deleted, with the backend Playwright devDependency, once every type renders
 offline.
 
 The Nest commands run from `dist`, not through `tsx`: esbuild emits no
