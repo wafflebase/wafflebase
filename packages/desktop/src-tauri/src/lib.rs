@@ -567,7 +567,7 @@ pub fn run() {
         .expect("error while building the Wafflebase desktop app")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                update::install_pending_on_exit(app);
+                update::install_pending_at_exit(app);
             }
         });
 }

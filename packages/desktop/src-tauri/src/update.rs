@@ -25,10 +25,12 @@ use crate::dlog;
 /// How often a running app looks again after the launch check.
 const RECHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// Per request (the manifest, then the package). Without it a stalled
+/// For the whole check: the manifest and the package. Without it a stalled
 /// connection would hold `busy` for the rest of the session: the daily check
-/// would skip forever and the menu item would never answer.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// would skip forever and the menu item would never answer. The plugin's own
+/// builder timeout does not reach the package download (the `Update` it
+/// returns carries none), so this wraps both.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Default)]
 pub struct Updates(Mutex<State>);
@@ -123,21 +125,43 @@ pub fn check_from_menu<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move { check(&app, true).await });
 }
 
-/// Installs a downloaded package: one the background check fetched, or one
-/// the user deferred with "Later". Called on `RunEvent::Exit`; on Windows the
-/// installer takes over and the process exits here, without relaunching the
-/// app the user just quit. A failure is logged; the next launch checks again.
-pub fn install_pending_on_exit<R: Runtime>(app: &AppHandle<R>) {
+/// How long quitting waits for an install. A writable bundle is swapped in a
+/// second or two; see `install_pending_at_exit` for the case that never ends.
+const EXIT_INSTALL_WAIT: Duration = Duration::from_secs(30);
+
+/// Installs a waiting package as the app quits. Called on `RunEvent::Exit`,
+/// which is the event macOS's Quit (Cmd+Q, an Apple Event `quit`) reaches;
+/// `ExitRequested` is not sent there.
+///
+/// That runs on the main thread, and on macOS an install that needs
+/// administrator rights hands its prompt to the main thread and blocks on it,
+/// so installing here directly would hang the quit. The install runs on a
+/// worker and the quit waits at most `EXIT_INSTALL_WAIT`. In the admin case
+/// the plugin has moved nothing yet when it blocks (the atomic bundle swap
+/// failed with a permission error), so exiting leaves the current app intact
+/// and the next launch checks again; "Restart Now" handles that case, since
+/// the main thread is free then. On Windows the installer takes over and the
+/// process exits inside `install`, without relaunching the app the user quit.
+pub fn install_pending_at_exit<R: Runtime>(app: &AppHandle<R>) {
     let Some(updates) = app.try_state::<Updates>() else {
         return;
     };
     let Some((update, bytes)) = updates.lock().pending.take() else {
         return;
     };
-    dlog!("installing {} on quit", update.version);
-    let update = update.restart_after_install(false);
-    if let Err(e) = update.install(bytes) {
-        eprintln!("[wafflebase-desktop] update install failed: {e}");
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        dlog!("installing {} on quit", update.version);
+        let update = update.restart_after_install(false);
+        if let Err(e) = update.install(bytes) {
+            eprintln!("[wafflebase-desktop] update install failed: {e}");
+        }
+        let _ = done.send(());
+    });
+    if finished.recv_timeout(EXIT_INSTALL_WAIT).is_err() {
+        eprintln!(
+            "[wafflebase-desktop] update install did not finish on quit; left for the next launch"
+        );
     }
 }
 
@@ -160,7 +184,13 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
         }
     }
 
-    let result = fetch(app).await;
+    let result = match tokio::time::timeout(FETCH_TIMEOUT, fetch(app)).await {
+        Ok(result) => result.map_err(|e| e.to_string()),
+        Err(_) => Err(format!(
+            "timed out after {} minutes",
+            FETCH_TIMEOUT.as_secs() / 60
+        )),
+    };
 
     let (outcome, asked, error) = {
         let mut state = updates.lock();
@@ -178,7 +208,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
             Ok(None) => (Outcome::UpToDate, asked, None),
             Err(e) => {
                 eprintln!("[wafflebase-desktop] update check failed: {e}");
-                (Outcome::Failed, asked, Some(e.to_string()))
+                (Outcome::Failed, asked, Some(e))
             }
         }
     };
@@ -208,8 +238,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
 async fn fetch<R: Runtime>(
     app: &AppHandle<R>,
 ) -> tauri_plugin_updater::Result<Option<(Update, Vec<u8>)>> {
-    let updater = app.updater_builder().timeout(REQUEST_TIMEOUT).build()?;
-    let Some(update) = updater.check().await? else {
+    let Some(update) = app.updater()?.check().await? else {
         return Ok(None);
     };
     dlog!("update {} available, downloading", update.version);
@@ -242,7 +271,9 @@ fn prompt_restart<R: Runtime>(app: &AppHandle<R>) {
         ))
         .show(move |restart| {
             if restart {
-                restart_into_update(&handle);
+                // Off whatever thread runs this callback, for the reason in
+                // `install_pending_at_exit`.
+                std::thread::spawn(move || restart_into_update(&handle));
             }
         });
 }

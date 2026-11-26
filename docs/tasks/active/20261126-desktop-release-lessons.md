@@ -53,3 +53,27 @@
   file says). Blast-radius: `createUpdaterArtifacts: true` broke a local
   `tauri build` without the updater key — fixed: moved to
   `tauri.release.conf.json`, passed only by the workflow.
+- **Round 3** (last; blast-radius, design-fit, docs clean). Correctness: the
+  round-2 timeout was set on the updater builder, which the plugin does not
+  pass on to `Update::download` (`timeout: None`, updater.rs:735) — fixed by
+  bounding the whole fetch with `tokio::time::timeout`. Same lens: installing
+  from `RunEvent::Exit` runs on the main thread, and the plugin's macOS
+  admin-rights path posts to the main thread and blocks (updater.rs:1594) —
+  a hang on quit. First fix (hold `ExitRequested`, install on a worker,
+  then exit) passed the unit tests and failed the e2e: macOS's Quit (Apple
+  Event `quit`, like Cmd+Q) sends no `ExitRequested`, so nothing installed.
+  Final fix: stay on `Exit`, install on a worker, wait at most 30 s; in the
+  admin case the plugin has moved nothing when it blocks (the atomic swap
+  failed with EPERM), so the quit proceeds intact. Restart Now installs off
+  the dialog thread. Lesson: re-run the e2e after every lifecycle change.
+  Deferred, as PR known limitations: test-adequacy "check() wiring untested"
+  (needs a Tauri mock runtime; covered by the local e2e), and security "the
+  Environment's required reviewer cannot be verified from the repo" (a
+  repository setting; an in-workflow check could be edited away by the same
+  tagged commit it is meant to stop). Minor, left: no RAII guard on `busy`
+  if `fetch` panics; an Offer racing a quit can show no dialog.
+- **Read the dependency, not its docs, before trusting a knob.** Both round-3
+  bugs were in plugin internals the API surface hides: a builder timeout that
+  the returned `Update` drops, and an install that blocks on the main thread
+  only in the admin case. The reviewer found them by opening the registry
+  source; do that first next time.

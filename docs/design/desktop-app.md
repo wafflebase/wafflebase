@@ -245,8 +245,16 @@ that would reach the system browser without cookies.
   key compiled into `tauri.conf.json`, and installs it when the app quits; the
   next launch runs it. Only **Check for Updates…** in the app menu talks to
   the user: "up to date", or **Restart Now** / **Later** (Later leaves it for
-  quit). On Windows the NSIS installer runs passively and, run at quit, does
-  not relaunch the app the user just closed. A failed background check is
+  quit). The install at quit runs on `RunEvent::Exit` (macOS's Quit sends
+  no `ExitRequested`), on a worker thread the quit waits for at most 30
+  seconds: on macOS an install that needs administrator rights hands its
+  prompt to the main thread and blocks, so installing on the main thread
+  would hang the quit. In that case nothing has been moved yet when it
+  blocks, so the quit proceeds with the current app intact; **Restart Now**,
+  with the main thread free, is the way to install there. A check is bounded at ten minutes as a
+  whole, since the plugin's per-request timeout does not reach the package
+  download. On Windows the NSIS installer runs passively and, run at quit,
+  does not relaunch the app the user just closed. A failed background check is
   logged, not shown.
 - **Signing.** Apple Developer ID (G2 intermediate) with notarization on macOS.
   Windows builds are minisign-signed for the updater but not yet

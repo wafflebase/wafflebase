@@ -75,6 +75,12 @@ new `release: published` trigger and `desktop-release`), actionlint,
 fetched the manifest and a 99.0.0 package at launch and, on quit, the bundle
 on disk was 99.0.0.
 
+After self-review round 3 (exit path moved to a worker thread): a 0.6.18
+build quit by Apple Event installed 99.0.0; with the install directory made
+read-only (the plugin's admin-rights path), the quit finished after the
+30-second wait, logged "left for the next launch", and the app stayed
+0.6.18.
+
 Not verified here: that no dialog appears on the silent path, and the
 manual-check dialog itself (no screen capture permission in this
 session) and Restart Now; tauri's own `APPLE_CERTIFICATE` signing path,
