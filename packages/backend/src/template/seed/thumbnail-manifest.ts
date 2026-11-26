@@ -35,32 +35,79 @@ export type ThumbnailLookup =
 
 const ALLOWED_MIME = new Set(['image/webp', 'image/png']);
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `map[slug]`, but only for an own property. The maps come from
+ * `JSON.parse`, so they inherit `Object.prototype`: a slug such as
+ * `constructor` would otherwise resolve to a function.
+ */
+function own(map: Record<string, unknown> | undefined, slug: string): unknown {
+  return map && Object.prototype.hasOwnProperty.call(map, slug)
+    ? map[slug]
+    : undefined;
+}
+
+function isManifestItem(value: unknown): value is ThumbnailManifestItem {
+  return (
+    isPlainObject(value) &&
+    typeof value.file === 'string' &&
+    typeof value.mimeType === 'string' &&
+    typeof value.sha256 === 'string' &&
+    typeof value.contentHash === 'string'
+  );
+}
+
 export class ThumbnailDirectory {
   private constructor(
     private readonly dir: string,
     private readonly manifest: ThumbnailManifest,
   ) {}
 
+  /**
+   * Fails the whole run only for a manifest that is not one at all. An entry
+   * that is malformed fails its own seed, in {@link get}.
+   */
   static async open(dir: string): Promise<ThumbnailDirectory> {
     const raw = await readFile(path.join(dir, 'manifest.json'), 'utf8');
-    const manifest = JSON.parse(raw) as ThumbnailManifest;
-    if (manifest?.version !== 1 || typeof manifest.items !== 'object') {
+    const manifest: unknown = JSON.parse(raw);
+    if (
+      !isPlainObject(manifest) ||
+      manifest.version !== 1 ||
+      !isPlainObject(manifest.items) ||
+      (manifest.skipped !== undefined && !isPlainObject(manifest.skipped)) ||
+      (manifest.failed !== undefined && !isPlainObject(manifest.failed))
+    ) {
       throw new Error(
         `${dir}/manifest.json is not a version-1 thumbnail manifest`,
       );
     }
-    return new ThumbnailDirectory(dir, manifest);
+    return new ThumbnailDirectory(
+      dir,
+      manifest as unknown as ThumbnailManifest,
+    );
   }
 
   async get(slug: string): Promise<ThumbnailLookup> {
-    const item = this.manifest.items[slug];
-    if (!item) {
-      const skipped = this.manifest.skipped?.[slug];
-      if (skipped) return { kind: 'skipped', reason: skipped };
+    const item = own(this.manifest.items, slug);
+    if (item === undefined) {
+      const skipped = own(this.manifest.skipped, slug);
+      if (typeof skipped === 'string' && skipped) {
+        return { kind: 'skipped', reason: skipped };
+      }
+      const failed = own(this.manifest.failed, slug);
       return {
         kind: 'failed',
-        reason: this.manifest.failed?.[slug] ?? 'no thumbnail was rendered',
+        reason:
+          typeof failed === 'string' && failed
+            ? failed
+            : 'no thumbnail was rendered',
       };
+    }
+    if (!isManifestItem(item)) {
+      return { kind: 'failed', reason: 'malformed manifest entry' };
     }
     // The file name comes from a manifest on disk; keep it inside the
     // directory rather than trusting it to.

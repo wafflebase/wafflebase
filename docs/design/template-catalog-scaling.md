@@ -525,16 +525,83 @@ Where the shipped command differs from the proposal above, and why:
   (`seed-templates.spec.ts`).
   Approval then echoes the watermark read *before* the content, so an edit
   after that read either changes the content (refused here) or moves
-  `contentChangedAt` past `contentAt`, which `review()` refuses
-  (`template.service.ts`, the `seen !== actual` CAS in `review()`). A
-  content-identical late event of our own — the case that used to wedge a seed
-  on "edited by someone else" — now just approves the newer watermark.
-- **Residual window:** an edit made after the read-back whose event has not
-  reached the backend when `review()` runs is approved with the older
-  watermark. It is not served: when its event lands,
-  `TemplateReviewSyncService` returns the listing to `pending`, and
-  `isVisibleTo` hides any listing whose `contentChangedAt` is past
-  `reviewedContentAt` even if that write never happens.
+  `contentChangedAt` past `contentAt`, which `review()` refuses: its
+  `seen !== actual` check, and — for an event landing between that check and
+  the write — the approve `updateMany`'s `where`, which carries
+  `contentChangedAt` alongside `status`. Without the second half such an
+  event left a `public` + `listed` row with a stale `reviewedContentAt`:
+  hidden by `isVisibleTo`, out of the queue (no transition to `pending`
+  happens on a listing that already is one), and decided by nobody. A
+  takedown's write carries no watermark; removing content never fails
+  because the content changed. A content-identical late event of our own —
+  the case that used to wedge a seed on "edited by someone else" — now just
+  approves the newer watermark.
+- **A seed edited by somebody else is rewritten, never approved.** Seed
+  documents belong to the catalogue. A run whose record says it applied the
+  current content first re-reads the document; if it no longer hashes to
+  `writtenHash`, the seed is treated as content-changed and rewritten (a
+  whole-root replacement, so the stranger's edit is gone), and what is then
+  approved is the read-back of *our* write, as for any write. The refusal is
+  unchanged — the read-back that gates approval still refuses content this
+  command did not write — but it now fails one run instead of every run: the
+  next run rewrites. The same check keeps `unchanged` honest for a `public`
+  listing whose edit event was missed. Cost: one extra document read per
+  already-synced seed per run.
+- **`--author` must manage the seed document before anything is written.**
+  A seed whose card needs no update reaches the content write — through the
+  backend's Yorkie identity, which the auth webhook does not gate — before
+  `publish`, `update` or `submit`, each of which checks management. So the
+  command calls `TemplateService.assertCanManage` first, and a reviewer who
+  does not manage the document fails the seed with nothing touched.
+  `--workspace` stays optional: with that check in place it is a consistency
+  check on where `seed:templates` put the documents, not an authority
+  boundary (the document id is fixed per slug, so there is one candidate
+  document, and the author must manage it). An empty `--workspace` value is
+  refused rather than read as omission.
+- **Approval is bound to the card the run checked.** The card is read before
+  `submit()`, and a manager can edit it in between. Once `pending`, the card
+  is frozen (`assertCardEditable`), so the command re-reads the listing after
+  submitting and refuses to approve unless title, description, category and
+  thumbnail are still the catalogue's. Tags are not reviewed, so they are not
+  part of the binding, and a tags-only drift is applied even to a `pending`
+  listing.
+- **A quiet submission the run cannot decide is handed to the reviewers.**
+  `submit({ quiet })` skips the queued notification because the same run
+  approves. When anything after a quiet submit fails — the card binding, the
+  `review()` CAS — the command calls `TemplateService.notifyReviewQueued`,
+  which sends the notification `submit` skipped (only while the listing is
+  still `pending`). A process killed between the two leaves the listing
+  `pending` without one; the next run resumes and approves it.
+- **The thumbnail record is written before the thumbnail is attached.** An
+  `update()` that committed and then failed (or was interrupted) used to
+  leave the record naming the old id, so the next run read our own
+  attachment as somebody else's — on a listing the update had just returned
+  to `pending`, which is refused on every run. The new id is now recorded
+  first; on failure the upload is discarded and the record restored only if
+  the listing does not show the new id.
+- **A `pending` listing whose thumbnail drifted is reported by cause** — an
+  older render of our own thumbnail, or one this command did not attach —
+  rather than as card drift. Either way the card is frozen under review and
+  nothing in the service changes it, so a reviewer decides the submission
+  (approve, or reject below the public tier) and the next run applies the
+  current thumbnail.
+- **Residual window: an edit is served until its event arrives.** Visibility
+  is decided from database columns, and `contentChangedAt` moves only when an
+  edit's `DocumentRootChanged` event reaches the backend. Until then the
+  listing still reads as reviewed: `isVisibleTo` shows it and `use()` copies
+  the edited document. This holds for any edit to any public listing, not
+  only around a sync approval — an edit made after the read-back whose event
+  has not landed when `review()` runs is approved against the older,
+  matching watermark and is public from that moment. Once the event lands the
+  listing is hidden (`isVisibleTo` compares `contentChangedAt` with
+  `reviewedContentAt`) and returned to `pending`
+  (`TemplateReviewSyncService`). The exposure is therefore bounded by event
+  delivery — normally well under a second, unbounded if the event webhook is
+  not registered, which is why the public tier also requires the auth
+  webhook to refuse writes from the preview token — and **copies made during
+  it are not recalled**: they are ordinary documents in their users'
+  workspaces. Closing it would take a content read on every gallery view and
+  every use, which this design does not do; it is an accepted exposure.
 - **A record without a listing is stale and discarded.** `unpublish` deletes
   the listing but not the `TemplateSeedRecord`; the next run treats the seed as
   never published (publish → write → observe → submit → approve). Handled in
@@ -545,8 +612,10 @@ Where the shipped command differs from the proposal above, and why:
   `TemplateSync` against the real `TemplateService` and
   `TemplateReviewSyncService` on Postgres, with a fake Yorkie document store
   and event source: first publish, card change, content change, a
-  third-party edit before and inside the wait, re-sync after unpublish, and
-  the `contentAt` CAS.
+  third-party edit after approval (rewritten, then our write approved) and
+  inside the wait (refused), an author who does not manage the document
+  (refused before any write), re-sync after unpublish, and the `contentAt`
+  CAS.
 
 ### 4. Gallery browse v2
 

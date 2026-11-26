@@ -81,13 +81,12 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
   function deliverEvent(documentId: string, delayMs = 30): void {
     yorkieClock += 1_000;
     const at = new Date(yorkieClock);
+    // The delivery itself is the promise `settle()` awaits, so a rejected
+    // `onDocumentChanged` fails the test at that step rather than surfacing
+    // as an unhandled rejection.
     pendingDeliveries.push(
-      new Promise<void>((resolve) =>
-        setTimeout(() => {
-          void reviewSync
-            .onDocumentChanged(documentId, at)
-            .finally(() => resolve());
-        }, delayMs),
+      new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(() =>
+        reviewSync.onDocumentChanged(documentId, at),
       ),
     );
   }
@@ -100,7 +99,7 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
 
   let onWrite: ((documentId: string) => void) | undefined;
 
-  function makeSync(): TemplateSync {
+  function makeSync(authorId = ownerId): TemplateSync {
     return new TemplateSync(
       {
         prisma,
@@ -124,7 +123,7 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
           Promise.resolve(roots.get(documentId) ?? ''),
       },
       {
-        authorId: ownerId,
+        authorId,
         eventTimeoutMs: 3_000,
         pollIntervalMs: 20,
       },
@@ -316,20 +315,47 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
     );
   });
 
-  it('third-party edit after approval: refused, listing stays out of the gallery', async () => {
+  it('third-party edit after approval: rewritten, and only our write approved', async () => {
     await makeSync().syncOne(SEED, thumbnailFor(SEED));
     strangerEdit(DOC_ID);
     await settle();
-    expect((await listing()).status).toBe('pending');
+    const edited = await listing();
+    expect(edited.status).toBe('pending');
+    const strangers = roots.get(DOC_ID);
 
     const outcome = await makeSync().syncOne(SEED, thumbnailFor(SEED));
 
-    expect(outcome.result).toBe('failed');
-    expect(outcome.detail).toMatch(/edited by someone else/);
-    expect(await listing()).toMatchObject({
-      status: 'pending',
-      reviewedBy: null,
+    expect(outcome.result).toBe('approved');
+    expect(outcome.detail).toMatch(/edited outside this command/);
+    // The stranger's root is gone, and what was approved is our write's
+    // watermark — past the stranger's, never equal to it.
+    expect(roots.get(DOC_ID)).not.toBe(strangers);
+    const after = await listing();
+    expect(after).toMatchObject({ visibility: 'public', status: 'listed' });
+    expect(after.reviewedContentAt!.getTime()).toBeGreaterThan(
+      edited.contentChangedAt!.getTime(),
+    );
+  });
+
+  it('refuses an author who does not manage the document, before any write', async () => {
+    // On the allowlist, but no member of the seed's workspace.
+    const outsider = await createUser();
+    process.env.WAFFLEBASE_TEMPLATE_REVIEWER_IDS = `${ownerId},${outsider.id}`;
+    await makeSync().syncOne(SEED, thumbnailFor(SEED));
+    const root = roots.get(DOC_ID);
+    await prisma.templateSeedRecord.update({
+      where: { documentId: DOC_ID },
+      data: { appliedAt: null },
     });
+
+    const outcome = await makeSync(outsider.id).syncOne(
+      SEED,
+      thumbnailFor(SEED),
+    );
+
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/cannot manage the seeded document/);
+    expect(roots.get(DOC_ID)).toBe(root);
   });
 
   it('third-party edit inside the wait: its event is not mistaken for ours', async () => {

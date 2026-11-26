@@ -724,11 +724,11 @@ what changed:
 | none (also after an unpublish: the leftover record is discarded) | upload thumbnail → `publish` (unlisted, licensed) → write the catalogue content → wait for its event → quiet `submit` → approve |
 | public + listed, nothing changed | nothing |
 | card drifted (listing columns vs the catalogue), or thumbnail bytes changed / replaced from the dialog | `update` (returns it to review; the preview link is kept) → approve. Identical thumbnail bytes are not re-uploaded; a tags-only change needs no review |
-| content changed, or no record of a write of ours | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
+| content changed, no record of a write of ours, or the document no longer holds what we wrote (edited by somebody else) | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
 | pending, nothing changed | approve (an interrupted run) |
 | rejected below the public tier | quiet `submit` → approve |
 | removed, or public + rejected | skipped and reported — moderation is never reversed, and the service cannot resubmit a public listing |
-| pending with a card it has not applied | skipped; decide it in `/admin/templates` first |
+| pending with a title, description, category or thumbnail it has not applied | skipped, naming which; decide it in `/admin/templates` first (a pending card is frozen). A tags-only drift is applied |
 
 Every approval attests only to content this command wrote and saw land. A write
 snapshots the listing's `contentChangedAt` first and waits, up to
@@ -742,10 +742,22 @@ root the catalogue defines (`writtenHash`); it refuses to push unless the
 document matches it. Because the first watermark advance is not necessarily
 ours, approval does not trust it: before approving the command reads the
 listing's watermark, re-reads the document, and refuses unless it still hashes
-to the catalogue's root — somebody else edited it. Approval is by listing id, only for
-seeds with a record, and echoes that watermark, so an edit landing afterwards
-makes `review()`'s `contentAt` check refuse it. Submissions are made
-without the reviewer notification, since the same run decides them. One run at a time: a
+to the catalogue's root — somebody else edited it. That refusal fails one run,
+not every run: a seed document belongs to the catalogue, so the next run sees
+that the document no longer holds what it wrote and rewrites it (the
+stranger's edit is replaced, never approved). Approval is by listing id, only
+for seeds with a record, and echoes that watermark, so an edit whose event
+lands afterwards makes `review()` refuse it — the check and the conditional
+write behind it both carry the watermark. An edit whose event has *not* landed
+when `review()` runs is approved against the older watermark and is public
+until that event arrives (then hidden and returned to review); copies made in
+that window are not recalled. Approval is also bound to the card the run
+checked: after `submit()` freezes it, the listing is re-read and approval is
+refused unless its title, description, category and thumbnail are still the
+catalogue's. Submissions are made without the reviewer notification, since the
+same run decides them; when anything after a quiet submit fails, the run sends
+that notification after all, so a `pending` listing is never left with nobody
+told. One run at a time: a
 `pg_try_advisory_lock` on a dedicated connection refuses a second run
 (`DATABASE_URL` must be a session-mode connection for that). A seed that fails
 does not stop the others; the run exits non-zero if any did.
@@ -762,7 +774,13 @@ listing's preview token would otherwise also grant write access — and
 own submissions. The reviewer guard sits on the HTTP route, so the
 `TemplateSync` class re-checks the allowlist and the enforcement setting itself
 — at construction and before every seed — rather than leaving it to the CLI
-that happens to call it; it mints no authority of its own. `seed:templates` needs no such
+that happens to call it; it mints no authority of its own. Before touching a
+seed it also requires the `--author` to manage its document (workspace owner
+or document author), since the content write goes through the backend's own
+Yorkie identity ahead of any `TemplateService` method that would check it.
+`--workspace` is an optional consistency check on where `seed:templates` put
+the documents (an empty value is refused); `--event-timeout` is capped at
+3600 seconds. `seed:templates` needs no such
 ordering: it writes content through `YorkieService`, which authenticates to the
 webhook as this backend (`src/yorkie/yorkie-service-token.ts`), so its writes
 survive enforcement. The same token is what keeps the v1 content endpoints and

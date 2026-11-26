@@ -79,6 +79,45 @@ describe('ThumbnailDirectory', () => {
       kind: 'failed',
     });
   });
+
+  it('never resolves a slug through Object.prototype', async () => {
+    const thumbs = await ThumbnailDirectory.open(dir);
+    for (const slug of ['constructor', 'toString', '__proto__']) {
+      await expect(thumbs.get(slug)).resolves.toEqual({
+        kind: 'failed',
+        reason: 'no thumbnail was rendered',
+      });
+    }
+  });
+
+  it('fails a malformed entry for its own seed only', async () => {
+    await writeFile(
+      path.join(dir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        items: { nofile: { mimeType: 'image/webp', sha256, contentHash: 'c' } },
+      }),
+    );
+    const thumbs = await ThumbnailDirectory.open(dir);
+    await expect(thumbs.get('nofile')).resolves.toEqual({
+      kind: 'failed',
+      reason: 'malformed manifest entry',
+    });
+  });
+
+  it.each([
+    ['items: null', { version: 1, items: null }],
+    ['items as an array', { version: 1, items: [] }],
+    ['no items', { version: 1 }],
+    ['another version', { version: 2, items: {} }],
+    ['skipped not a map', { version: 1, items: {}, skipped: 'x' }],
+    ['a bare null', null],
+  ])('refuses a manifest with %s', async (_label, manifest) => {
+    await writeFile(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
+    await expect(ThumbnailDirectory.open(dir)).rejects.toThrow(
+      /not a version-1 thumbnail manifest/,
+    );
+  });
 });
 
 describe('dumpCatalog', () => {

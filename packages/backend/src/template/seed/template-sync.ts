@@ -58,7 +58,15 @@ export interface TemplateSyncDeps {
     PrismaService,
     'document' | 'templateListing' | 'templateSeedRecord'
   >;
-  templates: Pick<TemplateService, 'publish' | 'update' | 'submit' | 'review'>;
+  templates: Pick<
+    TemplateService,
+    | 'publish'
+    | 'update'
+    | 'submit'
+    | 'review'
+    | 'assertCanManage'
+    | 'notifyReviewQueued'
+  >;
   images: Pick<ImageService, 'upload' | 'delete'>;
   /**
    * Write `content` and return a hash of the document's root right after the
@@ -128,6 +136,15 @@ export function cardDrift(
     drift.tags = seed.tags;
   }
   return drift;
+}
+
+/**
+ * The drifted fields a reviewer judges: the card minus `tags`, which steer
+ * discovery and are not `CARD_FIELDS` (`template.service.ts`), so the service
+ * lets them change under review and an approval does not attest to them.
+ */
+function reviewedFields(drift: CardFields): string[] {
+  return Object.keys(drift).filter((field) => field !== 'tags');
 }
 
 /** The data columns of a record, for re-saving it with one field changed. */
@@ -210,9 +227,11 @@ export class TemplateSync {
   ): Promise<{ result: SyncResult; detail: string }> {
     this.assertAuthorized();
     const { prisma } = this.deps;
+    const { authorId } = this.options;
     const documentId = seedDocumentId(seed.slug);
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
     this.assertSeedDocument(seed, doc);
+    await this.assertManages(documentId);
 
     const contentHash = seedContentHash(seed.content);
     // The renderer echoes the content hash it was handed. A mismatch is a
@@ -252,8 +271,28 @@ export class TemplateSync {
     // approval may only attest to content this command wrote and saw land.
     // A first publish therefore writes the catalogue content too, rather
     // than trusting whatever `seed:templates` (or anyone since) left there.
-    const contentChanged =
-      !record || !record.appliedAt || record.contentHash !== contentHash;
+    let contentChanged =
+      !record ||
+      !record.appliedAt ||
+      !record.writtenHash ||
+      record.contentHash !== contentHash;
+    // A seed document belongs to the catalogue, so one that no longer holds
+    // what this command wrote is rewritten rather than reported on every run:
+    // the stranger's edit is replaced, and what is then approved is the
+    // catalogue's root, read back after our own write. Approving the
+    // stranger's content stays refused (the read-back below). This also keeps
+    // `unchanged` honest for a public listing whose edit event was missed.
+    let rewroteForeignEdit = false;
+    if (!contentChanged && listing && record) {
+      const live = await this.deps.readContentHash(
+        documentId,
+        seed.content.kind,
+      );
+      if (live !== record.writtenHash) {
+        contentChanged = true;
+        rewroteForeignEdit = true;
+      }
+    }
     let applied: 'published' | 'updated' | null = null;
 
     if (!listing) {
@@ -275,39 +314,52 @@ export class TemplateSync {
       // unchanged. The record keeps only what nothing but this command
       // knows — which bytes it uploaded as which thumbnail id.
       const card = cardDrift(listing, seed);
-      // Changed bytes, or a thumbnail somebody else attached since (an
-      // "Update preview" from the dialog), or no record of ours at all.
+      // Whether the listing's thumbnail is the one this command attached. A
+      // different id means somebody else attached one since (an "Update
+      // preview" from the dialog), or there is no record of ours at all.
+      const ownThumbnail =
+        !!record && record.thumbnailId === listing.thumbnailId;
       const thumbnailChanged =
-        !record ||
-        record.thumbnailHash !== thumbnail.sha256 ||
-        record.thumbnailId !== listing.thumbnailId;
-      const cardChanged = Object.keys(card).length > 0;
+        !ownThumbnail || record?.thumbnailHash !== thumbnail.sha256;
 
-      if (cardChanged || thumbnailChanged) {
-        // `assertCardEditable` refuses a card edit while a submission is under
-        // review, and approving first would publish a card the catalogue no
-        // longer describes. Nothing this command may do resolves it.
+      if (Object.keys(card).length > 0 || thumbnailChanged) {
+        // `assertCardEditable` freezes a card under review, and approving
+        // first would publish a card the catalogue no longer describes.
+        // Nothing this command may do resolves it; a reviewer's decision
+        // (approve or reject) does, after which the next run applies the
+        // catalogue's card. Tags are not a card field, so a tags-only drift
+        // is applied even while pending.
         if (listing.status === 'pending') {
-          throw new SeedStop(
-            'skipped',
-            'pending review with a card this command has not applied; ' +
-              'decide it at /admin/templates, then run again',
-          );
+          const reviewed = reviewedFields(card);
+          if (reviewed.length > 0) {
+            throw new SeedStop(
+              'skipped',
+              'pending review with a card this command has not applied ' +
+                `(${reviewed.join(', ')}); decide it at /admin/templates, ` +
+                'then run again',
+            );
+          }
+          if (thumbnailChanged) {
+            throw new SeedStop(
+              'skipped',
+              (ownThumbnail
+                ? 'pending review with an older render of its thumbnail'
+                : 'pending review with a thumbnail this command did not attach') +
+                '; a card under review is frozen, so decide it at ' +
+                '/admin/templates, then run again',
+            );
+          }
         }
         // Card before content: `update()` returns an approved listing to
         // `pending` synchronously, whereas a content write does so only when
         // its event lands — after which a card edit would be refused.
-        listing = await this.updateCard(listing, seed, thumbnail, {
+        const updated = await this.updateCard(listing, seed, thumbnail, {
           card,
           thumbnailChanged,
+          record,
         });
-        record = await this.saveRecord(documentId, seed.slug, {
-          contentHash: record?.contentHash ?? '',
-          writtenHash: record?.writtenHash ?? '',
-          thumbnailHash: thumbnail.sha256,
-          thumbnailId: listing.thumbnailId,
-          appliedAt: record?.appliedAt ?? null,
-        });
+        listing = updated.listing;
+        record = updated.record;
         applied = 'updated';
       }
     }
@@ -356,18 +408,25 @@ export class TemplateSync {
     }
     this.assertResubmittable(listing);
 
+    const healed = rewroteForeignEdit
+      ? '; the document had been edited outside this command and was rewritten'
+      : '';
     if (listing.visibility === 'public' && listing.status === 'listed') {
       return applied
-        ? { result: 'updated', detail: 'applied; still public and listed' }
+        ? {
+            result: 'updated',
+            detail: `applied; still public and listed${healed}`,
+          }
         : { result: 'unchanged', detail: 'public and listed' };
     }
 
     // The watermark is read *before* the content, and approval echoes it.
     // An edit landing before the read below changes the content, which is
-    // refused here; one landing after it moves `contentChangedAt` past this
-    // watermark, which `review()` refuses with a 409 (its `contentAt` CAS),
-    // or — if its event arrives only after the approval — returns the
-    // listing to `pending` and hides it (`TemplateReviewSyncService`).
+    // refused here; one whose event lands after it moves `contentChangedAt`
+    // past this watermark, which `review()` refuses with a 409 (its
+    // `contentAt` check and the conditional write behind it). An edit whose
+    // event has not reached the backend when `review()` runs is the residual
+    // window the design doc describes.
     const contentAt = listing.contentChangedAt;
     if (!contentAt) {
       throw new SeedStop('failed', 'the listing has no content watermark');
@@ -375,7 +434,8 @@ export class TemplateSync {
     // An operator does not attest to content it did not write: the document
     // must still hold exactly what this command's write left there. This,
     // not the watermark, is what tells our own event from a stranger's — the
-    // first advance after the write is not necessarily ours.
+    // first advance after the write is not necessarily ours. A mismatch fails
+    // this run; the next one rewrites the document (above) and tries again.
     const current = await this.deps.readContentHash(
       documentId,
       seed.content.kind,
@@ -384,33 +444,85 @@ export class TemplateSync {
       throw new SeedStop(
         'failed',
         'edited by someone else during or after the sync: the document no ' +
-          'longer holds what this command wrote; not approving',
+          'longer holds what this command wrote; not approving (the next ' +
+          'run rewrites it)',
       );
     }
 
-    const { authorId } = this.options;
-    if (listing.status !== 'pending') {
-      // `listed` below the public tier (a first publish, or an interrupted
-      // one) or `rejected`. Quiet: this run decides the submission itself,
-      // and a queued notification per seed would bury the reviewers' bell.
-      await this.deps.templates.submit(
-        listing.id,
-        authorId,
-        { acceptLicense: true },
-        { quiet: true },
-      );
-    }
+    let submittedQuietly = false;
+    try {
+      if (listing.status !== 'pending') {
+        // `listed` below the public tier (a first publish, or an interrupted
+        // one) or `rejected`. Quiet: this run decides the submission itself,
+        // and a queued notification per seed would bury the reviewers' bell.
+        // If it then cannot, the catch below sends the notification it
+        // skipped, so a submission is never left pending with nobody told.
+        await this.deps.templates.submit(
+          listing.id,
+          authorId,
+          { acceptLicense: true },
+          { quiet: true },
+        );
+        submittedQuietly = true;
+      }
 
-    // By listing id — never a title match — and echoing the watermark this
-    // command observed, which `review()` re-checks under its own CAS.
-    await this.deps.templates.review(listing.id, authorId, {
-      decision: 'approve',
-      contentAt: contentAt.toISOString(),
-    });
+      // Bind the approval to the card this run checked. The card was read
+      // before `submit()`, and a manager could have edited it in between; a
+      // pending card is frozen (`assertCardEditable`), so what is read here
+      // is what `review()` will publish.
+      const frozen = await this.readListing(documentId);
+      if (
+        frozen.status !== 'pending' ||
+        reviewedFields(cardDrift(frozen, seed)).length > 0 ||
+        frozen.thumbnailId !== record.thumbnailId
+      ) {
+        throw new SeedStop(
+          'failed',
+          'the card changed during the run, so it is not the card this ' +
+            'command checked; not approving',
+        );
+      }
+
+      // By listing id — never a title match — and echoing the watermark this
+      // command observed, which `review()` re-checks under its own CAS.
+      await this.deps.templates.review(listing.id, authorId, {
+        decision: 'approve',
+        contentAt: contentAt.toISOString(),
+      });
+    } catch (err) {
+      if (submittedQuietly) {
+        await this.deps.templates
+          .notifyReviewQueued(listing.id, authorId)
+          .catch(() => undefined);
+      }
+      throw err;
+    }
     return {
       result: applied === 'published' ? 'published' : 'approved',
-      detail: applied ? `${applied} and approved` : 'approved (resumed)',
+      detail:
+        (applied ? `${applied} and approved` : 'approved (resumed)') + healed,
     };
+  }
+
+  /**
+   * `--author` must manage the seeded document before anything touches it.
+   * `publish`, `update` and `submit` each check this, but a seed whose card
+   * needs no update reaches the content write — a whole-root replacement made
+   * with the backend's own Yorkie identity — before any of them would.
+   */
+  private async assertManages(documentId: string): Promise<void> {
+    try {
+      await this.deps.templates.assertCanManage(
+        documentId,
+        this.options.authorId,
+      );
+    } catch (err) {
+      throw new SeedStop(
+        'failed',
+        `--author ${this.options.authorId} cannot manage the seeded ` +
+          `document: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private assertSeedDocument(
@@ -480,15 +592,39 @@ export class TemplateSync {
     return this.readListing(documentId);
   }
 
+  /**
+   * Apply the catalogue's card (and thumbnail, when its bytes changed).
+   *
+   * The new thumbnail's id is recorded *before* `update()` attaches it: an
+   * update that commits and is then interrupted would otherwise leave the
+   * record naming the old id, and the next run would read our own attachment
+   * as somebody else's — on a listing the update just returned to `pending`,
+   * where that reading refuses the seed on every run.
+   */
   private async updateCard(
     listing: TemplateListing,
     seed: TemplateSeed,
     thumbnail: SeedThumbnail,
-    changed: { card: CardFields; thumbnailChanged: boolean },
-  ): Promise<TemplateListing> {
-    const thumbnailId = changed.thumbnailChanged
-      ? await this.upload(seed.slug, thumbnail)
-      : undefined;
+    changed: {
+      card: CardFields;
+      thumbnailChanged: boolean;
+      record: TemplateSeedRecord | null;
+    },
+  ): Promise<{ listing: TemplateListing; record: TemplateSeedRecord | null }> {
+    const { documentId } = listing;
+    const before = changed.record;
+    let record = before;
+    let thumbnailId: string | undefined;
+    if (changed.thumbnailChanged) {
+      thumbnailId = await this.upload(seed.slug, thumbnail);
+      record = await this.saveRecord(documentId, seed.slug, {
+        ...(before
+          ? pickRecord(before)
+          : { contentHash: '', writtenHash: '', appliedAt: null }),
+        thumbnailHash: thumbnail.sha256,
+        thumbnailId,
+      });
+    }
     try {
       // `update()`, not `publish()`: it never touches `shareLinkId`, so the
       // preview link already handed out survives, and it discards the old
@@ -498,10 +634,30 @@ export class TemplateSync {
         ...(thumbnailId ? { thumbnailId } : {}),
       });
     } catch (err) {
-      if (thumbnailId) await this.discard(thumbnailId);
+      if (thumbnailId) {
+        // An error is not proof the attachment did not commit. Only an
+        // upload the listing does not show is ours to discard; one it does
+        // show stays, and so does the record naming it.
+        const now = await this.deps.prisma.templateListing
+          .findUnique({ where: { documentId } })
+          .catch(() => null);
+        if (now?.thumbnailId !== thumbnailId) {
+          await this.discard(thumbnailId);
+          // Put the record back to what the listing still shows.
+          // Best-effort: a record left naming the discarded id only makes
+          // the next run re-upload, which is what it would do anyway.
+          if (before) {
+            await this.saveRecord(
+              documentId,
+              seed.slug,
+              pickRecord(before),
+            ).catch(() => undefined);
+          }
+        }
+      }
       throw err;
     }
-    return this.readListing(listing.documentId);
+    return { listing: await this.readListing(documentId), record };
   }
 
   /**

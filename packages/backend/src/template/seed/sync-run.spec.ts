@@ -40,6 +40,20 @@ describe('parseSyncArgs', () => {
     });
   });
 
+  it('falls back to SEED_AUTHOR_ID, and lets --author win over it', () => {
+    const env = { ...ENV, SEED_AUTHOR_ID: '11' };
+    expect(parseSyncArgs(['--thumbnails', '/t'], env).authorId).toBe(11);
+    expect(
+      parseSyncArgs(['--author', '3', '--thumbnails', '/t'], env).authorId,
+    ).toBe(3);
+  });
+
+  it('leaves the workspace unrestricted only when --workspace is omitted', () => {
+    expect(
+      parseSyncArgs(['--author', '3', '--thumbnails', '/t'], ENV).workspaceId,
+    ).toBeUndefined();
+  });
+
   it('defaults the event timeout to 30 seconds', () => {
     expect(
       parseSyncArgs(['--author', '3', '--thumbnails', '/t'], ENV)
@@ -57,6 +71,19 @@ describe('parseSyncArgs', () => {
     [
       ['--author', '3', '--thumbnails', '/t', '--event-timeout', '0'],
       /timeout/,
+    ],
+    [
+      ['--author', '3', '--thumbnails', '/t', '--event-timeout', '1e308'],
+      /timeout/,
+    ],
+    [
+      ['--author', '3', '--thumbnails', '/t', '--event-timeout', '3601'],
+      /at most 3600/,
+    ],
+    [['--author', '3', '--thumbnails', '/t', '--workspace', ''], /--workspace/],
+    [
+      ['--author', '3', '--thumbnails', '/t', '--workspace', ' '],
+      /--workspace/,
     ],
     [['--author', '3', '--thumbnails', '/t', '--reset', 'x'], /Unknown option/],
   ])('refuses %j', (argv, message) => {
@@ -100,6 +127,20 @@ describe('the single-run lock', () => {
     expect(c.query).toHaveBeenLastCalledWith('SELECT pg_advisory_unlock($1)', [
       SYNC_LOCK_KEY,
     ]);
+    expect(c.end).toHaveBeenCalled();
+  });
+
+  it('closes its connection when the lock query itself fails', async () => {
+    const c = client(true);
+    c.query.mockRejectedValueOnce(new Error('connection reset'));
+    await expect(acquireSyncLock(c)).rejects.toThrow(/connection reset/);
+    expect(c.end).toHaveBeenCalled();
+  });
+
+  it('closes its connection when connecting fails', async () => {
+    const c = client(true);
+    c.connect.mockRejectedValueOnce(new Error('refused'));
+    await expect(acquireSyncLock(c)).rejects.toThrow(/refused/);
     expect(c.end).toHaveBeenCalled();
   });
 
@@ -159,6 +200,36 @@ describe('syncSeeds', () => {
       },
     ]);
     expect(report).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails only the seed whose thumbnail lookup throws', async () => {
+    const syncOne = jest.fn((seed: TemplateSeed) =>
+      Promise.resolve({
+        slug: seed.slug,
+        result: 'published' as const,
+        detail: 'ok',
+      }),
+    );
+
+    const outcomes = await syncSeeds(
+      [seeds[2], seeds[0]],
+      {
+        get: (slug) =>
+          slug === 'broken'
+            ? Promise.reject(new Error('bad manifest entry'))
+            : Promise.resolve({ kind: 'ok' as const, thumbnail: thumb }),
+      },
+      { syncOne },
+    );
+
+    expect(outcomes).toEqual([
+      {
+        slug: 'broken',
+        result: 'failed',
+        detail: 'no thumbnail: bad manifest entry',
+      },
+      { slug: 'deck', result: 'published', detail: 'ok' },
+    ]);
   });
 });
 

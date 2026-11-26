@@ -25,6 +25,9 @@ export const SYNC_USAGE =
 
 const OPTIONS = ['author', 'thumbnails', 'workspace', 'event-timeout'];
 
+/** An hour: a Yorkie event that takes longer than that is not coming. */
+export const MAX_EVENT_TIMEOUT_MS = 3_600_000;
+
 export function parseSyncArgs(
   argv: readonly string[],
   env: Record<string, string | undefined> = process.env,
@@ -55,15 +58,32 @@ export function parseSyncArgs(
     throw new Error(`${SYNC_USAGE}\n--author must be a positive user id`);
   }
   if (!thumbnails) throw new Error(`${SYNC_USAGE}\n--thumbnails is required`);
-  if (!(timeout > 0) || !Number.isFinite(timeout)) {
-    throw new Error(`${SYNC_USAGE}\n--event-timeout must be positive seconds`);
+  // Checked on the value the wait actually uses: `1e308` seconds is finite,
+  // but in milliseconds it is `Infinity`, and a wait with no deadline holds
+  // the run lock for as long as no event arrives.
+  const eventTimeoutMs = timeout * 1000;
+  if (
+    !(eventTimeoutMs > 0) ||
+    !Number.isFinite(eventTimeoutMs) ||
+    eventTimeoutMs > MAX_EVENT_TIMEOUT_MS
+  ) {
+    throw new Error(
+      `${SYNC_USAGE}\n--event-timeout must be positive seconds, at most ` +
+        `${MAX_EVENT_TIMEOUT_MS / 1000}`,
+    );
+  }
+  // Omitting `--workspace` is the unrestricted case; an empty value (an
+  // unset shell variable) is not, and would otherwise read as omission.
+  const workspaceId = values.workspace;
+  if (workspaceId !== undefined && workspaceId.trim() === '') {
+    throw new Error(`${SYNC_USAGE}\n--workspace needs a workspace id`);
   }
   return {
     authorId,
     // `pnpm --filter` runs this from the package directory.
     thumbnails: path.resolve(env.INIT_CWD ?? process.cwd(), thumbnails),
-    workspaceId: values.workspace,
-    eventTimeoutMs: timeout * 1000,
+    workspaceId,
+    eventTimeoutMs,
     slugs,
   };
 }
@@ -106,12 +126,22 @@ export interface LockClient {
  * direct (session-mode) connection; a transaction-mode pooler drops it.
  */
 export async function acquireSyncLock(client: LockClient): Promise<void> {
-  await client.connect();
-  const { rows } = await client.query<{ locked: boolean }>(
-    'SELECT pg_try_advisory_lock($1) AS locked',
-    [SYNC_LOCK_KEY],
-  );
-  if (!rows[0]?.locked) {
+  // The caller keeps only a client this returns from, so every failed
+  // acquisition — a connect or lock query that rejects, or a lock held
+  // elsewhere — closes it here, or the open session keeps the process alive.
+  let locked: boolean;
+  try {
+    await client.connect();
+    const { rows } = await client.query<{ locked: boolean }>(
+      'SELECT pg_try_advisory_lock($1) AS locked',
+      [SYNC_LOCK_KEY],
+    );
+    locked = rows[0]?.locked === true;
+  } catch (err) {
+    await client.end().catch(() => undefined);
+    throw err;
+  }
+  if (!locked) {
     await client.end().catch(() => undefined);
     throw new Error(
       'Another sync:templates run holds the lock; try again later.',
@@ -141,7 +171,13 @@ export async function syncSeeds(
 ): Promise<SyncOutcome[]> {
   const outcomes: SyncOutcome[] = [];
   for (const seed of seeds) {
-    const found = await thumbnails.get(seed.slug);
+    // One bad manifest entry fails that seed, not the rest of the run.
+    const found: ThumbnailLookup = await thumbnails
+      .get(seed.slug)
+      .catch((err: unknown) => ({
+        kind: 'failed' as const,
+        reason: err instanceof Error ? err.message : String(err),
+      }));
     const outcome: SyncOutcome =
       found.kind === 'ok'
         ? await sync.syncOne(seed, found.thumbnail)

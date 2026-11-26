@@ -123,8 +123,12 @@ interface World {
     workspaceId: string;
     deletedAt: Date | null;
   } | null;
-  /** Runs right after a content read-back — an edit racing the approval. */
-  afterReadback?: (world: World) => void;
+  /**
+   * Runs right after a content read-back — an edit racing the approval.
+   * `call` counts read-backs in this run: the first is the drift check made
+   * before anything is written, the last the one approval relies on.
+   */
+  afterReadback?: (world: World, call: number) => void;
 }
 
 /** The Yorkie event for a write, as `TemplateReviewSyncService` applies it. */
@@ -162,6 +166,7 @@ function setup(
   };
   let writes = 0;
   let readsSinceWrite = 0;
+  let readbacks = 0;
   const prisma = {
     document: {
       findUnique: jest.fn(() => Promise.resolve(world.doc)),
@@ -228,6 +233,8 @@ function setup(
       world.listing = { ...world.listing!, status: 'pending' };
       return Promise.resolve({});
     }),
+    assertCanManage: jest.fn(() => Promise.resolve()),
+    notifyReviewQueued: jest.fn(() => Promise.resolve()),
     review: jest.fn(
       (_id: string, _user: number, dto: { contentAt?: string }) => {
         // `review()`'s CAS (template.service.ts, `seen !== actual`): the
@@ -264,7 +271,7 @@ function setup(
   });
   const readContentHash = jest.fn(() => {
     const hash = world.docHash;
-    world.afterReadback?.(world);
+    world.afterReadback?.(world, ++readbacks);
     return Promise.resolve(hash);
   });
   const deps: TemplateSyncDeps = {
@@ -296,6 +303,14 @@ function setup(
     writeContent,
     readContentHash,
   };
+}
+
+/** No service method that writes was called (`assertCanManage` only reads). */
+function expectNoServiceWrites(templates: Record<string, jest.Mock>): void {
+  for (const [name, fn] of Object.entries(templates)) {
+    if (name === 'assertCanManage') continue;
+    expect(fn).not.toHaveBeenCalled();
+  }
 }
 
 describe('TemplateSync', () => {
@@ -407,9 +422,7 @@ describe('TemplateSync', () => {
     expect(outcome.result).toBe('unchanged');
     expect(images.upload).not.toHaveBeenCalled();
     expect(writeContent).not.toHaveBeenCalled();
-    for (const fn of Object.values(templates)) {
-      expect(fn).not.toHaveBeenCalled();
-    }
+    expectNoServiceWrites(templates);
   });
 
   it('updates a drifted card without re-uploading identical thumbnail bytes', async () => {
@@ -435,7 +448,6 @@ describe('TemplateSync', () => {
       category: SEED.category,
       tags: SEED.tags,
     });
-    expect(images.upload).not.toHaveBeenCalled();
     expect(templates.submit).not.toHaveBeenCalled();
     expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
       decision: 'approve',
@@ -565,13 +577,13 @@ describe('TemplateSync', () => {
     expect(outcome.result).toBe('skipped');
     expect(images.upload).not.toHaveBeenCalled();
     expect(writeContent).not.toHaveBeenCalled();
-    for (const fn of Object.values(templates)) {
-      expect(fn).not.toHaveBeenCalled();
-    }
+    expectNoServiceWrites(templates);
   });
 
-  it('refuses to approve content somebody else edited after it was applied', async () => {
-    const { make, templates } = setup({
+  it('rewrites a seed somebody else edited, then approves only its own write', async () => {
+    // Without the rewrite `contentChanged` stays false and the read-back
+    // refuses on every run: a seed edited once would never return.
+    const { world, make, templates, writeContent } = setup({
       listing: listingRow({
         status: 'pending',
         contentChangedAt: new Date(2_000),
@@ -582,9 +594,34 @@ describe('TemplateSync', () => {
 
     const outcome = await make().syncOne(SEED, THUMB);
 
-    expect(outcome.result).toBe('failed');
-    expect(outcome.detail).toMatch(/edited by someone else/);
-    expect(templates.review).not.toHaveBeenCalled();
+    expect(writeContent).toHaveBeenCalledWith(DOC_ID, SEED.content);
+    expect(outcome).toMatchObject({ result: 'approved' });
+    expect(outcome.detail).toMatch(/edited outside this command/);
+    // The watermark approved is our write's, never the stranger's 2_000.
+    expect(templates.review).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      decision: 'approve',
+      contentAt: new Date(world.yorkieClock).toISOString(),
+    });
+    expect(world.record!.writtenHash).toBe('h-write-1');
+  });
+
+  it('does not report a public seed unchanged when its document drifted', async () => {
+    // The edit event was missed, so the listing still reads public + listed.
+    const { world, make, writeContent, templates } = setup({
+      listing: listingRow(),
+      record: recordRow(),
+      docHash: 'h-stranger',
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(writeContent).toHaveBeenCalledTimes(1);
+    expect(outcome.result).toBe('approved');
+    expect(templates.review).toHaveBeenCalledTimes(1);
+    expect(world.listing).toMatchObject({
+      visibility: 'public',
+      status: 'listed',
+    });
   });
 
   it('refuses a stranger edit whose event was credited to our write', async () => {
@@ -629,9 +666,11 @@ describe('TemplateSync', () => {
     const { world, make, templates } = setup({
       listing: listingRow({ status: 'pending' }),
       record: recordRow(),
-      afterReadback: (w) => {
+      afterReadback: (w, call) => {
         // A stranger's edit lands, event and all, between read-back and
-        // approval: the watermark moves past the one we will echo.
+        // approval: the watermark moves past the one we will echo. Call 1 is
+        // the drift check before any write; call 2 is the approval's.
+        if (call !== 2) return;
         w.docHash = 'h-stranger';
         w.pendingEvents += 1;
         w.eventDelayReads = -1;
@@ -771,6 +810,193 @@ describe('TemplateSync', () => {
     expect(images.delete).toHaveBeenCalledWith('new-thumb.webp');
   });
 
+  it('applies a tags-only drift to a pending listing, then approves', async () => {
+    // Tags are not a card field: the service lets them change under review,
+    // so they are no reason to refuse the seed.
+    const { make, templates } = setup({
+      listing: listingRow({
+        visibility: 'unlisted',
+        status: 'pending',
+        tags: ['old'],
+      }),
+      record: recordRow(),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(templates.update).toHaveBeenCalledWith('listing-1', AUTHOR, {
+      tags: SEED.tags,
+    });
+    expect(outcome.result).toBe('approved');
+  });
+
+  it('names a pending listing whose only drift is a newer thumbnail render', async () => {
+    const { make, templates, images } = setup({
+      listing: listingRow({ status: 'pending' }),
+      record: recordRow({ thumbnailHash: 'older-bytes' }),
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('skipped');
+    expect(outcome.detail).toMatch(/older render of its thumbnail/);
+    expect(outcome.detail).not.toMatch(/card this command has not applied/);
+    expect(images.upload).not.toHaveBeenCalled();
+    expect(templates.review).not.toHaveBeenCalled();
+  });
+
+  it('resumes after a thumbnail update that committed and then failed', async () => {
+    // The update committed (new thumbnail attached, listing back to
+    // `pending`) and the call still reported an error. Read as somebody
+    // else's attachment, that pending listing would be refused every run.
+    const { world, make, templates, images } = setup({
+      listing: listingRow(),
+      record: recordRow({ thumbnailHash: 'older-bytes' }),
+    });
+    templates.update.mockImplementationOnce(
+      (_id: string, _user: number, dto: CardDto) => {
+        world.listing = {
+          ...world.listing!,
+          ...dto,
+          status: 'pending',
+        } as TemplateListing;
+        return Promise.reject(new Error('lost the reply'));
+      },
+    );
+
+    const first = await make().syncOne(SEED, THUMB);
+
+    expect(first.result).toBe('failed');
+    // Attached, so neither discarded nor rolled back out of the record.
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(world.record).toMatchObject({
+      thumbnailId: 'new-thumb.webp',
+      thumbnailHash: THUMB.sha256,
+    });
+
+    const second = await make().syncOne(SEED, THUMB);
+
+    expect(second.result).toBe('approved');
+    expect(world.listing).toMatchObject({
+      status: 'listed',
+      visibility: 'public',
+      thumbnailId: 'new-thumb.webp',
+    });
+  });
+
+  it('records the new thumbnail before attaching it', async () => {
+    const { world, make, templates } = setup({
+      listing: listingRow(),
+      record: recordRow({ thumbnailHash: 'older-bytes' }),
+    });
+    let recordedAtUpdate: string | null | undefined;
+    templates.update.mockImplementationOnce(
+      (_id: string, _user: number, dto: CardDto) => {
+        recordedAtUpdate = world.record?.thumbnailId;
+        world.listing = {
+          ...world.listing!,
+          ...dto,
+          status: 'pending',
+        } as TemplateListing;
+        return Promise.resolve({});
+      },
+    );
+
+    await make().syncOne(SEED, THUMB);
+
+    expect(recordedAtUpdate).toBe('new-thumb.webp');
+  });
+
+  it('discards an upload and restores the record when the update did not commit', async () => {
+    const { world, make, templates, images } = setup({
+      listing: listingRow(),
+      record: recordRow({ thumbnailHash: 'older-bytes' }),
+    });
+    templates.update.mockRejectedValueOnce(new Error('refused'));
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome).toMatchObject({ result: 'failed', detail: 'refused' });
+    expect(images.delete).toHaveBeenCalledWith('new-thumb.webp');
+    expect(world.record).toMatchObject({
+      thumbnailId: 'old-thumb.webp',
+      thumbnailHash: 'older-bytes',
+    });
+  });
+
+  it('refuses to write a document the author does not manage', async () => {
+    const { make, templates, writeContent, images } = setup({
+      listing: listingRow({ visibility: 'unlisted' }),
+      record: recordRow({ appliedAt: null }),
+    });
+    templates.assertCanManage.mockRejectedValueOnce(
+      new Error('Only the workspace owner or document owner can publish'),
+    );
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/--author 7 cannot manage the seeded/);
+    expect(writeContent).not.toHaveBeenCalled();
+    expect(images.upload).not.toHaveBeenCalled();
+    expect(templates.submit).not.toHaveBeenCalled();
+  });
+
+  it('does not approve a card edited between the drift check and submit', async () => {
+    const { world, make, templates } = setup({
+      listing: listingRow({ visibility: 'unlisted' }),
+      record: recordRow(),
+    });
+    templates.submit.mockImplementationOnce(() => {
+      // A manager renamed it just before `submit()` froze the card.
+      world.listing = {
+        ...world.listing!,
+        title: 'Renamed by hand',
+        status: 'pending',
+      };
+      return Promise.resolve({});
+    });
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('failed');
+    expect(outcome.detail).toMatch(/not the card this command checked/);
+    expect(templates.review).not.toHaveBeenCalled();
+    // The quiet submission it cannot decide is handed to the reviewers.
+    expect(templates.notifyReviewQueued).toHaveBeenCalledWith(
+      'listing-1',
+      AUTHOR,
+    );
+  });
+
+  it('notifies the reviewers when a quiet submission is then refused', async () => {
+    const { make, templates } = setup({
+      listing: listingRow({ visibility: 'unlisted' }),
+      record: recordRow(),
+    });
+    templates.review.mockRejectedValueOnce(
+      new Error('This template changed while you were reviewing it'),
+    );
+
+    const outcome = await make().syncOne(SEED, THUMB);
+
+    expect(outcome.result).toBe('failed');
+    expect(templates.notifyReviewQueued).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends no extra notification for a submission it did not make', async () => {
+    const { make, templates } = setup({
+      listing: listingRow({ visibility: 'unlisted', status: 'pending' }),
+      record: recordRow(),
+    });
+    templates.review.mockRejectedValueOnce(new Error('conflict'));
+
+    await make().syncOne(SEED, THUMB);
+
+    expect(templates.submit).not.toHaveBeenCalled();
+    expect(templates.notifyReviewQueued).not.toHaveBeenCalled();
+  });
+
   describe('authorization lives in the class, not only the CLI', () => {
     it('refuses an author outside the reviewer allowlist', () => {
       const { make } = setup(
@@ -785,7 +1011,7 @@ describe('TemplateSync', () => {
         {},
         { WAFFLEBASE_TEMPLATE_REVIEWER_IDS: `${AUTHOR}` },
       );
-      expect(make).toThrow();
+      expect(make).toThrow(/requires YORKIE_AUTH_WEBHOOK_ENFORCE=true/);
     });
 
     it('re-checks before each seed, so a run cannot outlive a revoked author', async () => {
