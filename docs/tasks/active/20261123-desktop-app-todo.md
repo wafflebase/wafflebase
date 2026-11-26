@@ -51,11 +51,11 @@ signing, updater, `test:webkit` in CI and Linux stay Phase 2.
 - [x] Handoff page; `blob:` downloads saved to disk
 - [x] Menus (app + Edit), window-state, single-instance, opener
 - [x] `cargo test` and `tauri build --debug` green on macOS
-- [ ] A CI job that runs the crate's `cargo test`. `verify:self`'s
-      `desktop:check` lane reaches only what Node can see: the Ubuntu runner
-      has no WebKit/GTK development libraries, so the crate cannot compile
-      there, and the Rust suite is run by hand on macOS until a platform job
-      in `.github/workflows/ci.yml` takes it over
+- [x] A CI job that runs the crate's `cargo test`: `verify-desktop (macOS)`
+      in `.github/workflows/ci.yml` runs `fmt --check`, `clippy -D warnings`
+      and `test` on Rust 1.90 whenever `packages/desktop` changes. The Ubuntu
+      runner has no WebKit/GTK development libraries, so `verify:self`'s
+      `desktop:check` lane still reaches only what Node can see
 
 Verified unattended on macOS: picker and IPC on bundled pages, remote origin
 refused every command, full sign-in against fake servers (smoke hooks in the

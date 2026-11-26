@@ -283,11 +283,10 @@ const LANES = [
   // development libraries (`webkit2gtk-4.1`, `javascriptcoregtk-4.1`), which
   // the Ubuntu runner does not have — a toolchain alone is not enough. So
   // this lane checks only what Node can see (the bundled page scripts and the
-  // Tauri JSON config), and the crate's own suite — the listener, the
-  // navigation policy and the sign-in state machine — is NOT guarded by any
-  // lane: `pnpm --filter @wafflebase/desktop test` and `lint` run cargo
-  // locally until a platform CI job takes them over (tracked in
-  // `docs/tasks/active/20261123-desktop-app-todo.md`).
+  // Tauri JSON config). The crate's own suite — the listener, the navigation
+  // policy and the sign-in state machine — runs in `ci.yml`'s
+  // `verify-desktop (macOS)` job instead, where the webview is the system
+  // WKWebView and a toolchain is all the build needs.
   {
     name: "desktop:check",
     cmd: "pnpm --filter @wafflebase/desktop check",

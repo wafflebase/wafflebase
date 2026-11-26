@@ -82,3 +82,12 @@
 - **Lesson: "passed locally" for a Rust crate needs the toolchain named.**
   The declared MSRV was never built: the machine's default stable could not
   even parse the dependency graph. Build once with `cargo +<rust-version>`.
+- Panel rounds 1–3 kept one blocking finding: the Rust suite ran in no
+  lane. The fixer could not close it (the agent App cannot push workflow
+  files), so it documented the gap twice and the loop paged. Closed by a
+  maintainer-pushed `verify-desktop (macOS)` job in `ci.yml`: macOS builds
+  Tauri with a toolchain alone, and the job's steps run only when the
+  resolution names `desktop`, since a macOS minute costs ten Linux ones.
+- **Lesson: a finding that needs a workflow change is a human's from round
+  one.** Hand it over when it first appears instead of spending fix rounds
+  on documenting it.
