@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -28,6 +28,7 @@ function renderAt(url: string) {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<p>app home</p>} />
           <Route path="/t/:id" element={<p>template page</p>} />
+          <Route path="*" element={<p>unmatched route</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -62,5 +63,18 @@ describe("LoginPage", () => {
     vi.mocked(fetchMeOptional).mockResolvedValue(USER as never);
     renderAt("/login?returnTo=%2F%2Fevil.example%2Fx");
     expect(await screen.findByText("app home")).toBeTruthy();
+  });
+
+  // The docs are a separate site (VitePress under /docs), not a route of this
+  // app. A client-side <Link> rendered nothing at /docs — a blank page on the
+  // web, and one the desktop shell never saw, so it could not send it to the
+  // system browser. It has to be a real page navigation.
+  it("links Docs as a page navigation, not an app route", async () => {
+    vi.mocked(fetchMeOptional).mockResolvedValue(null);
+    renderAt("/login");
+    const docs = await screen.findByRole("link", { name: "Docs" });
+    expect(docs.getAttribute("href")).toBe("/docs/");
+    fireEvent.click(docs);
+    expect(screen.queryByText("unmatched route")).toBeNull();
   });
 });

@@ -225,7 +225,8 @@ its own cookies.
 
 | Navigation | Action |
 |------------|--------|
-| Same window, frontend origin | Allow |
+| Same window, frontend origin | Allow, except the docs site below |
+| The documentation site (`/docs`, `/docs/…`) on the frontend origin, same or new window | Cancel, open in the system browser. wafflebase.io serves `packages/documentation` there; it is a website, and a window with no address bar or back button would trap a reader in it |
 | `/auth/github` without `mode`, any origin, as a same-window navigation from the frontend's `/login` page | Cancel, run §3 against the link's origin (`/auth/google` joins in Phase 2) |
 | The same link from any other page, or as a new window | System browser (a collaborator's hyperlink must not start sign-in against its host) |
 | New window (`window.open`, `target=_blank`) to the frontend origin | Open a new app window |
@@ -245,7 +246,14 @@ that would reach the system browser without cookies.
 
 - **Menus.** The standard app and Edit menus. On macOS this is functional, not
   cosmetic: without Edit menu items bound to Cmd+C/V/X/Z, those shortcuts never
-  reach the webview. Editor shortcuts stay in the page (Google parity).
+  reach the webview. Editor shortcuts stay in the page (Google parity). A View
+  menu adds **Back**, **Forward** and **Reload**, since the window has no
+  toolbar and a page the app offers no way out of would be a dead end. They
+  carry no accelerators on purpose: a menu accelerator wins over the page, and
+  the browser's Cmd+[ / Cmd+] indent in Docs and Cmd+R fills right in Sheets.
+- **Window titles.** A window takes its page's `document.title` (the editors
+  set it to the document's name), so windows side by side can be told apart in
+  the Window menu, the Dock and Alt+Tab.
 - **Plugins.** `window-state`, `single-instance` (a second launch focuses the
   existing window), `updater`, `dialog` (the update prompt), `opener` (system
   browser). `updater` and `dialog` are driven from Rust only; no capability

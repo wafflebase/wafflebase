@@ -77,3 +77,21 @@
   the returned `Update` drops, and an install that blocks on the main thread
   only in the admin case. The reviewer found them by opening the registry
   source; do that first next time.
+
+## Usability pass
+
+- **A client-side route change is invisible to the shell.** The login
+  page's Docs link was a react-router `<Link to="/docs">`; `/docs` is a
+  separate VitePress site, not a route, so the app rendered a blank page (on
+  the web too) and the desktop navigation hook never fired. Links that leave
+  the SPA must be real `<a href>`s.
+- **Same origin is not the same app.** wafflebase.io serves the app, the
+  homepage and the docs site from one origin; the shell's "frontend origin
+  stays in-window" rule kept the docs in a window with no way back.
+- **Test a `target=_blank` click with a real gesture.** A click synthesised
+  by `eval` is treated as a popup and blocked before WKWebView's new-window
+  delegate runs, so a scripted check of the GitHub link proves nothing either
+  way.
+- **Browser shortcuts collide with Google parity.** Cmd+[ / Cmd+] (Docs
+  indent) and Cmd+R (Sheets fill right) belong to the editors; menu
+  accelerators would steal them, so Back / Forward / Reload ship without any.

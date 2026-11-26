@@ -79,6 +79,15 @@ message on stderr, when invalid. Against a local `pnpm dev`:
 WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 pnpm --filter @wafflebase/desktop dev
 ```
 
+## Links and windows
+
+Links to another site open in the system browser, and so does the docs site
+under `/docs` on the server's own origin. Links within the app stay in the
+window; ones that ask for a new window open another app window, titled after
+the page. The View menu has Back, Forward and Reload, without the browser's
+shortcuts, which the editors use (Cmd+[ / Cmd+] indent in Docs, Cmd+R fills
+right in Sheets).
+
 ## Sign-in
 
 The frontend's sign-in link (`<backend>/auth/github` with no `mode`) is

@@ -50,6 +50,10 @@ other half of Phase 2 and are not in this task.
 - [x] Default to the official server (`https://wafflebase.io`, never
       saved), picker via "Change server…" with "Use wafflebase.io"; open every
       server at `/login`, which now sends a signed-in visitor on to the app
+- [x] Usability pass (impeccable): docs site → system browser; login
+      page's Docs link was a client-side `<Link>` to an unrouted `/docs`
+      (blank page, web too) → real link; window title follows the page;
+      View menu Back / Forward / Reload without accelerators
 - [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
       (`/auth/providers` has no `desktop` field on 0.6.18), or the default
       server answers "too old"

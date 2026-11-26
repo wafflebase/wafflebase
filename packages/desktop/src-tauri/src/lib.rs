@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
 
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem, MenuItemKind, Submenu};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
@@ -39,6 +39,9 @@ macro_rules! dlog {
 const MAIN_WINDOW: &str = "main";
 const CHANGE_SERVER_ID: &str = "change-server";
 const CHECK_UPDATES_ID: &str = "check-updates";
+const BACK_ID: &str = "nav-back";
+const FORWARD_ID: &str = "nav-forward";
+const RELOAD_ID: &str = "nav-reload";
 
 /// Development override for the saved server.
 const SERVER_ENV: &str = "WAFFLEBASE_DESKTOP_SERVER";
@@ -168,6 +171,9 @@ fn build_window<R: Runtime>(
 
     WebviewWindowBuilder::new(app, label, url)
         .title("Wafflebase")
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&window_title(&title));
+        })
         .inner_size(1280.0, 800.0)
         .min_inner_size(480.0, 360.0)
         .on_navigation(move |url| {
@@ -423,7 +429,58 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             menu.prepend(&file)?;
         }
     }
+
+    // The window has no toolbar, so a page the app has no way out of (a
+    // template landing, an error) would otherwise be a dead end. Deliberately
+    // without the browser's accelerators: a menu accelerator wins over the
+    // page, and Cmd+[ / Cmd+] indent in Docs and Cmd+R fills right in Sheets
+    // (Google parity, see the shortcut catalogs).
+    let back = MenuItem::with_id(app, BACK_ID, "Back", true, None::<&str>)?;
+    let forward = MenuItem::with_id(app, FORWARD_ID, "Forward", true, None::<&str>)?;
+    let reload = MenuItem::with_id(app, RELOAD_ID, "Reload", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let view = menu
+        .items()?
+        .iter()
+        .filter_map(MenuItemKind::as_submenu)
+        .find(|s| s.text().is_ok_and(|t| t == "View"))
+        .cloned();
+    match view {
+        Some(view) => {
+            let has_items = !view.items()?.is_empty();
+            view.insert_items(&[&back, &forward, &reload], 0)?;
+            if has_items {
+                view.insert(&separator, 3)?;
+            }
+        }
+        None => {
+            let view = Submenu::with_items(app, "View", true, &[&back, &forward, &reload])?;
+            // After File and Edit where they exist.
+            let at = menu.items()?.len().min(2);
+            menu.insert(&view, at)?;
+        }
+    }
     Ok(menu)
+}
+
+/// The window the user is looking at, for menu commands that act on a page.
+fn focused_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
+    app.webview_windows()
+        .into_values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| window_or_any(app, MAIN_WINDOW))
+}
+
+/// The native window title for a page title: the document's own name, so
+/// windows opened side by side can be told apart in the Window menu, the
+/// Dock and Alt+Tab.
+fn window_title(page_title: &str) -> String {
+    let title = page_title.trim();
+    if title.is_empty() {
+        "Wafflebase".to_string()
+    } else {
+        title.to_string()
+    }
 }
 
 /// The server to open at launch: the environment override, then the saved
@@ -564,7 +621,17 @@ pub fn run() {
         ])
         .menu(build_menu)
         .on_menu_event(|app, event| {
-            if event.id() == CHECK_UPDATES_ID {
+            let page_script = match event.id().as_ref() {
+                BACK_ID => Some("history.back()"),
+                FORWARD_ID => Some("history.forward()"),
+                RELOAD_ID => Some("location.reload()"),
+                _ => None,
+            };
+            if let Some(script) = page_script {
+                if let Some(window) = focused_window(app) {
+                    let _ = window.eval(script);
+                }
+            } else if event.id() == CHECK_UPDATES_ID {
                 update::check_from_menu(app);
             } else if event.id() == CHANGE_SERVER_ID {
                 app.state::<AppState>().signin.cancel();
@@ -646,6 +713,16 @@ mod tests {
         let release: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
         assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+    }
+
+    #[test]
+    fn window_title_follows_the_page() {
+        assert_eq!(
+            super::window_title("Q3 budget — Wafflebase"),
+            "Q3 budget — Wafflebase"
+        );
+        assert_eq!(super::window_title("  "), "Wafflebase");
+        assert_eq!(super::window_title(""), "Wafflebase");
     }
 
     /// The deployment's origin gets no capability.
