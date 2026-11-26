@@ -20,3 +20,10 @@
   with `-X find-renames=40%`; a file split still needs one manual fix.
 - Stricter types from one parallel PR break another PR's test fixtures only at
   integration time — run the combined suite before trusting either green.
+- Round 2 (design fit/blast radius): 5 blocking, all `template-sync`: stale
+  seed record after unpublish (correctness + blast-radius), third-party edit
+  inside the event-wait window attested, `assertSeedDocument` guards untested,
+  state machine tested only against a hand-written service mock. All taken as
+  fixes (read-back content hash before approve; real-service DB contract test).
+- A self-declared "known limitation" in a security-relevant path is a finding
+  waiting to happen — close the window instead of documenting it.
