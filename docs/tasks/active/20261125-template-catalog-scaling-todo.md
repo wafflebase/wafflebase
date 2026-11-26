@@ -1,7 +1,8 @@
 # Template Catalog Scaling — Task Tracking
 
 Design doc: [template-catalog-scaling.md](../../design/template-catalog-scaling.md)
-Status: **Design drafted — awaiting review before Phase 1 implementation**
+PR: [#1205](https://github.com/wafflebase/wafflebase/pull/1205)
+Status: **Design + PR1/PR2/PR4 in review (#1205); PR3, PR5–PR7 next**
 
 ## Decisions taken (defaults, revisit in review)
 
@@ -16,12 +17,12 @@ Status: **Design drafted — awaiting review before Phase 1 implementation**
 - [x] Parallel section drafts (taxonomy, pipeline, sync, browse v2, provenance)
 - [x] Assemble `docs/design/template-catalog-scaling.md`, index it
 - [x] Pointer in template-gallery.md § Seeding; fix stale "tokenless" sentence
-- [ ] Maintainer review of the design (esp. §3 reversal and §1.2 locale in `CARD_FIELDS`)
+- [x] Maintainer review of the design (esp. §3 reversal and §1.2 locale in `CARD_FIELDS`)
 
 ## Phase 1 — PRs (each `pnpm verify:fast` green, self-review)
 
-- [ ] PR1 Taxonomy v2: slug constant in `@wafflebase/core`, DTO alias map, SQL label migration, retype seeds
-- [ ] PR2 Per-file catalog registration (`catalog/<kind>/<family>.ts`) + `catalog-files.spec` + slug-rule assertions
+- [x] PR1 Taxonomy v2: slug constant in `@wafflebase/core`, DTO alias map, SQL label migration, retype seeds
+- [x] PR2 Per-file catalog registration (`catalog/<kind>/<family>.ts`) + `catalog-files.spec` + slug-rule assertions
 - [ ] PR3 `locale` / `familyKey` schema + `CARD_FIELDS` + browse fallback + string-table seeds + parity spec
 - [x] PR4 `template:dump` + `render:thumbnails` (slides, note) + `sync:templates` + `TemplateSeedRecord`; `register:templates` kept for sheet/doc/board only (user decision, self-review round 3)
 - [ ] Phase 2: offline thumbnail renderers for sheet/doc/board, then delete `register:templates` (script, package.json entries, backend Playwright devDependency)
