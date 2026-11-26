@@ -178,8 +178,10 @@ describe('SheetView link card hand-off', () => {
     fireEvent.pointerEnter(card()!);
     fireEvent.pointerLeave(card()!);
 
-    await waitFor(() => expect(card()).toBeNull());
-    expect(release).toHaveBeenCalled();
+    // The card leaves the DOM at commit, but the release runs in a passive
+    // effect after it, so wait on the release, not on the DOM.
+    await waitFor(() => expect(release).toHaveBeenCalled());
+    expect(card()).toBeNull();
   });
 
   it('closes the card when a preview opens, tells the engine, and does not bring it back', async () => {
