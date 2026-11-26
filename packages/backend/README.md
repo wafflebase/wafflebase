@@ -97,6 +97,26 @@ COOKIE_SECURE=                          # Optional. Whether session and login
                                         # `NODE_ENV=production` with a
                                         # non-loopback `http://` callback URL
                                         # logs a warning for that reason.
+WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=      # Optional. The literal `false` —
+                                        # trimmed, case-insensitive — stops
+                                        # `POST /auth/desktop/session`
+                                        # accepting `http://tauri.localhost`,
+                                        # the origin the desktop app's webview
+                                        # has on Windows. Unlike
+                                        # `tauri://localhost`, that one is a
+                                        # name an ordinary browser can reach
+                                        # (Chrome and Firefox resolve
+                                        # `.localhost` to loopback, and
+                                        # `tauri.localhost` is also a real DNS
+                                        # name), so a local listener on port
+                                        # 80 — or a resolver that answers for
+                                        # it — can POST somebody else's login
+                                        # code with an `Origin` the allowlist
+                                        # trusts. Anything else, unset
+                                        # included, keeps it accepted, since
+                                        # dropping it costs the Windows app
+                                        # its in-webview sign-in. macOS and
+                                        # Linux are unaffected either way.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -490,11 +510,12 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` is gated on a confirmation click) |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` and `?mode=desktop` are gated on a confirmation click) |
 | `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
 | `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
-| `GET` | `/auth/providers` | - | `{ github, google }` — which sign-in buttons the login page should offer |
+| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google, windowsOrigin } }` — which sign-in buttons the login page should offer, which the desktop app can run, and whether the Windows app's handoff origin is still accepted |
+| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -1130,7 +1151,8 @@ membership would cost more than 2,000,000 checks, is a `400`. See
    a double-submit pair for the browser (secret in the
    `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
    `web.<hash>`), or
-   a CliAuthStore token for `?mode=cli`, paired with a secret in the
+   a CliAuthStore token for `?mode=cli` (or `?mode=desktop`), paired
+   with a secret in the
    `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
    this browser too
 3. Passport redirects to GitHub OAuth consent screen, carrying `state`
@@ -1155,6 +1177,12 @@ answers it with a confirmation page first; only the click through it
 (which carries the `__Host-wafflebase_cli_confirm` cookie secret back as
 `?confirm=`) reaches the guard. Design:
 [`docs/design/backend.md`](../../docs/design/backend.md).
+
+The desktop app's sign-in (`?mode=desktop`) is the same loopback flow with
+the page worded for the app; the code it ends in redeems only at
+`POST /auth/desktop/session`, which the app's bundled handoff page posts from
+its webview to get the session cookies there. Design:
+[`docs/design/desktop-app.md`](../../docs/design/desktop-app.md) §3.
 
 ## Database Schema
 
@@ -1308,7 +1336,7 @@ src/
 │   ├── github-auth.guard.ts   # Mints the OAuth `state` (web + CLI)
 │   ├── oauth-state.ts         # Browser double-submit state cookie
 │   ├── cli-auth.store.ts      # CLI login state/code store
-│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli
+│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli|desktop
 │   ├── jwt.strategy.ts        # Passport JWT-from-cookie strategy
 │   └── jwt-auth.guard.ts      # Route guard
 ├── user/

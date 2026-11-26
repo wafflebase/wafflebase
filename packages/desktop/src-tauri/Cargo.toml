@@ -1,0 +1,32 @@
+[package]
+name = "wafflebase-desktop"
+version = "0.1.0"
+description = "Desktop shell that opens a Wafflebase deployment in a native window"
+authors = ["Wafflebase contributors"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[lib]
+name = "wafflebase_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.7", features = [] }
+tauri-plugin-opener = "=2.7.3"
+tauri-plugin-window-state = "=2.5.0"
+tauri-plugin-single-instance = "=2.5.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+tiny_http = "0.12"
+getrandom = "0.4"
+sha2 = "0.11"
+base64 = "0.23"
+subtle = "2.6"
+hex = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "system-proxy"] }

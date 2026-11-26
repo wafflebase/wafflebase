@@ -380,6 +380,78 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
+  # THE DESKTOP CRATE, which `verify-self` cannot build. Tauri on Linux needs the
+  # WebKitGTK development libraries (`webkit2gtk-4.1`, `javascriptcoregtk-4.1`),
+  # which the Ubuntu runner does not carry; on macOS the webview is the system
+  # WKWebView and the crate builds with a toolchain alone. So this is the one
+  # lane that runs the loopback listener, navigation policy and sign-in state
+  # machine tests, and the one that holds the crate to its declared
+  # `rust-version` (1.90, `packages/desktop/src-tauri/Cargo.toml`).
+  #
+  # Gated on the STEPS, like the heavy jobs below, so the check always reports
+  # under one name. A macOS minute costs ten Linux ones, so the steps run only
+  # when the resolution names the `desktop` package — or when it could not be
+  # read, which runs everything as every other gate here does. Not required by
+  # branch protection: a desktop regression fails the run, which is what the
+  # agent pipeline's promotion gate reads.
+  verify-desktop:
+    name: verify-desktop (macOS)
+    runs-on: macos-latest
+    needs: changes
+    if: ${{ !cancelled() }}
+    env:
+      RUN_DESKTOP: >-
+        ${{ needs.changes.result != 'success' ||
+            needs.changes.outputs.full == 'true' ||
+            contains(fromJSON(needs.changes.outputs.areas || '{"packages":[]}').packages, 'desktop') ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      RUST_TOOLCHAIN: "1.90"
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Why this job is doing nothing
+        if: env.RUN_DESKTOP != 'true'
+        run: |
+          echo "::notice::verify-desktop had nothing to test — packages/desktop did not change. See the 'What changed' job summary."
+
+      - uses: actions/checkout@v4
+        if: env.RUN_DESKTOP == 'true'
+        with:
+          persist-credentials: false
+
+      # rustup ships on the macOS image; the pinned toolchain is the crate's
+      # `rust-version`, so a dependency bump that needs a newer compiler fails
+      # here instead of on a developer's machine.
+      - name: Install Rust
+        if: env.RUN_DESKTOP == 'true'
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal -c clippy -c rustfmt
+
+      - uses: actions/cache@v4
+        if: env.RUN_DESKTOP == 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: desktop-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: desktop-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Format
+        if: env.RUN_DESKTOP == 'true'
+        working-directory: packages/desktop/src-tauri
+        run: cargo "+$RUST_TOOLCHAIN" fmt --check
+
+      - name: Clippy
+        if: env.RUN_DESKTOP == 'true'
+        working-directory: packages/desktop/src-tauri
+        run: cargo "+$RUST_TOOLCHAIN" clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        if: env.RUN_DESKTOP == 'true'
+        working-directory: packages/desktop/src-tauri
+        run: cargo "+$RUST_TOOLCHAIN" test --locked
+
   verify-backend-image:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]

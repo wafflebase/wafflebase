@@ -1,8 +1,10 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { createHmac, randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
+import type { CliAuthMode } from './cli-auth.store';
 import {
   cliLoginAvailable,
+  parseCliAuthMode,
   parseCliChallenge,
   parseCliNonce,
   parseCliPort,
@@ -33,6 +35,10 @@ import {
  * and a secret minted against their own cookie will not match the
  * victim's. `X-Frame-Options: DENY` keeps the click from being stolen by
  * framing it.
+ *
+ * `?mode=desktop` (the desktop app's sign-in, `docs/design/desktop-app.md`
+ * §3) goes through the same gate for the same reason; only the page's
+ * wording changes, to name the app instead of the command line.
  */
 const CLI_CONFIRM_COOKIE_BASE = 'wafflebase_cli_confirm';
 
@@ -93,14 +99,20 @@ export interface CliConfirmedRequest extends Request {
  *
  * Each part is length-prefixed so no combination of values can be re-cut
  * into a different one that signs the same (`"9|87,6"` vs `"98|7,6"`).
+ *
+ * The mode is signed in too: the page names the program the sign-in is for
+ * (command line or desktop app), and the code the login ends in redeems only
+ * through that program's endpoint, so a click on one must not start the
+ * other.
  */
 export function cliConfirmToken(
   cookieSecret: string,
   port: number,
   nonce?: string,
   challenge?: string,
+  mode: CliAuthMode = 'cli',
 ): string {
-  const parts = [String(port), nonce ?? '', challenge ?? ''];
+  const parts = [mode, String(port), nonce ?? '', challenge ?? ''];
   return createHmac('sha256', cookieSecret)
     .update(parts.map((part) => `${part.length}:${part}`).join('|'))
     .digest('base64url');
@@ -109,7 +121,8 @@ export function cliConfirmToken(
 @Injectable()
 export class CliLoginConfirmMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
-    if (req.query?.mode !== 'cli') {
+    const mode = parseCliAuthMode(req.query?.mode);
+    if (!mode) {
       return next();
     }
 
@@ -146,7 +159,7 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
       // `cliConfirmToken`.
       timingSafeEqualStr(
         confirm,
-        cliConfirmToken(cookie, port, nonce, challenge),
+        cliConfirmToken(cookie, port, nonce, challenge, mode),
       )
     ) {
       // Single use: the cookie is what makes the secret unforgeable, so
@@ -161,13 +174,15 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
 
     const secret = randomBytes(32).toString('base64url');
     res.cookie(confirmCookie, secret, confirmCookieOptions());
-    const confirmToken = cliConfirmToken(secret, port, nonce, challenge);
+    const confirmToken = cliConfirmToken(secret, port, nonce, challenge, mode);
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.status(200).send(renderConfirmPage(port, nonce, confirmToken, challenge));
+    res
+      .status(200)
+      .send(renderConfirmPage(port, nonce, confirmToken, challenge, mode));
   }
 }
 
@@ -183,18 +198,23 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
  * confirmed CLI login without the binding `cliExchange` requires. It is
  * also signed into `confirmToken`, so the link cannot be re-pointed at
  * another port or another challenge without a second page being shown.
+ *
+ * `mode` picks the wording and is carried into the link (and signed into
+ * `confirmToken`), so a desktop start stays a desktop start through the hop.
  */
 export function renderConfirmPage(
   port: number,
   nonce: string | undefined,
   confirmToken: string,
   challenge?: string,
+  mode: CliAuthMode = 'cli',
 ): string {
-  const params = new URLSearchParams({ mode: 'cli', port: String(port) });
+  const params = new URLSearchParams({ mode, port: String(port) });
   if (nonce) params.set('nonce', nonce);
   if (challenge) params.set('challenge', challenge);
   params.set('confirm', confirmToken);
   const href = `/auth/github?${params.toString()}`;
+  const copy = CONFIRM_COPY[mode];
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -202,7 +222,7 @@ export function renderConfirmPage(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Wafflebase CLI sign-in</title>
+<title>${copy.title}</title>
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -225,10 +245,10 @@ export function renderConfirmPage(
 </head>
 <body>
   <div class="card">
-    <h1>Continue signing in to the Wafflebase CLI?</h1>
-    <p>A command-line sign-in is asking to complete on this computer
+    <h1>${copy.heading}</h1>
+    <p>${copy.request} is asking to complete on this computer
        (port ${escapeHtml(String(port))}).</p>
-    <p class="warn">If you did not just run <code>wafflebase login</code>,
+    <p class="warn">${copy.ifNot},
        close this page. Continuing would hand a sign-in for your account to
        whoever asked for it.</p>
     <p><a class="button" href="${escapeHtml(href)}">Continue</a></p>
@@ -236,6 +256,25 @@ export function renderConfirmPage(
 </body>
 </html>`;
 }
+
+/** Fixed, trusted HTML fragments per mode — nothing here comes off a request. */
+const CONFIRM_COPY: Record<
+  CliAuthMode,
+  { title: string; heading: string; request: string; ifNot: string }
+> = {
+  cli: {
+    title: 'Wafflebase CLI sign-in',
+    heading: 'Continue signing in to the Wafflebase CLI?',
+    request: 'A command-line sign-in',
+    ifNot: 'If you did not just run <code>wafflebase login</code>',
+  },
+  desktop: {
+    title: 'Wafflebase desktop app sign-in',
+    heading: 'Continue signing in to the Wafflebase desktop app?',
+    request: 'A sign-in from the Wafflebase desktop app',
+    ifNot: 'If you did not just sign in from the Wafflebase desktop app',
+  },
+};
 
 function escapeHtml(value: string): string {
   return value

@@ -25,6 +25,7 @@ Monorepo packages for Wafflebase.
 | [`frontend`](frontend/README.md) | React 19 SPA — sheets/docs/slides/notes/board UI, Yorkie real-time collaboration, GitHub OAuth. |
 | [`backend`](backend/README.md) | NestJS API server — GitHub OAuth + JWT sessions, document CRUD, REST API v1, API keys. |
 | [`cli`](cli/README.md) | TypeScript CLI (`wafflebase`) — terminal access to the REST API for data pipelines, scripting, import/export. |
+| [`desktop`](desktop/README.md) | Tauri 2 desktop shell — opens a team's own deployment in a native window; sign-in through the system browser (loopback + PKCE). |
 | [`documentation`](documentation/README.md) | VitePress documentation site served at the `/docs/` subpath. |
 
 ## Tooling

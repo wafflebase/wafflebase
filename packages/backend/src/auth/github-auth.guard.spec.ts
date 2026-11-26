@@ -4,6 +4,7 @@ import {
   GitHubAuthGuard,
   insecureProductionOrigin,
   loopbackCallback,
+  parseCliAuthMode,
   parseCliChallenge,
   parseCliNonce,
   parseFetchSite,
@@ -29,6 +30,16 @@ describe('parseCliNonce', () => {
     expect(parseCliNonce(undefined)).toBeUndefined();
     expect(parseCliNonce(['f'.repeat(32)])).toBeUndefined();
     expect(parseCliNonce(42)).toBeUndefined();
+  });
+});
+
+describe('parseCliAuthMode', () => {
+  it('accepts exactly the two loopback modes', () => {
+    expect(parseCliAuthMode('cli')).toBe('cli');
+    expect(parseCliAuthMode('desktop')).toBe('desktop');
+    expect(parseCliAuthMode('Desktop')).toBeUndefined();
+    expect(parseCliAuthMode(undefined)).toBeUndefined();
+    expect(parseCliAuthMode(['desktop'])).toBeUndefined();
   });
 });
 
@@ -182,6 +193,72 @@ describe('GitHubAuthGuard.canActivate', () => {
 
     expect(createState).not.toHaveBeenCalled();
     expect(req.__oauthState).toMatch(/^web\./);
+  });
+
+  /**
+   * `?mode=desktop` is the CLI branch for the desktop app. The mode has to
+   * reach the stored state, or the callback mints a CLI code that the app's
+   * handoff (`POST /auth/desktop/session`) refuses.
+   */
+  describe('mode=desktop', () => {
+    it('binds the mode, nonce and challenge into the stored state', () => {
+      const nonce = 'd'.repeat(64);
+      const challenge = 'c'.repeat(43);
+      const { req, res, result } = activate({
+        mode: 'desktop',
+        port: '51234',
+        nonce,
+        challenge,
+      });
+
+      expect(result).toBe(true);
+      expect(createState).toHaveBeenCalledWith(
+        'desktop',
+        51234,
+        nonce,
+        challenge,
+      );
+      expect(req.__oauthState).toBe('state-token');
+      expect(res.cookie).toHaveBeenCalledWith(
+        'wafflebase_cli_state',
+        'csrf',
+        expect.objectContaining({ httpOnly: true }),
+      );
+    });
+
+    it('mints no desktop state for an unconfirmed request', () => {
+      const { req } = activate({ mode: 'desktop', port: '51234' }, {});
+
+      expect(createState).not.toHaveBeenCalled();
+      expect(req.__oauthState).toMatch(/^web\./);
+    });
+
+    it('refuses a desktop login navigated in from another site', () => {
+      expect(() =>
+        activate(
+          { mode: 'desktop', port: '51234' },
+          { __cliConfirmed: true, headers: { 'sec-fetch-site': 'cross-site' } },
+        ),
+      ).toThrow(/Start the login from the Wafflebase desktop app/);
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('refuses a desktop login where the CLI login is refused', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      expect(() => activate({ mode: 'desktop', port: '51234' })).toThrow(
+        /Desktop sign-in requires an https server/,
+      );
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('treats an unknown mode as a browser login', () => {
+      const { req } = activate({ mode: 'mobile', port: '51234' });
+
+      expect(createState).not.toHaveBeenCalled();
+      expect(req.__oauthState).toMatch(/^web\./);
+    });
   });
 
   /**
