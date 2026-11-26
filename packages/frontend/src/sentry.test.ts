@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Event } from "@sentry/react";
 import { scrubCapabilityTokens } from "./sentry";
@@ -189,6 +191,178 @@ describe("scrubCapabilityTokens", () => {
     expect(event.breadcrumbs?.[0].data?.arguments).toBe("nope");
   });
 
+  it("redacts a token inside a ui.click breadcrumb message", () => {
+    // The SDK serializes the clicked element, aria-label and title included.
+    const event = {
+      breadcrumbs: [
+        {
+          category: "ui.click",
+          message:
+            'div.card > svg[aria-label="QR for https://wafflebase.io/shared/aaa"] > p[title="/invite/bbb?x=1"]',
+        },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      'div.card > svg[aria-label="QR for https://wafflebase.io/shared/__redacted__"] > p[title="/invite/__redacted__?x=1"]',
+    );
+  });
+
+  it("redacts a path that starts the breadcrumb message", () => {
+    // The root-relative alternative is written with a captured preceding
+    // character instead of a lookbehind (Safari 16.0 is in Vite's default
+    // target), so the start-of-string case needs its own cover.
+    const event = {
+      breadcrumbs: [{ category: "ui.click", message: "/shared/aaa clicked" }],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).breadcrumbs?.[0].message).toBe(
+      "/shared/__redacted__ clicked",
+    );
+  });
+
+  it("redacts child spans of a transaction", () => {
+    // Share-scoped images and file downloads put the raw token in `?token=`,
+    // and each load becomes a span whose description and attributes repeat the
+    // whole URL. `event.transaction` does not cover these.
+    const event = {
+      type: "transaction",
+      spans: [
+        {
+          op: "http.client",
+          description: "GET /api/v1/x?token=aaa",
+          data: {
+            "http.url": "https://wafflebase.io/images/y?token=aaa",
+            "http.query": "?token=aaa",
+            "http.response_status_code": 200,
+          },
+        },
+        {
+          op: "resource.img",
+          description: "https://wafflebase.io/shared/bbb/thumb.png",
+          data: { "url.full": "/shared/bbb/thumb.png", "url.query": "" },
+        },
+      ],
+    } as unknown as Event;
+
+    const scrubbed = scrubCapabilityTokens(event);
+    expect(scrubbed.spans?.[0].description).toBe(
+      "GET /api/v1/x?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.query"]).toBe("?token=__redacted__");
+    expect(scrubbed.spans?.[0].data["http.response_status_code"]).toBe(200);
+    expect(scrubbed.spans?.[1].description).toBe(
+      "https://wafflebase.io/shared/__redacted__/thumb.png",
+    );
+    expect(scrubbed.spans?.[1].data["url.full"]).toBe(
+      "/shared/__redacted__/thumb.png",
+    );
+    expect(scrubbed.spans?.[1].data["url.query"]).toBe("");
+  });
+
+  it("redacts the bare `url` attribute the fetch/XHR instrumentation sets", () => {
+    // `instrumentFetchRequest` writes BOTH `http.url` and a bare `url` holding
+    // the URL as the caller passed it, so an allow-list with only the
+    // namespaced spelling still ships the raw `?token=`.
+    const event = {
+      type: "transaction",
+      spans: [
+        {
+          op: "http.client",
+          data: {
+            url: "https://wafflebase.io/images/y?token=aaa",
+            "http.url": "https://wafflebase.io/images/y?token=aaa",
+          },
+        },
+      ],
+    } as unknown as Event;
+
+    const scrubbed = scrubCapabilityTokens(event);
+    expect(scrubbed.spans?.[0].data["url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+    expect(scrubbed.spans?.[0].data["http.url"]).toBe(
+      "https://wafflebase.io/images/y?token=__redacted__",
+    );
+  });
+
+  it("redacts a query attribute written without the leading `?`", () => {
+    // The OpenTelemetry spelling of `url.query` omits it, and such a value used
+    // to fall through to the free-text pass, which matches URL-shaped runs
+    // only — so `token=<secret>` went out verbatim.
+    const event = {
+      type: "transaction",
+      spans: [
+        { op: "http.client", data: { "url.query": "a=1&token=aaa&b=2" } },
+      ],
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).spans?.[0].data["url.query"]).toBe(
+      "a=1&token=__redacted__&b=2",
+    );
+  });
+
+  it("redacts the root span's attributes in the trace context", () => {
+    // A pageload/navigation transaction has no entry in `spans` for itself —
+    // the root span's attributes are serialized into `contexts.trace.data`.
+    const event = {
+      type: "transaction",
+      contexts: {
+        trace: {
+          op: "pageload",
+          data: {
+            "url.full": "https://wafflebase.io/shared/aaa?token=bbb",
+            "http.query": "?token=bbb",
+          },
+        },
+      },
+    } as unknown as Event;
+
+    const data = scrubCapabilityTokens(event).contexts?.trace?.data;
+    expect(data?.["url.full"]).toBe(
+      "https://wafflebase.io/shared/__redacted__?token=__redacted__",
+    );
+    expect(data?.["http.query"]).toBe("?token=__redacted__");
+  });
+
+  it("redacts a URL quoted inside an exception message", () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch /images/y?token=aaa",
+          },
+        ],
+      },
+    } as unknown as Event;
+
+    expect(scrubCapabilityTokens(event).exception?.values?.[0].value).toBe(
+      "Failed to fetch /images/y?token=__redacted__",
+    );
+  });
+
+  it("redacts a URL inside event.message", () => {
+    const event = {
+      message: "could not load https://wafflebase.io/shared/aaa",
+    } as Event;
+
+    expect(scrubCapabilityTokens(event).message).toBe(
+      "could not load https://wafflebase.io/shared/__redacted__",
+    );
+  });
+
+  it("survives a span with no data or description", () => {
+    const event = {
+      type: "transaction",
+      spans: [{ op: "ui.render" }],
+    } as unknown as Event;
+
+    expect(() => scrubCapabilityTokens(event)).not.toThrow();
+  });
   it("scrubs a transaction event the same way", () => {
     // The gap that mattered most: `beforeSend` never sees these, and
     // `browserTracingIntegration` emits one per pageload and navigation.
@@ -223,5 +397,25 @@ describe("scrubCapabilityTokens", () => {
   it("returns the same event object, as the hook contract requires", () => {
     const event = { transaction: "/shared/x" } as Event;
     expect(scrubCapabilityTokens(event)).toBe(event);
+  });
+});
+
+describe("sentry.ts build baseline", () => {
+  it("uses no RegExp lookbehind", () => {
+    // Not style, and not something a behavioral test can see: `vite.config.ts`
+    // pins no `build.target`, so Vite's default `baseline-widely-available`
+    // target includes Safari 16.0. Lookbehind landed in 16.4 and esbuild
+    // cannot transform regexp syntax, so such a literal ships verbatim — and a
+    // regex literal that does not parse is a SyntaxError at MODULE level.
+    // `main.tsx` imports this file before it renders anything, so the cost is
+    // a blank app on those browsers, not a missed redaction. Read the source
+    // rather than the pattern: the hazard is the literal existing at all.
+    // `redactUrlsInText` lives in `lib/redact-url.ts`, imported above it.
+    for (const file of ["./sentry.ts", "./lib/redact-url.ts"]) {
+      const source = readFileSync(path.resolve(__dirname, file), "utf8");
+      // Skip the prose that explains the ban, which names the construct.
+      const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+      expect(code, file).not.toMatch(/\(\?<[=!]/);
+    }
   });
 });

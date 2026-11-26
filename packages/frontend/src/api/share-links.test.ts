@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
+  shareLinkUrl,
   isRevokedShareLinkError,
   isShareLinkResolveFatal,
   shouldRetryShareLinkResolve,
@@ -130,5 +131,48 @@ describe("shouldRetryShareLinkResolve", () => {
     for (const err of [verdict, expired]) {
       expect(shouldRetryShareLinkResolve(0, err)).toBe(false);
     }
+  });
+});
+
+describe("shareLinkUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is the share route on this origin", () => {
+    expect(shareLinkUrl("abc", "")).toBe(`${window.location.origin}/shared/abc`);
+  });
+
+  it("keeps the router basename, with or without a trailing slash", () => {
+    // Copy and the QR code both hand this out; without the basename a
+    // sub-path deployment links to a 404.
+    for (const base of ["/app", "/app/"]) {
+      expect(shareLinkUrl("abc", base)).toBe(
+        `${window.location.origin}/app/shared/abc`,
+      );
+    }
+  });
+
+  // Every production call site — the Copy button, the native share sheet and
+  // the QR popover — omits the second argument, so the default is the path
+  // that actually ships. Passing a basename in every test left the env read
+  // itself unexercised: a wrong key, or the env var renamed on one side only,
+  // would still have gone green.
+  it("defaults to the same env var the router is mounted under", () => {
+    // `App.tsx` mounts `<Router basename={import.meta.env
+    // .VITE_FRONTEND_BASENAME}>`; reading a different key here would hand out
+    // links to a route this deployment does not serve.
+    vi.stubEnv("VITE_FRONTEND_BASENAME", "/app/");
+    expect(shareLinkUrl("abc")).toBe(
+      `${window.location.origin}/app/shared/abc`,
+    );
+  });
+
+  it("defaults to no basename on a root-mounted deployment", () => {
+    // The `?? ""` fallback. Without it the unset env var would interpolate as
+    // the literal "undefined" and every link handed out would 404.
+    vi.stubEnv("VITE_FRONTEND_BASENAME", undefined);
+    expect(shareLinkUrl("abc")).toBe(`${window.location.origin}/shared/abc`);
+    expect(shareLinkUrl("abc")).not.toContain("undefined");
   });
 });

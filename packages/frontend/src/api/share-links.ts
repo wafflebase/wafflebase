@@ -2,6 +2,19 @@ import { fetchWithAuth } from "./auth";
 import { assertOk, HttpError } from "./http-error";
 import { seg } from "./url";
 
+/**
+ * The URL a share token resolves to. One definition, so the Copy button and
+ * the QR code cannot hand out different links.
+ */
+export function shareLinkUrl(
+  token: string,
+  basename: string = import.meta.env.VITE_FRONTEND_BASENAME ?? "",
+): string {
+  // The router is mounted under the basename (`App.tsx`), so a link without
+  // it 404s on a sub-path deployment — and a printed QR cannot be re-copied.
+  return `${window.location.origin}${basename.replace(/\/$/, "")}/shared/${token}`;
+}
+
 export type ShareLink = {
   id: string;
   token: string;

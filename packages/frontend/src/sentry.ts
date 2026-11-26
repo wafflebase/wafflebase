@@ -99,6 +99,69 @@ function initClient(origin: string, dsn: string): void {
 }
 
 /**
+ * Span attributes that hold a whole URL or a path. `browserTracingIntegration`
+ * sets `http.url` on every `http.client` span and the `url.*` set on the
+ * pageload span, and this app deliberately puts the raw share token in a query
+ * string — `?token=` on share-scoped image and file requests — so these carry
+ * the credential on an ordinary sampled transaction.
+ *
+ * The bare `url` is in here because the SDK's fetch and XHR instrumentation set
+ * it ALONGSIDE `http.url`, holding the URL as the caller passed it. Redacting
+ * only the namespaced spelling leaves the raw `?token=` one attribute over on
+ * exactly the spans this app's share-scoped image and file requests produce.
+ */
+const URL_SPAN_ATTRIBUTES = [
+  "http.url",
+  "url",
+  "url.full",
+  "url.path",
+  "http.fragment",
+  "url.fragment",
+];
+
+/** The same, for attributes holding a bare `?a=b` query string. */
+const QUERY_SPAN_ATTRIBUTES = ["http.query", "url.query"];
+
+/**
+ * Redacts a bare query string. `redactCapabilityTokens` parses URLs, so hang
+ * it off a root path and take the path back off again.
+ *
+ * The leading `?` is OPTIONAL on the way in and preserved on the way out: the
+ * SDK writes `http.query` with it, while the OpenTelemetry spelling of
+ * `url.query` is the bare `token=x`. A value without one used to fall through
+ * to the free-text pass, which matches URL-shaped runs and so left
+ * `token=<secret>` completely untouched.
+ */
+function redactQueryString(query: string): string {
+  if (!query) return query;
+  const leading = query.startsWith("?");
+  const bareIn = leading ? query.slice(1) : query;
+  const redacted = redactCapabilityTokens(`/?${bareIn}`);
+  const mark = redacted.indexOf("?");
+  const bare = mark === -1 ? "" : redacted.slice(mark + 1);
+  return leading ? `?${bare}` : bare;
+}
+
+/**
+ * Redacts the URL- and query-shaped attributes of one span's attribute bag.
+ *
+ * Shared by `event.spans[]` and `event.contexts.trace.data`, which is where the
+ * ROOT span's attributes land — a pageload or navigation transaction has no
+ * entry in `spans` for itself, so scrubbing only the children misses the one
+ * span every sampled transaction carries.
+ */
+function redactSpanAttributes(data: Record<string, unknown>): void {
+  for (const key of URL_SPAN_ATTRIBUTES) {
+    const value = data[key];
+    if (typeof value === "string") data[key] = redactCapabilityTokens(value);
+  }
+  for (const key of QUERY_SPAN_ATTRIBUTES) {
+    const value = data[key];
+    if (typeof value === "string") data[key] = redactQueryString(value);
+  }
+}
+
+/**
  * Strips share/invite/template tokens out of every event before it is sent.
  *
  * `sendDefaultPii: false` does NOT cover this — it governs IPs, cookies and
@@ -165,6 +228,41 @@ export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
     const args = crumb.data?.arguments;
     if (Array.isArray(args)) {
       crumb.data!.arguments = redactValue(args, MAX_DEPTH);
+    }
+  }
+
+  // The child spans of a transaction, and the half the transaction NAME does
+  // not cover. A share-scoped image (`?token=`) or file download becomes a
+  // `resource`/`http.client` span whose description IS the URL and whose
+  // attributes repeat it, and those ride out through `beforeSendTransaction`
+  // on every sampled transaction — the same leak as `event.transaction`, one
+  // field over.
+  for (const span of event.spans ?? []) {
+    if (typeof span.description === "string") {
+      span.description = redactUrlsInText(span.description);
+    }
+    if (span.data) redactSpanAttributes(span.data);
+  }
+
+  // The ROOT span of a transaction, which is not in `spans` at all: its
+  // attributes are serialized into the trace context instead. On a pageload
+  // transaction that bag holds the `url.*` set for `location.href`.
+  const trace = event.contexts?.trace;
+  if (trace?.data) redactSpanAttributes(trace.data);
+
+  // The free-text fields. A thrown `Error` whose message quotes the URL it was
+  // given — `Failed to fetch /images/x?token=y` — reaches Sentry as
+  // `exception.values[].value`, and `captureMessage` as `event.message`;
+  // neither is a URL field, so each URL-shaped run inside is redacted.
+  if (typeof event.message === "string") {
+    const redacted = redactUrlsInText(event.message);
+    // Only on a change: `message` may be a ParameterizedString carrying
+    // template properties a plain reassignment would drop.
+    if (redacted !== event.message) event.message = redacted;
+  }
+  for (const value of event.exception?.values ?? []) {
+    if (typeof value.value === "string") {
+      value.value = redactUrlsInText(value.value);
     }
   }
 
