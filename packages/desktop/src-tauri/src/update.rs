@@ -508,6 +508,8 @@ mod tests {
         assert!(!take_asked(false, &mut joined));
     }
 
+    // Only the Unix-only quit-time tests use it.
+    #[cfg(unix)]
     fn scratch_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "wafflebase-update-test-{name}-{}",
