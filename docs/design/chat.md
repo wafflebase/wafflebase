@@ -66,6 +66,8 @@ The shape follows the prior-art survey below:
 - **Pushing** work to an agent (outbound webhooks on mention). Bots *pull*
   their inbox; a push channel is a later design — [webhooks.md](webhooks.md)
   builds the delivery engine it would reuse, with the bot as principal.
+  [agent-runner.md](agent-runner.md) proposes that push channel as an
+  outbound SSE stream of agent tasks.
 - Bots in more than one workspace. A bot belongs to exactly one.
 - Email / push notifications, notification preferences, retention policies,
   Slack import.

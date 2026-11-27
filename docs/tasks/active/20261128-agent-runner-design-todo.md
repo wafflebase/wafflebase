@@ -1,0 +1,35 @@
+---
+title: agent-runner-design
+target-version: 0.7.0
+---
+
+# Agent Runner Design — Task Tracking
+
+Turn "paste a Claude setup token into workspace settings so an agent helps the
+team" into a design that the credential terms allow. Research (codebase,
+Anthropic auth policy, prior art, runtime architecture) ran as four parallel
+agents; the result is `docs/design/agent-runner.md`. Design only — no code in
+this task. Related: issue #696 (Notes AI toolbar, BYOK seam).
+
+## Plan
+
+- [x] Research: codebase seams (bot members in chat.md P3, chat SSE bus,
+      webhook lease worker, `runAsApiWriter`, plugin guard)
+- [x] Research: `claude setup-token` and the credential terms — verified the
+      Legal and compliance wording first-hand, not from a summary
+- [x] Research: prior art (Linear, Claude Code Action, self-hosted runners,
+      Zed ACP, Claude Tag, Liveblocks) and runtime patterns
+- [x] Write `docs/design/agent-runner.md`: tasks, event stream + leases,
+      runner, credential/invocation policy, authority narrowing, hop cap
+- [x] Check each codebase claim in the doc against the source (no per-document
+      ACL inside a workspace; no revision API in CLI or `/api/v1`; chat id
+      types)
+- [x] Index row in `docs/design/README.md`; cross-link from chat.md's push
+      non-goal
+- [ ] Maintainer review of the design and its three open questions
+- [ ] Open a PR
+
+## Review
+
+Design-only change; verification is `pnpm verify:fast` (doc links, task
+index) passing.
