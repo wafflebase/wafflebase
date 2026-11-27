@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 // This build's version is whatever the root package says today, which may
@@ -20,7 +20,6 @@ import {
   detectDesktopPlatform,
   FIRST_DESKTOP_RELEASE,
   MAC_DOWNLOAD_URL,
-  WINDOWS_DOWNLOAD_URL,
 } from "../desktop-download";
 import { DesktopSection } from "../desktop-section";
 import { HeroSection } from "../hero-section";
@@ -99,85 +98,63 @@ describe("detectDesktopPlatform", () => {
   });
 });
 
-// That the URLs name the assets the release uploads is checked against the
+// That the URL names an asset the release uploads is checked against the
 // workflow itself, in scripts/test/desktop-release.test.mjs. Here: the page
-// links each URL and shows the file name that URL downloads.
+// links only that URL, shows the file it downloads, and links no Windows
+// build — the first public release is macOS-only.
 describe("download links", () => {
-  it("show the file each one downloads", () => {
-    stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
+  it("link only the macOS build and show the file it downloads", () => {
+    stubNavigator({ userAgent: WINDOWS_UA, platform: "Win32" });
     renderSection();
-    for (const url of [MAC_DOWNLOAD_URL, WINDOWS_DOWNLOAD_URL]) {
-      const link = screen
-        .getAllByRole("link")
-        .find((a) => a.getAttribute("href") === url);
-      expect(link, url).toBeTruthy();
-      const file = url.slice(url.lastIndexOf("/") + 1);
-      expect(link!.closest("li")!.textContent).toContain(file);
+    const downloads = screen.getAllByRole("link", { name: /Download for/ });
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]).toHaveAttribute("href", MAC_DOWNLOAD_URL);
+    const file = MAC_DOWNLOAD_URL.slice(MAC_DOWNLOAD_URL.lastIndexOf("/") + 1);
+    expect(downloads[0].closest("[data-platform]")!.textContent).toContain(file);
+    for (const a of screen.getAllByRole("link")) {
+      expect(a.getAttribute("href") ?? "").not.toMatch(/\.exe$/);
     }
   });
 });
 
 describe("DesktopSection", () => {
-  function rows() {
-    const list = screen.getByRole("list", { name: "Desktop downloads" });
-    return within(list).getAllByRole("listitem");
+  function download() {
+    return screen.getByRole("link", { name: "Download for macOS" });
   }
-  function link(row: HTMLElement) {
-    return within(row).getByRole("link", { name: /Download for/ });
-  }
+  const COMING = /Windows and Linux versions are coming/;
 
-  it("leads with the macOS download on a Mac and keeps Windows beside it", () => {
+  it("fills the macOS download on a Mac and says nothing else", () => {
     stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
     renderSection();
-    const [first, second] = rows();
-    expect(first.dataset.platform).toBe("mac");
-    expect(link(first)).toHaveAttribute("href", MAC_DOWNLOAD_URL);
-    expect(link(first).className).toContain("bg-primary");
-    expect(second.dataset.platform).toBe("windows");
-    expect(link(second)).toHaveAttribute("href", WINDOWS_DOWNLOAD_URL);
-    expect(link(second).className).not.toContain("bg-primary");
-  });
-
-  it("leads with the Windows download on Windows", () => {
-    stubNavigator({ userAgent: WINDOWS_UA, platform: "Win32" });
-    renderSection();
-    const [first, second] = rows();
-    expect(first.dataset.platform).toBe("windows");
-    expect(link(first).className).toContain("bg-primary");
-    expect(second.dataset.platform).toBe("mac");
-    expect(link(second).className).not.toContain("bg-primary");
-  });
-
-  it.each([
-    ["Linux", { userAgent: LINUX_UA, platform: "Linux x86_64" }],
-    ["a phone", { userAgent: IPHONE_UA, platform: "iPhone" }],
-  ])("offers both builds unranked on %s", (_label, probe) => {
-    stubNavigator(probe);
-    renderSection();
-    const all = rows();
-    expect(all).toHaveLength(2);
-    for (const row of all) {
-      expect(link(row).className).not.toContain("bg-primary");
-    }
-  });
-
-  it("tells a phone to come back on a computer, and nobody else", () => {
-    stubNavigator({ userAgent: IPHONE_UA, platform: "iPhone" });
-    const { unmount } = renderSection();
-    expect(screen.getByText(/Open this page on a Mac/)).toBeInTheDocument();
-    unmount();
-    stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
-    renderSection();
+    expect(download()).toHaveAttribute("href", MAC_DOWNLOAD_URL);
+    expect(download().className).toContain("bg-primary");
+    expect(screen.queryByText(COMING)).toBeNull();
     expect(screen.queryByText(/Open this page on a Mac/)).toBeNull();
   });
 
-  it("says the Windows build is not code-signed, on the Windows row", () => {
-    stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
+  it.each([
+    ["Windows", { userAgent: WINDOWS_UA, platform: "Win32" }],
+    ["Linux", { userAgent: LINUX_UA, platform: "Linux x86_64" }],
+  ])("tells %s the other versions are coming, macOS outlined", (_label, probe) => {
+    stubNavigator(probe);
     renderSection();
-    const windows = rows().find((r) => r.dataset.platform === "windows")!;
-    expect(within(windows).getByText(/Not code-signed yet/)).toBeInTheDocument();
-    const mac = rows().find((r) => r.dataset.platform === "mac")!;
-    expect(within(mac).queryByText(/code-signed/)).toBeNull();
+    expect(screen.getByText(COMING)).toBeInTheDocument();
+    expect(download().className).not.toContain("bg-primary");
+  });
+
+  it("tells a phone to come back on a Mac", () => {
+    stubNavigator({ userAgent: IPHONE_UA, platform: "iPhone" });
+    renderSection();
+    expect(screen.getByText(/Open this page on a Mac/)).toBeInTheDocument();
+    expect(screen.queryByText(COMING)).toBeNull();
+    expect(download().className).not.toContain("bg-primary");
+  });
+
+  it("promises no Windows build in its heading", () => {
+    renderSection();
+    expect(
+      screen.getByRole("heading", { name: "A desktop app for macOS" }),
+    ).toBeInTheDocument();
   });
 
   it("links install notes to the docs site with a plain anchor", () => {
@@ -211,11 +188,11 @@ describe("desktop entry points elsewhere on the page", () => {
       </MemoryRouter>,
     );
 
-  it("points the hero and footer at the desktop section on a computer", () => {
+  it("points the hero and footer at the desktop section on a Mac", () => {
     stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
     hero();
     expect(
-      screen.getByRole("link", { name: /desktop app for macOS and Windows/ }),
+      screen.getByRole("link", { name: "Also a desktop app for macOS →" }),
     ).toHaveAttribute("href", "/#desktop");
     footer();
     expect(screen.getByRole("link", { name: "Desktop app" })).toHaveAttribute(
@@ -224,8 +201,12 @@ describe("desktop entry points elsewhere on the page", () => {
     );
   });
 
-  it("keeps the hero quiet on a phone", () => {
-    stubNavigator({ userAgent: IPHONE_UA, platform: "iPhone" });
+  it.each([
+    ["a phone", { userAgent: IPHONE_UA, platform: "iPhone" }],
+    ["Windows", { userAgent: WINDOWS_UA, platform: "Win32" }],
+    ["Linux", { userAgent: LINUX_UA, platform: "Linux x86_64" }],
+  ])("keeps the hero quiet on %s, which has no build yet", (_label, probe) => {
+    stubNavigator(probe);
     hero();
     expect(screen.queryByRole("link", { name: /desktop app/ })).toBeNull();
   });

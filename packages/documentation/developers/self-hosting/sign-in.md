@@ -103,7 +103,7 @@ The [desktop app](/start/desktop) signs in through the system browser with GitHu
 3. A backend origin (`VITE_BACKEND_API_URL`) on `https://`, or on `http://` only at a loopback address. The app won't sign in against a plain `http://` backend elsewhere.
 4. Users who enter `FRONTEND_URL` as the server address in the app. The backend redirects there after sign-in, so an alias or a `www.` variant ends the sign-in in the browser instead of the app.
 
-The Windows app finishes sign-in from the origin `http://tauri.localhost`. To refuse it, set `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`. The Windows app then shows that the server doesn't accept its sign-in; the Mac app is unaffected.
+The desktop app is released for macOS only for now. The server already accepts sign-in from the Windows build, which isn't released yet and finishes sign-in from the origin `http://tauri.localhost`. To refuse it ahead of time, set `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`. A Windows app would then show that the server doesn't accept its sign-in; the Mac app is unaffected.
 
 ## Known limitations
 

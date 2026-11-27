@@ -12,10 +12,12 @@ export function HeroSection({
 }: {
   workspacePath: string | null;
 }) {
-  // A phone gets no nudge toward a desktop download, and the desktop app none
-  // toward itself. The section below stays for anyone who scrolls to it.
+  // Only a Mac visitor is nudged toward the download: the first release is
+  // macOS-only, so anyone else would follow it to a build they cannot run,
+  // and the desktop app gets no nudge toward itself. The section below stays
+  // for anyone who scrolls to it, and tells the rest it is coming.
   const [showDesktopLink] = useState(
-    () => offerDesktopDownload() && currentDesktopPlatform() !== "mobile",
+    () => offerDesktopDownload() && currentDesktopPlatform() === "mac",
   );
   return (
     <section className="relative bg-[color:var(--wb-bg)] overflow-hidden">
@@ -60,7 +62,7 @@ export function HeroSection({
               onClick={() => scrollToHashTarget("desktop")}
               className="mt-6 text-[14px] text-[color:var(--wb-sub)] no-underline underline-offset-2 hover:text-[color:var(--wb-ink)] hover:underline transition-colors"
             >
-              Also a desktop app for macOS and Windows →
+              Also a desktop app for macOS →
             </Link>
           )}
         </div>

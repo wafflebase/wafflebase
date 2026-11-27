@@ -15,7 +15,7 @@ Moved pages stay behind as `search: false` stubs that meta-refresh to their new 
 | [Getting started](start/getting-started.md) | Sign in, build a small contact list in a sheet, share it with a link, and watch a second person edit it live. |
 | [Concepts](start/concepts.md) | How workspaces, documents, folders, share links, templates, and the Trash fit together, and who can see and change what. |
 | [Use Wafflebase on a phone](start/phone.md) | What you can do in each editor on a phone, where the header and toolbar controls move, and which touch gestures apply. |
-| [Use the desktop app](start/desktop.md) | Install the Wafflebase desktop app on a Mac or Windows PC, sign in, connect it to your team's server, and keep it up to date. |
+| [Use the desktop app](start/desktop.md) | Install the Wafflebase desktop app on a Mac, sign in, connect it to your team's server, and keep it up to date. |
 | [Troubleshooting](start/troubleshooting.md) | Fix common problems with signing in, saving, share links, uploads, templates, version history, and the desktop app, by the message you see. |
 
 ### Collaborate & organize

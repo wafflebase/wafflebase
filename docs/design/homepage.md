@@ -92,7 +92,7 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 | 6 | InteropSection | Import/Export format matrix — "no lock-in" paper cards |
 | 7 | WhySection | Comparison table vs Google Workspace inside a paper card |
 | 8 | DeveloperSection | Single dark code card with REST API / CLI tabs |
-| 9 | DesktopSection | Desktop app downloads (macOS / Windows), the visitor's OS first; absent inside the desktop app |
+| 9 | DesktopSection | Desktop app download (macOS only for now), filled for a Mac visitor; Windows and Linux told it is coming; absent inside the desktop app |
 | 10 | OpenSourceSection | Apache-2.0 callout with `<RepoMap>` infographic + Star/Contribute CTAs |
 | 11 | Footer | Brand block + 3 link columns + bottom copyright row |
 
@@ -118,10 +118,11 @@ Single column, centered, max-width 920px, padded `pt-20 md:pt-28 pb-14 md:pb-20`
 - CTA pair: primary "Start a workspace →" (or "Go to workspace →" if signed in)
   + ghost "View on GitHub →".
 - Under the CTAs, a quiet sub-colored text link, "Also a desktop app for
-  macOS and Windows →", to `/#desktop` (see DesktopSection). It is a link to
-  the section rather than a third button: the hero has one job, and the
-  Windows caveat belongs beside the Windows download. Not rendered on a
-  phone or tablet, nor inside the desktop app.
+  macOS →", to `/#desktop` (see DesktopSection). It is a link to the section
+  rather than a third button: the hero has one job. Rendered only for a Mac
+  visitor: the first release is macOS-only, so on Windows, Linux, a phone or
+  a tablet it would be a nudge toward a build they cannot run. Not rendered
+  inside the desktop app either.
 - No eyebrow above the H1 and no stats row under it: both read as template
   scaffolding (DESIGN.md bans kickers outright).
 - `<RulerBackdrop>` motif behind the copy (opacity 0.55 light / 0.4 dark).
@@ -267,30 +268,29 @@ documentation →" depending on the active tab.
 
 `id="desktop"`. The desktop app ([desktop-app.md](desktop-app.md)) ships
 with every server release, so the links are GitHub's
-`releases/latest/download/<asset>` redirects:
-`Wafflebase_universal.dmg` and `Wafflebase_x64-setup.exe`, the names
-`scripts/test/desktop-release.test.mjs` pins. They live in
-`desktop-download.ts` with the platform choice.
+`releases/latest/download/<asset>` redirect to the universal macOS disk
+image, the name `scripts/test/desktop-release.test.mjs` pins. It lives in
+`desktop-download.ts` with the platform choice. **macOS only, for now**: the
+Windows build is not Authenticode-signed, so the first public release neither
+ships nor links it ([desktop-app.md](desktop-app.md) §7); its row returns
+with that build.
 
-- Left: left-aligned `<SectionHead>` — "A desktop app for macOS and Windows",
-  sub naming what it does (opens wafflebase.io or a team's own server through
-  Change server…, updates itself). Right: a ruled two-row ledger, one row per
-  build — name, architecture, the asset filename in mono (it is the real file
-  a visitor will see in Downloads), and a `<WbButton>` "Download for …".
+- Left: left-aligned `<SectionHead>` — "A desktop app for macOS", sub naming
+  what it does (opens wafflebase.io or a team's own server through Change
+  server…, updates itself). Right: one ruled row for the macOS build — name,
+  architecture, the asset filename in mono (it is the real file a visitor
+  will see in Downloads), and a `<WbButton>` "Download for macOS".
   Below the rows, "Install notes →" to `/docs/start/desktop`. Unboxed, so it
   does not stack a second paper panel on the OpenSourceSection right below.
-- `detectDesktopPlatform()` picks the order: client hints
+- `detectDesktopPlatform()` reads the visitor's platform: client hints
   (`navigator.userAgentData.platform`), then `navigator.platform`, then the
-  UA. The visitor's own platform is the first row with the primary button;
-  the other is a ghost button beside it, never hidden. Linux and anything
-  unknown get both as ghost buttons. A phone or tablet — including iPadOS,
-  which reports `MacIntel` and is told apart by `maxTouchPoints` — also gets
-  both unranked, so nothing pushes a `.dmg` at an iPhone, plus one line
-  saying to open the page on a Mac or Windows PC.
-- The Windows row says, in one line, that the build is not code-signed yet
-  and SmartScreen warns on first run; the macOS build is signed and
-  notarized and says nothing. Install notes carry the "More info → Run
-  anyway" steps.
+  UA. Only a Mac visitor gets the primary (filled) button. Everyone else gets
+  it as a ghost button — never hidden, since a Windows user may be fetching it
+  for a Mac — under one honest line: "Windows and Linux versions are coming."
+  on Windows, Linux and anything unknown; "Open this page on a Mac to install
+  it." on a phone or tablet (including iPadOS, which reports `MacIntel` and is
+  told apart by `maxTouchPoints`), so nothing pushes a disk image at an
+  iPhone.
 - Every link is a plain `<a href>`: the downloads are external and `/docs` is
   a separate VitePress site, which a router `Link` would route into the SPA.
 - **Hidden inside the desktop app.** The shell renders this page when signed

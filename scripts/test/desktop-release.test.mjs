@@ -78,16 +78,27 @@ test("every asset the manifest or the upload names is one a build collected", ()
   for (const name of signatures) assert.ok(collected.has(`${name}.sig`), `${name}.sig is not collected`);
 });
 
-test("the manifest covers every platform the app ships on", () => {
+// macOS only for now: the Windows build is not Authenticode-signed, so the
+// first public release neither ships it nor offers it to installed apps
+// (docs/design/desktop-app.md §7). Pinned exactly, so bringing Windows back
+// is a decision this test is edited for, not a line that slips in.
+const PLATFORMS = ["darwin-aarch64", "darwin-x86_64"];
+
+test("the manifest covers exactly the platforms the app ships on", () => {
   const manifest = steps(/^Write the update manifest$/);
-  for (const key of ["darwin-aarch64", "darwin-x86_64", "windows-x86_64"]) {
-    assert.match(manifest, new RegExp(`"${key}":`), key);
-  }
+  const keys = [...manifest.matchAll(/"([a-z]+-[a-z0-9_]+)":/g)].map((m) => m[1]);
+  assert.deepEqual(keys.sort(), [...PLATFORMS].sort());
+});
+
+test("no Windows build is collected, uploaded or advertised yet", () => {
+  assert.doesNotMatch(WORKFLOW, /^ {2}windows:/m, "a windows job is back in the release");
+  assert.doesNotMatch(WORKFLOW, /\.exe\b/, "the release names a Windows installer");
 });
 
 // Every place that links a download: the package README, the docs guide,
 // and the homepage, which builds its URLs from a `RELEASES` base it must keep
-// pointed at the latest release.
+// pointed at the latest release. None of them can link the Windows installer
+// while the release does not upload one.
 test("every download link names an asset the release uploads", () => {
   const uploaded = names(steps(/^Attach to the release$/), new RegExp(`out/${ASSET}`, "g"));
   const fullUrl = new RegExp(`releases/latest/download/${ASSET}`, "g");
@@ -113,8 +124,8 @@ test("every download link names an asset the release uploads", () => {
   }
 });
 
-test("both release builds turn the updater package on", () => {
+test("every release build turns the updater package on", () => {
   const builds = WORKFLOW.match(/pnpm tauri build[^\n]*(?:\n\s+--[^\n]*)*/g) ?? [];
-  assert.equal(builds.length, 2, builds.join("\n"));
+  assert.equal(builds.length, 1, builds.join("\n"));
   for (const b of builds) assert.match(b, /--config src-tauri\/tauri\.release\.conf\.json/, b);
 });

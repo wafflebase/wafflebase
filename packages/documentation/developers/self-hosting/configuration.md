@@ -46,7 +46,7 @@ Set `BACKEND_TRUST_PROXY` only when a proxy really is in front. At `0` behind a 
 | `JWT_ACCESS_COOKIE_MAX_AGE_MS` | No | `3600000` | Access cookie lifetime. Keep it consistent with the token lifetime |
 | `JWT_REFRESH_COOKIE_MAX_AGE_MS` | No | `604800000` | Refresh cookie lifetime |
 | `COOKIE_SECURE` | No | derived | `true`/`1` or `false`/`0` forces `Secure` cookies on or off. Unset, it follows the scheme of `GITHUB_CALLBACK_URL`, then `NODE_ENV=production` |
-| `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN` | No | accepted | `false` stops accepting sign-in from the Windows desktop app's window (`http://tauri.localhost`). Anything else keeps it. See [Allow desktop app sign-in](/developers/self-hosting/sign-in#allow-desktop-app-sign-in) |
+| `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN` | No | accepted | `false` stops accepting sign-in from the Windows build of the desktop app (`http://tauri.localhost`), which isn't released yet. Anything else keeps it. See [Allow desktop app sign-in](/developers/self-hosting/sign-in#allow-desktop-app-sign-in) |
 
 ## Backend: GitHub Enterprise
 

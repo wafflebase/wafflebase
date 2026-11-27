@@ -14,7 +14,7 @@ Find the message or symptom you see, then work through the fixes in order.
 - Documents: [a document disappeared](#a-document-disappeared), [can't move or delete](#you-can-only-move-documents-you-own), [upload too large](#file-is-larger-than-the-100-mb-limit), [Markdown upload](#an-uploaded-md-file-didn-t-become-a-note)
 - Sheets: [chart needs 2 rows and 2 columns](#select-at-least-2-rows-and-2-columns), [query refused](#only-select-queries-are-allowed), [local lakehouse paths disabled](#local-lakehouse-paths-are-disabled-on-this-server)
 - Docs: [image upload failed](#couldn-t-upload-the-image), [image URL refused](#image-url-must-start-with-http-or-https), [margins refused](#margins-must-be-zero-or-a-positive-number-of-inches), [link edit refused](#the-cursor-left-this-link-click-it-again-to-edit-it)
-- Desktop app: [server too old](#this-server-is-too-old-for-desktop-sign-in), [sign-in turned off](#this-server-has-desktop-sign-in-turned-off), [sign-in timed out](#sign-in-timed-out-try-again), [can't reach the server](#can-t-reach-appears-in-the-desktop-app), [Windows warning](#windows-protected-your-pc-appears), [Mac warning](#a-mac-says-wafflebase-is-damaged-or-can-t-be-opened)
+- Desktop app: [server too old](#this-server-is-too-old-for-desktop-sign-in), [sign-in turned off](#this-server-has-desktop-sign-in-turned-off), [sign-in timed out](#sign-in-timed-out-try-again), [can't reach the server](#can-t-reach-appears-in-the-desktop-app), [Mac warning](#a-mac-says-wafflebase-is-damaged-or-can-t-be-opened)
 - Other: [Template not found](#template-not-found), [no version history](#version-history-is-missing), [restore in progress](#a-restore-is-already-in-progress), [workspace settings](#couldn-t-update-the-workspace)
 
 ## `That sign-in link expired or was started in another tab`
@@ -327,7 +327,7 @@ The desktop app is connected to a Wafflebase server from before the app existed.
 
 ### What it means
 
-The server isn't set up to sign in over HTTPS, so it refuses sign-in from the desktop app. On Windows, a similar message, `This server does not accept sign-in from the Windows app's window`, means the server's administrator turned off sign-in from the Windows app.
+The server isn't set up to sign in over HTTPS, so it refuses sign-in from the desktop app.
 
 ### Try this
 
@@ -357,17 +357,6 @@ The app can't connect to the server at the address it shows. Your computer may b
 2. Click **Try again**.
 3. Open the address in a web browser. If it doesn't open there either, ask your server's administrator.
 4. If the address is wrong, click **Change server…** and enter the one you open Wafflebase at in a browser.
-
-## **Windows protected your PC** appears {#windows-protected-your-pc-appears}
-
-### What it means
-
-Windows SmartScreen shows this for the Wafflebase installer because the installer is not code-signed yet.
-
-### Try this
-
-1. Check that you downloaded the installer from the link in [Install on Windows](/start/desktop#install-on-windows).
-2. Click **More info**, then click **Run anyway**.
 
 ## A Mac says Wafflebase is damaged or can't be opened {#a-mac-says-wafflebase-is-damaged-or-can-t-be-opened}
 

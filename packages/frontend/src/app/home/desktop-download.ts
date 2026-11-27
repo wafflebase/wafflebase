@@ -12,7 +12,6 @@ import { isDesktopShell } from "@/lib/service-worker";
 const RELEASES = "https://github.com/wafflebase/wafflebase/releases/latest/download";
 
 export const MAC_DOWNLOAD_URL = `${RELEASES}/Wafflebase_universal.dmg`;
-export const WINDOWS_DOWNLOAD_URL = `${RELEASES}/Wafflebase_x64-setup.exe`;
 
 /**
  * The first release whose GitHub release carries the desktop assets (#1206).
@@ -61,9 +60,12 @@ type PlatformProbe = {
 };
 
 /**
- * Pick the download to lead with. Phones and tablets get neither: the app is
- * for macOS and Windows, and pushing a `.dmg` at someone on an iPhone is
- * noise. Linux and anything unrecognized get both, unranked.
+ * Who the download is for. Only a Mac visitor is offered it first: the first
+ * public release is macOS-only (the Windows build is not Authenticode-signed
+ * yet, docs/design/desktop-app.md §7), so Windows and Linux are told it is
+ * coming, and pushing a `.dmg` at someone on a phone is noise. Windows stays
+ * its own answer so that page can say so, and so it is ready when that build
+ * ships.
  *
  * iPadOS reports itself as a Mac (`MacIntel`, a desktop Safari UA), so a Mac
  * with a touch screen is read as an iPad: no Mac has one.
