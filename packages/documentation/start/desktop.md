@@ -16,11 +16,11 @@ The app opens the same Wafflebase you use in a browser, in its own window. Your 
 - Documents need a connection to the server. You can't edit offline.
 :::
 
-## Install on a Mac
-
 ::: tip Download says Not Found?
 The download links point at the latest Wafflebase release. If one answers **Not Found**, that release doesn't include the app yet, or was published in the last half hour and is still being built. Try again later, or see the [releases page](https://github.com/wafflebase/wafflebase/releases).
 :::
+
+## Install on a Mac
 
 1. Download [Wafflebase_universal.dmg](https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg).
 2. Open the downloaded file.

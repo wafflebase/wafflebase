@@ -304,7 +304,11 @@ with every server release, so the links are GitHub's
   build's version (`__APP_VERSION__`, the root package version) to be at or
   past `FIRST_DESKTOP_RELEASE` (0.6.19): merging early shows nothing, and the
   entry appears with the release that publishes the assets. What is left is
-  that release's own desktop run, about half an hour.
+  the time between the version bump landing on main and that release being
+  published (the release procedure publishes right after the bump), plus
+  the release's own desktop run, about half an hour. The docs guide tells a
+  reader who hits a Not Found what it means. After the first such release,
+  check the deployed homepage and both download links.
 
 #### OpenSourceSection
 
