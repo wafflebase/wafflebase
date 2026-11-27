@@ -16,3 +16,21 @@
   mid-transition (sidebar half off-screen); re-navigate at the target size
   before judging layout.
 
+## A: homepage
+
+- **The homepage's docs-link guard only read `.tsx`.** A docs path kept in a
+  `.ts` constant (`desktop-download.ts`) slipped past
+  `docs-links.test.ts`; widened it to `.ts`. That also means surface A's
+  verify gate fails until surface B's `start/desktop.md` exists — A cannot be
+  committed green on its own, so land A and B together (or B first).
+- **iPadOS says it is a Mac.** `navigator.platform` is `MacIntel` and the UA
+  is desktop Safari; only `maxTouchPoints > 1` tells it apart. Platform
+  detection that only reads `platform` would push a `.dmg` at an iPad.
+- **jsdom has no `navigator.maxTouchPoints`**, so `vi.spyOn(navigator,
+  "maxTouchPoints", "get")` throws; define it with `Object.defineProperty`
+  (configurable) and delete it after each test.
+- **A signed-out homepage screenshot needs no backend**: route
+  `http://localhost:3000/**` to a 401 in Playwright. Routing a pattern like
+  `/api/` also catches Vite's own `/src/api/*.ts` modules and blanks the
+  page. `capture-before-after.mjs shoot` always signs in, which redirects `/`
+  to a workspace, so it cannot shoot the signed-out homepage.

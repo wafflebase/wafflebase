@@ -1,4 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { isDesktopShell } from "@/lib/service-worker";
+import { currentDesktopPlatform } from "./desktop-download";
+import { scrollToHashTarget } from "./hash-scroll";
 import { RulerBackdrop } from "./primitives/ruler-backdrop";
 import { WbButton } from "./primitives/wb-button";
 
@@ -9,6 +13,11 @@ export function HeroSection({
 }: {
   workspacePath: string | null;
 }) {
+  // A phone gets no nudge toward a desktop download, and the desktop app none
+  // toward itself. The section below stays for anyone who scrolls to it.
+  const [showDesktopLink] = useState(
+    () => !isDesktopShell() && currentDesktopPlatform() !== "mobile",
+  );
   return (
     <section className="relative bg-[color:var(--wb-bg)] overflow-hidden">
       <RulerBackdrop />
@@ -45,6 +54,16 @@ export function HeroSection({
               </a>
             </WbButton>
           </div>
+
+          {showDesktopLink && (
+            <Link
+              to="/#desktop"
+              onClick={() => scrollToHashTarget("desktop")}
+              className="mt-6 text-[14px] text-[color:var(--wb-sub)] no-underline underline-offset-2 hover:text-[color:var(--wb-ink)] hover:underline transition-colors"
+            >
+              Also a desktop app for macOS and Windows →
+            </Link>
+          )}
         </div>
       </div>
     </section>

@@ -25,7 +25,9 @@ function docsPageFor(href: string): string | null {
 }
 
 const links = readdirSync(homeDir)
-  .filter((f) => f.endsWith(".tsx"))
+  // `.ts` too: a docs path kept as a constant (`desktop-download.ts`) is a
+  // link all the same.
+  .filter((f) => /\.tsx?$/.test(f))
   .flatMap((file) =>
     [...readFileSync(path.join(homeDir, file), "utf8").matchAll(/"(\/docs\/[^"]*)"/g)].map(
       (m) => [file, m[1]] as const,

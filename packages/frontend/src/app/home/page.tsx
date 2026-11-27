@@ -9,6 +9,7 @@ import { UseCasesSection } from "./use-cases-section";
 import { InteropSection } from "./interop-section";
 import { WhySection } from "./why-section";
 import { DeveloperSection } from "./developer-section";
+import { DesktopSection } from "./desktop-section";
 import { OpenSourceSection } from "./opensource-section";
 import { Footer } from "./footer";
 import { useBrandFonts } from "@/lib/brand-fonts";
@@ -44,6 +45,7 @@ export default function HomePage({
         <InteropSection />
         <WhySection />
         <DeveloperSection />
+        <DesktopSection />
         <OpenSourceSection />
       </main>
       <Footer />

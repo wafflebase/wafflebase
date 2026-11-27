@@ -92,8 +92,9 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 | 6 | InteropSection | Import/Export format matrix — "no lock-in" paper cards |
 | 7 | WhySection | Comparison table vs Google Workspace inside a paper card |
 | 8 | DeveloperSection | Single dark code card with REST API / CLI tabs |
-| 9 | OpenSourceSection | Apache-2.0 callout with `<RepoMap>` infographic + Star/Contribute CTAs |
-| 10 | Footer | Brand block + 3 link columns + bottom copyright row |
+| 9 | DesktopSection | Desktop app downloads (macOS / Windows), the visitor's OS first; absent inside the desktop app |
+| 10 | OpenSourceSection | Apache-2.0 callout with `<RepoMap>` infographic + Star/Contribute CTAs |
+| 11 | Footer | Brand block + 3 link columns + bottom copyright row |
 
 #### NavBar
 
@@ -116,6 +117,11 @@ Single column, centered, max-width 920px, padded `pt-20 md:pt-28 pb-14 md:pb-20`
   Run it on your own servers and script it with the REST API and CLI."
 - CTA pair: primary "Start a workspace →" (or "Go to workspace →" if signed in)
   + ghost "View on GitHub →".
+- Under the CTAs, a quiet sub-colored text link, "Also a desktop app for
+  macOS and Windows →", to `/#desktop` (see DesktopSection). It is a link to
+  the section rather than a third button: the hero has one job, and the
+  Windows caveat belongs beside the Windows download. Not rendered on a
+  phone or tablet, nor inside the desktop app.
 - No eyebrow above the H1 and no stats row under it: both read as template
   scaffolding (DESIGN.md bans kickers outright).
 - `<RulerBackdrop>` motif behind the copy (opacity 0.55 light / 0.4 dark).
@@ -257,6 +263,41 @@ underline. Token color palette inside code blocks:
 Footer link toggles between "View full API documentation →" / "View CLI
 documentation →" depending on the active tab.
 
+#### DesktopSection
+
+`id="desktop"`. The desktop app ([desktop-app.md](desktop-app.md)) ships
+with every server release, so the links are GitHub's
+`releases/latest/download/<asset>` redirects:
+`Wafflebase_universal.dmg` and `Wafflebase_x64-setup.exe`, the names
+`scripts/test/desktop-release.test.mjs` pins. They live in
+`desktop-download.ts` with the platform choice.
+
+- Left: left-aligned `<SectionHead>` — "A desktop app for macOS and Windows",
+  sub naming what it does (opens wafflebase.io or a team's own server through
+  Change server…, updates itself). Right: a ruled two-row ledger, one row per
+  build — name, architecture, the asset filename in mono (it is the real file
+  a visitor will see in Downloads), and a `<WbButton>` "Download for …".
+  Below the rows, "Install notes →" to `/docs/start/desktop`. Unboxed, so it
+  does not stack a second paper panel on the OpenSourceSection right below.
+- `detectDesktopPlatform()` picks the order: client hints
+  (`navigator.userAgentData.platform`), then `navigator.platform`, then the
+  UA. The visitor's own platform is the first row with the primary button;
+  the other is a ghost button beside it, never hidden. Linux and anything
+  unknown get both as ghost buttons. A phone or tablet — including iPadOS,
+  which reports `MacIntel` and is told apart by `maxTouchPoints` — also gets
+  both unranked, so nothing pushes a `.dmg` at an iPhone, plus one line
+  saying to open the page on a Mac or Windows PC.
+- The Windows row says, in one line, that the build is not code-signed yet
+  and SmartScreen warns on first run; the macOS build is signed and
+  notarized and says nothing. Install notes carry the "More info → Run
+  anyway" steps.
+- Every link is a plain `<a href>`: the downloads are external and `/docs` is
+  a separate VitePress site, which a router `Link` would route into the SPA.
+- **Hidden inside the desktop app.** The shell renders this page when signed
+  out, and offering the app to someone already in it is noise. The section,
+  the hero link and the footer's "Desktop app" entry all check
+  `isDesktopShell()` (`src/lib/service-worker.ts`).
+
 #### OpenSourceSection
 
 `--wb-paper` rounded card with grid layout: copy on the left
@@ -278,7 +319,8 @@ monorepo.
 (WaffleLogo + Fraunces wordmark + tagline: "Self-hosted collaborative
 presentations, word processor, and spreadsheet, with real-time editing
 and a REST API for automation.") + 3-column sitemap (Product / Community
-/ Project). Bottom bar: copyright + repo URL.
+/ Project); Product carries "Desktop app" → `/#desktop`, dropped inside the
+desktop app. Bottom bar: copyright + repo URL.
 
 ### Theme System
 

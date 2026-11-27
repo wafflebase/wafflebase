@@ -20,7 +20,9 @@ Follow-up to #1206. The desktop app now ships with every server release
 
 ## Todo
 
-- [ ] A: homepage download entry (nav/hero CTA + section or footer), OS-aware
+- [x] A: homepage download entry (nav/hero CTA + section or footer), OS-aware
+  — `DesktopSection` between Developers and Open source, a quiet hero link
+  and a footer entry to `/#desktop`; all three absent in the desktop shell
 - [x] B: docs page `start/desktop.md` + sidebar entry (plus desktop entries
   in `start/troubleshooting.md`, "Allow desktop app sign-in" in
   `developers/self-hosting/sign-in.md`, two config rows)
