@@ -117,6 +117,15 @@ fn same_origin(a: &Url, b: &Url) -> bool {
 }
 
 /// Decide what to do with a navigation or a new-window request.
+/// The documentation site (`packages/documentation`), which a deployment such
+/// as wafflebase.io serves under `/docs` on the frontend's own origin. It is
+/// a website, not the app: in a window with no address bar or back button a
+/// reader could not get back, so it opens in the system browser.
+pub fn is_docs_site(url: &Url) -> bool {
+    let path = url.path();
+    path == "/docs" || path.starts_with("/docs/")
+}
+
 pub fn decide(url: &Url, request: Request, ctx: Context<'_>) -> Decision {
     if is_bundled(url) {
         return match request {
@@ -174,6 +183,10 @@ pub fn decide(url: &Url, request: Request, ctx: Context<'_>) -> Decision {
                 .map(|(_, value)| value.into_owned());
             return Decision::StartSignIn { backend, return_to };
         }
+        return Decision::OpenExternal;
+    }
+
+    if is_frontend(url) && is_docs_site(url) {
         return Decision::OpenExternal;
     }
 
@@ -391,6 +404,28 @@ mod tests {
         // Origin, not host: another port or scheme is another site.
         assert_eq!(nav("https://app.example.com:8443/"), Decision::OpenExternal);
         assert_eq!(nav("http://app.example.com/"), Decision::OpenExternal);
+    }
+
+    /// The documentation site is served under `/docs` on the frontend's own
+    /// origin, but it is a website, not the app: in a window with no address
+    /// bar or back button a reader could not get back.
+    #[test]
+    fn the_docs_site_goes_to_the_system_browser() {
+        assert_eq!(nav("https://app.example.com/docs"), Decision::OpenExternal);
+        assert_eq!(
+            nav("https://app.example.com/docs/sheets/formulas#sum"),
+            Decision::OpenExternal
+        );
+        assert_eq!(
+            new_window(
+                "https://app.example.com/docs/",
+                "https://app.example.com/login"
+            ),
+            Decision::OpenExternal
+        );
+        // Only the `/docs` segment: app routes that merely start alike stay.
+        assert_eq!(nav("https://app.example.com/documents"), Decision::Allow);
+        assert_eq!(nav("https://app.example.com/d/docs"), Decision::Allow);
     }
 
     #[test]

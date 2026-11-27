@@ -11,7 +11,10 @@
     <main>
       <img class="mark" src="mark.svg" alt="" />
       <h1>Connect to your Wafflebase server</h1>
-      <p>Enter the address you open Wafflebase at in a web browser.</p>
+      <p>
+        Enter the address your team opens Wafflebase at in a web browser, or
+        use the official server at wafflebase.io.
+      </p>
       <form id="picker" novalidate>
         <label for="server">Server address</label>
         <input
@@ -28,6 +31,7 @@
         <p class="hint">Use https://. Plain http:// works only for localhost.</p>
         <p id="error" class="error" role="alert"></p>
         <div class="actions">
+          <button id="official" type="button" hidden>Use wafflebase.io</button>
           <button id="back" type="button" hidden>Cancel</button>
           <button id="connect" class="primary" type="submit">Connect</button>
         </div>

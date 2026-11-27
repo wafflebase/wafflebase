@@ -1,8 +1,9 @@
-import { ReactElement } from "react";
+import { ReactElement, useCallback } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { Loader } from "./components/loader";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMe, fetchYorkieToken } from "./api/auth";
+import { fetchMe, fetchYorkieToken, isBackendUnreachableError } from "./api/auth";
+import { OfflineScreen } from "./components/offline-screen";
 import { YorkieProvider } from "@yorkie-js/react";
 import { ChatStreamHost } from "./components/chat/chat-stream-host";
 
@@ -10,14 +11,24 @@ import { ChatStreamHost } from "./components/chat/chat-stream-host";
  * Guards routes that require authenticated access.
  */
 export const PrivateRoute = (): ReactElement => {
-  const { data: me, isLoading } = useQuery({
+  const { data: me, isLoading, error, isFetching, refetch } = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
     retry: false,
   });
+  const retry = useCallback(() => void refetch(), [refetch]);
 
   if (isLoading) {
     return <Loader />;
+  }
+
+  // No response at all is not "signed out": say so, and keep the URL, so
+  // the same route opens once the server answers again. Only while no user is
+  // known: a refetch on window focus during an outage keeps the user React
+  // Query already has, and the open document must stay mounted (the editor
+  // reports its own connection state).
+  if (!me && isBackendUnreachableError(error)) {
+    return <OfflineScreen onRetry={retry} retrying={isFetching} />;
   }
 
   return me ? (

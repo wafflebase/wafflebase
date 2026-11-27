@@ -12,6 +12,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin, type Connect } from "vite";
 import { defineConfig } from "vitest/config";
+import { serviceWorker } from "./service-worker/plugin";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
@@ -317,6 +318,8 @@ export default defineConfig({
     gaSnippet(),
     antlr4tsAssertShim(),
     pdfjsAssets(),
+    // The offline app shell (docs/design/frontend.md § Offline app shell).
+    serviceWorker(),
     react(),
     tailwindcss(),
     {

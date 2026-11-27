@@ -85,12 +85,14 @@ export default function LoginPage() {
               GitHub
             </a>
             <span className="mx-2 opacity-50">·</span>
-            <Link
-              to="/docs"
+            {/* A page navigation, not a <Link>: the docs are a separate site
+                served under /docs, not a route of this app. */}
+            <a
+              href="/docs/"
               className="no-underline hover:text-[color:var(--wb-ink)] transition-colors"
             >
               Docs
-            </Link>
+            </a>
           </p>
         </div>
       </main>

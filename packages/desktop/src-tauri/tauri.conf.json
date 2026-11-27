@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wafflebase",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "io.wafflebase.desktop",
   "build": {
     "frontendDist": "../src"
@@ -26,5 +26,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDMkZDQzZEMzI4OUIwQTEKUldTaHNJa3liY3d2WENPTk1ETVFMWnhUdWtVL1FHc0NucVJIS2kzNTYxNlV3S1dneXdCblQrdC8K",
+      "endpoints": [
+        "https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

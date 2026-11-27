@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { LoginForm } from "@/components/login-form";
 import LoginPage from "@/app/login/page";
@@ -192,6 +192,25 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("alert").textContent).toContain("expired");
+  });
+
+  // The docs are a separate site (VitePress under /docs), not a route of this
+  // app. A client-side <Link> rendered nothing at /docs — a blank page on the
+  // web, and one the desktop shell never saw, so it could not send it to the
+  // system browser. It has to be a real page navigation.
+  it("links Docs as a page navigation, not an app route", () => {
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<p>unmatched route</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const docs = screen.getByRole("link", { name: "Docs" });
+    expect(docs.getAttribute("href")).toBe("/docs/");
+    fireEvent.click(docs);
+    expect(screen.queryByText("unmatched route")).toBeNull();
   });
 
   it("renders no alert on a plain visit", () => {

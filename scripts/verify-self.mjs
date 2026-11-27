@@ -285,8 +285,8 @@ const LANES = [
   // this lane checks only what Node can see (the bundled page scripts and the
   // Tauri JSON config). The crate's own suite — the listener, the navigation
   // policy and the sign-in state machine — runs in `ci.yml`'s
-  // `verify-desktop (macOS)` job instead, where the webview is the system
-  // WKWebView and a toolchain is all the build needs.
+  // `verify-desktop` jobs instead (macOS and Windows), where the webview is
+  // the system's own and a toolchain is all the build needs.
   {
     name: "desktop:check",
     cmd: "pnpm --filter @wafflebase/desktop check",

@@ -98,6 +98,13 @@ button:focus-visible {
   margin-top: 1rem;
 }
 
+/* The reset sits apart from Cancel / Connect, on the left, as does the
+   offline page's way out. */
+#official,
+#change {
+  margin-right: auto;
+}
+
 button {
   font: inherit;
   padding: 0.55rem 1rem;

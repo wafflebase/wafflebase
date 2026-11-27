@@ -7,9 +7,12 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "get_server",
             "set_server",
+            "use_official_server",
             "login_status",
             "cancel_login",
             "take_handoff",
+            "connection_status",
+            "retry_connection",
         ]),
     ))
     .expect("failed to run tauri-build");

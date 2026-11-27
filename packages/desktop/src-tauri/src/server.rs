@@ -86,6 +86,22 @@ pub fn parse_server_origin(input: &str) -> Result<Url, ServerUrlError> {
     Url::parse(&origin).map_err(|_| ServerUrlError::Invalid)
 }
 
+/// The server the app opens until someone picks another: the hosted
+/// Wafflebase. It is not written to the profile, so "no profile" keeps
+/// meaning "the official server" if its address ever changes.
+pub const OFFICIAL_SERVER: &str = "https://wafflebase.io";
+
+pub fn official_server() -> Url {
+    parse_server_origin(OFFICIAL_SERVER).expect("OFFICIAL_SERVER is a valid server origin")
+}
+
+/// Where the app opens a server: its sign-in page. The frontend sends a
+/// signed-in visitor from there to their documents, and a signed-out one
+/// sees the sign-in form instead of the marketing homepage at `/`.
+pub fn start_url(origin: &Url) -> Url {
+    origin.join("/login").expect("an origin joins a path")
+}
+
 /// The origin as people write it: `https://host[:port]`, no trailing slash.
 pub fn origin_string(url: &Url) -> String {
     url.origin().ascii_serialization()
@@ -117,6 +133,14 @@ impl ServerStore {
         parse_server_origin(&profile.origin).ok()
     }
 
+    /// Forget the saved server, so the app opens the official one.
+    pub fn clear(&self) -> io::Result<()> {
+        match fs::remove_file(&self.path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
+    }
+
     pub fn save(&self, origin: &Url) -> io::Result<()> {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
@@ -132,6 +156,37 @@ impl ServerStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_official_server_is_a_valid_https_origin() {
+        let url = official_server();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(origin_string(&url), OFFICIAL_SERVER);
+    }
+
+    #[test]
+    fn a_server_opens_on_its_sign_in_page() {
+        let origin = parse_server_origin("https://wafflebase.example.com").unwrap();
+        assert_eq!(
+            start_url(&origin).as_str(),
+            "https://wafflebase.example.com/login"
+        );
+    }
+
+    #[test]
+    fn clearing_forgets_the_saved_server() {
+        let dir =
+            std::env::temp_dir().join(format!("wafflebase-desktop-clear-{}", std::process::id()));
+        let store = ServerStore::new(&dir);
+        store.clear().unwrap(); // nothing saved yet: not an error
+        store
+            .save(&parse_server_origin("https://wafflebase.example.com").unwrap())
+            .unwrap();
+        assert!(store.load().is_some());
+        store.clear().unwrap();
+        assert!(store.load().is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     fn ok(input: &str) -> String {
         origin_string(&parse_server_origin(input).expect(input))

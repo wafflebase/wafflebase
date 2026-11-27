@@ -8,18 +8,22 @@ Sign-in runs in the system browser and comes back through the loopback + PKCE
 flow the CLI uses. The design is
 [docs/design/desktop-app.md](../../docs/design/desktop-app.md).
 
-Status: Phase 0 + 1 (unsigned builds for the team). Google desktop sign-in,
-signing, notarization and the updater are Phase 2.
+Status: Phase 0 + 1, plus the release half of Phase 2: signed and notarized
+macOS builds and the in-app updater, published with every server release (see
+[Releasing](#releasing)). Google desktop sign-in, Authenticode for Windows and
+`test:webkit` in CI are still open.
 
 ## Layout
 
 | Path | What |
 |------|------|
-| `src/` | Bundled pages, plain HTML/CSS/JS: server picker (`index.html`), sign-in status (`signin.html`), sign-in handoff (`handoff.html`) |
+| `src/` | Bundled pages, plain HTML/CSS/JS: server picker (`index.html`), sign-in status (`signin.html`), sign-in handoff (`handoff.html`), unreachable server (`offline.html`) |
 | `src-tauri/src/server.rs` | Server profile: URL validation, `server.json` in the app config dir |
+| `src-tauri/src/connection.rs` | Reachability probe before a server is opened, retry backoff, the unreachable-server page's state (tested) |
 | `src-tauri/src/navigation.rs` | Navigation, new-window and download policy (pure, tested) |
 | `src-tauri/src/login.rs` | Loopback listener + PKCE, with the CLI's rules (tested) |
 | `src-tauri/src/signin.rs` | Sign-in orchestration: providers check, browser, handoff |
+| `src-tauri/src/update.rs` | Updater: silent launch/daily check installed on quit; menu check with Restart Now / Later |
 | `src-tauri/src/lib.rs` | Windows, hooks, menu, plugins, commands |
 | `src-tauri/capabilities/local.json` | IPC for the bundled pages only |
 | `app-icon.svg` | Icon source; `pnpm icon` regenerates `src-tauri/icons/` |
@@ -48,20 +52,26 @@ pnpm --filter @wafflebase/desktop check        # page scripts + JSON config (the
 The debug bundle lands at
 `src-tauri/target/debug/bundle/macos/Wafflebase.app`. `test` and `lint` are
 not part of `pnpm verify:fast`: they need a Rust toolchain the other packages
-do not. CI runs them in the `verify-desktop (macOS)` job of
-`.github/workflows/ci.yml` whenever this package changes, on the crate's
-`rust-version` (1.90); Linux runners cannot build the crate without the
-WebKitGTK development libraries.
+do not. CI runs them in the `verify-desktop (macOS)` and
+`verify-desktop (Windows)` jobs of `.github/workflows/ci.yml` whenever this
+package changes, on the crate's `rust-version` (1.90): Windows because the
+release builds there and its `cfg(windows)` code compiles nowhere else. Linux
+runners cannot build the crate without the WebKitGTK development libraries.
 
 ## Choosing a server
 
-On first launch the picker asks for the deployment's address, the one people
-open in a browser. It must be `https://`, or `http://` on `localhost`,
-`127.0.0.1` or `[::1]`, the same rule the backend applies before it offers
-desktop sign-in. The origin is saved to `server.json` in the app config
-directory (`~/Library/Application Support/io.wafflebase.desktop/` on macOS) and
-loaded directly on later launches. The app menu's **Change server…** returns
-to the picker.
+The app opens the official server, `https://wafflebase.io`, until another is
+chosen, and it opens every server at `/login` (a signed-in user is sent on to
+their documents from there).
+
+The app menu's **Change server…** opens the picker, which asks for the
+deployment's address, the one people open in a browser. It must be
+`https://`, or `http://` on `localhost`, `127.0.0.1` or `[::1]`, the same rule
+the backend applies before it offers desktop sign-in. The origin is saved to
+`server.json` in the app config directory
+(`~/Library/Application Support/io.wafflebase.desktop/` on macOS) and loaded
+directly on later launches. **Use wafflebase.io** in the picker deletes that
+file; the official server itself is never saved.
 
 `WAFFLEBASE_DESKTOP_SERVER=<url>` overrides the saved server for one run,
 without saving it. It is validated like the picker's input and ignored, with a
@@ -70,6 +80,46 @@ message on stderr, when invalid. Against a local `pnpm dev`:
 ```bash
 WAFFLEBASE_DESKTOP_SERVER=http://localhost:5173 pnpm --filter @wafflebase/desktop dev
 ```
+
+### When the server does not answer
+
+Before the window loads a server (at launch, after picking one, after
+cancelling sign-in, and on the picker's Cancel), the shell sends one `GET` to
+its `/login` and loads it only once something answers. **Any** HTTP response
+counts, a 4xx or 5xx or a redirect included (redirects are not followed); a
+server that connects but is slow to answer counts too, and the webview waits
+for it. Only a failure to connect does not: no DNS answer, refused, a TLS
+failure (a captive portal), or no connection within 8 seconds. Only the
+frontend origin is probed, never the backend.
+
+If it does not answer, the window loads the start page once anyway: a Service
+Worker from an earlier visit may boot the cached app, which shows its own
+offline screen (design doc §10). The shell asks the page whether a worker
+controls it; if none does, or nothing committed within 3 seconds, the window
+shows `offline.html`: the server's address, a likely cause,
+**Try again** and **Change server…**. The shell probes again after 2 s,
+doubling to 30 s, and opens the server as soon as it answers; Try again and
+the system coming back online (`online` event) probe at once and start the
+backoff over. A first probe still running after 1.5 s brings the page up in
+its "Connecting…" state, so the window is never blank meanwhile. Leaving the
+page, changing server or closing the window stops the probing.
+
+A connection that drops after the server's page has loaded is the web app's
+business (its sync-status chip and reconnect), not the shell's. To try the
+page, point the app at a port nothing listens on:
+
+```bash
+WAFFLEBASE_DESKTOP_SERVER=http://127.0.0.1:59321 pnpm --filter @wafflebase/desktop dev
+```
+
+## Links and windows
+
+Links to another site open in the system browser, and so does the docs site
+under `/docs` on the server's own origin. Links within the app stay in the
+window; ones that ask for a new window open another app window, titled after
+the page. The View menu has Back, Forward and Reload, without the browser's
+shortcuts, which the editors use (Cmd+[ / Cmd+] indent in Docs, Cmd+R fills
+right in Sheets).
 
 ## Sign-in
 
@@ -109,7 +159,7 @@ open one). If the backend's redirect leaves the chosen server (its
   capability lists it under `remote.urls`, for app commands as well as plugin
   commands (`Webview::on_message` checks the ACL whenever the origin is not
   local). On top of that, `build.rs` declares an app manifest, so even the
-  bundled pages reach only the five commands the capability grants. No plugin
+  bundled pages reach only the commands the capability grants. No plugin
   permission is granted to any page: the opener is used from Rust only.
 - **Navigation policy** (`navigation.rs`): the frontend origin stays in the
   window, bundled pages are allowed (exactly `tauri://localhost` on macOS and
@@ -198,3 +248,85 @@ WAFFLEBASE_DESKTOP_BROWSER=/tmp/fake-browser.sh \
 `curl` cannot click the backend's confirmation page, so against a real backend
 the stand-in browser has to do that step itself, or point at a fake backend
 that redirects straight to the callback.
+
+## Releasing
+
+The app has no release of its own. It carries the repository's version and
+ships in the same GitHub release as the server: publishing `vX.Y.Z` runs
+`.github/workflows/desktop-release.yml` next to the Docker and npm publishes,
+which builds a universal macOS `.dmg` (signed, notarized, stapled), a Windows
+NSIS installer (not Authenticode-signed yet) and the updater packages, and
+attaches them to that release with `latest.json`. Installed apps poll
+`releases/latest/download/latest.json` and install new versions silently when
+they quit; download links are:
+
+```
+https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg
+https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_x64-setup.exe
+```
+
+The why is in [desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
+
+### In the release procedure
+
+- The version bump covers `packages/desktop/package.json`,
+  `src-tauri/Cargo.toml` and the `wafflebase-desktop` entry in
+  `src-tauri/Cargo.lock` (`tauri.conf.json` reads `package.json`).
+  `scripts/test/desktop-release.test.mjs` fails until all three match the
+  root `package.json`.
+- After publishing, approve the `desktop-release` deployment and watch the
+  run (about half an hour, mostly notarization). Until it finishes the new release has no installers
+  and no `latest.json`; a failure there does not affect the server image.
+- Then open the `.dmg` on a Mac that has never run the app: Gatekeeper must
+  open it without a warning.
+
+### The `desktop-release` Environment
+
+Deployment branches and tags: `v*` tags only. **Required reviewers: the
+maintainers — not optional.** A release runs the workflow file at the tagged
+commit, so a tag on a commit that edits the file could drop its agent-App
+guard; the Environment's approval is enforced by GitHub whatever the file
+says, and its secrets reach no job that skips it. Approve the run after each
+release is published.
+
+| Name | Kind | Value |
+|------|------|-------|
+| `APPLE_CERTIFICATE` | secret | `base64 -i <developer-id>.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | secret | The `.p12` password |
+| `APPLE_SIGNING_IDENTITY` | variable | `Developer ID Application: Youngteac Hong (WRGGVTC2RN)` |
+| `APPLE_API_KEY_ID` | secret | App Store Connect Team API key ID (role: Developer) |
+| `APPLE_API_ISSUER` | secret | Its issuer ID |
+| `APPLE_API_KEY_P8` | secret | The `.p8` file's contents |
+| `TAURI_SIGNING_PRIVATE_KEY` | secret | The updater minisign private key (file contents) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Its password |
+
+**The updater key cannot be replaced.** Its public half is compiled into every
+installed app, which refuses any package it did not sign. Keep an offline
+backup; losing it means every user reinstalls by hand.
+
+**The Developer ID certificate expires yearly** (the current one on
+2027-12-26). Before then, issue a new *Developer ID Application* certificate
+(G2 Sub-CA) from a CSR whose key never enters a keychain
+(`openssl genrsa` + `openssl req -new`), bundle it as a `.p12` with
+`openssl pkcs12 -export -legacy` (the runner's `security import` reads the
+legacy format), and replace the two `APPLE_CERTIFICATE*` secrets. Apps
+already signed keep running: the signature is timestamped.
+
+### Testing an update locally
+
+Build the current version and a higher one against a local manifest, without
+touching the shipped endpoint, by merging a config at build time (once with
+`"version"` omitted, once with it set). The updater package is off in the base
+config, so a plain `build` needs no updater key; releases turn it on with
+`src-tauri/tauri.release.conf.json`, and so does this:
+
+```bash
+cfg='{"version":"99.0.0","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}'
+TAURI_SIGNING_PRIVATE_KEY=... TAURI_SIGNING_PRIVATE_KEY_PASSWORD=... \
+  pnpm --filter @wafflebase/desktop tauri build --bundles app -c "$cfg"
+```
+
+Serve the newer `Wafflebase.app.tar.gz` and a `latest.json` naming it from
+`127.0.0.1:8765`, then run the older build. It fetches the manifest and the
+package at launch without a word; quit it and the bundle on disk is the new
+version. **Check for Updates…** instead shows the Restart Now / Later prompt.

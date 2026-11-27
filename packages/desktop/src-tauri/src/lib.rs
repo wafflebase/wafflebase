@@ -6,16 +6,18 @@
 //! Everything the desktop does for it is driven from the navigation,
 //! new-window and download hooks below.
 
+mod connection;
 mod login;
 mod navigation;
 mod server;
 mod signin;
+mod update;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
 
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem, MenuItemKind, Submenu};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
@@ -37,6 +39,20 @@ macro_rules! dlog {
 
 const MAIN_WINDOW: &str = "main";
 const CHANGE_SERVER_ID: &str = "change-server";
+const CHECK_UPDATES_ID: &str = "check-updates";
+const BACK_ID: &str = "nav-back";
+const FORWARD_ID: &str = "nav-forward";
+const RELOAD_ID: &str = "nav-reload";
+
+/// Run in every page before its own scripts, so the frontend can tell it is
+/// inside the desktop app (`isDesktopShell` in `packages/frontend`). It is a
+/// capability flag, not an identity: the frontend uses it only to turn on its
+/// offline app shell here and not, for now, on the web (§10).
+fn desktop_marker_script(version: &str) -> String {
+    format!(
+        "Object.defineProperty(window, '__WAFFLEBASE_DESKTOP__', {{ value: Object.freeze({{ version: {version:?} }}) }});"
+    )
+}
 
 /// Development override for the saved server.
 const SERVER_ENV: &str = "WAFFLEBASE_DESKTOP_SERVER";
@@ -45,6 +61,7 @@ pub struct AppState {
     store: ServerStore,
     frontend: RwLock<Option<Url>>,
     signin: signin::SignIn,
+    connection: connection::Connection,
     window_seq: AtomicU32,
     #[cfg(debug_assertions)]
     smoke_signin_started: std::sync::atomic::AtomicBool,
@@ -165,7 +182,13 @@ fn build_window<R: Runtime>(
     let dl_app = app.clone();
 
     WebviewWindowBuilder::new(app, label, url)
+        .initialization_script(desktop_marker_script(
+            &app.package_info().version.to_string(),
+        ))
         .title("Wafflebase")
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&window_title(&title));
+        })
         .inner_size(1280.0, 800.0)
         .min_inner_size(480.0, 360.0)
         .on_navigation(move |url| {
@@ -268,14 +291,23 @@ fn build_window<R: Runtime>(
             true
         })
         .on_page_load(|window, payload| {
-            if payload.event() != PageLoadEvent::Finished {
-                return;
-            }
-            dlog!("page loaded {}", log_url(payload.url()));
             let state = window.state::<AppState>();
             let on_frontend = state
                 .frontend()
                 .is_some_and(|f| f.origin() == payload.url().origin());
+            if payload.event() != PageLoadEvent::Finished {
+                // A commit: the only sign, on macOS, that a load of the
+                // unreachable server's start page is being served from a
+                // Service Worker's cache.
+                state.connection.page_started(window.label(), on_frontend);
+                return;
+            }
+            dlog!("page loaded {}", log_url(payload.url()));
+            state.connection.page_loaded(
+                window.label(),
+                connection::is_offline_page(payload.url()),
+                on_frontend,
+            );
             let bundled = navigation::is_bundled(payload.url());
             if state
                 .signin
@@ -387,9 +419,17 @@ fn focus_main<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// The default app menu (with its Edit menu, which macOS needs for
-/// Cmd+C/V/X/Z/A to reach the webview) plus "Change server…".
+/// Cmd+C/V/X/Z/A to reach the webview) plus "Check for Updates…" and
+/// "Change server…".
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
+    let updates = MenuItem::with_id(
+        app,
+        CHECK_UPDATES_ID,
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
     let change = MenuItem::with_id(app, CHANGE_SERVER_ID, "Change server…", true, None::<&str>)?;
     let items = menu.items()?;
     // macOS: the first submenu is the app menu. Elsewhere: the File menu.
@@ -406,29 +446,80 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         Some(submenu) => {
             // After "About" and its separator on macOS; first in File elsewhere.
             let at = if cfg!(target_os = "macos") { 2 } else { 0 };
-            submenu.insert(&change, at)?;
+            submenu.insert_items(&[&updates, &change], at)?;
         }
         None => {
-            let file = Submenu::with_items(app, "File", true, &[&change])?;
+            let file = Submenu::with_items(app, "File", true, &[&updates, &change])?;
             menu.prepend(&file)?;
+        }
+    }
+
+    // The window has no toolbar, so a page the app has no way out of (a
+    // template landing, an error) would otherwise be a dead end. Deliberately
+    // without the browser's accelerators: a menu accelerator wins over the
+    // page, and Cmd+[ / Cmd+] indent in Docs and Cmd+R fills right in Sheets
+    // (Google parity, see the shortcut catalogs).
+    let back = MenuItem::with_id(app, BACK_ID, "Back", true, None::<&str>)?;
+    let forward = MenuItem::with_id(app, FORWARD_ID, "Forward", true, None::<&str>)?;
+    let reload = MenuItem::with_id(app, RELOAD_ID, "Reload", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let view = menu
+        .items()?
+        .iter()
+        .filter_map(MenuItemKind::as_submenu)
+        .find(|s| s.text().is_ok_and(|t| t == "View"))
+        .cloned();
+    match view {
+        Some(view) => {
+            let has_items = !view.items()?.is_empty();
+            view.insert_items(&[&back, &forward, &reload], 0)?;
+            if has_items {
+                view.insert(&separator, 3)?;
+            }
+        }
+        None => {
+            let view = Submenu::with_items(app, "View", true, &[&back, &forward, &reload])?;
+            // After File and Edit where they exist.
+            let at = menu.items()?.len().min(2);
+            menu.insert(&view, at)?;
         }
     }
     Ok(menu)
 }
 
+/// The window the user is looking at, for menu commands that act on a page.
+fn focused_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
+    app.webview_windows()
+        .into_values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| window_or_any(app, MAIN_WINDOW))
+}
+
+/// The native window title for a page title: the document's own name, so
+/// windows opened side by side can be told apart in the Window menu, the
+/// Dock and Alt+Tab.
+fn window_title(page_title: &str) -> String {
+    let title = page_title.trim();
+    if title.is_empty() {
+        "Wafflebase".to_string()
+    } else {
+        title.to_string()
+    }
+}
+
 /// The server to open at launch: the environment override, then the saved
-/// profile. `None` shows the picker.
-fn initial_server(store: &ServerStore) -> Option<Url> {
+/// profile, then the official server. The picker is reached from the menu.
+fn initial_server(store: &ServerStore) -> Url {
     if let Some(raw) = std::env::var_os(SERVER_ENV) {
         match server::parse_server_origin(&raw.to_string_lossy()) {
             Ok(url) => {
                 dlog!("{SERVER_ENV} overrides the saved server");
-                return Some(url);
+                return url;
             }
             Err(e) => eprintln!("[wafflebase-desktop] ignoring {SERVER_ENV}: {e}"),
         }
     }
-    store.load()
+    store.load().unwrap_or_else(server::official_server)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,13 +528,50 @@ fn initial_server(store: &ServerStore) -> Option<Url> {
 #[derive(Serialize)]
 struct ServerInfo {
     origin: Option<String>,
+    /// Where "Cancel" returns to: the server's sign-in page.
+    start: Option<String>,
+    official: bool,
 }
 
 #[tauri::command]
 fn get_server(state: tauri::State<'_, AppState>) -> ServerInfo {
     dlog!("picker asked for the saved server");
+    let frontend = state.frontend();
     ServerInfo {
-        origin: state.frontend().map(|u| server::origin_string(&u)),
+        origin: frontend.as_ref().map(server::origin_string),
+        start: frontend.as_ref().map(|u| server::start_url(u).to_string()),
+        official: frontend.is_some_and(|u| u.origin() == server::official_server().origin()),
+    }
+}
+
+/// Points this app at `origin` and opens it in `window` once it answers.
+fn switch_server<R: Runtime>(
+    app: &AppHandle<R>,
+    window: &WebviewWindow<R>,
+    state: &AppState,
+    origin: Url,
+) -> Result<String, String> {
+    state.signin.cancel();
+    state.set_frontend(Some(origin.clone()));
+    // Other windows belong to the previous server.
+    for (label, other) in app.webview_windows() {
+        if label != window.label() {
+            let _ = other.close();
+        }
+    }
+    let shown = server::origin_string(&origin);
+    connection::open(app, window.label(), origin);
+    Ok(shown)
+}
+
+/// Opens the chosen server in `window` once it answers, or the picker when
+/// there is none.
+fn open_current_server<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
+    match app.state::<AppState>().frontend() {
+        Some(origin) => connection::open(app, window.label(), origin),
+        None => {
+            let _ = window.navigate(bundled_url("index.html"));
+        }
     }
 }
 
@@ -459,16 +587,21 @@ fn set_server<R: Runtime>(
         .store
         .save(&origin)
         .map_err(|e| format!("Could not save the server: {e}"))?;
-    state.signin.cancel();
-    state.set_frontend(Some(origin.clone()));
-    // Other windows belong to the previous server.
-    for (label, other) in app.webview_windows() {
-        if label != window.label() {
-            let _ = other.close();
-        }
-    }
-    window.navigate(origin.clone()).map_err(|e| e.to_string())?;
-    Ok(server::origin_string(&origin))
+    switch_server(&app, &window, &state, origin)
+}
+
+/// Forgets the saved server and opens the official one.
+#[tauri::command]
+fn use_official_server<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    state
+        .store
+        .clear()
+        .map_err(|e| format!("Could not reset the server: {e}"))?;
+    switch_server(&app, &window, &state, server::official_server())
 }
 
 #[tauri::command]
@@ -477,14 +610,30 @@ fn login_status(state: tauri::State<'_, AppState>) -> signin::Status {
 }
 
 #[tauri::command]
-fn cancel_login<R: Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, AppState>) {
+fn cancel_login<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    state: tauri::State<'_, AppState>,
+) {
     // Only this window's own attempt: a stale page here must not cancel one
     // running in another window.
     state.signin.cancel_in(window.label());
-    let target = state
-        .frontend()
-        .unwrap_or_else(|| bundled_url("index.html"));
-    let _ = window.navigate(target);
+    open_current_server(&app, &window);
+}
+
+/// What the unreachable-server page shows.
+#[tauri::command]
+fn connection_status(state: tauri::State<'_, AppState>) -> connection::Status {
+    state.connection.status()
+}
+
+/// Probe the chosen server now and open it once it answers: the offline
+/// page's Try again and `online` event, and the picker's Cancel. Starts the
+/// backoff over.
+#[tauri::command]
+fn retry_connection<R: Runtime>(app: AppHandle<R>, window: WebviewWindow<R>) {
+    dlog!("connection retry requested");
+    open_current_server(&app, &window);
 }
 
 #[tauri::command]
@@ -508,18 +657,54 @@ pub fn run() {
             focus_main(app);
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_opener::init())
+        // Without its link script. That script catches every `target=_blank`
+        // click, cancels it and asks over IPC to open the URL, but the
+        // deployment's pages get no IPC on purpose (capabilities/local.json),
+        // so the click died silently. With it off, WebKit hands the request
+        // to `on_new_window`, and the navigation policy decides (§4).
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_server,
             set_server,
+            use_official_server,
             login_status,
             cancel_login,
-            take_handoff
+            take_handoff,
+            connection_status,
+            retry_connection
         ])
         .menu(build_menu)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window
+                    .state::<AppState>()
+                    .connection
+                    .window_closed(window.label());
+            }
+        })
         .on_menu_event(|app, event| {
-            if event.id() == CHANGE_SERVER_ID {
-                app.state::<AppState>().signin.cancel();
+            let page_script = match event.id().as_ref() {
+                BACK_ID => Some("history.back()"),
+                FORWARD_ID => Some("history.forward()"),
+                RELOAD_ID => Some("location.reload()"),
+                _ => None,
+            };
+            if let Some(script) = page_script {
+                if let Some(window) = focused_window(app) {
+                    let _ = window.eval(script);
+                }
+            } else if event.id() == CHECK_UPDATES_ID {
+                update::check_from_menu(app);
+            } else if event.id() == CHANGE_SERVER_ID {
+                let state = app.state::<AppState>();
+                state.signin.cancel();
+                state.connection.stop();
                 if let Some(window) = window_or_any(app, MAIN_WINDOW) {
                     let _ = window.navigate(bundled_url("index.html"));
                     let _ = window.unminimize();
@@ -534,21 +719,27 @@ pub fn run() {
             let initial = initial_server(&store);
             app.manage(AppState {
                 store,
-                frontend: RwLock::new(initial.clone()),
+                frontend: RwLock::new(Some(initial.clone())),
                 signin: signin::SignIn::default(),
+                connection: connection::Connection::default(),
                 window_seq: AtomicU32::new(1),
                 #[cfg(debug_assertions)]
                 smoke_signin_started: std::sync::atomic::AtomicBool::new(false),
             });
-            let url = match initial {
-                Some(origin) => WebviewUrl::External(origin),
-                None => WebviewUrl::App("index.html".into()),
-            };
-            build_window(app.handle(), MAIN_WINDOW, url)?;
+            // Builds the main window once the server answers (or with the
+            // unreachable-server page if it does not).
+            connection::open(app.handle(), MAIN_WINDOW, initial);
+            app.manage(update::Updates::default());
+            update::start(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the Wafflebase desktop app");
+        .build(tauri::generate_context!())
+        .expect("error while building the Wafflebase desktop app")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                update::install_pending_at_exit(app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -563,6 +754,51 @@ mod tests {
             csp.split(';').any(|d| d.trim() == "frame-ancestors 'none'"),
             "{csp}"
         );
+    }
+
+    /// The update endpoint is compiled in, so a wrong one strands every
+    /// install. The app ships in the same GitHub release as the server, so
+    /// the repository's "Latest" release carries its `latest.json`; a
+    /// prerelease is never "Latest" and so never offered.
+    #[test]
+    fn update_endpoint_is_the_latest_release() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let updater = &conf["plugins"]["updater"];
+        let endpoints = updater["endpoints"].as_array().unwrap();
+        assert_eq!(endpoints.len(), 1, "{endpoints:?}");
+        let endpoint = endpoints[0].as_str().unwrap();
+        assert!(endpoint.starts_with("https://"), "{endpoint}");
+        assert!(
+            endpoint
+                == "https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json",
+            "{endpoint}"
+        );
+        assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
+        assert!(!updater["pubkey"].as_str().unwrap().is_empty());
+        // On in the release overlay only, so a local `tauri build` needs no
+        // updater key; without it a release would have no `.sig` to ship.
+        assert!(conf["bundle"].get("createUpdaterArtifacts").is_none());
+        let release: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
+        assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+    }
+
+    #[test]
+    fn the_desktop_marker_names_the_app_version() {
+        let script = super::desktop_marker_script("0.6.18");
+        assert!(script.contains("__WAFFLEBASE_DESKTOP__"), "{script}");
+        assert!(script.contains("version: \"0.6.18\""), "{script}");
+    }
+
+    #[test]
+    fn window_title_follows_the_page() {
+        assert_eq!(
+            super::window_title("Q3 budget — Wafflebase"),
+            "Q3 budget — Wafflebase"
+        );
+        assert_eq!(super::window_title("  "), "Wafflebase");
+        assert_eq!(super::window_title(""), "Wafflebase");
     }
 
     /// The deployment's origin gets no capability.
