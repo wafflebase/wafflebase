@@ -21,7 +21,9 @@ Follow-up to #1206. The desktop app now ships with every server release
 ## Todo
 
 - [ ] A: homepage download entry (nav/hero CTA + section or footer), OS-aware
-- [ ] B: docs page `start/desktop.md` + sidebar entry
+- [x] B: docs page `start/desktop.md` + sidebar entry (plus desktop entries
+  in `start/troubleshooting.md`, "Allow desktop app sign-in" in
+  `developers/self-hosting/sign-in.md`, two config rows)
 - [ ] Mobile Before → After for the homepage change (CLAUDE.md)
 - [ ] verify:fast, self-review, PR
 

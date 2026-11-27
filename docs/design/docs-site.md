@@ -40,7 +40,7 @@ packages/documentation/
 │   └── theme/
 │       └── style.css         # Brand overrides
 ├── index.md                  # Landing page: goal cards, per-editor row
-├── start/                    # Getting started, concepts, phone, troubleshooting
+├── start/                    # Getting started, concepts, phone, desktop app, troubleshooting
 ├── collaborate/              # Workspaces, sharing, comments, history, templates, folders, trash
 ├── files/                    # Upload, PDFs, images, import and export
 ├── sheets/ docs-editor/ slides/ notes/ board/
@@ -112,7 +112,7 @@ an old URL that only survives as a redirect stub.
 The sidebar in `.vitepress/config.ts` is the outline, and the package
 README mirrors it page by page. Its shape:
 
-- **Get started**: getting started, concepts, phone, troubleshooting
+- **Get started**: getting started, concepts, phone, desktop app, troubleshooting
   (symptom-titled entries other pages deep-link to).
 - **Collaborate & organize**: workspaces, sharing, editing together,
   comments, version history, templates, folders, trash.

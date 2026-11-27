@@ -46,6 +46,7 @@ Set `BACKEND_TRUST_PROXY` only when a proxy really is in front. At `0` behind a 
 | `JWT_ACCESS_COOKIE_MAX_AGE_MS` | No | `3600000` | Access cookie lifetime. Keep it consistent with the token lifetime |
 | `JWT_REFRESH_COOKIE_MAX_AGE_MS` | No | `604800000` | Refresh cookie lifetime |
 | `COOKIE_SECURE` | No | derived | `true`/`1` or `false`/`0` forces `Secure` cookies on or off. Unset, it follows the scheme of `GITHUB_CALLBACK_URL`, then `NODE_ENV=production` |
+| `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN` | No | accepted | `false` stops accepting sign-in from the Windows desktop app's window (`http://tauri.localhost`). Anything else keeps it. See [Allow desktop app sign-in](/developers/self-hosting/sign-in#allow-desktop-app-sign-in) |
 
 ## Backend: GitHub Enterprise
 
@@ -174,6 +175,7 @@ Supply these when you run `pnpm frontend build`. See [Build the frontend](/devel
 | `VITE_YORKIE_RPC_ADDR` | Yes | `http://localhost:8080` | Address browsers reach Yorkie at |
 | `VITE_YORKIE_PUBLIC_KEY` | If your Yorkie project has one | empty | Yorkie project public key. Not a secret |
 | `VITE_FRONTEND_BASENAME` | No | `/` | Router base path. Serving from a subpath needs more than this variable |
+| `VITE_SERVICE_WORKER` | No | on | `off` turns off the offline app shell the [desktop app](/start/desktop#use-the-app-offline) uses to start without a connection, and removes one an earlier build installed |
 | `VITE_GA_ID` | No | none | Google Analytics measurement ID. Leave unset unless the property is yours |
 | `VITE_SENTRY_DSN` | No | none | Your Sentry project DSN for browser errors |
 | `VITE_SENTRY_ENVIRONMENT` | No | build mode (`production`) | `environment` tag |
