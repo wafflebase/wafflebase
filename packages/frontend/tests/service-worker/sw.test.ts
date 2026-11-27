@@ -275,4 +275,18 @@ describe("offline app-shell service worker", () => {
     await fresh.lifecycle("install");
     expect(fresh.store.get("wafflebase-shell-v5")!.entries.size).toBe(1);
   });
+
+  // An asset of this build that the shell preloads but the plugin left out of
+  // `precache` must still be cached, or that shell cannot start offline.
+  test("an install caches every asset the shell names, not only the boot set", async () => {
+    const fresh = boot(manifest({ version: "v6" }), {
+      shell:
+        '<script type="module" src="/assets/index-a.js"></script>' +
+        '<link rel="modulepreload" href="/assets/lazy-b.js">',
+    });
+    await fresh.lifecycle("install");
+    expect([...fresh.store.get("wafflebase-assets")!.entries.keys()]).toContain(
+      `${ORIGIN}/assets/lazy-b.js`,
+    );
+  });
 });

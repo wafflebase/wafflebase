@@ -562,7 +562,7 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
             // Without a client there is no way to ask; load it as before.
             dlog!("no HTTP client for the reachability probe ({e}); loading directly");
             if connection.finish(generation).is_some() {
-                show(
+                let shown = show(
                     app,
                     label,
                     generation,
@@ -571,6 +571,19 @@ async fn run<R: Runtime>(app: &AppHandle<R>, label: &str, origin: &Url, generati
                     false,
                 )
                 .await;
+                // Refused, and with no client there is nothing to probe with:
+                // put the page in a state Try again can act on, which starts
+                // a fresh attempt.
+                if matches!(shown, Shown::Failed) {
+                    connection.not_shown(generation);
+                    let phase = Phase::Unreachable {
+                        cause: Cause::Load,
+                        retry_at: Instant::now(),
+                    };
+                    if connection.set_phase(generation, phase) {
+                        show_offline(app, label, connection, generation, &mut may_create).await;
+                    }
+                }
             }
             return;
         }

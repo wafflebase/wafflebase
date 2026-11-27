@@ -208,15 +208,89 @@ enum AtExit {
 /// renaming the bundle, which needs write access to the folder holding it
 /// and, to move a folder to another parent, to the bundle itself. Probed by
 /// creating a file in each, which is refused for the same reasons (App
-/// Management included). `bundle` is `None` when there is none to replace.
+/// Management included). A writable folder is not enough when it is sticky
+/// (`/Applications` set up that way, a shared folder): there only the owner
+/// of an entry or of the folder may rename it, so another user's bundle
+/// would still take the privileged route. `bundle` is `None` when there is
+/// none to replace.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn at_exit(bundle: Option<&Path>) -> AtExit {
-    match bundle {
-        Some(bundle) if bundle.parent().is_some_and(writable) && writable(bundle) => {
+    let Some(bundle) = bundle else {
+        return AtExit::Skip;
+    };
+    let Some(parent) = bundle.parent() else {
+        return AtExit::Skip;
+    };
+    // The probe file is owned by whoever this process writes as.
+    let (Some(me), true) = (probe_owner(parent), writable(bundle)) else {
+        return AtExit::Skip;
+    };
+    match owners(parent, bundle) {
+        Some(o) if sticky_allows_rename(o.dir_sticky, o.dir_owner, o.bundle_owner, me) => {
             AtExit::Install
         }
         _ => AtExit::Skip,
     }
+}
+
+/// rename(2) in a sticky folder: allowed to the entry's owner or the
+/// folder's owner only. A folder without the sticky bit adds no condition.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn sticky_allows_rename(dir_sticky: bool, dir_owner: u32, bundle_owner: u32, me: u32) -> bool {
+    !dir_sticky || bundle_owner == me || dir_owner == me
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct Owners {
+    dir_sticky: bool,
+    dir_owner: u32,
+    bundle_owner: u32,
+}
+
+#[cfg(unix)]
+fn owners(dir: &Path, bundle: &Path) -> Option<Owners> {
+    use std::os::unix::fs::MetadataExt;
+    let d = std::fs::metadata(dir).ok()?;
+    let b = std::fs::metadata(bundle).ok()?;
+    Some(Owners {
+        dir_sticky: d.mode() & 0o1000 != 0,
+        dir_owner: d.uid(),
+        bundle_owner: b.uid(),
+    })
+}
+
+#[cfg(not(unix))]
+#[allow(dead_code)]
+fn owners(_dir: &Path, _bundle: &Path) -> Option<Owners> {
+    None
+}
+
+/// The owner a file created in `dir` gets, i.e. this process's effective
+/// user, when it can create one there; `None` when it cannot write there.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn probe_owner(dir: &Path) -> Option<u32> {
+    let probe = dir.join(format!(".wafflebase-update-probe-{}", std::process::id()));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+        .ok()?;
+    let owner = file_owner(&probe);
+    let _ = std::fs::remove_file(&probe);
+    owner
+}
+
+#[cfg(unix)]
+fn file_owner(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.uid())
+}
+
+#[cfg(not(unix))]
+#[allow(dead_code)]
+fn file_owner(_path: &Path) -> Option<u32> {
+    None
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -481,6 +555,18 @@ mod tests {
             std::fs::set_permissions(target, writable_again.clone()).unwrap();
             std::fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    /// rename(2)'s sticky-folder rule: a writable sticky folder still refuses
+    /// to let one user rename another's bundle, and the plugin would then go
+    /// the privileged way on the main thread the quit is holding.
+    #[test]
+    fn a_sticky_folder_allows_renaming_only_your_own_bundle() {
+        let (me, other) = (501, 502);
+        assert!(sticky_allows_rename(false, other, other, me));
+        assert!(sticky_allows_rename(true, other, me, me));
+        assert!(sticky_allows_rename(true, me, other, me));
+        assert!(!sticky_allows_rename(true, other, other, me));
     }
 
     /// The app ships with every server release; the background path is silent.

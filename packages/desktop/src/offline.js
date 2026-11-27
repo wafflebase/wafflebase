@@ -41,6 +41,12 @@ function retryNow() {
   invoke("retry_connection").catch(() => {});
 }
 
+// The title and message sit in the live region; writing the same text on
+// every poll could make a screen reader repeat it, so write only changes.
+function say(element, text) {
+  if (element.textContent !== text) element.textContent = text;
+}
+
 async function poll() {
   let status;
   try {
@@ -51,19 +57,24 @@ async function poll() {
   }
   const origin = status.origin || "the server";
   if (status.state === "unreachable") {
-    title.textContent = `Can't reach ${host(origin)}`;
-    message.textContent = navigator.onLine
-      ? (CAUSE[status.cause] || CAUSE.connect)(origin)
-      : "This computer is not connected to the internet. Wafflebase opens as soon as it is.";
+    say(title, `Can't reach ${host(origin)}`);
+    say(
+      message,
+      navigator.onLine
+        ? (CAUSE[status.cause] || CAUSE.connect)(origin)
+        : "This computer is not connected to the internet. Wafflebase opens as soon as it is.",
+    );
     const secs = status.retryInSecs;
     retry.textContent = secs > 0 ? `Trying again in ${secs} s.` : "Trying again…";
     retry.hidden = false;
     again.hidden = false;
     again.disabled = false;
   } else {
-    title.textContent = `Connecting to ${host(origin)}…`;
-    message.textContent =
-      status.state === "opening" ? "The server answered. Opening Wafflebase…" : "This can take a few seconds.";
+    say(title, `Connecting to ${host(origin)}…`);
+    say(
+      message,
+      status.state === "opening" ? "The server answered. Opening Wafflebase…" : "This can take a few seconds.",
+    );
     retry.hidden = true;
     again.disabled = true;
     // Reached with no attempt running (Back from another page): start one.

@@ -83,18 +83,22 @@ async function precache() {
   // A deploy that lands between the two would pair a new shell with the old
   // build's chunks, and that shell could not start offline. Refuse it: the
   // install fails and the previous worker keeps serving until the next one.
+  // Every asset the shell names is cached with the boot set, so a shell that
+  // preloads something the plugin left out of `precache` still starts offline.
   const html = await response.clone().text();
   const known = new Set(MANIFEST.assets);
   const escaped = ASSET_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const referenced = new RegExp(`["'](${escaped}[^"'?#]+)`, "g");
+  const boot = new Set(MANIFEST.precache);
   for (const match of html.matchAll(referenced)) {
     if (!known.has(match[1])) {
       throw new Error(`shell references ${match[1]}, not part of this build`);
     }
+    boot.add(match[1]);
   }
   const assets = await caches.open(ASSET_CACHE);
   await Promise.all(
-    MANIFEST.precache.map(async (path) => {
+    [...boot].map(async (path) => {
       if (await assets.match(path)) return;
       await assets.add(path);
     }),
