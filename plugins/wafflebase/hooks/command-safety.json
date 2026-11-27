@@ -1,5 +1,5 @@
 {
-  "cliVersion": "0.6.18",
+  "cliVersion": "0.6.19",
   "root": {
     "valueOptions": [
       "--api-key",
