@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { isDesktopShell } from "@/lib/service-worker";
+import { offerDesktopDownload } from "./desktop-download";
 import { scrollToHashTarget } from "./hash-scroll";
 import { WaffleLogo } from "./primitives/waffle-logo";
 
@@ -53,7 +53,8 @@ const columns = [
 ] as const;
 
 export function Footer() {
-  const desktop = isDesktopShell();
+  // No "Desktop app" entry until a release carries it, or inside the app.
+  const desktop = !offerDesktopDownload();
   return (
     <footer
       className="bg-[color:var(--wb-bg)] border-t border-[color:var(--wb-rule)] px-6 md:px-8 pt-14 pb-8"

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { isDesktopShell } from "@/lib/service-worker";
 import { SectionHead } from "./primitives/section-head";
 import { WbButton } from "./primitives/wb-button";
 import {
@@ -9,6 +8,7 @@ import {
   MAC_DOWNLOAD_URL,
   WINDOWS_DOWNLOAD_URL,
   type DesktopPlatform,
+  offerDesktopDownload,
 } from "./desktop-download";
 
 type Build = {
@@ -49,7 +49,7 @@ const BUILDS: Build[] = [
 export function DesktopSection() {
   // Read once: neither the platform nor the shell changes while the page is up.
   const [platform] = useState<DesktopPlatform>(currentDesktopPlatform);
-  if (isDesktopShell()) return null;
+  if (!offerDesktopDownload()) return null;
 
   const builds = platform === "windows" ? [...BUILDS].reverse() : BUILDS;
 

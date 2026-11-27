@@ -1,3 +1,5 @@
+import { isDesktopShell } from "@/lib/service-worker";
+
 /**
  * Where the desktop app downloads from, and which one a visitor is offered
  * first.
@@ -13,6 +15,35 @@ export const MAC_DOWNLOAD_URL = `${RELEASES}/Wafflebase_universal.dmg`;
 export const WINDOWS_DOWNLOAD_URL = `${RELEASES}/Wafflebase_x64-setup.exe`;
 
 /**
+ * The first release whose GitHub release carries the desktop assets (#1206).
+ * Before it, `releases/latest/download/…` answers 404, so a frontend older
+ * than it offers no download at all. The frontend deploys from main at the
+ * root version, which reaches this only in the release that publishes the
+ * assets; the gap left is that release's own desktop run (about half an
+ * hour, docs/design/desktop-app.md §7).
+ */
+export const FIRST_DESKTOP_RELEASE = "0.6.19";
+
+/** Whether `version` (default: this build's) is at or past the first desktop release. */
+export function desktopDownloadsPublished(version: string = __APP_VERSION__): boolean {
+  const parse = (v: string) =>
+    v.replace(/^v/, "").split(/[-+]/)[0].split(".").map((n) => Number(n) || 0);
+  const [a, b] = [parse(version), parse(FIRST_DESKTOP_RELEASE)];
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return true;
+}
+
+/**
+ * Whether the homepage advertises the download at all: only once a release
+ * carries it, and never inside the desktop app itself.
+ */
+export function offerDesktopDownload(version: string = __APP_VERSION__): boolean {
+  return desktopDownloadsPublished(version) && !isDesktopShell();
+}
+
+/**
  * Install notes in the docs site. A plain `<a href>`, never a router `Link`:
  * `/docs` is a separate VitePress site, and `Link` would route it into the SPA.
  */
@@ -22,7 +53,7 @@ export const DESKTOP_GUIDE_PATH = "/docs/start/desktop";
 export type DesktopPlatform = "mac" | "windows" | "mobile" | "other";
 
 /** The parts of `navigator` the choice reads; a parameter so tests can pass one. */
-export type PlatformProbe = {
+type PlatformProbe = {
   userAgent?: string;
   platform?: string;
   maxTouchPoints?: number;

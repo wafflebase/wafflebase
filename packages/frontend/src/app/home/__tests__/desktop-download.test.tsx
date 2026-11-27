@@ -1,9 +1,24 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// This build's version is whatever the root package says today, which may
+// predate the first release that carries the app; the components read it
+// through `offerDesktopDownload`, so pin the version they see here.
+const appVersion = vi.hoisted(() => ({ current: "0.6.19" }));
+vi.mock("../desktop-download", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../desktop-download")>();
+  return {
+    ...actual,
+    offerDesktopDownload: (version?: string) =>
+      actual.offerDesktopDownload(version ?? appVersion.current),
+  };
+});
+
 import {
   DESKTOP_GUIDE_PATH,
+  desktopDownloadsPublished,
   detectDesktopPlatform,
+  FIRST_DESKTOP_RELEASE,
   MAC_DOWNLOAD_URL,
   WINDOWS_DOWNLOAD_URL,
 } from "../desktop-download";
@@ -41,6 +56,7 @@ function renderSection() {
 }
 
 afterEach(() => {
+  appVersion.current = FIRST_DESKTOP_RELEASE;
   vi.restoreAllMocks();
   delete (navigator as { maxTouchPoints?: number }).maxTouchPoints;
   delete (window as { __WAFFLEBASE_DESKTOP__?: unknown }).__WAFFLEBASE_DESKTOP__;
@@ -220,5 +236,36 @@ describe("desktop entry points elsewhere on the page", () => {
     hero();
     footer();
     expect(screen.queryByRole("link", { name: /desktop app/i })).toBeNull();
+  });
+});
+
+// Before the first release that carries the app, `releases/latest/download/…`
+// answers 404: a frontend deployed from main ahead of that release must not
+// advertise the download.
+describe("before a release carries the app", () => {
+  it.each([
+    ["0.6.18", false],
+    ["0.6.19", true],
+    ["v0.6.19", true],
+    ["0.6.20-rc.1", true],
+    ["0.7.0", true],
+    ["1.0.0", true],
+    ["0.5.99", false],
+  ])("%s publishes downloads: %s", (version, expected) => {
+    expect(desktopDownloadsPublished(version)).toBe(expected);
+  });
+
+  it("shows no section, hero link or footer entry", () => {
+    appVersion.current = "0.6.18";
+    stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
+    const { container } = render(
+      <MemoryRouter>
+        <HeroSection workspacePath={null} />
+        <DesktopSection />
+        <Footer />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector("#desktop")).toBeNull();
+    expect(container.querySelector('a[href="/#desktop"]')).toBeNull();
   });
 });

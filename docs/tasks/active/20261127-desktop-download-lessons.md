@@ -47,3 +47,12 @@
   other signal says Mac. Design-fit / blast-radius "links 404 until 0.6.19":
   disputed — merge timing, recorded in Decisions; PR stays draft until the
   release.
+- **Round 2** (all lenses but blast-radius clean; design-fit accepted the
+  rebuttal). Blast-radius upheld "links 404 until 0.6.19": a merge-timing
+  promise is not something the code enforces. Fixed by gating instead —
+  `offerDesktopDownload()` also requires `__APP_VERSION__` ≥
+  `FIRST_DESKTOP_RELEASE`, so an early merge shows nothing. Also made the
+  scripts test's `RELEASES` match tolerant of a Prettier reformat and
+  un-exported `PlatformProbe`. Lesson: when a reviewer rejects "we'll merge
+  at the right time", look for the one-line guard that makes the timing not
+  matter.

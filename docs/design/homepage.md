@@ -295,8 +295,16 @@ with every server release, so the links are GitHub's
   a separate VitePress site, which a router `Link` would route into the SPA.
 - **Hidden inside the desktop app.** The shell renders this page when signed
   out, and offering the app to someone already in it is noise. The section,
-  the hero link and the footer's "Desktop app" entry all check
-  `isDesktopShell()` (`src/lib/service-worker.ts`).
+  the hero link and the footer's "Desktop app" entry all go through
+  `offerDesktopDownload()` (`desktop-download.ts`), which checks
+  `isDesktopShell()`.
+- **Hidden until a release carries the app.** `releases/latest/download/…`
+  answers 404 before the first release with desktop assets, and the frontend
+  deploys from main on merge. So `offerDesktopDownload()` also requires this
+  build's version (`__APP_VERSION__`, the root package version) to be at or
+  past `FIRST_DESKTOP_RELEASE` (0.6.19): merging early shows nothing, and the
+  entry appears with the release that publishes the assets. What is left is
+  that release's own desktop run, about half an hour.
 
 #### OpenSourceSection
 

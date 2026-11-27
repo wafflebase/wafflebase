@@ -98,7 +98,9 @@ test("every download link names an asset the release uploads", () => {
   const homepage = read("packages/frontend/src/app/home/desktop-download.ts");
   assert.match(
     homepage,
-    /const RELEASES = "https:\/\/github\.com\/wafflebase\/wafflebase\/releases\/latest\/download";/,
+    // Tolerant of a reformat (quotes, a wrapped assignment): it is the URL
+    // that matters, not the line.
+    /RELEASES\s*=\s*["'`]https:\/\/github\.com\/wafflebase\/wafflebase\/releases\/latest\/download["'`]/,
     "the homepage's RELEASES base must be the latest-release download URL",
   );
   sources["packages/frontend/src/app/home/desktop-download.ts"] = names(

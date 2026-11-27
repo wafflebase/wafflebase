@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { isDesktopShell } from "@/lib/service-worker";
-import { currentDesktopPlatform } from "./desktop-download";
+import { currentDesktopPlatform, offerDesktopDownload } from "./desktop-download";
 import { scrollToHashTarget } from "./hash-scroll";
 import { RulerBackdrop } from "./primitives/ruler-backdrop";
 import { WbButton } from "./primitives/wb-button";
@@ -16,7 +15,7 @@ export function HeroSection({
   // A phone gets no nudge toward a desktop download, and the desktop app none
   // toward itself. The section below stays for anyone who scrolls to it.
   const [showDesktopLink] = useState(
-    () => !isDesktopShell() && currentDesktopPlatform() !== "mobile",
+    () => offerDesktopDownload() && currentDesktopPlatform() !== "mobile",
   );
   return (
     <section className="relative bg-[color:var(--wb-bg)] overflow-hidden">
