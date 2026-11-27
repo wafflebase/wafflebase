@@ -19,7 +19,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
-| instruction context budget (2026-11-27) | [20261127-instruction-context-budget-todo.md](./active/20261127-instruction-context-budget-todo.md) | [20261127-instruction-context-budget-lessons.md](./active/20261127-instruction-context-budget-lessons.md) |
 | release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./active/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./active/20261127-release-v0.6.19-lessons.md) |
 | desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
 | sentry console breadcrumb arguments (2026-11-25) | [20261125-sentry-console-breadcrumb-arguments-todo.md](./active/20261125-sentry-console-breadcrumb-arguments-todo.md) | [20261125-sentry-console-breadcrumb-arguments-lessons.md](./active/20261125-sentry-console-breadcrumb-arguments-lessons.md) |
@@ -64,7 +63,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 676
+- Archived task count: 677
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: desktop download (2026-11-27)

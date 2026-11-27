@@ -121,7 +121,8 @@ no file.
 - [x] Path-scoped load check: in a fresh session, open a backend file and
       confirm `.claude/rules/backend.md` loads; open a sheets file and
       confirm it does not
-- [ ] `/doctor prompt-audit` (interactive only; maintainer)
+- Not run: `/doctor prompt-audit` and a fresh-session `/context all` (both
+  interactive only); listed in the PR test plan for the maintainer
 - [x] Read-only reviewer subagent (did not see Phases 1–3): diff the old
       imported content against the new layout and list any A/B fact that
       is now unreachable
@@ -130,7 +131,7 @@ no file.
       so the warning cannot come back silently
 - [x] `pnpm verify:fast` green; `scripts/test` 449 pass / 0 fail
 - [x] `/self-review`: clean at round 2
-- [ ] PR
+- [x] PR #1210
 
 ## Decisions
 

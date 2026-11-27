@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 676
+Total archived tasks: 677
 
-## 2026/11 (46 tasks)
+## 2026/11 (47 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| instruction context budget (2026-11-27) | [20261127-instruction-context-budget-todo.md](./2026/11/20261127-instruction-context-budget-todo.md) | [20261127-instruction-context-budget-lessons.md](./2026/11/20261127-instruction-context-budget-lessons.md) |
 | chat review hardening (2026-11-25) | [20261125-chat-review-hardening-todo.md](./2026/11/20261125-chat-review-hardening-todo.md) | [20261125-chat-review-hardening-lessons.md](./2026/11/20261125-chat-review-hardening-lessons.md) |
 | desktop app (2026-11-23) | [20261123-desktop-app-todo.md](./2026/11/20261123-desktop-app-todo.md) | [20261123-desktop-app-lessons.md](./2026/11/20261123-desktop-app-lessons.md) |
 | share link qr code (2026-11-23) | [20261123-share-link-qr-code-todo.md](./2026/11/20261123-share-link-qr-code-todo.md) | [20261123-share-link-qr-code-lessons.md](./2026/11/20261123-share-link-qr-code-lessons.md) |
