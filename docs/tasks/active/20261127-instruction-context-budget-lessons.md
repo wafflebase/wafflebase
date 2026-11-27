@@ -24,3 +24,14 @@
   a file in scope, against a control that reads one outside it.
 - A new `scripts/*.mjs` must be indexed in `scripts/README.md`, or
   `verify:doc-index` fails `verify:fast`.
+
+## Self-review
+
+- Round 1 — blocked on correctness (paths:-scoped rules may not load:
+  disputed in `-rebuttals.json` with the docs quote and the headless control
+  run) and test-adequacy (no over-budget failure test: added). Also fixed
+  three minors: reuse `prose()` from verify-doc-links instead of a weaker
+  `stripCode`, warn on an `@` import that resolves to nothing, and make the
+  CLAUDE.md pointers links so `verify:doc-links` checks them. Deferred: a
+  `.claude/**`-only PR runs no CI lane (pinned by
+  `verify-self-lanes.test.mjs`).

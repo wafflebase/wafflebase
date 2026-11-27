@@ -15,13 +15,17 @@ PDF/image/file are blob document types with no CRDT.
 
 Read the relevant one before working in that area:
 
-- docs/design/README.md — design-doc index and architecture.
-- packages/sheets/README.md, packages/docs/README.md,
-  packages/slides/README.md, packages/frontend/README.md.
-- packages/backend/README.md — env vars, API routes, Yorkie auth webhook,
-  template seeding.
+- [docs/design/README.md](docs/design/README.md) — design-doc index and
+  architecture.
+- [sheets](packages/sheets/README.md), [docs](packages/docs/README.md),
+  [slides](packages/slides/README.md),
+  [frontend](packages/frontend/README.md) package READMEs.
+- [packages/backend/README.md](packages/backend/README.md) — env vars, API
+  routes, Yorkie auth webhook, template seeding.
 
-Area rules auto-load from .claude/rules/ when you touch matching files.
+Area rules in `.claude/rules/` load on their own when you touch files their
+`paths:` match. Link reference docs like these; an `@` import puts the whole
+file into every session (`pnpm verify:instruction-budget` caps it).
 
 ## Commands
 

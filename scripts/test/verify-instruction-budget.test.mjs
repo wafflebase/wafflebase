@@ -24,7 +24,7 @@ test("imports are @paths in prose, not in code spans or fenced blocks", () => {
   const text = [
     "See @docs/a.md for architecture, @packages/b/README.md.",
     "Personal: @~/notes.md and relative (@./c.md).",
-    "Not an import: `@d.md`, an email user@e.md.",
+    "Not an import: `@d.md`, ``@g.md``, an email user@e.md. <!-- @h.md -->",
     "```",
     "@f.md",
     "```",
@@ -48,9 +48,11 @@ test("a session loads CLAUDE.md, its imports recursively once each, and unscoped
     "packages/x/CLAUDE.md": "nested, on demand",
   });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const loaded = Object.fromEntries(alwaysLoadedInstructions(dir).map((f) => [f.path, f.chars]));
+  const missing = [];
+  const loaded = Object.fromEntries(alwaysLoadedInstructions(dir, missing).map((f) => [f.path, f.chars]));
   assert.deepEqual(Object.keys(loaded).sort(), [".claude/rules/always.md", "CLAUDE.md", "docs/a.md", "docs/b.md"]);
   assert.equal(loaded["docs/b.md"], 1);
+  assert.deepEqual(missing, [{ from: "CLAUDE.md", target: "missing.md" }]);
 });
 
 test("the budget comes from INSTRUCTION_BUDGET_CHARS when it is a positive integer", () => {
@@ -58,6 +60,13 @@ test("the budget comes from INSTRUCTION_BUDGET_CHARS when it is a positive integ
   assert.equal(budgetFrom({ INSTRUCTION_BUDGET_CHARS: "40000" }), 40000);
   assert.equal(budgetFrom({ INSTRUCTION_BUDGET_CHARS: "lots" }), DEFAULT_BUDGET);
   assert.equal(budgetFrom({ INSTRUCTION_BUDGET_CHARS: "-1" }), DEFAULT_BUDGET);
+});
+
+test("past the budget the check fails and names the files", () => {
+  const run = spawnSync(process.execPath, [path.join(ROOT, "scripts", "verify-instruction-budget.mjs")], { encoding: "utf8", env: { ...process.env, INSTRUCTION_BUDGET_CHARS: "100" } });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /over the 100-char budget/);
+  assert.match(run.stderr, /\d+ {2}CLAUDE\.md/);
 });
 
 test("the repository's own instructions fit the budget", () => {

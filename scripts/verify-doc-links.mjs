@@ -60,7 +60,7 @@ const FROZEN = /^docs\/tasks\/archive\/.*\/[^/]+\.md$/;
  * link — nobody can click it — and reading it as a path claim would demand
  * that a repository create the broken file its own postmortem describes.
  */
-function prose(content) {
+export function prose(content) {
   const stripped = content
     .replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\n]/g, ''))
     // Inline spans only: a run of backticks, its content, and a matching run,

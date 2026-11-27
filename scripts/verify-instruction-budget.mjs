@@ -13,8 +13,9 @@
 // (personal, not in the repo), rules with a `paths:` filter (loaded only when
 // Claude works on a matching file), nested `CLAUDE.md` files (loaded on demand
 // when Claude reads under that directory), and skills (only the name and
-// description load up front). Imports inside code spans and fenced blocks are
-// not imports, which is how Claude Code reads them too.
+// description load up front). Imports inside code spans, fenced blocks and
+// HTML comments are not imports, which is how Claude Code reads them too;
+// `prose()` from verify-doc-links strips them the same way for both checks.
 //
 // Usage: node scripts/verify-instruction-budget.mjs   (from anywhere in the repository)
 //        INSTRUCTION_BUDGET_CHARS=40000 node scripts/verify-instruction-budget.mjs
@@ -22,6 +23,8 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { prose } from "./verify-doc-links.mjs";
 
 const PREFIX = "[verify:instruction-budget]";
 
@@ -31,16 +34,11 @@ export const DEFAULT_BUDGET = 30_000;
 /** Claude Code stops following imports past this depth. */
 const MAX_DEPTH = 5;
 
-/** `text` with fenced blocks and inline code spans blanked out. */
-function stripCode(text) {
-  return text.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "").replace(/`[^`\n]*`/g, "");
-}
-
 /** The `@path` import targets written in `text`, in order. */
 export function findImports(text) {
   const out = [];
   const re = /(?:^|[\s(])@((?:~\/|\.{1,2}\/)?[A-Za-z0-9_\-./]*[A-Za-z0-9_\-/])/g;
-  for (const m of stripCode(text).matchAll(re)) out.push(m[1]);
+  for (const m of prose(text).matchAll(re)) out.push(m[1]);
   return out;
 }
 
@@ -63,17 +61,21 @@ function rulesFiles(dir) {
  * Every repository file a session at `root` is made to load, with its size in
  * characters. Each file counts once, however many times it is imported.
  */
-export function alwaysLoadedInstructions(root) {
+export function alwaysLoadedInstructions(root, missing = []) {
   const seen = new Map();
-  const visit = (file, depth) => {
+  const visit = (file, depth, from) => {
     const abs = path.resolve(file);
-    if (seen.has(abs) || !existsSync(abs) || !statSync(abs).isFile()) return;
+    if (seen.has(abs)) return;
+    if (!existsSync(abs) || !statSync(abs).isFile()) {
+      if (from) missing.push({ from: path.relative(root, from), target: path.relative(root, abs) });
+      return;
+    }
     const text = readFileSync(abs, "utf8");
     seen.set(abs, text.length);
     if (depth >= MAX_DEPTH) return;
     for (const target of findImports(text)) {
       if (target.startsWith("~/")) continue;
-      visit(path.resolve(path.dirname(abs), target), depth + 1);
+      visit(path.resolve(path.dirname(abs), target), depth + 1, abs);
     }
   };
   visit(path.join(root, "CLAUDE.md"), 0);
@@ -100,7 +102,9 @@ function isDirectRun() {
 
 if (isDirectRun()) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const files = alwaysLoadedInstructions(root);
+  const missing = [];
+  const files = alwaysLoadedInstructions(root, missing);
+  for (const m of missing) console.warn(`${PREFIX} warning: ${m.from} imports @${m.target}, which does not exist; Claude Code skips it.`);
   const total = files.reduce((sum, f) => sum + f.chars, 0);
   const budget = budgetFrom();
   if (total > budget) {
