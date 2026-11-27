@@ -27,8 +27,15 @@ Follow-up to #1206. The desktop app now ships with every server release
   in `start/troubleshooting.md`, "Allow desktop app sign-in" in
   `developers/self-hosting/sign-in.md`, two config rows)
 - [ ] Mobile Before → After for the homepage change (CLAUDE.md)
-- [ ] verify:fast, self-review, PR
+- [x] verify:fast, self-review (3 rounds; round 3 clean), PR
 
 ## Review
 
-(pending)
+- Homepage: `DesktopSection`, a hero link and a footer entry, OS-aware, gated
+  by `offerDesktopDownload()` (not in the desktop shell; not before
+  `FIRST_DESKTOP_RELEASE`, so an early merge shows nothing).
+- Docs: `start/desktop.md` (+ troubleshooting, self-hosting sign-in/config).
+- Every download link (README, docs, homepage) is checked against the
+  release workflow's upload step in `scripts/test/desktop-release.test.mjs`.
+- Mobile Before → After composed locally; publishing it to `assets/pr-<n>`
+  awaits the maintainer's OK.

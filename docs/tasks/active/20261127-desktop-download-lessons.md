@@ -56,3 +56,4 @@
   un-exported `PlatformProbe`. Lesson: when a reviewer rejects "we'll merge
   at the right time", look for the one-line guard that makes the timing not
   matter.
+- **Round 3**: all six lenses clean; loop stopped.
