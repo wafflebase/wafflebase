@@ -35,6 +35,9 @@ test("imports are @paths in prose, not in code spans or fenced blocks", () => {
 test("only a rule whose frontmatter has paths: is path scoped", () => {
   assert.equal(isPathScoped("---\npaths:\n  - \"src/**\"\n---\n- rule"), true);
   assert.equal(isPathScoped("---\ndescription: x\n---\n- rule"), false);
+  assert.equal(isPathScoped("---\npaths: [\"src/**\"]\n---\n- rule"), true);
+  assert.equal(isPathScoped("---\npaths: []\n---\n- rule"), false);
+  assert.equal(isPathScoped("---\npaths:\n---\n- rule"), false);
   assert.equal(isPathScoped("- rule\npaths: not frontmatter"), false);
 });
 

@@ -29,10 +29,8 @@ rounds. For a brief that should go through the cloud pipeline instead, use
 
 ## 3. Request review
 
-- Nothing reviews the PR automatically: the panel admits only `agent/*`
-  branches and PRs labelled `agent:managed`.
-- Comment `@claude review` for an advisory review (once per commit), or
-  `@claude loop` for the panel plus auto-fix.
+- Nothing reviews the PR automatically; `CLAUDE.md` (Task workflow) says
+  which `@claude` comment to post if you want one.
 
 ## 4. Address review
 

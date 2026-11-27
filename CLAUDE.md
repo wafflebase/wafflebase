@@ -23,8 +23,9 @@ Read the relevant one before working in that area:
 - [packages/backend/README.md](packages/backend/README.md) — env vars, API
   routes, Yorkie auth webhook, template seeding.
 
-Area rules in `.claude/rules/` load on their own when you touch files their
-`paths:` match. Link reference docs like these; an `@` import puts the whole
+Area rules in `.claude/rules/` load on their own in Claude Code when you
+touch files their `paths:` match; other agents (this file is also
+`AGENTS.md`) read `.claude/rules/<area>.md` before working there. Link reference docs like these; an `@` import puts the whole
 file into every session (`pnpm verify:instruction-budget` caps it).
 
 ## Commands
@@ -72,10 +73,12 @@ Integration/e2e tests need `docker compose up -d` first.
 - Architecture changes go to `docs/design/<topic>.md`.
 - Work on a feature branch from `main`; code lands via PR only.
 - Before the PR, run `/self-review` (bounded loop; procedure in
-  .claude/commands/self-review.md).
-- Opening, reviewing, and merging a PR: use the ship-pr skill (rebase, PR
-  body, Before → After for phone UI via the pr-before-after skill, review
-  replies, pre-merge archive).
+  [.claude/commands/self-review.md](.claude/commands/self-review.md)).
+- Opening, reviewing, and merging a PR: follow the ship-pr skill
+  ([.claude/skills/ship-pr/SKILL.md](.claude/skills/ship-pr/SKILL.md):
+  rebase, PR body, review replies, pre-merge archive). Phone UI changes add
+  Before → After pairs per
+  [.claude/skills/pr-before-after/SKILL.md](.claude/skills/pr-before-after/SKILL.md).
 - A PR gets no automated review unless you ask: the panel admits only
   `agent/*` branches and PRs labelled `agent:managed`. Comment
   `@claude review` (advisory, once per commit) or `@claude loop`

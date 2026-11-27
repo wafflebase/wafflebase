@@ -45,7 +45,10 @@ export function findImports(text) {
 /** Whether a rule file's frontmatter scopes it with `paths:`. */
 export function isPathScoped(text) {
   const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  return fm !== null && /^paths\s*:/m.test(fm[1]);
+  // An empty filter (`paths: []`, or `paths:` with no entries) is counted as
+  // unscoped: what Claude Code does with one is unverified, and over-counting
+  // is the safe direction for a budget.
+  return fm !== null && /^paths\s*:\s*(?:\[\s*[^\]\s]|\r?\n\s+-\s*\S)/m.test(fm[1]);
 }
 
 function rulesFiles(dir) {
@@ -104,7 +107,7 @@ if (isDirectRun()) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const missing = [];
   const files = alwaysLoadedInstructions(root, missing);
-  for (const m of missing) console.warn(`${PREFIX} warning: ${m.from} imports @${m.target}, which does not exist; Claude Code skips it.`);
+  for (const m of missing) console.warn(`${PREFIX} warning: ${m.from} imports @${m.target}, which does not exist; Claude Code skips it (a package name in prose reads as an import; put it in backticks).`);
   const total = files.reduce((sum, f) => sum + f.chars, 0);
   const budget = budgetFrom();
   if (total > budget) {

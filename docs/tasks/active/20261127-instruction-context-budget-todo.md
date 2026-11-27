@@ -115,7 +115,7 @@ no file.
 
 ### Phase 4 — Verify (fresh eyes, not the writers)
 
-- [x] Budget met: `verify:instruction-budget` reports 3,442 chars from 1
+- [x] Budget met: `verify:instruction-budget` reports 4.0k chars from 1
       file (was 174,507 from 7). Fresh-session `/context all` warning check
       left to the maintainer (interactive only)
 - [x] Path-scoped load check: in a fresh session, open a backend file and
@@ -125,11 +125,12 @@ no file.
 - [x] Read-only reviewer subagent (did not see Phases 1–3): diff the old
       imported content against the new layout and list any A/B fact that
       is now unreachable
-- [x] Optional guard: a small `scripts/check-instruction-budget.mjs` in
+- [x] Optional guard: `scripts/verify-instruction-budget.mjs` in
       `verify:fast` that fails when the always-loaded chars pass the budget,
       so the warning cannot come back silently
 - [x] `pnpm verify:fast` green; `scripts/test` 449 pass / 0 fail
-- [ ] `/self-review` → PR
+- [x] `/self-review`: clean at round 2
+- [ ] PR
 
 ## Decisions
 
@@ -138,7 +139,7 @@ Budget 30k; extract skills; add the guard; run the fan-out as workflows
 
 ## Review
 
-- Always-loaded project instructions: 174,507 → 3,442 chars (7 files → 1).
+- Always-loaded project instructions: 174,507 → 4,000 chars (7 files → 1).
 - New: `.claude/rules/{backend,frontend,ui-design,docs-engine,slides,core,design-docs}.md`
   (all `paths:`-scoped), skills `ship-pr` and `pr-before-after`, guard
   `scripts/verify-instruction-budget.mjs` in `verify:fast` + a

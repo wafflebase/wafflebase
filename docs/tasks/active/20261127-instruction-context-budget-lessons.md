@@ -35,3 +35,13 @@
   CLAUDE.md pointers links so `verify:doc-links` checks them. Deferred: a
   `.claude/**`-only PR runs no CI lane (pinned by
   `verify-self-lanes.test.mjs`).
+- Round 2 — clean: the panel upheld the round-1 rebuttal and raised no
+  blocker. The `superpowers:requesting-code-review` reviewer found one
+  Important gap, fixed here: `AGENTS.md` is a symlink to `CLAUDE.md`, so a
+  non-Claude agent got skill *names* with no path and was told rules "load
+  on their own". CLAUDE.md now links the skill files and tells other agents
+  to read `.claude/rules/<area>.md`. Also fixed: `self-review.md` now hands
+  off to ship-pr, ship-pr no longer duplicates the review-request policy, an
+  empty `paths:` counts as unscoped, and the stale script name in the todo.
+  Lesson: when slimming an instruction file, check what else reads it
+  (`AGENTS.md` symlink) — not every reader has Claude Code's loaders.

@@ -91,8 +91,9 @@ Report, in the final message:
 - what was fixed, what was disputed and on what evidence, what was deferred,
 - anything a human reviewer should look at first.
 
-Then continue the normal workflow in `CLAUDE.md` — rebase, open the PR, put the
-deferred findings in the body as known limitations.
+Then continue with the `ship-pr` skill (`.claude/skills/ship-pr/SKILL.md`) —
+rebase, open the PR, put the deferred findings in the body as known
+limitations.
 
 ## Rules
 
