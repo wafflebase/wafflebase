@@ -52,10 +52,11 @@ pnpm --filter @wafflebase/desktop check        # page scripts + JSON config (the
 The debug bundle lands at
 `src-tauri/target/debug/bundle/macos/Wafflebase.app`. `test` and `lint` are
 not part of `pnpm verify:fast`: they need a Rust toolchain the other packages
-do not. CI runs them in the `verify-desktop (macOS)` job of
-`.github/workflows/ci.yml` whenever this package changes, on the crate's
-`rust-version` (1.90); Linux runners cannot build the crate without the
-WebKitGTK development libraries.
+do not. CI runs them in the `verify-desktop (macOS)` and
+`verify-desktop (Windows)` jobs of `.github/workflows/ci.yml` whenever this
+package changes, on the crate's `rust-version` (1.90): Windows because the
+release builds there and its `cfg(windows)` code compiles nowhere else. Linux
+runners cannot build the crate without the WebKitGTK development libraries.
 
 ## Choosing a server
 

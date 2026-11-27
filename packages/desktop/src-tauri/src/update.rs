@@ -518,6 +518,9 @@ mod tests {
         dir
     }
 
+    // The quit-time install decision is macOS's; it reads file ownership,
+    // which only Unix has.
+    #[cfg(unix)]
     #[test]
     fn a_bundle_this_user_can_replace_is_installed_at_quit() {
         let dir = scratch_dir("writable");

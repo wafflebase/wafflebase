@@ -394,11 +394,29 @@ jobs:
   # read, which runs everything as every other gate here does. Not required by
   # branch protection: a desktop regression fails the run, which is what the
   # agent pipeline's promotion gate reads.
+  #
+  # Windows too, because the release builds there (`desktop-release.yml`) and
+  # its `cfg(windows)` / `cfg(not(target_os = "macos"))` code compiles nowhere
+  # else: a macOS-only lane let a Windows compile error surface first in a
+  # release, where it would also hold back the macOS assets. WebView2 is
+  # Chromium and needs no SDK beyond the runner's MSVC toolchain.
   verify-desktop:
-    name: verify-desktop (macOS)
-    runs-on: macos-latest
+    name: verify-desktop (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
     needs: changes
     if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            runner: macos-latest
+          - label: Windows
+            runner: windows-latest
+    defaults:
+      run:
+        # One script syntax on both runners (Windows defaults to pwsh).
+        shell: bash
     env:
       RUN_DESKTOP: >-
         ${{ needs.changes.result != 'success' ||
@@ -420,7 +438,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # rustup ships on the macOS image; the pinned toolchain is the crate's
+      # rustup ships on both images; the pinned toolchain is the crate's
       # `rust-version`, so a dependency bump that needs a newer compiler fails
       # here instead of on a developer's machine.
       - name: Install Rust
