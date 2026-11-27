@@ -170,6 +170,17 @@ const LANES = [
     anyPkg: true,
     tags: ["docsProse"],
   },
+  // What every Claude Code session is made to load: CLAUDE.md, its @imports
+  // and unscoped `.claude/rules/`. Past 150k characters Claude Code drops
+  // files, so this caps it well below. `docsProse` because CLAUDE.md is
+  // root-level prose; a `.claude/**`-only change runs no lane by design, so a
+  // new unscoped rule is caught by the pre-commit `verify:fast` instead.
+  {
+    name: "verify:instruction-budget",
+    cmd: "pnpm verify:instruction-budget",
+    anyPkg: true,
+    tags: ["docsProse"],
+  },
   // Import-boundary rules. Neither arch config sets `parserOptions.project`, so
   // both are pure syntactic lints and need no `dist/` — which is why they sit
   // above the builds rather than after them.
