@@ -1,0 +1,14 @@
+[
+  {
+    "findingKey": "correctness::CLAUDE.md::the-change-moves-7k-of-load",
+    "lens": "correctness",
+    "file": "CLAUDE.md",
+    "summary": "The change moves ~7k of load-bearing guidance into `paths:`-scoped `.claude/rules/*.md`, a loading mechanism I could not find evidence Claude Code honours",
+    "claim": "Claude Code documents and honours paths:-scoped .claude/rules/*.md, and this branch verified it empirically with an in-scope session and an out-of-scope control.",
+    "evidence": [
+      "https://code.claude.com/docs/en/best-practices, section 'Scope rules to one part of the codebase': 'If a rule only matters in one part of the codebase, put it in .claude/rules/ with a paths: filter so it only loads when Claude is actually working there', with the example .claude/rules/api.md frontmatter `paths: - \"src/api/**/*.ts\"` — the same shape as .claude/rules/backend.md:1-4. The mechanism is linked there as https://code.claude.com/docs/en/memory#path-specific-rules.",
+      "Headless check on this branch: `claude -p` told to Read packages/backend/src/main.ts reported that '.claude/rules/backend.md, which loaded automatically when I opened the backend file' contained 'e2e `clearDatabase` (`test/helpers/integration-helpers.ts`) deletes every row'. A control session that read only packages/sheets/src/index.ts reported no such rule (only the user's personal MEMORY.md line). Recorded in docs/tasks/active/20261127-instruction-context-budget-todo.md, Review section.",
+      "Nothing load-bearing for every task moved: CLAUDE.md:58-62 keeps the ANTLR and Store/DocStore pitfalls always-loaded; only package-specific gotchas went to rules."
+    ]
+  }
+]

@@ -77,13 +77,13 @@ spreadsheet.handleMobileDoubleTap(180, 420);
 
 ```bash
 # Build the library
-pnpm sheet build
+pnpm sheets build
 
 # Run tests (Vitest)
 pnpm test
 
 # Regenerate ANTLR formula parser (after editing Formula.g4)
-pnpm sheet build:formula
+pnpm sheets build:formula
 ```
 
 ## Further Reading

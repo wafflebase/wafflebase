@@ -1,21 +1,32 @@
 # CLAUDE.md — Wafflebase
 
-Wafflebase is a web-based collaborative office suite — spreadsheets,
-word documents, presentations, markdown notes, an infinite-canvas board,
-and PDF/image/file viewers. Yorkie CRDTs for real-time collaboration,
-ANTLR4-based formula engine, Canvas rendering.
+Wafflebase is a web-based collaborative office suite: spreadsheets, word
+documents, presentations, markdown notes, an infinite-canvas board, and
+PDF/image/file viewers. Real-time collaboration runs on Yorkie CRDTs,
+editors render to Canvas, and spreadsheets use an ANTLR4 formula engine.
 
-- **Sheets** — Spreadsheet engine (data model, ANTLR4 formulas, Canvas grid rendering)
-- **Docs** — Word processor engine (rich text, Canvas rendering, pagination)
-- **Slides** — Presentation engine (free-position elements, theme system, Canvas + DOM overlay editor); reuses the docs rich-text engine inside text boxes
-- **Notes** — Markdown note engine (CodeMirror source editor, single Yorkie `Text` CRDT)
-- **Board** — Infinite-canvas engine (boundless pan/zoom plane; reuses the Slides scene engine)
-- **PDF / Image / File** — Static blob document types (blob-stored original, no CRDT editing)
+Packages: `sheets` (formulas, grid), `docs` (rich text, pagination),
+`slides` (reuses the docs text engine), `notes` (CodeMirror, one Yorkie
+`Text`), `board` (reuses the slides scene engine), `core`, `frontend`
+(React/Vite), `backend` (NestJS/Prisma), `cli`, `desktop`, `documentation`.
+PDF/image/file are blob document types with no CRDT.
 
-See @docs/design/README.md for architecture, @packages/sheets/README.md,
-@packages/docs/README.md, @packages/slides/README.md,
-@packages/frontend/README.md, @packages/backend/README.md
-for package details.
+## Where to read
+
+Read the relevant one before working in that area:
+
+- [docs/design/README.md](docs/design/README.md) — design-doc index and
+  architecture.
+- [sheets](packages/sheets/README.md), [docs](packages/docs/README.md),
+  [slides](packages/slides/README.md),
+  [frontend](packages/frontend/README.md) package READMEs.
+- [packages/backend/README.md](packages/backend/README.md) — env vars, API
+  routes, Yorkie auth webhook, template seeding.
+
+Area rules in `.claude/rules/` load on their own in Claude Code when you
+touch files their `paths:` match; other agents (this file is also
+`AGENTS.md`) read `.claude/rules/<area>.md` before working there. Link reference docs like these; an `@` import puts the whole
+file into every session (`pnpm verify:instruction-budget` caps it).
 
 ## Commands
 
@@ -28,43 +39,47 @@ pnpm verify:self                    # verify:fast + all builds + chunk/entropy (
 pnpm verify:full                    # verify:self + browser + integration (DB required)
 pnpm verify:browser:docker          # Visual + interaction tests in Docker
 pnpm test                           # Unit tests across all packages (Vitest; backend is Jest)
-pnpm sheets build:formula           # IMPORTANT: regenerate ANTLR formula parser
+pnpm sheets build:formula           # Regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
 ```
 
-## Commit Messages
+Integration/e2e tests need `docker compose up -d` first.
 
-Subject ≤70 chars (what changed). Body explains why. Blank line 2.
-In shell, use multiple `-m` flags or `$'...'` for real newlines — not `\n` in `"..."`.
+## Git hooks
 
-```text
-Remove the synced seq when detaching the document
+- `.githooks/pre-commit` runs `pnpm verify:fast`.
+- `.githooks/pre-push` runs `pnpm verify:self` (~2.5 min). Run `git push`
+  in the background with a long timeout.
+- `.githooks/commit-msg` enforces the commit format below.
 
-To collect garbage like CRDT tombstones left on the document, all
-the changes should be applied to other replicas before GC. For this,
-if the document is no longer used by this client, it should be
-detached.
-```
+## Commit messages
+
+- Subject ≤70 chars, says what changed. Line 2 blank. Body lines ≤80 chars,
+  explain why.
+- In shell, use multiple `-m` flags or `$'...'`, not `\n` inside `"..."`.
 
 ## Pitfalls
 
-- **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheets build:formula` and commit the output.
-- **Store abstraction** — all spreadsheet behavior must go through the `Store` interface, all document behavior through `DocStore`. Do not bypass with ad-hoc persistence.
-- **Integration/e2e tests** require `docker compose up -d` first.
-- **UI design work** uses the committed [Impeccable](https://impeccable.style) skill (`/impeccable audit|polish|critique|live …`, `.claude/skills/impeccable/`). Its engine binary is gitignored and fetched by the launcher on first run. Its design hook is on for the project (`.impeccable/config.json`), but consent and harness wiring are per developer: run `.claude/skills/impeccable/scripts/impeccable hooks on` once.
-- **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` / `FRONTEND_EAGER_LIMIT_KB`.
+- ANTLR generated files under packages/sheets/antlr carry `@ts-nocheck`.
+  Never hand-edit them; regenerate with `pnpm sheets build:formula` and
+  commit the output.
+- All spreadsheet behavior goes through the `Store` interface, all document
+  behavior through `DocStore`. No ad-hoc persistence.
 
-## Task Workflow
+## Task workflow
 
-Non-trivial tasks use paired files in `docs/tasks/active/`:
-`YYYYMMDD-<slug>-todo.md` and `YYYYMMDD-<slug>-lessons.md`. Architecture
-changes go to `docs/design/<topic>.md`. Code lands via PR, not direct
-push to `main`.
-
-1. **Plan** — write the todo file before touching code; update `docs/design/` if architecture changes.
-2. **Branch + commit** — feature branch from `main`; each commit `pnpm verify:fast` green (commit format above).
-3. **Self review** — `/self-review`: a **bounded loop** of review → fix → `pnpm verify:fast` → re-review over the full branch diff, **max 3 rounds, stopping at the first round with no blocking findings**. Rotate the lens per round (1 correctness/tests, 2 design fit + `superpowers:requesting-code-review`, 3 security/docs) — the same reviewer asked three times mostly restates itself. Whether an agent can launch `/code-review` or `/simplify` depends on its harness (`/ultrareview` is always user-triggered); when a reviewer cannot be launched, say so and ask — never let a skipped round read as a clean one. Log each round in `*-lessons.md`. A finding you believe is wrong goes in a `--rebuttals` file with evidence; one merely ignored is re-raised every round. Non-blocking findings become known limitations in the PR body. Still past round 3 with blockers? Stop looping and get a human.
-4. **Sync + open PR** — `git fetch && git rebase origin/main` to surface conflicts before pushing. Title ≤70 chars; body = Summary + Test plan, plus **Before → After** when the change touches UI a phone renders (below). **The PR gets no automated review unless you ask**: the panel admits only `agent/*` branches and PRs labelled `agent:managed`, so comment `@claude review` (advisory, once per commit) or `@claude loop` (panel + auto-fix) if you want one.
-   **Before → After (mobile UI)** — one side-by-side pair per affected surface at 393×659 (iPhone 16 with Safari's toolbars; add 393×400 when the soft keyboard matters), "before" shot on `main` before you edit, "after" on the branch. `packages/frontend/scripts/capture-before-after.mjs` does all three steps (`shoot` → `compose` → `publish`) and prints the Markdown; images live on an `assets/pr-<number>` branch, never the PR branch — keep it after merge, since the PR body links to it.
-5. **Address review** — evaluate each finding technically; push back with reasoning when wrong. Reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not top-level. If `main` moved during review, rebase again.
-6. **Before merge** — CI green and review approved: manual smoke in `pnpm dev` if UI changed; capture lessons in `*-lessons.md`, archive (`pnpm tasks:archive && pnpm tasks:index`), commit + push. Merge, then start a new session for the next task.
+- Non-trivial task: write paired `docs/tasks/active/YYYYMMDD-<slug>-todo.md`
+  and `-lessons.md` before touching code.
+- Architecture changes go to `docs/design/<topic>.md`.
+- Work on a feature branch from `main`; code lands via PR only.
+- Before the PR, run `/self-review` (bounded loop; procedure in
+  [.claude/commands/self-review.md](.claude/commands/self-review.md)).
+- Opening, reviewing, and merging a PR: follow the ship-pr skill
+  ([.claude/skills/ship-pr/SKILL.md](.claude/skills/ship-pr/SKILL.md):
+  rebase, PR body, review replies, pre-merge archive). Phone UI changes add
+  Before → After pairs per
+  [.claude/skills/pr-before-after/SKILL.md](.claude/skills/pr-before-after/SKILL.md).
+- A PR gets no automated review unless you ask: the panel admits only
+  `agent/*` branches and PRs labelled `agent:managed`. Comment
+  `@claude review` (advisory, once per commit) or `@claude loop`
+  (panel + auto-fix).
