@@ -27,7 +27,7 @@ The download links point at the latest Wafflebase release. If one answers **Not 
 3. Drag **Wafflebase** into the **Applications** folder.
 4. Open **Wafflebase** from **Applications** or Launchpad.
 
-The Mac app is signed and notarized by Apple, so it opens without a security warning.
+The Mac app is signed and notarized by Apple. The first time you open it, macOS says it was downloaded from the Internet and that Apple checked it for malicious software and found none. Click **Open**. macOS asks only once.
 
 ## Sign in
 

@@ -77,11 +77,13 @@ other half of Phase 2 and are not in this task.
       designed as a §10 follow-up (needs an IndexedDB snapshot store, not the
       SW cache). Shell side (probe fails → still navigate, ask the page
       whether a worker served it) is specified in §10 for ①
-- [ ] Before shipping 0.6.19: production backend must carry desktop sign-in
+- [x] Before shipping 0.6.19: production backend must carry desktop sign-in
       (`/auth/providers` has no `desktop` field on 0.6.18), or the default
-      server answers "too old"
-- [ ] User: App Store Connect API access + Team key; Environment secrets;
-      first server release that carries the app
+      server answers "too old". Done: v0.6.19 is live and `/auth/providers`
+      carries `desktop` (2026-11-27)
+- [x] User: App Store Connect API access + Team key; Environment secrets;
+      first server release that carries the app (v0.6.19, notarized first
+      time, run 45974371862)
 - [x] macOS-only first release: drop the Windows job/manifest key/upload,
       pin the macOS-only set in `desktop-release.test.mjs`, homepage offers
       only the Mac build ("Windows and Linux versions are coming" elsewhere),

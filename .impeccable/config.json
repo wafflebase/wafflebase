@@ -83,6 +83,11 @@
         ],
         "createdAt": "2026-11-14T10:57:39.908Z",
         "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "createdAt": "2026-11-27T10:27:44.810Z"
       }
     ]
   },

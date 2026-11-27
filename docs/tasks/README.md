@@ -18,41 +18,22 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
+| release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./active/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./active/20261127-release-v0.6.19-lessons.md) |
+| desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
+| sentry console breadcrumb arguments (2026-11-25) | [20261125-sentry-console-breadcrumb-arguments-todo.md](./active/20261125-sentry-console-breadcrumb-arguments-todo.md) | [20261125-sentry-console-breadcrumb-arguments-lessons.md](./active/20261125-sentry-console-breadcrumb-arguments-lessons.md) |
+| sheets first tab on load (2026-11-25) | [20261125-sheets-first-tab-on-load-todo.md](./active/20261125-sheets-first-tab-on-load-todo.md) | [20261125-sheets-first-tab-on-load-lessons.md](./active/20261125-sheets-first-tab-on-load-lessons.md) |
 | template catalog scaling (2026-11-25) | [20261125-template-catalog-scaling-todo.md](./active/20261125-template-catalog-scaling-todo.md) | [20261125-template-catalog-scaling-lessons.md](./active/20261125-template-catalog-scaling-lessons.md) |
 | chat usability pass (2026-11-22) | [20261122-chat-usability-pass-todo.md](./active/20261122-chat-usability-pass-todo.md) | [20261122-chat-usability-pass-lessons.md](./active/20261122-chat-usability-pass-lessons.md) |
-| chat default general (2026-11-21) | [20261121-chat-default-general-todo.md](./active/20261121-chat-default-general-todo.md) | [20261121-chat-default-general-lessons.md](./active/20261121-chat-default-general-lessons.md) |
-| datasources in settings (2026-11-21) | [20261121-datasources-in-settings-todo.md](./active/20261121-datasources-in-settings-todo.md) | [20261121-datasources-in-settings-lessons.md](./active/20261121-datasources-in-settings-lessons.md) |
 | font relative leading (2026-11-21) | [20261121-font-relative-leading-todo.md](./active/20261121-font-relative-leading-todo.md) | [20261121-font-relative-leading-lessons.md](./active/20261121-font-relative-leading-lessons.md) |
-| notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./active/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./active/20261121-notification-unread-paging-lessons.md) |
-| release v0.6.18 (2026-11-21) | [20261121-release-v0.6.18-todo.md](./active/20261121-release-v0.6.18-todo.md) | [20261121-release-v0.6.18-lessons.md](./active/20261121-release-v0.6.18-lessons.md) |
 | template design polish (2026-11-21) | [20261121-template-design-polish-todo.md](./active/20261121-template-design-polish-todo.md) | [20261121-template-design-polish-lessons.md](./active/20261121-template-design-polish-lessons.md) |
 | chat p1 (2026-11-20) | [20261120-chat-p1-todo.md](./active/20261120-chat-p1-todo.md) | [20261120-chat-p1-lessons.md](./active/20261120-chat-p1-lessons.md) |
-| template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./active/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./active/20261119-template-catalog-ops-lessons.md) |
-| mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./active/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./active/20261118-mobile-before-after-lessons.md) |
-| mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./active/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./active/20261118-mobile-clipping-lessons.md) |
 | board figjam pass3 (2026-11-17) | [20261117-board-figjam-pass3-todo.md](./active/20261117-board-figjam-pass3-todo.md) | [20261117-board-figjam-pass3-lessons.md](./active/20261117-board-figjam-pass3-lessons.md) |
-| agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./active/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./active/20261116-agent-harness-cleanup-lessons.md) |
-| board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./active/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./active/20261116-board-navigation-feel-lessons.md) |
 | notes usability (2026-11-16) | [20261116-notes-usability-todo.md](./active/20261116-notes-usability-todo.md) | [20261116-notes-usability-lessons.md](./active/20261116-notes-usability-lessons.md) |
 | sheets usability pass (2026-11-16) | [20261116-sheets-usability-pass-todo.md](./active/20261116-sheets-usability-pass-todo.md) | [20261116-sheets-usability-pass-lessons.md](./active/20261116-sheets-usability-pass-lessons.md) |
-| agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
-| agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./active/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./active/20261115-agent-harness-switch-lessons.md) |
-| docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./active/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./active/20261115-docs-site-brand-neutrals-lessons.md) |
-| implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./active/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./active/20261115-implement-post-agent-job-lessons.md) |
-| install deps linked path (2026-11-15) | [20261115-install-deps-linked-path-todo.md](./active/20261115-install-deps-linked-path-todo.md) | [20261115-install-deps-linked-path-lessons.md](./active/20261115-install-deps-linked-path-lessons.md) |
-| move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./active/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./active/20261115-move-agent-arms-lessons.md) |
 | tighten agent guard (2026-11-15) | [20261115-tighten-agent-guard-todo.md](./active/20261115-tighten-agent-guard-todo.md) | [20261115-tighten-agent-guard-lessons.md](./active/20261115-tighten-agent-guard-lessons.md) |
 | harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
-| impeccable frontend sweep (2026-11-14) | [20261114-impeccable-frontend-sweep-todo.md](./active/20261114-impeccable-frontend-sweep-todo.md) | [20261114-impeccable-frontend-sweep-lessons.md](./active/20261114-impeccable-frontend-sweep-lessons.md) |
-| logo refresh (2026-11-14) | [20261114-logo-refresh-todo.md](./active/20261114-logo-refresh-todo.md) | [20261114-logo-refresh-lessons.md](./active/20261114-logo-refresh-lessons.md) |
-| polish document list (2026-11-14) | [20261114-polish-document-list-todo.md](./active/20261114-polish-document-list-todo.md) | [20261114-polish-document-list-lessons.md](./active/20261114-polish-document-list-lessons.md) |
-| query fail fast (2026-11-14) | [20261114-query-fail-fast-todo.md](./active/20261114-query-fail-fast-todo.md) | [20261114-query-fail-fast-lessons.md](./active/20261114-query-fail-fast-lessons.md) |
-| spec to pr diff buffer (2026-11-14) | [20261114-spec-to-pr-diff-buffer-todo.md](./active/20261114-spec-to-pr-diff-buffer-todo.md) | [20261114-spec-to-pr-diff-buffer-lessons.md](./active/20261114-spec-to-pr-diff-buffer-lessons.md) |
 | remove eval subsystem (2026-11-13) | [20261113-remove-eval-subsystem-todo.md](./active/20261113-remove-eval-subsystem-todo.md) | [20261113-remove-eval-subsystem-lessons.md](./active/20261113-remove-eval-subsystem-lessons.md) |
-| sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./active/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./active/20261111-sheets-auto-fit-reload-lessons.md) |
-| sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./active/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./active/20261111-sheets-link-card-close-lessons.md) |
-| sheet presence jumps (2026-11-09) | [20261109-sheet-presence-jumps-todo.md](./active/20261109-sheet-presence-jumps-todo.md) | [20261109-sheet-presence-jumps-lessons.md](./active/20261109-sheet-presence-jumps-lessons.md) |
-| sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./active/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./active/20261103-sheets-auto-fit-row-height-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
 | slides lint (2026-10-13) | [20261013-slides-lint-todo.md](./active/20261013-slides-lint-todo.md) | [20261013-slides-lint-lessons.md](./active/20261013-slides-lint-lessons.md) |
 | harness convergence port (2026-10-01) | [20261001-harness-convergence-port-todo.md](./active/20261001-harness-convergence-port-todo.md) | [20261001-harness-convergence-port-lessons.md](./active/20261001-harness-convergence-port-lessons.md) |
@@ -82,7 +63,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 649
+- Archived task count: 676
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: template catalog scaling (2026-11-25)
+Latest active task: desktop download (2026-11-27)

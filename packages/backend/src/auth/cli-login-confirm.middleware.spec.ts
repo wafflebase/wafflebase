@@ -101,10 +101,9 @@ describe('CliLoginConfirmMiddleware', () => {
     const [html] = res.send.mock.calls[0] as [string];
     // The href is HTML-escaped in the attribute (`&` → `&amp;`); read
     // the URL a browser would actually navigate to.
-    const href = (/href="([^"]+)"/.exec(html)?.[1] ?? '').replace(
-      /&amp;/g,
-      '&',
-    );
+    const href = (
+      /class="button" href="([^"]+)"/.exec(html)?.[1] ?? ''
+    ).replace(/&amp;/g, '&');
     const params = new URLSearchParams(href.split('?')[1] ?? '');
 
     expect(href.startsWith('/auth/github?')).toBe(true);
@@ -173,7 +172,12 @@ describe('CliLoginConfirmMiddleware', () => {
 
   it('re-prompts when a confirmation is replayed against another challenge', () => {
     const nonce = 'a'.repeat(64);
-    const confirm = cliConfirmToken('secret-value', 49152, nonce, 'c'.repeat(43));
+    const confirm = cliConfirmToken(
+      'secret-value',
+      49152,
+      nonce,
+      'c'.repeat(43),
+    );
     const { req, next } = run(
       {
         mode: 'cli',
@@ -212,7 +216,10 @@ describe('CliLoginConfirmMiddleware', () => {
     const challenge = 'c'.repeat(43);
 
     function continueHref(html: string) {
-      return (/href="([^"]+)"/.exec(html)?.[1] ?? '').replace(/&amp;/g, '&');
+      return (/class="button" href="([^"]+)"/.exec(html)?.[1] ?? '').replace(
+        /&amp;/g,
+        '&',
+      );
     }
 
     it('answers with a confirmation page that names the desktop app', () => {

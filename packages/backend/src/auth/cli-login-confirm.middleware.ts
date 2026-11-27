@@ -222,37 +222,118 @@ export function renderConfirmPage(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
 <title>${copy.title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="${BRAND_FONTS_URL}">
 <style>
+  :root {
+    --bg: #FAF9F6; --paper: #FFFFFF; --ink: #1C1B19; --sub: #5F5B55;
+    --rule: #E7E4DE; --wash: #F1EEE8; --syrup: #B8651A;
+    --primary: #9E5614; --primary-hover: #8A4A12; --on-primary: #FFFAF0;
+    --edge: #8A4A12; --warn: oklch(0.555 0.163 48.998);
+    --shadow: 0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --paper: #1F1F1D; --ink: #F5F4F1; --sub: #A8A49C;
+      --rule: #2E2D2A; --wash: #2A2927; --syrup: #E08A3A;
+      --primary: #E08A3A; --primary-hover: #C97A30; --on-primary: #1C1610;
+      --edge: #C97A30; --warn: oklch(0.769 0.188 70.08);
+      --shadow: 0 1px 0 rgba(0,0,0,0.2), 0 30px 60px -32px rgba(0,0,0,0.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    display: flex; justify-content: center; align-items: center;
-    min-height: 100vh; margin: 0; background: #fafafa; color: #1a1a1a;
+    margin: 0; min-height: 100vh; min-height: 100svh;
+    display: flex; flex-direction: column;
+    background: var(--bg); color: var(--ink);
+    font: 400 14.5px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(244, 201, 93, 0.45); color: var(--ink); }
+  header { padding: 14px 16px; }
+  @media (min-width: 768px) { header { padding: 14px 48px; } }
+  .lockup {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: Fraunces, ui-serif, Georgia, serif; font-weight: 500;
+    font-size: 19px; letter-spacing: -0.025em;
+    font-variation-settings: "opsz" 144; color: var(--ink);
+  }
+  .lockup svg { fill: var(--syrup); flex: none; }
+  main {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px 64px;
   }
   .card {
-    max-width: 26rem; text-align: center; padding: 2.5rem;
-    background: #fff; border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    width: 100%; max-width: 440px; padding: 32px 28px 28px;
+    background: var(--paper); border: 1px solid var(--rule);
+    border-radius: 16px; box-shadow: var(--shadow);
   }
-  h1 { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 600; }
-  p { margin: 0 0 1rem; color: #555; font-size: 0.95rem; line-height: 1.5; }
-  .warn { color: #8a5300; }
+  @media (min-width: 768px) { .card { padding: 40px 36px 36px; } }
+  h1 {
+    margin: 0 0 12px; text-align: center; text-wrap: balance;
+    font-family: Fraunces, ui-serif, Georgia, serif; font-weight: 600;
+    font-size: 28px; line-height: 1.15; letter-spacing: -0.02em;
+    font-feature-settings: "ss01" on, "ss02" on;
+  }
+  .lead { margin: 0; text-align: center; text-wrap: pretty; color: var(--sub); }
+  .port {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; color: var(--ink); white-space: nowrap;
+    background: var(--wash); border-radius: 4.8px; padding: 1px 6px;
+  }
+  .note {
+    display: flex; gap: 10px; align-items: flex-start;
+    margin: 24px 0; padding: 12px 14px;
+    border: 1px solid var(--rule); border-radius: 8.8px;
+    font-size: 13.5px; line-height: 1.5; color: var(--sub);
+  }
+  .note svg { flex: none; margin-top: 1px; stroke: var(--warn); }
+  .note strong { color: var(--ink); font-weight: 600; }
+  code {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em; color: var(--ink);
+  }
   a.button {
-    display: inline-block; padding: 0.6rem 1.4rem; border-radius: 8px;
-    background: #1a1a1a; color: #fff; text-decoration: none; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 13px 22px; border-radius: 9999px;
+    background: var(--primary); color: var(--on-primary);
+    border: 1px solid var(--edge);
+    box-shadow: 0 1px 0 var(--edge), inset 0 1px 0 color-mix(in srgb, white 25%, transparent);
+    font-size: 15px; font-weight: 500; text-decoration: none;
+    transition: background-color 150ms, transform 150ms;
+    outline: none;
   }
+  a.button:hover { background: var(--primary-hover); transform: translateY(-1px); }
+  a.button:active { transform: none; }
+  a.button:focus-visible {
+    box-shadow: 0 0 0 2px var(--paper), 0 0 0 5px color-mix(in srgb, var(--syrup) 50%, transparent);
+  }
+  a.button svg { width: 16px; height: 16px; fill: currentColor; }
+  @media (prefers-reduced-motion: reduce) { a.button { transition: none; } a.button:hover { transform: none; } }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>${copy.heading}</h1>
-    <p>${copy.request} is asking to complete on this computer
-       (port ${escapeHtml(String(port))}).</p>
-    <p class="warn">${copy.ifNot},
-       close this page. Continuing would hand a sign-in for your account to
-       whoever asked for it.</p>
-    <p><a class="button" href="${escapeHtml(href)}">Continue</a></p>
-  </div>
+  <header>
+    <span class="lockup">${WAFFLE_MARK_SVG}Wafflebase</span>
+  </header>
+  <main>
+    <div class="card">
+      <h1>${copy.heading}</h1>
+      <p class="lead">${copy.request} is asking to complete on this computer,
+         <span class="port">port ${escapeHtml(String(port))}</span>.</p>
+      <p class="note">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
+        <span><strong>${copy.ifNot}, close this page.</strong>
+        Continuing would hand a sign-in for your account to whoever asked
+        for it.</span>
+      </p>
+      <a class="button" href="${escapeHtml(href)}">${GITHUB_MARK_SVG}Continue</a>
+    </div>
+  </main>
 </body>
 </html>`;
 }
@@ -275,6 +356,41 @@ const CONFIRM_COPY: Record<
     ifNot: 'If you did not just sign in from the Wafflebase desktop app',
   },
 };
+
+/**
+ * The brand faces the web sign-in page loads (`packages/frontend/src/lib/
+ * brand-fonts.ts`), so this page reads as the same surface. `display=swap`
+ * keeps the system stack on screen until they arrive; the page works without
+ * them.
+ */
+const BRAND_FONTS_URL =
+  'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400&amp;display=swap';
+
+/**
+ * The "Facet" mark (`WaffleLogo` in the frontend; `DESIGN.md` → Mark): a
+ * 3×3 grid of pockets turned 45°, filled by the page's `--syrup`.
+ */
+const WAFFLE_MARK_SVG = (() => {
+  const pocket = 5.6;
+  const step = pocket + 1.4;
+  const rects: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const u = (i - 1) * step;
+      const v = (j - 1) * step;
+      const cx = +(16 + (u - v) / Math.SQRT2).toFixed(3);
+      const cy = +(16 + (u + v) / Math.SQRT2).toFixed(3);
+      rects.push(
+        `<rect x="${+(cx - pocket / 2).toFixed(3)}" y="${+(cy - pocket / 2).toFixed(3)}" width="${pocket}" height="${pocket}" rx="1" transform="rotate(45 ${cx} ${cy})"/>`,
+      );
+    }
+  }
+  return `<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">${rects.join('')}</svg>`;
+})();
+
+/** GitHub's mark, as on the web sign-in button: the click goes there next. */
+const GITHUB_MARK_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>';
 
 function escapeHtml(value: string): string {
   return value

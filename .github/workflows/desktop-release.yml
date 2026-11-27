@@ -27,10 +27,12 @@ name: desktop-release
 # depends on it (release-guard.test.mjs). That guard lives in this file, and a
 # release runs the file at the TAGGED commit, so a tag on a commit that edits
 # it could drop the guard. The secrets therefore live only in the
-# `desktop-release` Environment, which MUST have a required reviewer: an
-# Environment's secrets reach only a job that names it, and such a job waits
-# for a person whatever the file says. No job restores an Actions cache
-# (trusted-cache.test.mjs).
+# `desktop-release` Environment, which hands them only to a job on a `v*`
+# tag, and the ruleset "Release tags: admins only" lets only the admin role
+# create one, so they reach only a commit a maintainer tagged, whatever the
+# file says. There is no required reviewer, so a release ships the app
+# unattended; keep that ruleset, or put a reviewer back. No job restores an
+# Actions cache (trusted-cache.test.mjs).
 #
 # MACOS ONLY, for now. The first public release ships the Mac app alone: the
 # Windows build is not Authenticode-signed, so SmartScreen would warn every
