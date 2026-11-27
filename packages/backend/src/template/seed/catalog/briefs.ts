@@ -1,58 +1,25 @@
 import type { TemplateBrief } from './brief';
-import { projectKickoffBrief, weeklyBusinessReviewBrief } from './briefs-core';
-import {
-  okrReviewBrief,
-  productLaunchPlanBrief,
-  productRoadmapBrief,
-  sprintRetrospectiveBrief,
-  techTalkBrief,
-} from './briefs-more';
-import {
-  seminarDeckBrief,
-  studentPresentationBrief,
-  universityLectureBrief,
-  workshopTrainingBrief,
-} from './briefs-education';
-import {
-  allHandsUpdateBrief,
-  caseStudyBrief,
-  customerOnboardingReviewBrief,
-  devDesignReviewBrief,
-  projectProposalBrief,
-} from './briefs-work';
-import {
-  brandPitchBrief,
-  designReviewUxBrief,
-  equityAnalysisBrief,
-  marketingCampaignBrief,
-} from './briefs-market-finance';
+import { briefs as slidesCore } from './slides/core.briefs';
+import { briefs as slidesEducation } from './slides/education.briefs';
+import { briefs as slidesMarketFinance } from './slides/market-finance.briefs';
+import { briefs as slidesMore } from './slides/more.briefs';
+import { briefs as slidesWork } from './slides/work.briefs';
 
 /**
  * Authoring brief for each slides template, keyed by the template's `slug`. An
  * agent writing a deck from a template looks it up here to learn what to ask
  * the user for. Nothing at use time reads it — see `brief.ts`.
+ *
+ * Each `slides/<family>.ts` has its briefs beside it in
+ * `slides/<family>.briefs.ts`; this file holds one import per such file, in
+ * the same order `index.ts` lists the seed files.
  */
 export const TEMPLATE_BRIEFS: TemplateBrief[] = [
-  weeklyBusinessReviewBrief,
-  projectKickoffBrief,
-  sprintRetrospectiveBrief,
-  okrReviewBrief,
-  productLaunchPlanBrief,
-  techTalkBrief,
-  productRoadmapBrief,
-  seminarDeckBrief,
-  universityLectureBrief,
-  studentPresentationBrief,
-  workshopTrainingBrief,
-  devDesignReviewBrief,
-  projectProposalBrief,
-  allHandsUpdateBrief,
-  caseStudyBrief,
-  customerOnboardingReviewBrief,
-  marketingCampaignBrief,
-  brandPitchBrief,
-  equityAnalysisBrief,
-  designReviewUxBrief,
+  ...slidesCore,
+  ...slidesMore,
+  ...slidesEducation,
+  ...slidesWork,
+  ...slidesMarketFinance,
 ];
 
 /** Look up a template's input schema by slug. */

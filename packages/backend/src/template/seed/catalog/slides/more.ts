@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Additional slide templates for the gallery, authored natively against the
@@ -10,12 +10,12 @@ import type { TemplateSeed } from '../types';
  * `README.md` for the licensing rule.
  */
 
-export const sprintRetrospective: TemplateSeed = {
+const sprintRetrospective: TemplateSeed = {
   slug: 'sprint-retrospective',
   title: 'Sprint Retrospective',
   description:
     'A short, honest look back at a sprint: what to keep, what to change, and the one thing the team commits to next time.',
-  category: 'Project management',
+  category: 'work/retro-workshop',
   tags: ['deck', 'retro', 'agile', 'meeting'],
   content: {
     kind: 'slides',
@@ -60,12 +60,12 @@ export const sprintRetrospective: TemplateSeed = {
   },
 };
 
-export const okrReview: TemplateSeed = {
+const okrReview: TemplateSeed = {
   slug: 'okr-review',
   title: 'OKR Review',
   description:
     'A quarterly check on objectives and key results: where each one landed, what moved the numbers, and what carries into next quarter.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'okr', 'goals', 'quarterly'],
   content: {
     kind: 'slides',
@@ -111,12 +111,12 @@ export const okrReview: TemplateSeed = {
   },
 };
 
-export const productLaunchPlan: TemplateSeed = {
+const productLaunchPlan: TemplateSeed = {
   slug: 'product-launch-plan',
   title: 'Product Launch Plan',
   description:
     'Everything a launch has to line up before the date: the pitch, the goal, the channels, the timeline, and the go / no-go call.',
-  category: 'Marketing',
+  category: 'marketing/campaign',
   tags: ['deck', 'launch', 'go-to-market', 'product'],
   content: {
     kind: 'slides',
@@ -165,12 +165,12 @@ export const productLaunchPlan: TemplateSeed = {
   },
 };
 
-export const techTalk: TemplateSeed = {
+const techTalk: TemplateSeed = {
   slug: 'tech-talk-paper-study',
   title: 'Tech Talk / Paper Study',
   description:
     'A structure for presenting a paper or a technical topic: the problem, the key idea, the trade-offs, and what you would take away.',
-  category: 'Education',
+  category: 'education/study-notes',
   tags: ['deck', 'talk', 'paper', 'study', 'engineering'],
   content: {
     kind: 'slides',
@@ -215,12 +215,12 @@ export const techTalk: TemplateSeed = {
   },
 };
 
-export const productRoadmap: TemplateSeed = {
+const productRoadmap: TemplateSeed = {
   slug: 'product-roadmap',
   title: 'Product Roadmap',
   description:
     'A now / next / later roadmap that shows direction without over-promising dates, plus what the team is deliberately not doing.',
-  category: 'Project management',
+  category: 'work/plan-roadmap',
   tags: ['deck', 'roadmap', 'planning', 'product'],
   content: {
     kind: 'slides',
@@ -265,3 +265,12 @@ export const productRoadmap: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  sprintRetrospective,
+  okrReview,
+  productLaunchPlan,
+  techTalk,
+  productRoadmap,
+];

@@ -133,6 +133,7 @@ model Document {
 
   notifications Notification[]
   templateListing TemplateListing?
+  templateSeedRecord TemplateSeedRecord?
   webhookContentPending WebhookContentPending?
   chatRefs  ChatDocumentRef[]
 
@@ -422,6 +423,43 @@ model TemplateListing {
   /// The workspace gallery's query.
   @@index([workspaceId, visibility])
   reports     TemplateReport[]
+}
+
+/// What `pnpm backend sync:templates` last applied to one seeded template
+/// (docs/design/template-catalog-scaling.md §3).
+///
+/// Seed-only state kept off `TemplateListing`, so the listing stays exactly
+/// what a person's publish produces and the command is idempotent without
+/// becoming a second writer of listing columns. Keyed on the seeded document,
+/// whose id is derived from the slug.
+model TemplateSeedRecord {
+  documentId       String    @id
+  document         Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  slug             String    @unique
+  /// sha256 of the catalogue content this command last wrote and saw land;
+  /// empty until it has.
+  contentHash      String
+  /// sha256 of the document's whole root (Yorkie's sorted JSON) right after
+  /// this command's last write. Approval re-reads the document and refuses
+  /// unless it still hashes to this — so an edit by anyone else, even one
+  /// whose event was mistaken for ours, is never attested. Empty until a write.
+  writtenHash      String    @default("")
+  /// sha256 of the thumbnail bytes last uploaded. Identical bytes skip the
+  /// upload, so a deterministic renderer causes no card churn.
+  thumbnailHash    String
+  /// The image id those bytes were uploaded as. A listing whose
+  /// `thumbnailId` is anything else had its thumbnail replaced elsewhere (the
+  /// Share dialog's "Update preview"), and is re-synced. Card text is NOT
+  /// mirrored here: drift is read from the listing's own columns.
+  thumbnailId      String?
+  /// The content watermark this command attests to: the listing's
+  /// `contentChangedAt` its own last write produced, as observed when that
+  /// write's `DocumentRootChanged` event landed. A Yorkie-issued instant,
+  /// never this host's clock. Null until a write of ours has been observed,
+  /// and nothing is approved while it is null. Any other `contentChangedAt`
+  /// means somebody else edited the document, and the command refuses.
+  appliedAt        DateTime?
+  updatedAt        DateTime  @updatedAt
 }
 
 /// Someone flagging a listing for a reviewer — see

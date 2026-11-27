@@ -1,12 +1,12 @@
-import { bullet, heading, para, title } from '../builders';
-import type { TemplateSeed } from '../types';
+import { bullet, heading, para, title } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
-export const productRequirementsDoc: TemplateSeed = {
+const productRequirementsDoc: TemplateSeed = {
   slug: 'product-requirements-doc',
   title: 'Product Requirements Doc',
   description:
     'A one-page spec that answers the questions a reviewer will ask anyway: the problem, who has it, what is out of scope, and how you will know it worked.',
-  category: 'Project management',
+  category: 'work/plan-roadmap',
   tags: ['spec', 'product', 'planning'],
   content: {
     kind: 'doc',
@@ -48,12 +48,12 @@ export const productRequirementsDoc: TemplateSeed = {
   },
 };
 
-export const meetingNotes: TemplateSeed = {
+const meetingNotes: TemplateSeed = {
   slug: 'meeting-notes',
   title: 'Meeting Notes',
   description:
     'Attendees, decisions and action items, in the order you actually need them afterwards — decisions first, discussion last.',
-  category: 'Business',
+  category: 'work/meeting',
   tags: ['meeting', 'notes', 'team'],
   content: {
     kind: 'doc',
@@ -83,12 +83,12 @@ export const meetingNotes: TemplateSeed = {
   },
 };
 
-export const partnerNewsletter: TemplateSeed = {
+const partnerNewsletter: TemplateSeed = {
   slug: 'partner-newsletter',
   title: 'Partner Newsletter',
   description:
     'A periodic update for partners or customers that leads with what changed for them, flags what they need to act on, and ends with how to reach you.',
-  category: 'Marketing',
+  category: 'marketing/brand-press',
   tags: ['newsletter', 'partners', 'communication'],
   content: {
     kind: 'doc',
@@ -135,12 +135,12 @@ export const partnerNewsletter: TemplateSeed = {
   },
 };
 
-export const vendorOnboarding: TemplateSeed = {
+const vendorOnboarding: TemplateSeed = {
   slug: 'vendor-onboarding',
   title: 'Vendor Onboarding',
   description:
     'A setup plan for bringing a new supplier on board, from signed agreement to first purchase order, with owners and the paperwork to collect.',
-  category: 'Business',
+  category: 'people/onboarding',
   tags: ['vendor', 'procurement', 'onboarding', 'checklist'],
   content: {
     kind: 'doc',
@@ -192,3 +192,11 @@ export const vendorOnboarding: TemplateSeed = {
     },
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  productRequirementsDoc,
+  meetingNotes,
+  partnerNewsletter,
+  vendorOnboarding,
+];

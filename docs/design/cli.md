@@ -667,10 +667,10 @@ Three rules define the namespace:
   the three verbs a publisher needs, not the moderation pipeline.
 
 A CLI publish also carries no thumbnail: a listing's picture is captured by
-whichever editor is mounted at publish time, and a terminal has no editor (the
-same reason `register:templates` drives the real Share dialog through
-Playwright). The listing works without one; the card simply shows no preview
-image.
+whichever editor is mounted at publish time, and a terminal has no editor. (The
+operator-only `sync:templates` renders seed thumbnails offline instead; see
+[template-catalog-scaling.md](template-catalog-scaling.md) §3.) The listing
+works without one; the card simply shows no preview image.
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
 slide's elements (text boxes, shape labels, table cells, flattened
@@ -927,9 +927,9 @@ wafflebase api-keys revoke key-uuid
 
 # Templates (the gallery; publish/use need `wafflebase login`, not an API key)
 wafflebase templates list                       # what this workspace published
-wafflebase templates list --scope public --category Finance --sort popular
+wafflebase templates list --scope public --category finance --sort popular
 wafflebase templates publish abc-123 \
-  --title "Weekly Report" --category Business --tag weekly \
+  --title "Weekly Report" --category work/meeting --tag weekly \
   --visibility workspace                        # default tier is `unlisted`
 wafflebase templates use tpl-uuid               # → a new doc in this workspace
 wafflebase templates use tpl-uuid --into other-workspace

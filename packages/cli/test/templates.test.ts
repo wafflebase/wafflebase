@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/commands/root.js';
 import { registerTemplatesCommand } from '../src/commands/templates.js';
+import { getCommandSchema } from '../src/schema/registry.js';
 
 /**
  * Drives the REAL commands through commander. What this namespace can get
@@ -121,7 +122,7 @@ describe('templates commands', () => {
         '--type',
         'slides',
         '--category',
-        'Finance',
+        'finance',
         '--tag',
         'budget',
         '--query',
@@ -137,7 +138,7 @@ describe('templates commands', () => {
       expect(browseTemplates).toHaveBeenCalledWith({
         scope: 'public',
         type: 'slides',
-        category: 'Finance',
+        category: 'finance',
         tag: 'budget',
         q: 'quarterly',
         sort: 'recent',
@@ -194,12 +195,12 @@ describe('templates commands', () => {
         '--title',
         'Weekly Report',
         '--category',
-        'Business',
+        'work/meeting',
       ]);
 
       expect(publishedBody()).toEqual({
         title: 'Weekly Report',
-        category: 'Business',
+        category: 'work/meeting',
       });
       // The named options and nothing else: an unset `visibility` reaching the
       // body as `null` would widen a workspace listing to anyone holding its id.
@@ -311,5 +312,27 @@ describe('templates commands', () => {
         body: { workspaceId: WORKSPACE },
       });
     });
+  });
+
+  describe('--category help', () => {
+    // `--help` and the agent-facing schema describe the same option; the
+    // taxonomy moved from labels to slugs once, and only one of them followed.
+    it.each([['list'], ['publish']])(
+      'templates %s matches the schema registry',
+      (sub) => {
+        const program = createProgram();
+        registerTemplatesCommand(program);
+        const option = program.commands
+          .find((c) => c.name() === 'templates')
+          ?.commands.find((c) => c.name() === sub)
+          ?.options.find((o) => o.long === '--category');
+        const schema = getCommandSchema(`templates.${sub}`);
+        expect(option?.description).toBeDefined();
+        expect(option?.description).toBe(
+          schema?.parameters['--category']?.description,
+        );
+        expect(option?.description).not.toMatch(/Business|closed taxonomy/);
+      },
+    );
   });
 });

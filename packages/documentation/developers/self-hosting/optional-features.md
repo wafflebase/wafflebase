@@ -141,19 +141,40 @@ Reviewers decide submissions at `/admin/templates` and are notified when one arr
    pnpm backend seed:templates:build --workspace <workspaceId> --author <userId>
    ```
 
-2. Install Chromium for the registration step:
+2. Render their thumbnails offline. This needs Chromium, but no running frontend or backend:
 
    ```bash
    pnpm --filter @wafflebase/frontend exec playwright install chromium
+   pnpm backend template:dump --out catalog.json
+   pnpm frontend render:thumbnails catalog.json --out thumbs/
    ```
 
-3. With the frontend and backend running, publish, submit, and approve each one:
+3. Publish, submit, and approve each one, on a host with the backend's environment:
+
+   ```bash
+   pnpm backend sync:templates:build --author <userId> --thumbnails thumbs/
+   ```
+
+This step writes each template's content and approves only once the Yorkie event webhook (`/internal/yorkie/events`) has reported that write back, so that webhook must be registered on your Yorkie project. Without it, every template fails with a message saying so and nothing is approved.
+
+4. Spreadsheet, document, and board templates cannot be rendered offline yet, so step 3 skips them. Until they can, publish those through the product's own Share dialog — with the frontend and backend running:
 
    ```bash
    pnpm backend register:templates:build --author <userId> --frontend https://app.example.com
    ```
 
-The second command skips documents that already have a listing. Add `--reset` to unpublish and publish them again.
+   This command handles only those three types, and skips documents that already have a listing (`--reset` unpublishes and publishes them again). It goes away once every type renders offline.
+
+Whenever the catalogue changes, run steps 1 to 4 again. Step 1 creates the documents for any seeds added since and leaves existing documents unchanged. Step 3 rewrites a slides or note template whose content changed, updates only what changed, re-approves it, and keeps every preview link already handed out. Step 4 publishes any spreadsheet, document, or board seed added since, and updates the card (title, description, category, tags) of one already published.
+
+Steps 1 to 4 do not update the content of a spreadsheet, document, or board template that is already published. To bring its content up to date, rewrite its document and publish it again:
+
+```bash
+pnpm backend seed:templates:build --workspace <workspaceId> --author <userId> --force-content
+pnpm backend register:templates:build --author <userId> --frontend https://app.example.com --reset
+```
+
+`--force-content` rewrites every seeded document from the catalogue, slides and notes included, and a content change returns a public template to review. After the backend has received the content-change event for each rewritten slides and note template, run step 3 again to re-approve them. A run made before an event arrives reports that template as unchanged and approves nothing, and the event then takes it out of the gallery. `--reset` unpublishes each spreadsheet, document, and board template and publishes it again, so those templates leave the public gallery until they are re-approved, and their old preview links stop working.
 
 ## Related
 

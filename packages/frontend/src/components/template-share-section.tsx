@@ -18,11 +18,12 @@ import {
   submitTemplateForReview,
   unpublishTemplate,
   updateTemplate,
-  TEMPLATE_CATEGORIES,
   type TemplateListing,
   type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { resolveCategory } from "@wafflebase/core/templates";
+import { TemplateCategoryItems } from "@/components/template-category-items";
 import { userFacingError } from "@/api/http-error";
 import { imageUrl, postSharedImage } from "@/api/images";
 import { captureThumbnail, hasThumbnailSource } from "@/lib/thumbnail-capture";
@@ -463,7 +464,15 @@ function TemplateMetaEditor({
   const [visibility, setVisibility] = useState<TemplateVisibility>(
     listing.visibility,
   );
-  const [category, setCategory] = useState(listing.category ?? NO_CATEGORY);
+  // A stored v1 label (a row the slug migration has not reached yet) is shown
+  // as the slug it maps to, so the picker selects something real. It is only
+  // ever *sent* if the user changes it: echoing a non-slug back would make the
+  // whole save 400 on a field nobody touched.
+  const initialCategory =
+    listing.category === null
+      ? NO_CATEGORY
+      : (resolveCategory(listing.category) ?? listing.category);
+  const [category, setCategory] = useState(initialCategory);
   const [tags, setTags] = useState(listing.tags.join(", "));
   const [description, setDescription] = useState(listing.description ?? "");
   const [saving, setSaving] = useState(false);
@@ -500,28 +509,41 @@ function TemplateMetaEditor({
     }
   };
 
-  const dirty =
-    visibility !== listing.visibility ||
-    (category === NO_CATEGORY ? null : category) !== listing.category ||
-    tags !== listing.tags.join(", ") ||
+  const visibilityChanged = visibility !== listing.visibility;
+  const categoryChanged = category !== initialCategory;
+  const tagsChanged = tags !== listing.tags.join(", ");
+  const descriptionChanged =
     description.trim() !== (listing.description ?? "");
+  const dirty =
+    visibilityChanged || categoryChanged || tagsChanged || descriptionChanged;
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Only the fields the user changed: anything else is left alone by the
+      // backend, and re-sending a stored value it no longer accepts (a v1
+      // category label) would fail an unrelated edit.
       const saved = await updateTemplate(listing.id, {
-        visibility,
+        ...(visibilityChanged ? { visibility } : {}),
         // Explicit null clears it; undefined would mean "leave alone". Same
         // reason the description below is nulled rather than sent empty:
         // clearing the field has to actually clear the column.
-        description: description.trim() || null,
-        category: category === NO_CATEGORY ? null : category,
+        ...(descriptionChanged
+          ? { description: description.trim() || null }
+          : {}),
+        ...(categoryChanged
+          ? { category: category === NO_CATEGORY ? null : category }
+          : {}),
         // Split on commas and let the backend normalize — it is the enforcing
         // copy of the rule (trim / lowercase / de-duplicate / cap at 10).
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        ...(tagsChanged
+          ? {
+              tags: tags
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean),
+            }
+          : {}),
       });
       onSaved(saved);
       toast.success("Template updated");
@@ -608,11 +630,7 @@ function TemplateMetaEditor({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_CATEGORY}>None</SelectItem>
-              {TEMPLATE_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
+              <TemplateCategoryItems />
             </SelectContent>
           </Select>
         </div>

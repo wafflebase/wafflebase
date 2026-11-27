@@ -660,49 +660,135 @@ teaching every deployment a new setting.
 
 #### Seeding the gallery
 
-Two operator commands fill a deployment's public gallery from the catalogue in
+Five operator commands fill a deployment's public gallery from the catalogue in
 `src/template/seed/catalog/` (everything there is authored for this repo and
 Apache-2.0 licensed; see that directory's `README.md` before adding to it).
 
 ```bash
 pnpm backend seed:templates:build --workspace <workspaceId> --author <userId>
+pnpm backend template:dump --out catalog.json
+pnpm frontend render:thumbnails catalog.json --out thumbs/
+pnpm backend sync:templates:build --author <userId> --thumbnails thumbs/ \
+  [--workspace <workspaceId>] [--event-timeout <seconds>] [slug...]
 pnpm backend register:templates:build --author <userId> [--frontend URL] [--reset]
 ```
 
-They run from `dist`, not through `tsx`: esbuild emits no
+**Two publishing commands until the Phase 2 renderers land.**
+`sync:templates` publishes slides and note seeds; sheet, doc and board seeds
+have no offline thumbnail yet, so sync skips them (its message says to use
+`register:templates`) and the Playwright `register:templates` publishes them
+through the real Share dialog instead — refusing slides and note, which are
+sync's. It needs Chromium
+(`pnpm --filter @wafflebase/frontend exec playwright install chromium`) and a
+running frontend and API. It approves in-process through
+`TemplateService.review()` by the id of the listing it just published (the
+review queue renders no listing id, so no UI row is ever matched). Without
+`--reset` an existing listing is not republished, but a card that drifted from
+the catalogue is updated and re-approved, and only while the listing is public
+and its reviewed content is still the current content; `--reset` unpublishes
+first. It is deleted, with the backend Playwright devDependency, once every type renders
+offline.
+
+The Nest commands run from `dist`, not through `tsx`: esbuild emits no
 `design:paramtypes`, so a Nest context booted under `tsx` resolves every
 injected dependency to `undefined`. The `:build` variants compile first.
+`template:dump` boots no Nest context and runs through `tsx`.
 
 **`seed:templates` only creates the documents** and writes their content
-through the same writers the v1 content endpoints use. It deliberately does
-*not* publish them. Registering happens through the product's own Share dialog,
-driven by `register:templates` with Playwright, because a template's thumbnail
-is captured by whichever editor is mounted at publish time — a headless publish
-has no editor and therefore no picture. That ordering is also the only one the
-review rules allow: `thumbnailId` is a `CARD_FIELD`, so attaching it after
-approval returns the listing to review, and attaching it while `pending` is
-refused outright.
+through the same writers the v1 content endpoints use. It does not publish
+them.
 
-`register:templates` mints the same session cookie the OAuth callback writes,
-publishes each document, sets its category and tags, submits it, then approves
-the queue at `/admin/templates`. It needs Chromium
-(`pnpm --filter @wafflebase/frontend exec playwright install chromium`) and a
-running frontend and API. It is **not** idempotent — a document that already
-has a listing is skipped, since the dialog shows the listing form rather than
-the publish block once one exists; `--reset` unpublishes first.
+**`template:dump` + `render:thumbnails` take the pictures offline.** The dump
+is the catalogue as JSON, each seed with a `contentHash`; the renderer paints
+each one in headless Chromium with the same model-driven function its editor
+registers as a thumbnail source, encodes it with `encodeThumbnail` (the
+1280 px WebP the Share dialog uploads), blocks every non-loopback request, and
+writes `<slug>.webp` plus a `manifest.json` carrying each file's sha256 and the
+`contentHash` it was rendered from. Slides and notes are covered; sheet, board
+and doc seeds are listed as `skipped` until their renderers land, and
+`sync:templates` leaves them unpublished rather than publish an icon-only card.
 
-**`register:templates` requires the webhook to be enforcing** — the same
+**`sync:templates` publishes, updates and approves**, in-process, through the
+guarded `TemplateService` methods only (`publish`, `update`, `submit`,
+`review`) — no HTTP route, no session cookie, no API key. The thumbnail goes
+into `publish()` itself, the one moment the review rules allow it:
+`thumbnailId` is a `CARD_FIELD`, so attaching it after approval returns the
+listing to review, and attaching it while `pending` is refused outright.
+
+It is idempotent and resumable. A `TemplateSeedRecord` per seed holds only
+what nothing else knows: the catalogue content it last wrote (`contentHash`)
+and the root that write must leave (`writtenHash`), the thumbnail bytes it
+uploaded as which image (`thumbnailHash`, `thumbnailId`), and the content
+watermark it attests to (`appliedAt`). Card drift is read from the listing's
+own columns, so an edit made in the Share dialog is seen. A re-run does only
+what changed:
+
+| Listing | What the run does |
+| --- | --- |
+| none (also after an unpublish: the leftover record is discarded) | upload thumbnail → `publish` (unlisted, licensed) → write the catalogue content → wait for its event → quiet `submit` → approve |
+| public + listed, nothing changed | nothing |
+| card drifted (listing columns vs the catalogue), or thumbnail bytes changed / replaced from the dialog | `update` (returns it to review; the preview link is kept) → approve. Identical thumbnail bytes are not re-uploaded; a tags-only change needs no review |
+| content changed, no record of a write of ours, or the document no longer holds what we wrote (edited by somebody else) | rewrite the document, wait for its `DocumentRootChanged` event to reach the listing, approve that watermark |
+| pending, nothing changed | approve (an interrupted run) |
+| rejected below the public tier | quiet `submit` → approve |
+| removed, or public + rejected | skipped and reported — moderation is never reversed, and the service cannot resubmit a public listing |
+| pending with a title, description, category or thumbnail it has not applied | skipped, naming which; decide it in `/admin/templates` first (a pending card is frozen). A tags-only drift is applied |
+
+Every approval attests only to content this command wrote and saw land. A write
+snapshots the listing's `contentChangedAt` first and waits, up to
+`--event-timeout` seconds (default 30), for it to strictly advance past that
+snapshot — a Yorkie-issued instant, never compared with this host's clock.
+**It fails closed:** with the Yorkie event webhook unregistered no event
+arrives, nothing is approved, and the seed fails with a message saying so; the
+next run rewrites and waits again. A write replaces the document's **whole
+root** — nothing that was there before survives — and records the hash of the
+root the catalogue defines (`writtenHash`); it refuses to push unless the
+document matches it. Because the first watermark advance is not necessarily
+ours, approval does not trust it: before approving the command reads the
+listing's watermark, re-reads the document, and refuses unless it still hashes
+to the catalogue's root — somebody else edited it. That refusal fails one run,
+not every run: a seed document belongs to the catalogue, so the next run sees
+that the document no longer holds what it wrote and rewrites it (the
+stranger's edit is replaced, never approved). Approval is by listing id, only
+for seeds with a record, and echoes that watermark, so an edit whose event
+lands afterwards makes `review()` refuse it — the check and the conditional
+write behind it both carry the watermark. An edit whose event has *not* landed
+when `review()` runs is approved against the older watermark and is public
+until that event arrives (then hidden and returned to review); copies made in
+that window are not recalled. Approval is also bound to the card the run
+checked: after `submit()` freezes it, the listing is re-read and approval is
+refused unless its title, description, category and thumbnail are still the
+catalogue's. Submissions are made without the reviewer notification, since the
+same run decides them; when anything after a quiet submit fails, the run sends
+that notification after all, so a `pending` listing is never left with nobody
+told. One run at a time: a
+`pg_try_advisory_lock` on a dedicated connection refuses a second run
+(`DATABASE_URL` must be a session-mode connection for that). A seed that fails
+does not stop the others; the run exits non-zero if any did.
+`test/template-sync.e2e-spec.ts` runs the command against the real
+`TemplateService` on Postgres (`RUN_DB_INTEGRATION_TESTS=true`), and
+`test/seed-content-attached.e2e-spec.ts` runs the content write and read-back
+against a real Yorkie server for every seed type
+(`RUN_YORKIE_INTEGRATION_TESTS=true`).
+
+**`sync:templates` requires the webhook to be enforcing** — the same
 `YORKIE_AUTH_WEBHOOK_ENFORCE=true` the server demands, because a public
-listing's preview token would otherwise also grant write access. `seed:templates`
-needs no such ordering: it writes content through `YorkieService`, which
-authenticates to the webhook as this backend
-(`src/yorkie/yorkie-service-token.ts`), so its writes survive enforcement. The
-same token is what keeps the v1 content endpoints and `DocumentCopyService`
-working with the webhook methods registered.
-
-Both commands also require `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the
-`--author`, who approves their own submissions — which is what a seed is, and
-why the command mints no authority of its own.
+listing's preview token would otherwise also grant write access — and
+`WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the `--author`, who approves their
+own submissions. The reviewer guard sits on the HTTP route, so the
+`TemplateSync` class re-checks the allowlist and the enforcement setting itself
+— at construction and before every seed — rather than leaving it to the CLI
+that happens to call it; it mints no authority of its own. Before touching a
+seed it also requires the `--author` to manage its document (workspace owner
+or document author), since the content write goes through the backend's own
+Yorkie identity ahead of any `TemplateService` method that would check it.
+`--workspace` is an optional consistency check on where `seed:templates` put
+the documents (an empty value is refused); `--event-timeout` is capped at
+3600 seconds. `seed:templates` needs no such
+ordering: it writes content through `YorkieService`, which authenticates to the
+webhook as this backend (`src/yorkie/yorkie-service-token.ts`), so its writes
+survive enforcement. The same token is what keeps the v1 content endpoints and
+`DocumentCopyService` working with the webhook methods registered.
 
 #### Reports
 

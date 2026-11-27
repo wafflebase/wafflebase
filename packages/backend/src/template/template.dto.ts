@@ -17,9 +17,10 @@ import {
 } from 'class-validator';
 import { VALID_IMAGE_ID_PATTERN } from '../image/image.constants';
 import {
+  ALL_CATEGORY_SLUGS,
+  BROWSE_CATEGORY_VALUES,
   MAX_TEMPLATE_TAGS,
   MAX_TEMPLATE_TAG_LENGTH,
-  TEMPLATE_CATEGORIES,
 } from './template-taxonomy';
 import {
   REPORT_REASONS,
@@ -73,14 +74,16 @@ export class PublishTemplateDto {
   description?: string | null;
 
   /**
-   * One of the closed `TEMPLATE_CATEGORIES`. Closed rather than freeform so
-   * the gallery's category facet means something — see template-taxonomy.ts.
+   * One of the closed `ALL_CATEGORY_SLUGS` — a top (`work`) or `top/leaf`
+   * (`work/meeting`). Closed rather than freeform so the gallery's category
+   * facet means something — see template-taxonomy.ts. The v1 labels are not
+   * accepted here; only browse still reads them.
    *
    * Nullable for the same reason as `description` above: the listing form has
    * always sent `null` to clear it.
    */
   @IsOptional()
-  @IsIn(TEMPLATE_CATEGORIES)
+  @IsIn(ALL_CATEGORY_SLUGS)
   category?: string | null;
 
   /**
@@ -159,8 +162,12 @@ export class BrowseTemplatesDto {
   @Length(1, 20)
   type?: string;
 
+  /**
+   * A slug, or a v1 label (accepted for one release). A top matches its
+   * leaves too — `categoryFilterValues`.
+   */
   @IsOptional()
-  @IsIn(TEMPLATE_CATEGORIES)
+  @IsIn(BROWSE_CATEGORY_VALUES)
   category?: string;
 
   /**

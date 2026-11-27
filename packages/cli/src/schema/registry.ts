@@ -1551,7 +1551,7 @@ const registry: CommandSchema[] = [
     parameters: {
       '--scope': { type: 'string', required: false, description: 'workspace (the active workspace) or public', default: 'workspace' },
       '--type': { type: 'string', required: false, description: 'Document type facet (sheet|doc|slides|note|board)' },
-      '--category': { type: 'string', required: false, description: 'Category facet' },
+      '--category': { type: 'string', required: false, description: 'Category slug; a top also matches its leaves' },
       '--tag': { type: 'string', required: false, description: 'Tag facet (a single tag)' },
       '--query': { type: 'string', required: false, description: 'Free text over title, description, and tags' },
       '--sort': { type: 'string', required: false, description: 'popular or recent' },
@@ -1574,7 +1574,7 @@ const registry: CommandSchema[] = [
       'doc-id': { type: 'string', required: true, description: 'Document ID (manager-gated: workspace owner or document author)' },
       '--title': { type: 'string', required: false, description: 'Listing title', default: 'the document title' },
       '--description': { type: 'string', required: false, description: 'Listing description' },
-      '--category': { type: 'string', required: false, description: 'One of Business|Education|Personal|Project management|Finance|Marketing|Design|Other' },
+      '--category': { type: 'string', required: false, description: 'A category slug: a top (work, finance, education, marketing, people, personal, design, other) or top/leaf, e.g. work/meeting' },
       '--tag': { type: 'string', required: false, description: 'Add a tag (repeatable; at most 10, lowercased on write)' },
       '--visibility': { type: 'string', required: false, description: 'unlisted or workspace; public is reachable only through review', default: 'unlisted on a first publish, otherwise unchanged' },
     },

@@ -17,12 +17,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
-import { chromium } from "playwright";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const frontendRoot = path.resolve(__dirname, "..");
+import { withRenderPage } from "./render-harness.mjs";
 
 function parseArgs(argv) {
   const args = { file: undefined, out: undefined, slide: undefined };
@@ -53,22 +48,7 @@ async function main() {
   }
   await mkdir(path.resolve(args.out), { recursive: true });
 
-  const server = await createServer({
-    root: frontendRoot,
-    configFile: path.resolve(frontendRoot, "vite.config.ts"),
-    server: { host: "127.0.0.1", port: 0, strictPort: false },
-    logLevel: "error",
-  });
-  await server.listen();
-  const { port } = server.httpServer.address();
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage();
-    page.on("pageerror", (e) => console.error(`[page] ${e.message}`));
-    await page.goto(`http://127.0.0.1:${port}/scripts/render-slides.html`);
-    await page.waitForFunction(() => typeof window.__renderSlide === "function", null, {
-      timeout: 60_000,
-    });
+  await withRenderPage({}, async (page) => {
     for (const i of indices) {
       const url = await page.evaluate(
         ([d, idx]) => window.__renderSlide(d, idx),
@@ -85,10 +65,7 @@ async function main() {
       await writeFile(file, Buffer.from(url.split(",")[1], "base64"));
       console.log(file);
     }
-  } finally {
-    await browser.close();
-    await server.close();
-  }
+  });
 }
 
 main().catch((e) => {

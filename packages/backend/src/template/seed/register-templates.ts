@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common';
+import type { TemplateListing } from '@prisma/client';
+import { DOCUMENT_ROUTES } from '@wafflebase/core/document-link';
+import { categoryLabel } from '@wafflebase/core/templates';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { DOCUMENT_ROUTES } from '@wafflebase/core/document-link';
 import { AppModule } from '../../app.module';
 import { AuthService } from '../../auth/auth.service';
 import { sessionCookieName } from '../../auth/oauth-state';
@@ -9,10 +11,23 @@ import { PrismaService } from '../../database/prisma.service';
 import { assertYorkieAuthEnforced, parseReviewerIds } from '../template-review';
 import { TemplateService } from '../template.service';
 import { TEMPLATE_CATALOG } from './catalog';
-import { seedDocumentId } from './seed-templates';
+import { seedDocumentId } from './seed-hash';
+import { registerRefusal } from './seed-routing';
+import { cardDrift } from './template-sync';
 import type { TemplateSeed } from './types';
 
 /**
+ * TEMPORARY — the operator path for the seed types `sync:templates` cannot
+ * publish yet (docs/design/template-catalog-scaling.md §3).
+ *
+ * `sync:templates` publishes slides and note seeds headlessly, with
+ * thumbnails rendered offline. Sheet, doc and board seeds have no offline
+ * thumbnail renderer until Phase 2, and sync refuses to publish an icon-only
+ * card, so this Playwright command remains their only path. It refuses slides
+ * and note seeds outright, pointing at `sync:templates`. Delete this file, its
+ * package.json scripts and the backend Playwright devDependency once the
+ * Phase 2 renderers land.
+ *
  * Register the seeded documents as public templates **through the product's
  * own UI** (docs/design/template-gallery.md).
  *
@@ -33,19 +48,111 @@ import type { TemplateSeed } from './types';
  * UI attaches it in the one window where that is not true — after the listing
  * exists, before it is submitted.
  *
- * The reviewer queue is driven the same way, and gets the content-watermark
- * handling for free: the queue row carries `contentAt` and the Approve button
- * echoes it, which is the whole of the check `review()` performs.
+ * Approval is **not** driven through the queue page. The page identifies a
+ * row only by its title — no listing id reaches the DOM — and shows the 100
+ * oldest submissions, so a seed's own row can be cut off while a stranger's
+ * identically titled submission is the one match. The operator already holds
+ * the database, so it approves in-process the way `sync:templates` does:
+ * through `TemplateService.review()`, by the listing id it just published,
+ * echoing the content watermark it read — the same `contentAt` check the
+ * queue's Approve button feeds, with no title in the loop.
  */
 
 const logger = new Logger('RegisterTemplates');
 
-/** The editor route the frontend mounts a document of this kind at. */
-function documentPath(
+/** The editor route the Share dialog lives on, as the frontend mounts it. */
+export function documentPath(
   id: string,
   kind: TemplateSeed['content']['kind'],
 ): string {
   return `/${DOCUMENT_ROUTES[kind]}/${id}`;
+}
+
+type ListingState = Pick<
+  TemplateListing,
+  | 'id'
+  | 'status'
+  | 'visibility'
+  | 'contentChangedAt'
+  | 'reviewedContentAt'
+  | 'title'
+  | 'description'
+  | 'category'
+  | 'tags'
+>;
+
+/**
+ * The `review()` call that approves this seed's own listing — by its id, and
+ * echoing the watermark this command read, so an edit landing in between
+ * makes `review()` refuse (`contentAt` CAS) rather than approve content
+ * nobody looked at. Refuses anything not awaiting review: approving is the
+ * only decision this command makes, and only on a submission it just made.
+ */
+export function approvalFor(listing: ListingState): {
+  id: string;
+  dto: { decision: 'approve'; contentAt?: string };
+} {
+  if (listing.status !== 'pending') {
+    throw new Error(
+      `listing ${listing.id} is ${listing.status}, not pending; not approving`,
+    );
+  }
+  return {
+    id: listing.id,
+    dto: {
+      decision: 'approve',
+      // `null` is a version too: `review()` compares the two as an ETag.
+      ...(listing.contentChangedAt
+        ? { contentAt: listing.contentChangedAt.toISOString() }
+        : {}),
+    },
+  };
+}
+
+/**
+ * What to do with a seed that already has a listing, short of `--reset`.
+ *
+ * The catalogue's card can move after a listing was registered — the v2
+ * taxonomy re-filed every seed under a leaf category — and `--reset` is the
+ * wrong tool for that: it unpublishes, which revokes the preview link, and
+ * re-registers through the browser. A card change needs neither. So a
+ * drifted card is applied through `TemplateService.update()` (which returns a
+ * public listing to review, exactly as a person's edit would) and re-approved
+ * in-process.
+ *
+ * Only when re-approving attests to nothing new: the listing must be public
+ * and listed, and its content must still be the content a reviewer approved
+ * (`reviewedContentAt === contentChangedAt`). Anything else is left for a
+ * person — this command never approves content it did not watch land.
+ */
+export function refileFor(
+  listing: ListingState,
+  seed: TemplateSeed,
+):
+  | { action: 'none' }
+  | { action: 'refile'; drift: ReturnType<typeof cardDrift> }
+  | { action: 'skip'; reason: string } {
+  const drift = cardDrift(listing, seed);
+  if (Object.keys(drift).length === 0) return { action: 'none' };
+  if (listing.visibility !== 'public' || listing.status !== 'listed') {
+    return {
+      action: 'skip',
+      reason:
+        `its card drifted, but it is ${listing.visibility}/${listing.status}, ` +
+        'not public and listed; decide it at /admin/templates or pass --reset',
+    };
+  }
+  const reviewed = listing.reviewedContentAt?.getTime() ?? null;
+  const current = listing.contentChangedAt?.getTime() ?? null;
+  if (reviewed !== current) {
+    return {
+      action: 'skip',
+      reason:
+        'its card drifted, but its content changed since it was approved, ' +
+        'so re-approving would attest to content nobody reviewed',
+    };
+  }
+  return { action: 'refile', drift };
 }
 
 function arg(name: string): string | undefined {
@@ -216,18 +323,35 @@ async function main(): Promise<void> {
       });
 
       let registered = 0;
+      let refiled = 0;
       for (const seed of TEMPLATE_CATALOG) {
+        const refusal = registerRefusal(seed);
+        if (refusal) {
+          logger.log(`${seed.slug}: skipped — ${refusal}`);
+          continue;
+        }
         // Registering is not idempotent and cannot be: the Share dialog shows
         // the listing form instead of the publish block once a listing exists,
         // and `submit` refuses a listing that is already public. Skipping is
         // the honest outcome — the alternative was a 30s selector timeout that
-        // named nothing.
+        // named nothing. The one change an existing listing does get is a
+        // drifted card (a re-filed category), applied in-process by
+        // `refileFor` / `refileOne` without touching the browser.
         const existing = await prisma.templateListing.findUnique({
           where: { documentId: seedDocumentId(seed.slug) },
         });
         if (existing && !reset) {
+          const plan = refileFor(existing, seed);
+          if (plan.action === 'refile') {
+            await refileOne(prisma, templates, authorId, existing, plan.drift);
+            refiled += 1;
+            logger.log(`${seed.slug}: card re-filed and re-approved`);
+            continue;
+          }
           logger.log(
-            `${seed.slug}: already listed (${existing.visibility}/${existing.status}) — skipping. Pass --reset to re-register.`,
+            plan.action === 'skip'
+              ? `${seed.slug}: skipped — ${plan.reason}`
+              : `${seed.slug}: already listed (${existing.visibility}/${existing.status}), card current — skipping. Pass --reset to re-register.`,
           );
           continue;
         }
@@ -255,8 +379,12 @@ async function main(): Promise<void> {
         // template all the way to `public` first means a failure costs the one
         // in flight; everything before it is already live.
         await registerOne(page, frontend, seed);
-        await assertListingState(prisma, page, seed, { status: 'pending' });
-        await approveOne(page, frontend, seed.title);
+        const pending = await assertListingState(prisma, page, seed, {
+          status: 'pending',
+        });
+        // By the id of the listing this run just published — never a title.
+        const approval = approvalFor(pending);
+        await templates.review(approval.id, authorId, approval.dto);
         await assertListingState(prisma, page, seed, {
           status: 'listed',
           visibility: 'public',
@@ -265,7 +393,9 @@ async function main(): Promise<void> {
         logger.log(`${seed.slug}: published, submitted and approved`);
       }
 
-      logger.log(`${registered} template(s) are public and listed.`);
+      logger.log(
+        `${registered} template(s) registered, ${refiled} re-filed; all are public and listed.`,
+      );
     } finally {
       await browser.close();
     }
@@ -327,7 +457,8 @@ async function registerOne(
   if (seed.category) {
     await page.click('#template-category');
     await page
-      .getByRole('option', { name: seed.category, exact: true })
+      // The picker shows labels, not slugs.
+      .getByRole('option', { name: categoryLabel(seed.category), exact: true })
       .click();
   }
   await page.fill('#template-tags', seed.tags.join(', '));
@@ -354,7 +485,7 @@ async function assertListingState(
   page: Page,
   seed: TemplateSeed,
   expected: { status: string; visibility?: string },
-): Promise<void> {
+): Promise<TemplateListing> {
   // Polled, not read once. A click returns as soon as the handler starts, and
   // the request behind it lands whenever it lands — an earlier version slept a
   // fixed 500ms instead and passed ten times, then failed on the first
@@ -373,7 +504,7 @@ async function assertListingState(
       listing.status === expected.status &&
       (!expected.visibility || listing.visibility === expected.visibility)
     ) {
-      return;
+      return listing;
     }
     if (Date.now() > deadline) break;
     await new Promise((r) => setTimeout(r, 250));
@@ -395,42 +526,36 @@ async function assertListingState(
 }
 
 /**
- * Approve one listing, by the title its queue row shows.
- *
- * Targeted rather than "approve everything pending" for two reasons. A
- * deployment's queue can hold a real user's submission, which this command has
- * no business deciding; and approving per template is what keeps a failure
- * bounded — see the call site.
+ * Apply a drifted card to an already-approved listing and re-approve it,
+ * in-process and by listing id. See {@link refileFor} for when this is
+ * allowed; the caller has already checked.
  */
-async function approveOne(
-  page: Page,
-  frontend: string,
-  title: string,
+async function refileOne(
+  prisma: PrismaService,
+  templates: TemplateService,
+  authorId: number,
+  existing: TemplateListing,
+  drift: ReturnType<typeof cardDrift>,
 ): Promise<void> {
-  await page.goto(`${frontend}/admin/templates`, {
-    waitUntil: 'domcontentloaded',
+  await templates.update(existing.id, authorId, drift);
+  const after = await prisma.templateListing.findUniqueOrThrow({
+    where: { id: existing.id },
   });
-  // The queue fetches after mount, so the page is briefly a spinner with no
-  // rows. Querying straight away found nothing and reported "approved 0" —
-  // wait for the heading the loaded page renders, whether or not it has rows.
-  await page.getByRole('heading', { name: 'Template review' }).waitFor({
-    timeout: 60_000,
-  });
-
-  const row = page.locator('li').filter({ hasText: title });
-  await row
-    .first()
-    .waitFor({ timeout: 30_000 })
-    .catch(() => {
-      throw new Error(
-        `"${title}" never appeared in the review queue. It was submitted, so ` +
-          'either the queue is filtered differently or the submission was ' +
-          'decided by someone else.',
-      );
-    });
-  await row.first().getByRole('button', { name: 'Approve' }).click();
-  // The caller polls for `public`/`listed`, which is the outcome this click is
-  // supposed to produce.
+  // A tags-only change is not a card change and leaves the listing listed.
+  if (after.status === 'listed' && after.visibility === 'public') return;
+  // The card went back to review. Re-approving is only an attestation to
+  // content a reviewer already approved while the watermark `refileFor`
+  // checked is still the current one; an edit since leaves it for a person.
+  if (
+    (after.contentChangedAt?.getTime() ?? null) !==
+    (existing.contentChangedAt?.getTime() ?? null)
+  ) {
+    throw new Error(
+      `listing ${existing.id}: its content changed while the card was re-filed; left pending for review`,
+    );
+  }
+  const approval = approvalFor(after);
+  await templates.review(approval.id, authorId, approval.dto);
 }
 
 if (require.main === module) {

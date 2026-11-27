@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { TemplateService } from './template.service';
 import * as reviewPolicy from './template-review';
 
@@ -34,14 +35,68 @@ const LISTING = {
   licensedAt: null,
   originId: null,
   publishedAt: new Date('2026-09-01T00:00:00Z'),
+  updatedAt: new Date('2026-09-01T00:00:00Z'),
   document: DOC,
   shareLink: { token: 'tok-1' },
   creator: { id: 7, username: 'author', photo: null },
 };
 
+/**
+ * The version a card write is conditioned on, as `TemplateService` builds it
+ * from the listing it read (`listingVersion`).
+ */
+function versionOf(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    updatedAt: row.updatedAt,
+    status: row.status,
+    visibility: row.visibility,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    thumbnailId: row.thumbnailId,
+  };
+}
+
+/**
+ * An `update` that behaves like Prisma's filtered unique where against the
+ * row as it is *now*: every condition must equal the current column, or it
+ * throws `P2025`, exactly as the real write would.
+ */
+function updateAgainst(current: Record<string, unknown>) {
+  return (args: {
+    where: Record<string, unknown>;
+    data: Record<string, unknown>;
+  }) => {
+    for (const [key, want] of Object.entries(args.where)) {
+      const have = current[key];
+      const same =
+        want instanceof Date && have instanceof Date
+          ? want.getTime() === have.getTime()
+          : want === have;
+      if (!same) {
+        return Promise.reject(
+          new Prisma.PrismaClientKnownRequestError(
+            'Record to update not found',
+            {
+              code: 'P2025',
+              clientVersion: 'test',
+            },
+          ),
+        );
+      }
+    }
+    Object.assign(current, args.data);
+    return Promise.resolve({ ...current });
+  };
+}
+
 /** The shape `publish()` hands Prisma, so the upsert mock needs no casts. */
 type ListingFields = Record<string, unknown>;
-type UpsertArgs = { create: ListingFields; update: ListingFields };
+type UpsertArgs = {
+  where: ListingFields;
+  create: ListingFields;
+  update: ListingFields;
+};
 type UpdateArgs = { where: { id: string }; data: ListingFields };
 type UpsertReportArgs = {
   where: ListingFields;
@@ -350,7 +405,7 @@ describe('TemplateService.publish', () => {
         ...LISTING,
         title: 'Renamed',
         description: 'why',
-        category: 'Finance',
+        category: 'finance',
         tags: ['ops'],
       },
     });
@@ -359,7 +414,7 @@ describe('TemplateService.publish', () => {
       {
         title: 'Renamed',
         description: 'why',
-        category: 'Finance',
+        category: 'finance',
         tags: ['ops'],
         thumbnailId: 'a.png',
       },
@@ -478,6 +533,34 @@ describe('TemplateService.browse', () => {
     expect(
       prisma.templateListing.findMany.mock.calls[0][0].where,
     ).toMatchObject({ document: { workspaceId: 'ws-1' } });
+  });
+
+  it('expands a top category to its leaves', async () => {
+    // `design` is a facet over `design/*`: a card filed under its precise
+    // leaf must still show up when the visitor picks the top.
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'design' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({
+      category: { in: ['design', 'design/design-review', 'design/moodboard'] },
+    });
+  });
+
+  it('matches a leaf category exactly', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'work/meeting' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ category: { in: ['work/meeting'] } });
+  });
+
+  it('still filters on a v1 label, through its alias', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', category: 'Project management' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ category: { in: ['work/project-tracker'] } });
   });
 
   it('has no scope that selects unlisted listings', async () => {
@@ -632,16 +715,111 @@ describe('TemplateService.update', () => {
 
   it('lets a manager edit listing metadata', async () => {
     const { service, prisma } = makeService();
-    await service.update('tpl-1', 7, { title: 'Renamed', category: 'Finance' });
+    await service.update('tpl-1', 7, { title: 'Renamed', category: 'finance' });
     expect(prisma.templateListing.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'tpl-1' },
+        // A card edit lands only on the version it was validated against.
+        where: { id: 'tpl-1', ...versionOf(LISTING) },
         data: expect.objectContaining({
           title: 'Renamed',
-          category: 'Finance',
+          category: 'finance',
         }) as unknown,
       }),
     );
+  });
+
+  it('does not condition a tags-only edit on the status', async () => {
+    // Tags may change under review, so a concurrent submission is no reason
+    // to refuse one.
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { tags: ['budget'] });
+    expect(prisma.templateListing.update.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+    });
+  });
+
+  it('conditions a card write that restates the read value too', async () => {
+    // A same-value field is still written: against a stale read it would
+    // overwrite whatever the card says now.
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { title: LISTING.title });
+    expect(prisma.templateListing.update.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      ...versionOf(LISTING),
+    });
+  });
+
+  it('lets a same-value card write through when nothing changed in between', async () => {
+    const { service, prisma } = makeService();
+    const current = { ...LISTING };
+    prisma.templateListing.update.mockImplementation(
+      updateAgainst(current) as never,
+    );
+    await service.update('tpl-1', 7, { title: LISTING.title });
+    expect(current.title).toBe(LISTING.title);
+  });
+
+  it('refuses a stale same-value title over a card sync changed and submitted', async () => {
+    // Interleaving 1: the request read title A and sends `{ title: 'A' }`.
+    // Before it writes, sync changes the title to B, submits, and checks the
+    // frozen card. Matched by id alone, the late write would put A back and
+    // approval would publish it.
+    const { service, prisma } = makeService();
+    const current = {
+      ...LISTING,
+      title: 'B',
+      status: 'pending',
+      updatedAt: new Date('2026-09-01T00:00:05Z'),
+    };
+    prisma.templateListing.update.mockImplementation(
+      updateAgainst(current) as never,
+    );
+    await expect(
+      service.update('tpl-1', 7, { title: LISTING.title }),
+    ).rejects.toThrow(/changed while you were editing/);
+    expect(current.title).toBe('B');
+  });
+
+  it('refuses a card edit read unlisted and written after it was approved', async () => {
+    // Interleaving 2: the request read an unlisted `listed` card. Sync then
+    // submits and approves, so the status is `listed` again and a status
+    // condition still matches — while `cardReviewReset`, acting on the stale
+    // unlisted read, would leave the changed public card out of review.
+    const { service, prisma } = makeService();
+    const current = {
+      ...LISTING,
+      visibility: 'public',
+      status: 'listed',
+      updatedAt: new Date('2026-09-01T00:00:09Z'),
+    };
+    prisma.templateListing.update.mockImplementation(
+      updateAgainst(current) as never,
+    );
+    await expect(
+      service.update('tpl-1', 7, { title: 'Changed' }),
+    ).rejects.toThrow(/changed while you were editing/);
+    expect(current).toMatchObject({
+      title: LISTING.title,
+      visibility: 'public',
+      status: 'listed',
+    });
+  });
+
+  it('refuses a card edit whose listing was submitted after it was read', async () => {
+    // The race: `update()` reads `listed` and passes `assertCardEditable`, a
+    // submission then freezes the card (and sync checks it), and only then
+    // does the title write run. Conditioned on the status read, it matches
+    // no row, so the frozen card is not swapped under the reviewer.
+    const { service, prisma } = makeService();
+    prisma.templateListing.update.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Record to update not found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      }),
+    );
+    await expect(
+      service.update('tpl-1', 7, { title: 'Swapped in' }),
+    ).rejects.toThrow(/changed while you were editing/);
   });
 
   it('leaves fields the body omits untouched', async () => {
@@ -1090,6 +1268,28 @@ describe('TemplateService.submit', () => {
     expect(data).not.toHaveProperty('visibility');
   });
 
+  it('notifies the reviewers unless an in-process caller asks for quiet', async () => {
+    // `quiet` is an argument, not a DTO field: `sync:templates` decides its
+    // own submissions in the same run, and a request body cannot reach it.
+    openPublicTier();
+    const loud = makeService();
+    await loud.service.submit('tpl-1', 7, { acceptLicense: true });
+    expect(
+      loud.notificationService.createTemplateReviewQueued,
+    ).toHaveBeenCalledTimes(1);
+
+    const quiet = makeService();
+    await quiet.service.submit(
+      'tpl-1',
+      7,
+      { acceptLicense: true },
+      { quiet: true },
+    );
+    expect(
+      quiet.notificationService.createTemplateReviewQueued,
+    ).not.toHaveBeenCalled();
+  });
+
   it('requires the license grant', async () => {
     openPublicTier();
     const { service } = makeService();
@@ -1316,6 +1516,30 @@ describe('publish preserves the review state', () => {
     expect(update.status).toBe('pending');
   });
 
+  it('conditions a republish on the version it validated against', async () => {
+    const { service, prisma } = makeService();
+    await service.publish('doc-1', 7, { title: 'Renamed' });
+    expect(prisma.templateListing.upsert.mock.calls[0][0].where).toEqual({
+      documentId: 'doc-1',
+      ...versionOf(LISTING),
+    });
+  });
+
+  it('refuses a republish whose listing was submitted after it was read', async () => {
+    // The filtered lookup misses, the upsert falls through to its create,
+    // and the create collides on the unique documentId.
+    const { service, prisma } = makeService();
+    prisma.templateListing.upsert.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    await expect(
+      service.publish('doc-1', 7, { title: 'Swapped in' }),
+    ).rejects.toThrow(/changed while you were editing/);
+  });
+
   it('defaults a first publish to listed', async () => {
     const { service, prisma } = makeService({ listing: null });
     await service.publish('doc-1', 7, {});
@@ -1525,6 +1749,87 @@ describe('public-tier preconditions and the review window', () => {
     expect(
       prisma.templateListing.updateMany.mock.calls[0][0].data,
     ).toMatchObject({ reviewedContentAt: contentAt });
+  });
+
+  it('notifies the allowlist of a pending listing a quiet submit left behind', async () => {
+    openPublicTier();
+    const { service, notificationService } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await service.notifyReviewQueued('tpl-1', 7);
+    expect(
+      notificationService.createTemplateReviewQueued,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies nobody once the listing is no longer pending', async () => {
+    openPublicTier();
+    const { service, notificationService } = makeService({
+      listing: { ...LISTING, status: 'listed' },
+    });
+    await service.notifyReviewQueued('tpl-1', 7);
+    expect(
+      notificationService.createTemplateReviewQueued,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('assertCanManage refuses a non-manager', async () => {
+    const { service } = makeService({ members: {} });
+    await expect(service.assertCanManage('doc-1', 999)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('conditions the approval write on the watermark it checked', async () => {
+    // An edit's event landing between the pre-read and the write moves
+    // `contentChangedAt` but not `status`. Without the watermark in the WHERE
+    // the approval would still match and record a stale `reviewedContentAt`
+    // on a public row: hidden, out of the queue, decided by nobody.
+    openPublicTier();
+    const contentAt = new Date('2026-09-02T12:00:00Z');
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending', contentChangedAt: contentAt },
+    });
+    await service.review('tpl-1', 99, {
+      decision: 'approve',
+      contentAt: contentAt.toISOString(),
+    });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      status: 'pending',
+      contentChangedAt: contentAt,
+    });
+  });
+
+  it('answers 409 when the watermark moved under the approval', async () => {
+    openPublicTier();
+    const contentAt = new Date('2026-09-02T12:00:00Z');
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending', contentChangedAt: contentAt },
+      staleWrite: true,
+    });
+    await expect(
+      service.review('tpl-1', 99, {
+        decision: 'approve',
+        contentAt: contentAt.toISOString(),
+      }),
+    ).rejects.toThrow(/its content changed/);
+  });
+
+  it('does not condition a takedown on the watermark', async () => {
+    const { service, prisma } = makeService({
+      listing: {
+        ...LISTING,
+        visibility: 'public',
+        status: 'listed',
+        contentChangedAt: new Date('2026-09-02T12:00:00Z'),
+      },
+    });
+    await service.review('tpl-1', 99, { decision: 'takedown' });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      status: 'listed',
+    });
   });
 
   it('hides a public listing whose content moved past its approval', async () => {

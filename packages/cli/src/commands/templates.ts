@@ -75,7 +75,10 @@ export function registerTemplatesCommand(program: Command) {
       'workspace',
     )
     .option('--type <type>', 'Document type facet (sheet|doc|slides|note|board)')
-    .option('--category <category>', 'Category facet')
+    .option(
+      '--category <category>',
+      'Category slug; a top also matches its leaves',
+    )
     .option('--tag <tag>', 'Tag facet (a single tag)')
     .option('--query <text>', 'Free text over title, description, and tags')
     .option('--sort <sort>', 'popular or recent')
@@ -122,7 +125,10 @@ export function registerTemplatesCommand(program: Command) {
     .description('Publish (or re-publish) a document as a template')
     .option('--title <title>', 'Listing title (default: the document title)')
     .option('--description <text>', 'Listing description')
-    .option('--category <category>', 'Category (one of the closed taxonomy)')
+    .option(
+      '--category <category>',
+      'A category slug: a top (work, finance, education, marketing, people, personal, design, other) or top/leaf, e.g. work/meeting',
+    )
     .option('--tag <tag>', 'Add a tag (repeatable)', collectTag)
     .option(
       '--visibility <visibility>',

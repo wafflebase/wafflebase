@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Work-oriented slide templates for the gallery, authored natively against the
@@ -9,12 +9,12 @@ import type { TemplateSeed } from '../types';
  * repository — see `README.md` for the licensing rule.
  */
 
-export const devDesignReview: TemplateSeed = {
+const devDesignReview: TemplateSeed = {
   slug: 'dev-design-review',
   title: 'Design Review (Engineering)',
   description:
     'A structure for reviewing an engineering design: the problem, the goals, the proposed approach, the alternatives considered, and the decision that is actually needed.',
-  category: 'Business',
+  category: 'design/design-review',
   tags: ['deck', 'engineering', 'design-doc'],
   content: {
     kind: 'slides',
@@ -80,12 +80,12 @@ export const devDesignReview: TemplateSeed = {
   },
 };
 
-export const projectProposal: TemplateSeed = {
+const projectProposal: TemplateSeed = {
   slug: 'project-proposal',
   title: 'Project Proposal',
   description:
     'A concise case for starting a project: the problem, the proposed solution, what is in and out of scope, the plan, the cost, and the ask.',
-  category: 'Project management',
+  category: 'work/pitch-proposal',
   tags: ['deck', 'proposal', 'planning'],
   content: {
     kind: 'slides',
@@ -153,12 +153,12 @@ export const projectProposal: TemplateSeed = {
   },
 };
 
-export const allHandsUpdate: TemplateSeed = {
+const allHandsUpdate: TemplateSeed = {
   slug: 'all-hands-update',
   title: 'All-Hands Update',
   description:
     'A short company or team update for an all-hands: where we are, the highlights, the headline metric, what comes next, and a thank-you.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'allhands', 'update'],
   content: {
     kind: 'slides',
@@ -206,12 +206,12 @@ export const allHandsUpdate: TemplateSeed = {
   },
 };
 
-export const caseStudy: TemplateSeed = {
+const caseStudy: TemplateSeed = {
   slug: 'case-study',
   title: 'Case Study',
   description:
     'A before-and-after story of a customer engagement: the challenge, the approach, the results, and the lessons worth reusing.',
-  category: 'Business',
+  category: 'marketing/brand-press',
   tags: ['deck', 'case-study'],
   content: {
     kind: 'slides',
@@ -267,12 +267,12 @@ export const caseStudy: TemplateSeed = {
   },
 };
 
-export const customerOnboardingReview: TemplateSeed = {
+const customerOnboardingReview: TemplateSeed = {
   slug: 'customer-onboarding-review',
   title: 'Customer Onboarding Review',
   description:
     'A review of how new customers get started, built from interviews and funnel data: what we heard, where onboarding stalls, and what we will change first.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'customer-research', 'onboarding'],
   content: {
     kind: 'slides',
@@ -341,3 +341,12 @@ export const customerOnboardingReview: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  devDesignReview,
+  projectProposal,
+  allHandsUpdate,
+  caseStudy,
+  customerOnboardingReview,
+];

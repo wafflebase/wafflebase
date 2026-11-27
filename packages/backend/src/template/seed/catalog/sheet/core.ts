@@ -1,6 +1,6 @@
 import type { Cell, CellStyle } from '@wafflebase/sheets';
-import { cell, formula, money, moneyFormula, rows } from '../builders';
-import type { TemplateSeed } from '../types';
+import { cell, formula, money, moneyFormula, rows } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /*
  * One visual grammar for every sheet in this file, so the seven templates
@@ -44,12 +44,12 @@ const label = (v: string): Cell => cell(v, { tc: NOTE_TC });
 /** Guidance text. */
 const note = (v: string): Cell => cell(v, { i: true, tc: NOTE_TC });
 
-export const monthlyBudgetTracker: TemplateSeed = {
+const monthlyBudgetTracker: TemplateSeed = {
   slug: 'monthly-budget-tracker',
   title: 'Monthly Budget Tracker',
   description:
     'Track planned against actual spending by category, with the variance calculated for you. Replace the sample rows and the totals follow.',
-  category: 'Finance',
+  category: 'finance/budget',
   tags: ['budget', 'personal', 'formulas'],
   content: {
     kind: 'sheet',
@@ -78,12 +78,12 @@ export const monthlyBudgetTracker: TemplateSeed = {
   },
 };
 
-export const sprintTaskTracker: TemplateSeed = {
+const sprintTaskTracker: TemplateSeed = {
   slug: 'sprint-task-tracker',
   title: 'Sprint Task Tracker',
   description:
     'One row per task: owner, status, estimate and actual. The summary counts each status for you, so standup reads off the sheet.',
-  category: 'Project management',
+  category: 'work/project-tracker',
   tags: ['sprint', 'agile', 'tracker'],
   content: {
     kind: 'sheet',
@@ -169,12 +169,12 @@ export const sprintTaskTracker: TemplateSeed = {
   },
 };
 
-export const contentCalendar: TemplateSeed = {
+const contentCalendar: TemplateSeed = {
   slug: 'content-calendar',
   title: 'Content Calendar',
   description:
     'Plan posts across channels: what publishes when, who writes it, where it goes, and whether it actually shipped.',
-  category: 'Marketing',
+  category: 'marketing/content-calendar',
   tags: ['content', 'calendar', 'planning'],
   content: {
     kind: 'sheet',
@@ -236,12 +236,12 @@ export const contentCalendar: TemplateSeed = {
   },
 };
 
-export const invoice: TemplateSeed = {
+const invoice: TemplateSeed = {
   slug: 'invoice',
   title: 'Invoice',
   description:
     'A single-page invoice: your details, their details, line items, and a total that adds tax for you.',
-  category: 'Finance',
+  category: 'finance/invoice-quote',
   tags: ['invoice', 'billing', 'freelance'],
   content: {
     kind: 'sheet',
@@ -320,12 +320,12 @@ const pct = (f: string, v: string) => formula(f, v, { nf: 'percent' });
 /** A derived figure read beside the table rather than as part of it. */
 const aside = (c: Cell): Cell => styled(c, { i: true, tc: NOTE_TC });
 
-export const regionalSalesReport: TemplateSeed = {
+const regionalSalesReport: TemplateSeed = {
   slug: 'regional-sales-report',
   title: 'Regional Sales Report',
   description:
     'Compare revenue by region across the four quarters, with year totals, each region’s share and quarter-on-quarter change worked out for you.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['sales', 'quarterly', 'report', 'formulas'],
   content: {
     kind: 'sheet',
@@ -414,12 +414,12 @@ export const regionalSalesReport: TemplateSeed = {
   },
 };
 
-export const teamDirectory: TemplateSeed = {
+const teamDirectory: TemplateSeed = {
   slug: 'team-directory',
   title: 'Team Directory',
   description:
     'Keep everyone’s role, team, contact details and time zone in one shared list that new joiners can read on day one.',
-  category: 'Business',
+  category: 'people/directory-org',
   tags: ['team', 'contacts', 'directory', 'onboarding'],
   content: {
     kind: 'sheet',
@@ -476,12 +476,12 @@ export const teamDirectory: TemplateSeed = {
   },
 };
 
-export const sharedExpenseSplitter: TemplateSeed = {
+const sharedExpenseSplitter: TemplateSeed = {
   slug: 'shared-expense-splitter',
   title: 'Shared Expense Splitter',
   description:
     'Log what each flatmate paid for the household and see who is owed and who owes, with every cost split evenly for you.',
-  category: 'Personal',
+  category: 'personal/personal-finance',
   tags: ['household', 'flatmates', 'split', 'formulas'],
   content: {
     kind: 'sheet',
@@ -586,3 +586,14 @@ export const sharedExpenseSplitter: TemplateSeed = {
     },
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  monthlyBudgetTracker,
+  sprintTaskTracker,
+  contentCalendar,
+  invoice,
+  regionalSalesReport,
+  teamDirectory,
+  sharedExpenseSplitter,
+];

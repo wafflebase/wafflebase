@@ -112,3 +112,19 @@ describe("TemplateGallery initial type facet", () => {
     expect(vi.mocked(browseTemplates).mock.calls[0][0]).not.toHaveProperty("type");
   });
 });
+
+describe("TemplateGallery category", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows a card's category by its label, not its slug", async () => {
+    vi.mocked(browseTemplates).mockResolvedValue({
+      items: [{ ...CARD, category: "work/meeting" }],
+      nextCursor: null,
+    });
+    renderGallery();
+    await waitFor(() => expect(screen.getByText("Meeting & 1:1")).toBeTruthy());
+    expect(screen.queryByText("work/meeting")).toBeNull();
+  });
+});

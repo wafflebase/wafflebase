@@ -1,5 +1,5 @@
-import { themedDeck } from '../builders';
-import type { TemplateSeed } from '../types';
+import { themedDeck } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
 /**
  * Education-focused slide templates for the gallery, authored natively against
@@ -9,12 +9,12 @@ import type { TemplateSeed } from '../types';
  * this repository — see `README.md` for the licensing rule.
  */
 
-export const seminarDeck: TemplateSeed = {
+const seminarDeck: TemplateSeed = {
   slug: 'seminar-deck',
   title: 'Seminar Deck',
   description:
     'A clear structure for a seminar or talk: the topic, the background it rests on, the core content, and a close that invites questions.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'seminar', 'talk'],
   content: {
     kind: 'slides',
@@ -63,12 +63,12 @@ export const seminarDeck: TemplateSeed = {
   },
 };
 
-export const universityLecture: TemplateSeed = {
+const universityLecture: TemplateSeed = {
   slug: 'university-lecture',
   title: 'University Lecture',
   description:
     'A lecture that moves from objectives to a concept, works an example, contrasts mistakes with the right approach, and points to further reading.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'lecture', 'academic'],
   content: {
     kind: 'slides',
@@ -132,12 +132,12 @@ export const universityLecture: TemplateSeed = {
   },
 };
 
-export const studentPresentation: TemplateSeed = {
+const studentPresentation: TemplateSeed = {
   slug: 'student-presentation',
   title: 'Student Presentation',
   description:
     'A simple frame for a class or assignment presentation: the topic and question, what you did, the numbers, and what you learned.',
-  category: 'Education',
+  category: 'education/study-notes',
   tags: ['deck', 'student', 'assignment'],
   content: {
     kind: 'slides',
@@ -185,12 +185,12 @@ export const studentPresentation: TemplateSeed = {
   },
 };
 
-export const workshopTraining: TemplateSeed = {
+const workshopTraining: TemplateSeed = {
   slug: 'workshop-training',
   title: 'Workshop / Training',
   description:
     'A hands-on session that sets what people will learn, walks the agenda, moves into practice step by step, and wraps up with resources.',
-  category: 'Education',
+  category: 'education/lesson-lecture',
   tags: ['deck', 'workshop', 'training'],
   content: {
     kind: 'slides',
@@ -251,3 +251,11 @@ export const workshopTraining: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [
+  seminarDeck,
+  universityLecture,
+  studentPresentation,
+  workshopTraining,
+];

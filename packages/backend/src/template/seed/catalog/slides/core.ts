@@ -1,12 +1,12 @@
-import { deck, slide } from '../builders';
-import type { TemplateSeed } from '../types';
+import { deck, slide } from '../../builders';
+import type { TemplateSeed } from '../../types';
 
-export const weeklyBusinessReview: TemplateSeed = {
+const weeklyBusinessReview: TemplateSeed = {
   slug: 'weekly-business-review',
   title: 'Weekly Business Review',
   description:
     'A standing agenda for the Monday leadership sync: last week’s numbers, what moved, what is at risk, and what each owner is doing about it.',
-  category: 'Business',
+  category: 'work/report-review',
   tags: ['deck', 'meeting', 'metrics'],
   content: {
     kind: 'slides',
@@ -66,12 +66,12 @@ export const weeklyBusinessReview: TemplateSeed = {
   },
 };
 
-export const projectKickoff: TemplateSeed = {
+const projectKickoff: TemplateSeed = {
   slug: 'project-kickoff',
   title: 'Project Kickoff',
   description:
     'Everything a kickoff has to settle before work starts: the problem, what is in and out of scope, who owns what, the plan, and the risks nobody has named yet.',
-  category: 'Project management',
+  category: 'work/plan-roadmap',
   tags: ['deck', 'kickoff', 'planning'],
   content: {
     kind: 'slides',
@@ -130,3 +130,6 @@ export const projectKickoff: TemplateSeed = {
     ]),
   },
 };
+
+/** This file's templates, in gallery order — `../index.ts` concatenates them. */
+export const seeds: TemplateSeed[] = [weeklyBusinessReview, projectKickoff];

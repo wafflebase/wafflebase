@@ -28,7 +28,10 @@
     "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts",
     "migrate:yorkie:cf-ranges": "tsx scripts/migrate-yorkie-cf-ranges.ts",
     "register:templates": "node dist/template/seed/register-templates.js",
-    "register:templates:build": "nest build && node dist/template/seed/register-templates.js"
+    "register:templates:build": "nest build && node dist/template/seed/register-templates.js",
+    "sync:templates": "node dist/template/seed/sync-templates.js",
+    "sync:templates:build": "nest build && node dist/template/seed/sync-templates.js",
+    "template:dump": "tsx src/template/seed/template-dump.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1028.0",

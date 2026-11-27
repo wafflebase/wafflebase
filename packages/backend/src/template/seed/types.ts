@@ -1,5 +1,5 @@
 import type { Cell } from '@wafflebase/sheets';
-import type { TemplateCategory } from '../template-taxonomy';
+import type { TemplateCategorySlug } from '../template-taxonomy';
 import type { NoteDocument } from '../../yorkie/note-content';
 import type { DocsDocument, SlidesDocument } from '../../yorkie/yorkie.types';
 import type { BoardRoot } from './board';
@@ -51,10 +51,11 @@ export interface TemplateSeed {
   title: string;
   description: string;
   /**
-   * Typed against the same closed list the DTO validates, so a typo is a
-   * compile error rather than a `400` half-way through a seed run.
+   * A taxonomy slug — `top/leaf`, the most precise leaf that fits. Typed
+   * against the same closed list the DTO validates, so a typo or a v1 label
+   * is a compile error rather than a `400` half-way through a seed run.
    */
-  category: TemplateCategory;
+  category: TemplateCategorySlug;
   tags: string[];
   content: SeedContent;
 }

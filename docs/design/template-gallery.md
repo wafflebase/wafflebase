@@ -981,19 +981,18 @@ other failure.
 
 A new deployment's gallery is empty, and there is no way to fill it from
 outside a browser: publishing is JWT-only and the CLI has no `templates`
-namespace. Two operator commands close that, and the split between them falls
-out of the thumbnail rule above.
+namespace. Operator commands close that.
 
 `pnpm backend seed:templates` creates the documents and writes their content,
 using the writers the v1 content endpoints already use. It **does not publish
-them**. `pnpm backend register:templates` drives the real Share dialog with
-Playwright — publish, category, tags, submit — and then the reviewer queue.
+them**. `pnpm backend template:dump` and `pnpm frontend render:thumbnails`
+render each seed's thumbnail offline with the editors' own model-driven
+renderers, and `pnpm backend sync:templates` publishes, updates and approves
+the listings in-process through `TemplateService`
+([template-catalog-scaling.md](template-catalog-scaling.md) §3).
 
-Registering through the UI rather than through `TemplateService` is not
-ceremony. The picture is taken by whichever editor is mounted at publish time,
-so a headless publish produces a listing with no thumbnail; and the ordering
-the UI happens to take is the *only* one the review rules permit, because
-`thumbnailId` is a `CARD_FIELD`:
+The ordering the review rules permit still decides when the thumbnail is
+attached, because `thumbnailId` is a `CARD_FIELD`:
 
 | When the thumbnail is attached | What happens |
 | --- | --- |
@@ -1001,9 +1000,21 @@ the UI happens to take is the *only* one the review rules permit, because
 | while `pending` | `assertCardEditable` refuses it outright |
 | after publish, before submit | accepted; neither guard applies |
 
-Keeping a service-level publish path beside the UI one was rejected for the
-reason `publish()` itself gives: it would be a second, unguarded way to swap an
-approved gallery card.
+`sync:templates` passes it into `publish()` itself, and a changed thumbnail
+goes through `update()`, which returns an approved listing to review like any
+other card edit.
+
+Until the Phase 2 offline renderers land there are **two** publishing commands:
+`sync:templates` for slides and note seeds, and the earlier Playwright command
+`register:templates` — kept, restricted to sheet, doc and board seeds, and
+deleted once those types render offline. It drives the real Share dialog
+because the only thumbnail renderers for those types still live inside the
+mounted editors. A service-level publish path was rejected at the time as
+"a second, unguarded way to swap an approved gallery card"; that rejection
+still holds for any **network-reachable** path. It does not hold for an
+in-process operator command that calls only the guarded `publish` / `update` /
+`submit` / `review` methods — the guards live in those methods, not in the
+dialog — and that writes no `TemplateListing` column itself.
 
 The catalogue lives in `packages/backend/src/template/seed/catalog/` as
 TypeScript rather than JSON or binaries, so it typechecks against the real
@@ -1015,9 +1026,10 @@ from them may be seeded.
 
 Operational preconditions, and the one ordering trap, are in
 [`packages/backend/README.md`](../../packages/backend/README.md) — in
-particular that `register:templates` requires the Yorkie auth webhook to be
-enforced while `seed:templates` writes with a tokenless Yorkie client, so the
-documents must be seeded before those webhook methods are registered.
+particular that `sync:templates` requires the Yorkie auth webhook to be
+enforced, while `seed:templates` needs no such ordering: it writes through
+`YorkieService`, which authenticates to the webhook as this backend
+(`src/yorkie/yorkie-service-token.ts`).
 
 ### Returning a visitor after login
 
@@ -1080,11 +1092,16 @@ fields rather than special:
 
 ### Taxonomy
 
-Facets are only useful if the values are closed. `category` becomes a fixed list
-shared between backend validation and the frontend picker (roughly: Business,
-Education, Personal, Project management, Finance, Marketing, Design, Other) —
-a constant, not a table, because it changes at release cadence and a table would
-invite per-workspace divergence that the public gallery could not merge. `tags`
+Facets are only useful if the values are closed. `category` is a fixed list
+shared between backend validation and the frontend picker — a constant, not a
+table, because it changes at release cadence and a table would invite
+per-workspace divergence that the public gallery could not merge. It shipped as
+eight flat labels (Business, Education, Personal, Project management, Finance,
+Marketing, Design, Other) and is now a two-level slug tree (`work`,
+`work/meeting`, …) in `@wafflebase/core/templates`, where browsing a top also
+matches its leaves and the old labels are browse-only aliases for one release;
+see [template-catalog-scaling.md](template-catalog-scaling.md) §1 "Taxonomy
+v2" for the tree and the label → slug data migration. `tags`
 stay freeform but are normalized on write (trimmed, lowercased, de-duplicated,
 max 10), so `Budget`, `budget ` and `budget` are one facet.
 
@@ -1105,7 +1122,7 @@ the option is a decision rather than an oversight.
 #### Briefs are authoring guidance, not slots
 
 The seed catalogue's slides templates each carry a `TemplateBrief`
-(`catalog/brief.ts`, `catalog/briefs*.ts`): a list of the values an agent should
+(`catalog/brief.ts`, `catalog/slides/*.briefs.ts`): a list of the values an agent should
 ask a user for — team, quarter, three wins, action/owner pairs — before it
 writes a deck from that template. That looks like the parameterization declined
 above, and it is deliberately not:

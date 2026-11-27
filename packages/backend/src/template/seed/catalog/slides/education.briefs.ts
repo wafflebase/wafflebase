@@ -1,12 +1,12 @@
-import type { TemplateBrief } from './brief';
+import type { TemplateBrief } from '../brief';
 
 /**
  * Authoring briefs for the education templates: what an author should collect
  * from a user before writing a deck from the template with the same `slug` in
- * `slides-education.ts`. Guidance only — see `brief.ts`.
+ * `education.ts`. Guidance only — see `brief.ts`.
  */
 
-export const seminarDeckBrief: TemplateBrief = {
+const seminarDeckBrief: TemplateBrief = {
   slug: 'seminar-deck',
   summary: 'A seminar or talk: the topic, its core content, and the key takeaways.',
   fields: [
@@ -18,7 +18,7 @@ export const seminarDeckBrief: TemplateBrief = {
   ],
 };
 
-export const universityLectureBrief: TemplateBrief = {
+const universityLectureBrief: TemplateBrief = {
   slug: 'university-lecture',
   summary: 'A lecture: objectives, a core concept, a worked example, mistakes vs the right approach.',
   fields: [
@@ -34,7 +34,7 @@ export const universityLectureBrief: TemplateBrief = {
   ],
 };
 
-export const studentPresentationBrief: TemplateBrief = {
+const studentPresentationBrief: TemplateBrief = {
   slug: 'student-presentation',
   summary: 'A class or assignment presentation: topic and question, what you did, the result, what you learned.',
   fields: [
@@ -48,7 +48,7 @@ export const studentPresentationBrief: TemplateBrief = {
   ],
 };
 
-export const workshopTrainingBrief: TemplateBrief = {
+const workshopTrainingBrief: TemplateBrief = {
   slug: 'workshop-training',
   summary: 'A hands-on session: what people will learn, the agenda, step-by-step practice, and a wrap-up.',
   fields: [
@@ -61,3 +61,11 @@ export const workshopTrainingBrief: TemplateBrief = {
     { key: 'resources', label: 'Resources link', type: 'text', example: 'github.com/ssil/workshop' },
   ],
 };
+
+/** This file's briefs, in the order `../briefs.ts` lists them. */
+export const briefs: TemplateBrief[] = [
+  seminarDeckBrief,
+  universityLectureBrief,
+  studentPresentationBrief,
+  workshopTrainingBrief,
+];

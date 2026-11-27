@@ -27,6 +27,12 @@
       "require": "./dist/cjs/image/index.js",
       "default": "./dist/image/index.js"
     },
+    "./templates": {
+      "types": "./dist/templates/index.d.ts",
+      "import": "./dist/templates/index.js",
+      "require": "./dist/cjs/templates/index.js",
+      "default": "./dist/templates/index.js"
+    },
     "./tokens": {
       "types": "./dist/tokens/index.d.ts",
       "import": "./dist/tokens/index.js",

@@ -4,7 +4,7 @@ import {
   assertValidSlidesBody,
 } from '../../api/v1/docs-content.controller';
 import { TEMPLATE_CATALOG } from './catalog';
-import { seedDocumentId } from './seed-templates';
+import { expectedRootHash, seedDocumentId } from './seed-templates';
 
 /**
  * The catalogue's contract with the rest of the product.
@@ -23,7 +23,7 @@ import {
   parseRef,
   replaceWorksheetCells,
 } from '@wafflebase/sheets';
-import { TEMPLATE_CATEGORIES } from '../template-taxonomy';
+import { ALL_CATEGORY_SLUGS } from '../template-taxonomy';
 
 describe('template seed catalogue', () => {
   it('is not empty', () => {
@@ -33,6 +33,69 @@ describe('template seed catalogue', () => {
   it('has unique slugs', () => {
     const slugs = TEMPLATE_CATALOG.map((s) => s.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
+  // A slug is the seed's identity (it derives the document id below), so the
+  // shape is fixed once, here, rather than left to taste: lower kebab case, a
+  // `.ko` suffix for a Korean variant, short enough to read in a URL.
+  it.each(TEMPLATE_CATALOG.map((s) => [s.slug] as const))(
+    'slug %s is lower kebab case, at most 48 characters',
+    (slug) => {
+      expect(slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*(\.ko)?$/);
+      expect(slug.length).toBeLessThanOrEqual(48);
+    },
+  );
+
+  // The catalogue's order as it stood when registration moved to one import
+  // per file. Nothing listed here may be renamed, dropped or reordered — a
+  // re-run finds each document by its slug — but a new template may land
+  // anywhere, including in the middle of an existing family's file, so this
+  // pins the listed slugs' *relative* order rather than a prefix.
+  it('keeps the existing templates in their order', () => {
+    const pinned = [
+      'weekly-business-review',
+      'project-kickoff',
+      'sprint-retrospective',
+      'okr-review',
+      'product-launch-plan',
+      'tech-talk-paper-study',
+      'product-roadmap',
+      'seminar-deck',
+      'university-lecture',
+      'student-presentation',
+      'workshop-training',
+      'dev-design-review',
+      'project-proposal',
+      'all-hands-update',
+      'case-study',
+      'customer-onboarding-review',
+      'marketing-campaign',
+      'brand-pitch',
+      'equity-analysis',
+      'design-review-ux',
+      'monthly-budget-tracker',
+      'sprint-task-tracker',
+      'content-calendar',
+      'invoice',
+      'regional-sales-report',
+      'team-directory',
+      'shared-expense-splitter',
+      'product-requirements-doc',
+      'meeting-notes',
+      'partner-newsletter',
+      'vendor-onboarding',
+      'weekly-one-on-one',
+      'site-visit-notes',
+      'retrospective-board',
+      'board-retro-start-stop-continue',
+      'board-brainstorm-affinity-map',
+      'board-weekly-team-sync',
+      'board-pricing-workshop',
+    ];
+    const kept = new Set(pinned);
+    expect(
+      TEMPLATE_CATALOG.map((s) => s.slug).filter((slug) => kept.has(slug)),
+    ).toEqual(pinned);
   });
 
   it('maps every slug to a distinct, stable document id', () => {
@@ -58,7 +121,11 @@ describe('template seed catalogue', () => {
     (_slug, seed) => {
       expect(seed.title.trim()).not.toBe('');
       expect(seed.description.trim()).not.toBe('');
-      expect(TEMPLATE_CATEGORIES).toContain(seed.category);
+      expect(ALL_CATEGORY_SLUGS).toContain(seed.category);
+      // Seeds are filed under their most precise leaf, never a bare top: a
+      // top is the fallback for a listing that fits no leaf, and the catalog
+      // is authored to fit.
+      expect(seed.category).toContain('/');
       expect(seed.tags.length).toBeGreaterThan(0);
       for (const tag of seed.tags) expect(tag.trim()).not.toBe('');
     },
@@ -327,4 +394,26 @@ describe('template seed catalogue', () => {
       expect(new Set(ids).size).toBe(ids.length);
     }
   });
+
+  // `writeContent` refuses a write that does not match the catalogue from
+  // *inside* the `doc.update` building it, reading the half-built root: that
+  // is the only point at which a refusal actually withholds the change, since
+  // `withDocument` detaches unconditionally and a Yorkie detach ships the
+  // document's pending change pack. Reading the half-built root stands in for
+  // the committed one only while the two hash the same, which
+  // `expectedRootHash` computes both of and refuses the seed over. Running it
+  // across the catalogue is what turns that into a guarantee.
+  it.each(TEMPLATE_CATALOG.map((s) => [s.slug, s] as const))(
+    'hashes %s the same before and after commit, and on every build',
+    (_, seed) => {
+      // `expectedRootHash` throws when the half-built and committed roots
+      // disagree, so not throwing is the before/after half.
+      const first = expectedRootHash(seed.content);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      // A second build mints fresh random ids (sheet axis ids, layout
+      // placeholders) in a fresh document; the canonical root must not move,
+      // or every sync would refuse the write it just made.
+      expect(expectedRootHash(seed.content)).toBe(first);
+    },
+  );
 });

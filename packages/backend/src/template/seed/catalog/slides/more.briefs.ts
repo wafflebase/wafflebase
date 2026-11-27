@@ -1,12 +1,12 @@
-import type { TemplateBrief } from './brief';
+import type { TemplateBrief } from '../brief';
 
 /**
  * Authoring briefs for the slides-more templates: what an author should collect
  * from a user before writing a deck from the template with the same `slug` in
- * `slides-more.ts`. Guidance only — see `brief.ts`.
+ * `more.ts`. Guidance only — see `brief.ts`.
  */
 
-export const sprintRetrospectiveBrief: TemplateBrief = {
+const sprintRetrospectiveBrief: TemplateBrief = {
   slug: 'sprint-retrospective',
   summary: 'A sprint retro: what went well, what to improve, actions, one change.',
   fields: [
@@ -20,7 +20,7 @@ export const sprintRetrospectiveBrief: TemplateBrief = {
   ],
 };
 
-export const okrReviewBrief: TemplateBrief = {
+const okrReviewBrief: TemplateBrief = {
   slug: 'okr-review',
   summary: 'A quarterly OKR review: objectives, key-result status, learnings, next focus.',
   fields: [
@@ -34,7 +34,7 @@ export const okrReviewBrief: TemplateBrief = {
   ],
 };
 
-export const productLaunchPlanBrief: TemplateBrief = {
+const productLaunchPlanBrief: TemplateBrief = {
   slug: 'product-launch-plan',
   summary: 'A launch plan: pitch, goal, channels, timeline, go/no-go.',
   fields: [
@@ -50,7 +50,7 @@ export const productLaunchPlanBrief: TemplateBrief = {
   ],
 };
 
-export const techTalkBrief: TemplateBrief = {
+const techTalkBrief: TemplateBrief = {
   slug: 'tech-talk-paper-study',
   summary: 'A paper/tech talk: problem, key idea, trade-offs, takeaways.',
   fields: [
@@ -65,7 +65,7 @@ export const techTalkBrief: TemplateBrief = {
   ],
 };
 
-export const productRoadmapBrief: TemplateBrief = {
+const productRoadmapBrief: TemplateBrief = {
   slug: 'product-roadmap',
   summary: 'A now/next/later roadmap plus what the team is not doing.',
   fields: [
@@ -78,3 +78,12 @@ export const productRoadmapBrief: TemplateBrief = {
     { key: 'notDoing', label: 'What we are deliberately not doing', type: 'line' },
   ],
 };
+
+/** This file's briefs, in the order `../briefs.ts` lists them. */
+export const briefs: TemplateBrief[] = [
+  sprintRetrospectiveBrief,
+  okrReviewBrief,
+  productLaunchPlanBrief,
+  techTalkBrief,
+  productRoadmapBrief,
+];

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { categoryLabel } from "@wafflebase/core/templates";
 import {
   listTemplateReports,
   listTemplatesForReview,
@@ -215,7 +216,7 @@ export function TemplateReviewQueue() {
                   <p className="text-muted-foreground text-sm">
                     {t.author ? `by ${t.author.username} · ` : ""}
                     {typeMeta(t.documentType).label}
-                    {t.category ? ` · ${t.category}` : ""}
+                    {t.category ? ` · ${categoryLabel(t.category)}` : ""}
                   </p>
                 </div>
                 {t.description && (

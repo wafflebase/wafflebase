@@ -1,12 +1,12 @@
-import type { TemplateBrief } from './brief';
+import type { TemplateBrief } from '../brief';
 
 /**
  * Authoring briefs for the slides-work templates: what an author should collect
  * from a user before writing a deck from the template with the same `slug` in
- * `slides-work.ts`. Guidance only — see `brief.ts`.
+ * `work.ts`. Guidance only — see `brief.ts`.
  */
 
-export const devDesignReviewBrief: TemplateBrief = {
+const devDesignReviewBrief: TemplateBrief = {
   slug: 'dev-design-review',
   summary: 'An engineering design review: problem, goals, proposed design, alternatives, and the decision needed.',
   fields: [
@@ -22,7 +22,7 @@ export const devDesignReviewBrief: TemplateBrief = {
   ],
 };
 
-export const projectProposalBrief: TemplateBrief = {
+const projectProposalBrief: TemplateBrief = {
   slug: 'project-proposal',
   summary: 'A case for starting a project: problem, solution, scope, plan, cost, and the ask.',
   fields: [
@@ -38,7 +38,7 @@ export const projectProposalBrief: TemplateBrief = {
   ],
 };
 
-export const allHandsUpdateBrief: TemplateBrief = {
+const allHandsUpdateBrief: TemplateBrief = {
   slug: 'all-hands-update',
   summary: 'A short all-hands update: where we are, highlights, the headline metric, and what comes next.',
   fields: [
@@ -51,7 +51,7 @@ export const allHandsUpdateBrief: TemplateBrief = {
   ],
 };
 
-export const caseStudyBrief: TemplateBrief = {
+const caseStudyBrief: TemplateBrief = {
   slug: 'case-study',
   summary: 'A before-and-after customer story: the challenge, the approach, the results, and the lessons.',
   fields: [
@@ -65,7 +65,7 @@ export const caseStudyBrief: TemplateBrief = {
   ],
 };
 
-export const customerOnboardingReviewBrief: TemplateBrief = {
+const customerOnboardingReviewBrief: TemplateBrief = {
   slug: 'customer-onboarding-review',
   summary: 'A review of new-customer onboarding: what we learned, where it stalls, and what we will change.',
   fields: [
@@ -81,3 +81,12 @@ export const customerOnboardingReviewBrief: TemplateBrief = {
     { key: 'firstChange', label: 'The one change to make first', type: 'line', example: 'Ship starter templates before anything else' },
   ],
 };
+
+/** This file's briefs, in the order `../briefs.ts` lists them. */
+export const briefs: TemplateBrief[] = [
+  devDesignReviewBrief,
+  projectProposalBrief,
+  allHandsUpdateBrief,
+  caseStudyBrief,
+  customerOnboardingReviewBrief,
+];

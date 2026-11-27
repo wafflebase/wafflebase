@@ -207,7 +207,7 @@ Comments work on sheets, docs, and PDFs; other document types fail with `400`. Y
 ```bash
 wafflebase templates list
 wafflebase templates list --scope public --type slides --sort popular
-wafflebase templates publish <doc-id> --category Business --tag weekly --visibility workspace
+wafflebase templates publish <doc-id> --category work/meeting --tag weekly --visibility workspace
 wafflebase templates use <template-id>
 ```
 
@@ -217,12 +217,12 @@ wafflebase templates use <template-id>
 |---|---|---|---|
 | `templates list` | `--scope <scope>` | `workspace` (the active workspace) or `public` | `workspace` |
 | | `--type <type>` | `sheet`, `doc`, `slides`, `note`, or `board` | all |
-| | `--category <category>`, `--tag <tag>` | Filter by one category or one tag | |
+| | `--category <category>`, `--tag <tag>` | Filter by one category or one tag. A top category such as `work` also matches its leaves (`work/meeting`, …) | |
 | | `--query <text>` | Search titles, descriptions, and tags | |
 | | `--sort <sort>` | `popular` or `recent` | |
 | | `--limit <n>`, `--cursor <id>` | Page size from 1 to 50, and the `nextCursor` of the previous page | 24 |
 | `templates publish <doc-id>` | `--title`, `--description` | Listing title and description | the document title |
-| | `--category <category>` | `Business`, `Education`, `Personal`, `Project management`, `Finance`, `Marketing`, `Design`, or `Other` | |
+| | `--category <category>` | A category slug: a top (`work`, `finance`, `education`, `marketing`, `people`, `personal`, `design`, `other`) or a `top/leaf` such as `work/meeting` or `finance/budget` | |
 | | `--tag <tag>` | Add a tag. Repeat for more; up to 10. Tags are stored in lowercase. | |
 | | `--visibility <visibility>` | `unlisted` (anyone with the template ID) or `workspace` | |
 | `templates use <template-id>` | `--into <workspace>` | Workspace ID or slug to create the new document in | the active workspace |
