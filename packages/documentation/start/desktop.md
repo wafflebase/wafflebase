@@ -18,6 +18,10 @@ The app opens the same Wafflebase you use in a browser, in its own window. Your 
 
 ## Install on a Mac
 
+::: tip Download says Not Found?
+The download links point at the latest Wafflebase release. If one answers **Not Found**, that release doesn't include the app yet, or was published in the last half hour and is still being built. Try again later, or see the [releases page](https://github.com/wafflebase/wafflebase/releases).
+:::
+
 1. Download [Wafflebase_universal.dmg](https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg).
 2. Open the downloaded file.
 3. Drag **Wafflebase** into the **Applications** folder.
@@ -71,6 +75,8 @@ Editor keyboard shortcuts work the same as in a browser. See the shortcuts for [
 ## Keep the app up to date
 
 The app checks for a new version when it starts and once a day. It downloads the update in the background and installs it when you quit, so the next launch runs the new version.
+
+On a Mac where your account can't change the app (for example, an admin installed it in **Applications** for everyone), the app can't install updates when you quit. Use **Check for Updates…** and click **Restart Now** instead, and enter an administrator's password when macOS asks.
 
 To check now:
 
