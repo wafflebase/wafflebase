@@ -406,17 +406,60 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
      * That is the delayed write: validated against `listed`, landing on
      * `pending`.
      */
+    // Every Nest module here provides its own `PrismaService`, so the suite's
+    // `prisma` is not the client `TemplateService` reads through: a stub on it
+    // is never consulted. The stale read is injected into the service's own
+    // client instead, as an override of its `templateListing` delegate that
+    // answers the next `findUnique` with the stale row and then puts the real
+    // delegate back. `staleReads` counts the stale rows actually served, so
+    // each test proves its race really happened rather than passing on a
+    // fresh read.
+    const servicePrisma = () =>
+      (templates as unknown as { prisma: PrismaService }).prisma;
+    let realDelegate: PrismaService['templateListing'] | undefined;
+    const restoreDelegate = () => {
+      if (!realDelegate) return;
+      Object.defineProperty(servicePrisma(), 'templateListing', {
+        value: realDelegate,
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
+      realDelegate = undefined;
+    };
+    let staleReads = 0;
     function readStaleOnce(stale: Awaited<ReturnType<typeof listing>>): void {
-      const original = prisma.templateListing.findUnique.bind(
-        prisma.templateListing,
-      );
-      jest
-        .spyOn(prisma.templateListing, 'findUnique')
-        .mockImplementationOnce((() => Promise.resolve(stale)) as never)
-        .mockImplementation(original as never);
+      const client = servicePrisma();
+      const real = client.templateListing;
+      realDelegate = real;
+      const restore = restoreDelegate;
+      const wrapper = new Proxy(real, {
+        get(target, key) {
+          if (key === 'findUnique') {
+            return () => {
+              restore();
+              staleReads += 1;
+              return Promise.resolve(stale);
+            };
+          }
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === 'function'
+            ? (value as (...a: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+      Object.defineProperty(client, 'templateListing', {
+        value: wrapper,
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
     }
 
-    afterEach(() => jest.restoreAllMocks());
+    beforeEach(() => {
+      staleReads = 0;
+    });
+    afterEach(restoreDelegate);
 
     it('is refused, so sync approves the card it checked', async () => {
       // An unlisted listing (no record) that sync will submit and approve.
@@ -457,6 +500,7 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
         thumbnailFor(SEED),
       );
 
+      expect(staleReads).toBe(1);
       expect(await delayed).toBeInstanceOf(ConflictException);
       expect(outcome.result).toBe('approved');
       expect(await listing()).toMatchObject({
@@ -484,6 +528,7 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
       await expect(
         templates.publish(DOC_ID, ownerId, { title: 'Swapped in' }),
       ).rejects.toBeInstanceOf(ConflictException);
+      expect(staleReads).toBe(1);
       expect(await listing()).toMatchObject({
         title: SEED.title,
         status: 'pending',
@@ -506,9 +551,93 @@ describeDb('sync:templates (TemplateService + Postgres)', () => {
 
       readStaleOnce(beforeSubmit);
       await templates.update(beforeSubmit.id, ownerId, { tags: ['later'] });
+      expect(staleReads).toBe(1);
       expect(await listing()).toMatchObject({
         tags: ['later'],
         status: 'pending',
+      });
+    });
+
+    it('refuses a stale same-value title over a card changed and submitted since', async () => {
+      // Interleaving 1. The request read title A and sends `{ title: A }` —
+      // no change against its own read. Before it writes, the card becomes B
+      // (as sync would apply it), is submitted, and checked. The late write
+      // must not put A back under the reviewer.
+      await templates.publish(DOC_ID, ownerId, {
+        title: 'A',
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const stale = await listing();
+      await templates.update(stale.id, ownerId, { title: 'B' });
+      await templates.submit(
+        stale.id,
+        ownerId,
+        { acceptLicense: true },
+        { quiet: true },
+      );
+
+      readStaleOnce(stale);
+      await expect(
+        templates.update(stale.id, ownerId, { title: 'A' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(staleReads).toBe(1);
+      expect(await listing()).toMatchObject({ title: 'B', status: 'pending' });
+    });
+
+    it('refuses a card edit read unlisted and written after approval', async () => {
+      // Interleaving 2. The request read an unlisted `listed` card; the
+      // listing is then submitted and approved, so its status is `listed`
+      // again. Its stale read would skip the re-review reset, leaving a
+      // changed card public without review.
+      await templates.publish(DOC_ID, ownerId, {
+        title: SEED.title,
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const stale = await listing();
+      await templates.submit(
+        stale.id,
+        ownerId,
+        { acceptLicense: true },
+        { quiet: true },
+      );
+      const submitted = await listing();
+      await templates.review(stale.id, ownerId, {
+        decision: 'approve',
+        ...(submitted.contentChangedAt
+          ? { contentAt: submitted.contentChangedAt.toISOString() }
+          : {}),
+      });
+      expect(await listing()).toMatchObject({
+        visibility: 'public',
+        status: 'listed',
+      });
+
+      readStaleOnce(stale);
+      await expect(
+        templates.update(stale.id, ownerId, { title: 'Changed' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(staleReads).toBe(1);
+      expect(await listing()).toMatchObject({
+        title: SEED.title,
+        visibility: 'public',
+        status: 'listed',
+      });
+    });
+
+    it('lets a same-value card write through when nothing moved', async () => {
+      await templates.publish(DOC_ID, ownerId, {
+        title: SEED.title,
+        visibility: 'unlisted',
+        acceptLicense: true,
+      });
+      const row = await listing();
+      await templates.update(row.id, ownerId, { title: SEED.title });
+      await templates.publish(DOC_ID, ownerId, { title: SEED.title });
+      expect(await listing()).toMatchObject({
+        title: SEED.title,
+        status: 'listed',
       });
     });
   });

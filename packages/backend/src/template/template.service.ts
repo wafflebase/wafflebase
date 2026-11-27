@@ -138,20 +138,56 @@ function cardReviewReset(
   };
 }
 
-/** Whether `dto` changes any card field of `listing` (tags excluded). */
-function changesCard(
-  listing: TemplateListing,
-  dto: PublishTemplateDto,
-): boolean {
-  return CARD_FIELDS.some(
-    (field) => dto[field] !== undefined && !isSame(dto[field], listing[field]),
-  );
+/**
+ * Whether `dto` carries any card field at all (tags excluded) — not whether
+ * it changes one. A same-value field is still written, so a stale request
+ * that "changes nothing" against its own read can overwrite a card somebody
+ * else changed since; it needs the version check as much as a real edit.
+ */
+function touchesCard(dto: PublishTemplateDto): boolean {
+  return CARD_FIELDS.some((field) => dto[field] !== undefined);
 }
 
 /**
- * A listing write that was conditioned on the status it was validated
- * against matched no row: the status moved in between (a submission, a
- * decision). `update` reports that as `P2025`; an `upsert` whose filtered
+ * The version a card write is conditioned on: everything `assertCardEditable`
+ * and `cardReviewReset` decided from, as it was read.
+ *
+ * `updatedAt` is the row version (`@updatedAt`, set by Prisma on every
+ * `update`/`updateMany`/`upsert`, and every writer of this table goes through
+ * Prisma). It is a `timestamp(3)` taken from each writer's own clock, so two
+ * writes in one millisecond, or on replicas whose clocks disagree, can leave
+ * it unchanged. The status, visibility and card fields are therefore matched
+ * too: any change to what the guard used is caught whatever `updatedAt` says,
+ * and what `updatedAt` alone could miss — a write that leaves all of them as
+ * they were read — leaves nothing the guard decided from changed.
+ */
+function listingVersion(
+  listing: TemplateListing,
+): Pick<
+  TemplateListing,
+  | 'updatedAt'
+  | 'status'
+  | 'visibility'
+  | 'title'
+  | 'description'
+  | 'category'
+  | 'thumbnailId'
+> {
+  return {
+    updatedAt: listing.updatedAt,
+    status: listing.status,
+    visibility: listing.visibility,
+    title: listing.title,
+    description: listing.description,
+    category: listing.category,
+    thumbnailId: listing.thumbnailId,
+  };
+}
+
+/**
+ * A listing write conditioned on the version it was validated against
+ * matched no row: something moved in between (a submission, a decision, a
+ * card edit). `update` reports that as `P2025`; an `upsert` whose filtered
  * lookup misses falls through to its create and collides on `documentId`
  * (`P2002`).
  */
@@ -430,17 +466,19 @@ export class TemplateService {
       shareLinkId,
     };
 
-    // On an existing listing the write is conditioned on the status read
-    // above. `assertCardEditable` and `cardReviewReset` both decided from that
-    // status, and `data` writes it back; a submission landing in between
-    // would otherwise have its frozen card replaced after the submitter (or
-    // `sync:templates`) checked it, and its `pending` reverted. Always, not
-    // only for card fields: this write carries `status` itself.
+    // On an existing listing the write is conditioned on the version read
+    // above (`listingVersion`). `assertCardEditable` and `cardReviewReset`
+    // both decided from that read, and `data` writes every card field and
+    // the status back from it, so a submission, decision or card edit landing
+    // in between would otherwise be overwritten — a frozen card replaced
+    // after the submitter (or `sync:templates`) checked it, a `pending`
+    // reverted, or a card changed on a listing approved meanwhile without
+    // going back to review. Always, since this write always carries them.
     let listing: ListingWithRelations;
     try {
       listing = await this.prisma.templateListing.upsert({
         where: existing
-          ? { documentId, status: existing.status }
+          ? { documentId, ...listingVersion(existing) }
           : { documentId },
         create: {
           documentId,
@@ -485,17 +523,22 @@ export class TemplateService {
     }
     assertCardEditable(listing, dto);
 
-    // `assertCardEditable` read the status above; the write must not land on
-    // a different one. Without the condition a card edit that passed while
-    // the listing was `listed` could commit after a submission froze the card
-    // — after the submitter, or `sync:templates`, checked it — and `review()`
-    // would approve a card nobody reviewed. Card fields only: tags may change
-    // under review, so a tags-only edit is not refused by a concurrent submit.
-    const cardChanged = changesCard(listing, dto);
+    // `assertCardEditable` and `cardReviewReset` decided from the row read
+    // above; a write carrying any card field lands only on that same version
+    // (`listingVersion`). Without it a card edit validated while the listing
+    // was `listed` could commit after a submission froze the card — after
+    // the submitter, or `sync:templates`, checked it — and `review()` would
+    // approve a card nobody reviewed; or commit after the listing was
+    // approved meanwhile, with `cardReviewReset` acting on the stale
+    // unlisted read and so never returning the changed public card to
+    // review. "Carrying", not "changing": a field equal to the stale read
+    // still overwrites whatever is there now. Tags-only writes stay
+    // unconditioned, since tags may change under review.
+    const guarded = touchesCard(dto);
     let updated: ListingWithRelations;
     try {
       updated = await this.prisma.templateListing.update({
-        where: cardChanged ? { id, status: listing.status } : { id },
+        where: guarded ? { id, ...listingVersion(listing) } : { id },
         data: {
           ...cardReviewReset(listing, dto),
           ...(dto.title !== undefined ? { title: dto.title } : {}),
@@ -513,7 +556,7 @@ export class TemplateService {
         include: LISTING_INCLUDE,
       });
     } catch (err) {
-      if (cardChanged && isStaleListingWrite(err)) {
+      if (guarded && isStaleListingWrite(err)) {
         throw new ConflictException(STALE_CARD_EDIT);
       }
       throw err;
