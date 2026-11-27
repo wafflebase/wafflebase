@@ -374,8 +374,8 @@ that would reach the system browser without cookies.
   route is chosen (Azure Artifact Signing, or an OV certificate in a cloud
   HSM — EV no longer buys SmartScreen reputation). Until then the Windows
   build is not released at all (§7). Signing secrets live only in the
-  `desktop-release` GitHub Environment, restricted to `v*` tags and gated by
-  a required reviewer (§ Risks). The updater package and its `.sig` are
+  `desktop-release` GitHub Environment, restricted to `v*` tags, which only
+  an admin can create (§ Risks). The updater package and its `.sig` are
   turned on by `src-tauri/tauri.release.conf.json`, which only the release
   workflow passes, so a local `tauri build` needs no updater key.
 
@@ -628,7 +628,7 @@ this order:
 | A loopback listener is reachable by local pages and processes | Same nonce, `Host` and single-use rules as the CLI, reviewed there |
 | Remote content reaching native APIs | No capability for remote origins; all native behavior is driven from navigation events |
 | Signing certificates and their cost | Secrets scoped to the `desktop-release` Environment, restricted to `v*` tags; Phase 1 builds are unsigned and internal |
-| The agent App can publish a release (`contents: write`), and a release runs the workflow file at the tagged commit, so a tag on a commit that edits the file could drop its guard | The first job refuses a release the App authored and every job reading a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. That guard is in the file, so the backstop is the Environment: its secrets reach only a job that names it, and a **required reviewer** makes every such job wait for a maintainer whatever the file says |
+| The agent App can publish a release (`contents: write`), and a release runs the workflow file at the tagged commit, so a tag on a commit that edits the file could drop its guard | The first job refuses a release the App authored and every job reading a secret depends on it (`release-guard.test.mjs`), as in the server's publish workflows. That guard is in the file, so the backstop is outside it: the Environment's secrets reach only a job on a `v*` tag, and the ruleset **Release tags: admins only** lets only the admin role create, move or delete one, so they reach only a commit a maintainer tagged, whatever the file says. The Environment had a required reviewer until the first release; it was dropped (2026-11-27) so the app ships unattended like Docker and npm, which made the ruleset the one backstop: weakening it, or giving the App a bypass, needs the reviewer back first |
 | The manifest names an asset the release does not carry | Every installed app logs a 404 and nobody sees it. `desktop-release.test.mjs` checks that the names agree across the Collect steps, the manifest, the upload and the README's download links |
 | A cached UI keeps users on an old build after a deploy | Navigations are network-first: the cache answers only when the server cannot. A deploy changes `sw.js`, and the new worker replaces the old shell and prunes old chunks ([frontend.md](frontend.md) § Offline app shell). `VITE_SERVICE_WORKER=off` turns it off and unregisters it |
 | Every server release ships the app, most without shell changes | Silent background update, installed on quit (§5); one ~10 MB download per release |

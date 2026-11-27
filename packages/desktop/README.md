@@ -283,20 +283,26 @@ The why is in [desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
   `src-tauri/Cargo.lock` (`tauri.conf.json` reads `package.json`).
   `scripts/test/desktop-release.test.mjs` fails until all three match the
   root `package.json`.
-- After publishing, approve the `desktop-release` deployment and watch the
-  run (about half an hour, mostly notarization). Until it finishes the new release has no installers
+- Publishing starts the `desktop-release` run with no further approval;
+  watch it (about half an hour, mostly notarization). Until it finishes the new release has no installers
   and no `latest.json`; a failure there does not affect the server image.
-- Then open the `.dmg` on a Mac that has never run the app: Gatekeeper must
-  open it without a warning.
+- Then open the `.dmg` on a Mac that has never run the app (a dev build
+  leaves its server in `server.json`, which the release reads too).
+  Gatekeeper shows only its one-time "Apple checked it for malicious
+  software and none was detected" confirmation; `spctl -a -vv` says
+  "Notarized Developer ID".
 
 ### The `desktop-release` Environment
 
-Deployment branches and tags: `v*` tags only. **Required reviewers: the
-maintainers — not optional.** A release runs the workflow file at the tagged
-commit, so a tag on a commit that edits the file could drop its agent-App
-guard; the Environment's approval is enforced by GitHub whatever the file
-says, and its secrets reach no job that skips it. Approve the run after each
-release is published.
+Deployment branches and tags: `v*` tags only, and no required reviewers, so a
+release ships the app as unattended as Docker and npm. A release runs the
+workflow file at the tagged commit, so a tag on a commit that edits the file
+could drop its agent-App guard. What stops that is the repository ruleset
+**Release tags: admins only**: creating, moving or deleting a `v*` tag needs
+the admin role, which the agent App does not have, so the Environment's
+secrets reach only a commit a maintainer tagged. **Keep that ruleset, and
+never give the App a bypass on it.** If either changes, put a required
+reviewer back on this Environment first.
 
 | Name | Kind | Value |
 |------|------|-------|
