@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Fix common problems with signing in, saving, share links, uploads, templates, version history, sheets, and docs, by the message you see.
+description: Fix common problems with signing in, saving, share links, uploads, templates, version history, sheets, docs, and the desktop app, by the message you see.
 type: troubleshooting
 ---
 
@@ -11,9 +11,10 @@ Find the message or symptom you see, then work through the fixes in order.
 - Sign in: [sign-in link expired](#that-sign-in-link-expired-or-was-started-in-another-tab), [account exists under the other provider](#an-account-already-exists-for-that-email-address-under-the-other-sign-in-provider), [no verified email](#that-account-has-no-verified-email-address)
 - Saving: [Not saved](#the-header-says-not-saved), [Reconnecting…](#the-header-says-reconnecting), [Leave without saving?](#leave-without-saving-appears)
 - Sharing: [Link unavailable](#link-unavailable), [read-only link](#a-share-link-opens-read-only), [can't choose Editor](#you-can-t-choose-editor-in-the-share-dialog)
-- Documents: [a document disappeared](#a-document-disappeared), [can't move or delete](#you-can-only-move-documents-you-own), [upload too large](#file-is-larger-than-the-50-mb-limit), [Markdown upload](#an-uploaded-md-file-didn-t-become-a-note)
+- Documents: [a document disappeared](#a-document-disappeared), [can't move or delete](#you-can-only-move-documents-you-own), [upload too large](#file-is-larger-than-the-100-mb-limit), [Markdown upload](#an-uploaded-md-file-didn-t-become-a-note)
 - Sheets: [chart needs 2 rows and 2 columns](#select-at-least-2-rows-and-2-columns), [query refused](#only-select-queries-are-allowed), [local lakehouse paths disabled](#local-lakehouse-paths-are-disabled-on-this-server)
 - Docs: [image upload failed](#couldn-t-upload-the-image), [image URL refused](#image-url-must-start-with-http-or-https), [margins refused](#margins-must-be-zero-or-a-positive-number-of-inches), [link edit refused](#the-cursor-left-this-link-click-it-again-to-edit-it)
+- Desktop app: [server too old](#this-server-is-too-old-for-desktop-sign-in), [sign-in turned off](#this-server-has-desktop-sign-in-turned-off), [sign-in timed out](#sign-in-timed-out-try-again), [can't reach the server](#can-t-reach-appears-in-the-desktop-app), [Windows warning](#windows-protected-your-pc-appears), [Mac warning](#a-mac-says-wafflebase-is-damaged-or-can-t-be-opened)
 - Other: [Template not found](#template-not-found), [no version history](#version-history-is-missing), [restore in progress](#a-restore-is-already-in-progress), [workspace settings](#couldn-t-update-the-workspace)
 
 ## `That sign-in link expired or was started in another tab`
@@ -310,9 +311,78 @@ The change didn't go through. The most common causes: only workspace owners can 
 1. Ask a workspace owner to make the change.
 2. If you are an owner, choose a different URL, check your connection, and try again.
 
+## `This server is too old for desktop sign-in` {#this-server-is-too-old-for-desktop-sign-in}
+
+### What it means
+
+The desktop app is connected to a Wafflebase server from before the app existed. That server can't sign you in from the app.
+
+### Try this
+
+1. Sign in from a web browser for now.
+2. Ask your server's administrator to upgrade Wafflebase.
+3. If you meant to use the official server, open **Change server…** and click **Use wafflebase.io**. See [Connect to your team's server](/start/desktop#connect-to-your-team-s-server).
+
+## `This server has desktop sign-in turned off` {#this-server-has-desktop-sign-in-turned-off}
+
+### What it means
+
+The server isn't set up to sign in over HTTPS, so it refuses sign-in from the desktop app. On Windows, a similar message, `This server does not accept sign-in from the Windows app's window`, means the server's administrator turned off sign-in from the Windows app.
+
+### Try this
+
+1. Sign in from a web browser for now.
+2. Ask your server's administrator to follow [Allow desktop app sign-in](/developers/self-hosting/sign-in#allow-desktop-app-sign-in).
+
+## `Sign-in timed out. Try again.` {#sign-in-timed-out-try-again}
+
+### What it means
+
+The app waited five minutes for the browser to finish signing in, and it didn't.
+
+### Try this
+
+1. Close the Wafflebase sign-in tabs in your browser.
+2. Click **Continue with GitHub** in the app again, and finish the steps in the browser tab it opens.
+
+## **Can't reach** appears in the desktop app {#can-t-reach-appears-in-the-desktop-app}
+
+### What it means
+
+The app can't connect to the server at the address it shows. Your computer may be offline, the address may be wrong, or the server may be down. The app keeps trying on its own.
+
+### Try this
+
+1. Check that your computer is connected to the internet. The app opens Wafflebase as soon as it is.
+2. Click **Try again**.
+3. Open the address in a web browser. If it doesn't open there either, ask your server's administrator.
+4. If the address is wrong, click **Change server…** and enter the one you open Wafflebase at in a browser.
+
+## **Windows protected your PC** appears {#windows-protected-your-pc-appears}
+
+### What it means
+
+Windows SmartScreen shows this for the Wafflebase installer because the installer is not code-signed yet.
+
+### Try this
+
+1. Check that you downloaded the installer from the link in [Install on Windows](/start/desktop#install-on-windows).
+2. Click **More info**, then click **Run anyway**.
+
+## A Mac says Wafflebase is damaged or can't be opened {#a-mac-says-wafflebase-is-damaged-or-can-t-be-opened}
+
+### What it means
+
+The Mac app is signed and notarized by Apple, so a copy downloaded from the official link opens without a warning. A warning usually means the download was incomplete or the copy came from somewhere else.
+
+### Try this
+
+1. Move the Wafflebase app you installed to the Trash.
+2. Download it again from the link in [Install on a Mac](/start/desktop#install-on-a-mac), and install it.
+
 ## Still stuck
 
-Report the problem on [GitHub Issues](https://github.com/wafflebase/wafflebase/issues). Include the exact message, the document type, and your browser.
+Report the problem on [GitHub Issues](https://github.com/wafflebase/wafflebase/issues). Include the exact message, the document type, and your browser or app.
 
 ## Related
 

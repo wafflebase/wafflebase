@@ -1,6 +1,6 @@
 ---
 title: Sign-in providers
-description: Configure GitHub, GitHub Enterprise, and Google sign-in for a self-hosted Wafflebase, and make cookies and CLI sign-in work over HTTPS.
+description: Configure GitHub, GitHub Enterprise, and Google sign-in for a self-hosted Wafflebase, and make cookies, CLI sign-in, and desktop app sign-in work over HTTPS.
 type: how-to
 ---
 
@@ -94,10 +94,21 @@ wafflebase --server https://api.example.com login
 
 The backend allows CLI sign-in only when its cookies are `Secure` (an `https://` callback URL or `COOKIE_SECURE=true`) or the callback URL is loopback (`localhost`, `127.0.0.1`, `[::1]`, or a `*.localhost` name). Otherwise the backend answers `400 Command-line sign-in requires an https server`. Browser sign-in and API keys (`--api-key`) work either way; see [CLI](/developers/cli/).
 
+## Allow desktop app sign-in
+
+The [desktop app](/start/desktop) signs in through the system browser with GitHub, like the CLI. It needs:
+
+1. A Wafflebase server recent enough to offer desktop sign-in. An older server makes the app show `This server is too old for desktop sign-in`.
+2. The same conditions as CLI sign-in above. Otherwise the app shows `This server has desktop sign-in turned off`.
+3. A backend origin (`VITE_BACKEND_API_URL`) on `https://`, or on `http://` only at a loopback address. The app won't sign in against a plain `http://` backend elsewhere.
+4. Users who enter `FRONTEND_URL` as the server address in the app. The backend redirects there after sign-in, so an alias or a `www.` variant ends the sign-in in the browser instead of the app.
+
+The Windows app finishes sign-in from the origin `http://tauri.localhost`. To refuse it, set `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`. The Windows app then shows that the server doesn't accept its sign-in; the Mac app is unaffected.
+
 ## Known limitations
 
 - Turning `Secure` on renames the session cookies, so everyone signed in is signed out once.
-- Google sign-in is browser-only. The CLI signs in with GitHub or an API key.
+- Google sign-in is browser-only. The CLI signs in with GitHub or an API key, and the desktop app with GitHub.
 - An account created before email verification was required can be reached only through its original provider until its owner signs in with that provider once. Until then, the other provider shows "An account already exists for that email address under the other sign-in provider."
 
 ## Related

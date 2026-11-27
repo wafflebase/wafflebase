@@ -85,11 +85,32 @@ test("the manifest covers every platform the app ships on", () => {
   }
 });
 
-test("the download links in the README are uploaded under those names", () => {
+// Every place that links a download: the package README, the docs guide,
+// and the homepage, which builds its URLs from a `RELEASES` base it must keep
+// pointed at the latest release.
+test("every download link names an asset the release uploads", () => {
   const uploaded = names(steps(/^Attach to the release$/), new RegExp(`out/${ASSET}`, "g"));
-  const linked = names(read("packages/desktop/README.md"), new RegExp(`releases/latest/download/${ASSET}`, "g"));
-  assert.ok(linked.size > 0);
-  for (const name of linked) assert.ok(uploaded.has(name), `README links ${name}, which is not uploaded`);
+  const fullUrl = new RegExp(`releases/latest/download/${ASSET}`, "g");
+  const sources = {
+    "packages/desktop/README.md": names(read("packages/desktop/README.md"), fullUrl),
+    "packages/documentation/start/desktop.md": names(read("packages/documentation/start/desktop.md"), fullUrl),
+  };
+  const homepage = read("packages/frontend/src/app/home/desktop-download.ts");
+  assert.match(
+    homepage,
+    // Tolerant of a reformat (quotes, a wrapped assignment): it is the URL
+    // that matters, not the line.
+    /RELEASES\s*=\s*["'`]https:\/\/github\.com\/wafflebase\/wafflebase\/releases\/latest\/download["'`]/,
+    "the homepage's RELEASES base must be the latest-release download URL",
+  );
+  sources["packages/frontend/src/app/home/desktop-download.ts"] = names(
+    homepage,
+    new RegExp(`\\$\\{RELEASES\\}/${ASSET}`, "g"),
+  );
+  for (const [file, linked] of Object.entries(sources)) {
+    assert.ok(linked.size > 0, `${file} links no download`);
+    for (const name of linked) assert.ok(uploaded.has(name), `${file} links ${name}, which is not uploaded`);
+  }
 });
 
 test("both release builds turn the updater package on", () => {

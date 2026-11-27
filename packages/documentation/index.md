@@ -29,6 +29,7 @@ Use it to:
 | Sign in, build a first sheet, share it, and edit it with someone | [Getting started](/start/getting-started) |
 | Understand workspaces, documents, folders, share links, and templates | [Concepts](/start/concepts) |
 | Find out what works on a phone and where the controls move | [Use Wafflebase on a phone](/start/phone) |
+| Install the app for Mac or Windows and connect it to your server | [Use the desktop app](/start/desktop) |
 | Fix a sign-in, saving, or share link problem | [Troubleshooting](/start/troubleshooting) |
 
 ## Choose an editor

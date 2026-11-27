@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { offerDesktopDownload } from "./desktop-download";
 import { scrollToHashTarget } from "./hash-scroll";
 import { WaffleLogo } from "./primitives/waffle-logo";
 
@@ -14,6 +15,8 @@ const columns = [
       // `<a href="/#features">` would miss it. Everything else here is a real
       // anchor: `/docs` is a separate VitePress site and the rest is GitHub.
       { label: "Features", href: "/#features", route: true },
+      // Hidden inside the desktop app, like the section it points at.
+      { label: "Desktop app", href: "/#desktop", route: true, web: true },
       { label: "Documentation", href: "/docs" },
       { label: "REST API", href: "/docs/developers/api/" },
       { label: "CLI", href: "/docs/developers/cli/" },
@@ -50,6 +53,8 @@ const columns = [
 ] as const;
 
 export function Footer() {
+  // No "Desktop app" entry until a release carries it, or inside the app.
+  const desktop = !offerDesktopDownload();
   return (
     <footer
       className="bg-[color:var(--wb-bg)] border-t border-[color:var(--wb-rule)] px-6 md:px-8 pt-14 pb-8"
@@ -80,7 +85,9 @@ export function Footer() {
                   {col.title}
                 </h4>
                 <ul className="space-y-2 list-none p-0 m-0">
-                  {col.links.map((link) => (
+                  {col.links
+                    .filter((link) => !(desktop && "web" in link && link.web))
+                    .map((link) => (
                     <li key={link.label}>
                       {"route" in link && link.route ? (
                         <Link

@@ -15,7 +15,8 @@ Moved pages stay behind as `search: false` stubs that meta-refresh to their new 
 | [Getting started](start/getting-started.md) | Sign in, build a small contact list in a sheet, share it with a link, and watch a second person edit it live. |
 | [Concepts](start/concepts.md) | How workspaces, documents, folders, share links, templates, and the Trash fit together, and who can see and change what. |
 | [Use Wafflebase on a phone](start/phone.md) | What you can do in each editor on a phone, where the header and toolbar controls move, and which touch gestures apply. |
-| [Troubleshooting](start/troubleshooting.md) | Fix common problems with signing in, saving, share links, uploads, templates, and version history, by the message you see. |
+| [Use the desktop app](start/desktop.md) | Install the Wafflebase desktop app on a Mac or Windows PC, sign in, connect it to your team's server, and keep it up to date. |
+| [Troubleshooting](start/troubleshooting.md) | Fix common problems with signing in, saving, share links, uploads, templates, version history, and the desktop app, by the message you see. |
 
 ### Collaborate & organize
 
@@ -144,7 +145,7 @@ Moved pages stay behind as `search: false` stubs that meta-refresh to their new 
 | [Overview](developers/self-hosting/index.md) | Run Wafflebase on your own infrastructure so your documents, accounts, and files stay on servers you control. |
 | [Local development](developers/self-hosting/local-development.md) | Start the full Wafflebase stack on localhost with Docker Compose and the dev servers. |
 | [Configuration](developers/self-hosting/configuration.md) | Every backend environment variable and frontend build-time variable a Wafflebase deployment reads. |
-| [Sign-in providers](developers/self-hosting/sign-in.md) | Configure GitHub, GitHub Enterprise, and Google sign-in for a self-hosted Wafflebase, and make cookies and CLI sign-in work over HTTPS. |
+| [Sign-in providers](developers/self-hosting/sign-in.md) | Configure GitHub, GitHub Enterprise, and Google sign-in for a self-hosted Wafflebase, and make cookies, CLI sign-in, and desktop app sign-in work over HTTPS. |
 | [Deploy to production](developers/self-hosting/deploy.md) | Build the backend image and the frontend with your own URLs, run migrations, connect storage, and turn on access control. |
 | [Optional features](developers/self-hosting/optional-features.md) | Turn on share-link analytics, database and lakehouse connections, error tracking, and the public template gallery on a self-hosted Wafflebase. |
 | [Troubleshooting](developers/self-hosting/troubleshooting.md) | Fix common startup, sign-in, sync, upload, and feature errors on a self-hosted Wafflebase. |

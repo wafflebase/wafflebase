@@ -232,6 +232,10 @@ export default defineConfig({
               link: "/start/phone"
             },
             {
+              text: "Use the desktop app",
+              link: "/start/desktop"
+            },
+            {
               text: "Troubleshooting",
               link: "/start/troubleshooting"
             }

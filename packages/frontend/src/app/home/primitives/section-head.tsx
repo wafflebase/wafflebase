@@ -2,6 +2,8 @@ import { cn } from "@/lib/utils";
 
 type SectionHeadProps = {
   title: string;
+  /** For a section that names itself with `aria-labelledby`. */
+  titleId?: string;
   sub?: string;
   align?: "center" | "left";
   className?: string;
@@ -9,6 +11,7 @@ type SectionHeadProps = {
 
 export function SectionHead({
   title,
+  titleId,
   sub,
   align = "center",
   className,
@@ -25,6 +28,7 @@ export function SectionHead({
       )}
     >
       <h2
+        id={titleId}
         className="font-display font-semibold text-[color:var(--wb-ink)] text-[clamp(28px,3.5vw,40px)] leading-[1.1] tracking-[-0.01em] text-balance m-0"
         style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
       >
