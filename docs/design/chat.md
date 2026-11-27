@@ -564,7 +564,7 @@ and the panel; only the chrome around them differs.
    list → conversation. Document URLs render as plain links. Deviations from
    this document are listed under *P1 as built* below.
 2. **P2 — The joins. Shipped** (branch `chat-review-hardening`; plan
-   [`20261125-chat-review-hardening-todo.md`](../tasks/active/20261125-chat-review-hardening-todo.md)),
+   [`20261125-chat-review-hardening-todo.md`](../tasks/archive/2026/11/20261125-chat-review-hardening-todo.md)),
    together with the fixes a review of P1 found. Document cards +
    `ChatDocumentRef` + Files list, anchors, editor chat panel, "Send to chat"
    in the sheets/docs/slides context menus, mobile bottom sheet. Deviations

@@ -6,30 +6,57 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 649
+Total archived tasks: 676
 
-## 2026/11 (19 tasks)
+## 2026/11 (46 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| chat review hardening (2026-11-25) | [20261125-chat-review-hardening-todo.md](./2026/11/20261125-chat-review-hardening-todo.md) | [20261125-chat-review-hardening-lessons.md](./2026/11/20261125-chat-review-hardening-lessons.md) |
+| desktop app (2026-11-23) | [20261123-desktop-app-todo.md](./2026/11/20261123-desktop-app-todo.md) | [20261123-desktop-app-lessons.md](./2026/11/20261123-desktop-app-lessons.md) |
+| share link qr code (2026-11-23) | [20261123-share-link-qr-code-todo.md](./2026/11/20261123-share-link-qr-code-todo.md) | [20261123-share-link-qr-code-lessons.md](./2026/11/20261123-share-link-qr-code-lessons.md) |
 | chat ui critique fixes (2026-11-22) | [20261122-chat-ui-critique-fixes-todo.md](./2026/11/20261122-chat-ui-critique-fixes-todo.md) | [20261122-chat-ui-critique-fixes-lessons.md](./2026/11/20261122-chat-ui-critique-fixes-lessons.md) |
+| chat default general (2026-11-21) | [20261121-chat-default-general-todo.md](./2026/11/20261121-chat-default-general-todo.md) | [20261121-chat-default-general-lessons.md](./2026/11/20261121-chat-default-general-lessons.md) |
+| datasources in settings (2026-11-21) | [20261121-datasources-in-settings-todo.md](./2026/11/20261121-datasources-in-settings-todo.md) | [20261121-datasources-in-settings-lessons.md](./2026/11/20261121-datasources-in-settings-lessons.md) |
+| notification unread paging (2026-11-21) | [20261121-notification-unread-paging-todo.md](./2026/11/20261121-notification-unread-paging-todo.md) | [20261121-notification-unread-paging-lessons.md](./2026/11/20261121-notification-unread-paging-lessons.md) |
 | release v0.6.17 (2026-11-21) | [20261121-release-v0.6.17-todo.md](./2026/11/20261121-release-v0.6.17-todo.md) | [20261121-release-v0.6.17-lessons.md](./2026/11/20261121-release-v0.6.17-lessons.md) |
+| release v0.6.18 (2026-11-21) | [20261121-release-v0.6.18-todo.md](./2026/11/20261121-release-v0.6.18-todo.md) | [20261121-release-v0.6.18-lessons.md](./2026/11/20261121-release-v0.6.18-lessons.md) |
 | workspace webhooks (2026-11-20) | [20261120-workspace-webhooks-todo.md](./2026/11/20261120-workspace-webhooks-todo.md) | [20261120-workspace-webhooks-lessons.md](./2026/11/20261120-workspace-webhooks-lessons.md) |
 | docs site content (2026-11-19) | [20261119-docs-site-content-todo.md](./2026/11/20261119-docs-site-content-todo.md) | [20261119-docs-site-content-lessons.md](./2026/11/20261119-docs-site-content-lessons.md) |
 | release v0.6.16 (2026-11-19) | [20261119-release-v0.6.16-todo.md](./2026/11/20261119-release-v0.6.16-todo.md) | [20261119-release-v0.6.16-lessons.md](./2026/11/20261119-release-v0.6.16-lessons.md) |
+| template catalog ops (2026-11-19) | [20261119-template-catalog-ops-todo.md](./2026/11/20261119-template-catalog-ops-todo.md) | [20261119-template-catalog-ops-lessons.md](./2026/11/20261119-template-catalog-ops-lessons.md) |
 | board sticky stamp polish (2026-11-18) | [20261118-board-sticky-stamp-polish-todo.md](./2026/11/20261118-board-sticky-stamp-polish-todo.md) | [20261118-board-sticky-stamp-polish-lessons.md](./2026/11/20261118-board-sticky-stamp-polish-lessons.md) |
+| mobile before after (2026-11-18) | [20261118-mobile-before-after-todo.md](./2026/11/20261118-mobile-before-after-todo.md) | [20261118-mobile-before-after-lessons.md](./2026/11/20261118-mobile-before-after-lessons.md) |
+| mobile clipping (2026-11-18) | [20261118-mobile-clipping-todo.md](./2026/11/20261118-mobile-clipping-todo.md) | [20261118-mobile-clipping-lessons.md](./2026/11/20261118-mobile-clipping-lessons.md) |
 | mobile editor header (2026-11-18) | [20261118-mobile-editor-header-todo.md](./2026/11/20261118-mobile-editor-header-todo.md) | [20261118-mobile-editor-header-lessons.md](./2026/11/20261118-mobile-editor-header-lessons.md) |
 | slides layout pass (2026-11-17) | [20261117-slides-layout-pass-todo.md](./2026/11/20261117-slides-layout-pass-todo.md) | [20261117-slides-layout-pass-lessons.md](./2026/11/20261117-slides-layout-pass-lessons.md) |
+| agent harness cleanup (2026-11-16) | [20261116-agent-harness-cleanup-todo.md](./2026/11/20261116-agent-harness-cleanup-todo.md) | [20261116-agent-harness-cleanup-lessons.md](./2026/11/20261116-agent-harness-cleanup-lessons.md) |
+| board navigation feel (2026-11-16) | [20261116-board-navigation-feel-todo.md](./2026/11/20261116-board-navigation-feel-todo.md) | [20261116-board-navigation-feel-lessons.md](./2026/11/20261116-board-navigation-feel-lessons.md) |
 | board usability (2026-11-16) | [20261116-board-usability-todo.md](./2026/11/20261116-board-usability-todo.md) | [20261116-board-usability-lessons.md](./2026/11/20261116-board-usability-lessons.md) |
 | notes pane contrast (2026-11-16) | [20261116-notes-pane-contrast-todo.md](./2026/11/20261116-notes-pane-contrast-todo.md) | [20261116-notes-pane-contrast-lessons.md](./2026/11/20261116-notes-pane-contrast-lessons.md) |
 | release v0.6.15 (2026-11-16) | [20261116-release-v0.6.15-todo.md](./2026/11/20261116-release-v0.6.15-todo.md) | [20261116-release-v0.6.15-lessons.md](./2026/11/20261116-release-v0.6.15-lessons.md) |
 | slides critique fixes (2026-11-16) | [20261116-slides-critique-fixes-todo.md](./2026/11/20261116-slides-critique-fixes-todo.md) | [20261116-slides-critique-fixes-lessons.md](./2026/11/20261116-slides-critique-fixes-lessons.md) |
+| agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./2026/11/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./2026/11/20261115-agent-harness-adopt-prep-lessons.md) |
+| agent harness switch (2026-11-15) | [20261115-agent-harness-switch-todo.md](./2026/11/20261115-agent-harness-switch-todo.md) | [20261115-agent-harness-switch-lessons.md](./2026/11/20261115-agent-harness-switch-lessons.md) |
 | demo daily reset (2026-11-15) | [20261115-demo-daily-reset-todo.md](./2026/11/20261115-demo-daily-reset-todo.md) | [20261115-demo-daily-reset-lessons.md](./2026/11/20261115-demo-daily-reset-lessons.md) |
+| docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./2026/11/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./2026/11/20261115-docs-site-brand-neutrals-lessons.md) |
 | impeccable audit fixes (2026-11-15) | [20261115-impeccable-audit-fixes-todo.md](./2026/11/20261115-impeccable-audit-fixes-todo.md) | [20261115-impeccable-audit-fixes-lessons.md](./2026/11/20261115-impeccable-audit-fixes-lessons.md) |
+| implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./2026/11/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./2026/11/20261115-implement-post-agent-job-lessons.md) |
+| install deps linked path (2026-11-15) | [20261115-install-deps-linked-path-todo.md](./2026/11/20261115-install-deps-linked-path-todo.md) | [20261115-install-deps-linked-path-lessons.md](./2026/11/20261115-install-deps-linked-path-lessons.md) |
+| move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./2026/11/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./2026/11/20261115-move-agent-arms-lessons.md) |
 | ai slop cleanup (2026-11-14) | [20261114-ai-slop-cleanup-todo.md](./2026/11/20261114-ai-slop-cleanup-todo.md) | [20261114-ai-slop-cleanup-lessons.md](./2026/11/20261114-ai-slop-cleanup-lessons.md) |
+| impeccable frontend sweep (2026-11-14) | [20261114-impeccable-frontend-sweep-todo.md](./2026/11/20261114-impeccable-frontend-sweep-todo.md) | [20261114-impeccable-frontend-sweep-lessons.md](./2026/11/20261114-impeccable-frontend-sweep-lessons.md) |
+| logo refresh (2026-11-14) | [20261114-logo-refresh-todo.md](./2026/11/20261114-logo-refresh-todo.md) | [20261114-logo-refresh-lessons.md](./2026/11/20261114-logo-refresh-lessons.md) |
+| polish document list (2026-11-14) | [20261114-polish-document-list-todo.md](./2026/11/20261114-polish-document-list-todo.md) | [20261114-polish-document-list-lessons.md](./2026/11/20261114-polish-document-list-lessons.md) |
+| query fail fast (2026-11-14) | [20261114-query-fail-fast-todo.md](./2026/11/20261114-query-fail-fast-todo.md) | [20261114-query-fail-fast-lessons.md](./2026/11/20261114-query-fail-fast-lessons.md) |
+| spec to pr diff buffer (2026-11-14) | [20261114-spec-to-pr-diff-buffer-todo.md](./2026/11/20261114-spec-to-pr-diff-buffer-todo.md) | [20261114-spec-to-pr-diff-buffer-lessons.md](./2026/11/20261114-spec-to-pr-diff-buffer-lessons.md) |
 | impeccable swap (2026-11-13) | [20261113-impeccable-swap-todo.md](./2026/11/20261113-impeccable-swap-todo.md) | [20261113-impeccable-swap-lessons.md](./2026/11/20261113-impeccable-swap-lessons.md) |
+| sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./2026/11/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./2026/11/20261111-sheets-auto-fit-reload-lessons.md) |
+| sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./2026/11/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./2026/11/20261111-sheets-link-card-close-lessons.md) |
+| sheet presence jumps (2026-11-09) | [20261109-sheet-presence-jumps-todo.md](./2026/11/20261109-sheet-presence-jumps-todo.md) | [20261109-sheet-presence-jumps-lessons.md](./2026/11/20261109-sheet-presence-jumps-lessons.md) |
 | codepair workspace claims (2026-11-08) | [20261108-codepair-workspace-claims-todo.md](./2026/11/20261108-codepair-workspace-claims-todo.md) | [20261108-codepair-workspace-claims-lessons.md](./2026/11/20261108-codepair-workspace-claims-lessons.md) |
 | release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./2026/11/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./2026/11/20261108-release-v0.6.14-lessons.md) |
+| sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./2026/11/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./2026/11/20261103-sheets-auto-fit-row-height-lessons.md) |
 | title live sync (2026-11-01) | [20261101-title-live-sync-todo.md](./2026/11/20261101-title-live-sync-todo.md) | [20261101-title-live-sync-lessons.md](./2026/11/20261101-title-live-sync-lessons.md) |
 
 ## 2026/10 (7 tasks)
