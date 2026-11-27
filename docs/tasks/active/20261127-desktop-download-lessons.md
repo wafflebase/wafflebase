@@ -34,3 +34,16 @@
   `/api/` also catches Vite's own `/src/api/*.ts` modules and blanks the
   page. `capture-before-after.mjs shoot` always signs in, which redirects `/`
   to a workspace, so it cannot shoot the signed-out homepage.
+
+## Self-review
+
+- **Round 1** (docs, correctness, security clean). Test-adequacy: the URL
+  test restated its own constants, and nothing tied the homepage links to the
+  workflow's uploads — fixed: `desktop-release.test.mjs` now checks every
+  download link (README, docs guide, and the homepage's `${RELEASES}/…`
+  pattern plus its `RELEASES` base) against the upload step, mutation-checked;
+  the frontend test now checks each link shows the file it downloads. The
+  client-hints test could pass without hints — fixed with a probe where every
+  other signal says Mac. Design-fit / blast-radius "links 404 until 0.6.19":
+  disputed — merge timing, recorded in Decisions; PR stays draft until the
+  release.

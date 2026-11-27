@@ -59,17 +59,20 @@ describe("detectDesktopPlatform", () => {
     expect(detectDesktopPlatform(probe)).toBe(expected);
   });
 
+  // Every other signal says Mac here, so only the hints can produce the
+  // answer: precedence, not agreement.
   it("prefers client hints over the frozen navigator.platform", () => {
     expect(
       detectDesktopPlatform({
-        userAgent: WINDOWS_UA,
-        platform: "",
+        userAgent: MAC_UA,
+        platform: "MacIntel",
         userAgentData: { platform: "Windows", mobile: false },
       }),
     ).toBe("windows");
     expect(
       detectDesktopPlatform({
-        userAgent: LINUX_UA,
+        userAgent: MAC_UA,
+        platform: "MacIntel",
         userAgentData: { platform: "Android", mobile: true },
       }),
     ).toBe("mobile");
@@ -80,16 +83,21 @@ describe("detectDesktopPlatform", () => {
   });
 });
 
-describe("download URLs", () => {
-  // The asset names the release workflow uploads, pinned by
-  // scripts/test/desktop-release.test.mjs.
-  it("point at the pinned latest-release assets", () => {
-    expect(MAC_DOWNLOAD_URL).toBe(
-      "https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg",
-    );
-    expect(WINDOWS_DOWNLOAD_URL).toBe(
-      "https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_x64-setup.exe",
-    );
+// That the URLs name the assets the release uploads is checked against the
+// workflow itself, in scripts/test/desktop-release.test.mjs. Here: the page
+// links each URL and shows the file name that URL downloads.
+describe("download links", () => {
+  it("show the file each one downloads", () => {
+    stubNavigator({ userAgent: MAC_UA, platform: "MacIntel" });
+    renderSection();
+    for (const url of [MAC_DOWNLOAD_URL, WINDOWS_DOWNLOAD_URL]) {
+      const link = screen
+        .getAllByRole("link")
+        .find((a) => a.getAttribute("href") === url);
+      expect(link, url).toBeTruthy();
+      const file = url.slice(url.lastIndexOf("/") + 1);
+      expect(link!.closest("li")!.textContent).toContain(file);
+    }
   });
 });
 
