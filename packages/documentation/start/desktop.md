@@ -1,17 +1,17 @@
 ---
 title: Use the desktop app
-description: Install the Wafflebase desktop app on a Mac or Windows PC, sign in, connect it to your team's server, and keep it up to date.
+description: Install the Wafflebase desktop app on a Mac, sign in, connect it to your team's server, and keep it up to date.
 type: how-to
 ---
 
 # Use the desktop app
 
-Install the Wafflebase desktop app on a Mac or Windows PC, sign in, connect it to your team's server, and keep it up to date.
+Install the Wafflebase desktop app on a Mac, sign in, connect it to your team's server, and keep it up to date.
 
 The app opens the same Wafflebase you use in a browser, in its own window. Your account, documents, and share links are the same in both.
 
 ::: info Before you start
-- Available for macOS (Apple silicon and Intel) and Windows (64-bit). A Linux version is not available yet.
+- Available for macOS (Apple silicon and Intel) only for now. Windows and Linux versions are coming later.
 - Sign in with GitHub. Google sign-in isn't available in the desktop app yet.
 - Documents need a connection to the server. You can't edit offline.
 :::
@@ -28,15 +28,6 @@ The download links point at the latest Wafflebase release. If one answers **Not 
 4. Open **Wafflebase** from **Applications** or Launchpad.
 
 The Mac app is signed and notarized by Apple, so it opens without a security warning.
-
-## Install on Windows
-
-1. Download [Wafflebase_x64-setup.exe](https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_x64-setup.exe).
-2. Open the downloaded file.
-3. If **Windows protected your PC** appears, click **More info**, then click **Run anyway**.
-4. Follow the installer, then open **Wafflebase** from the Start menu.
-
-The Windows installer is not code-signed yet, so Windows SmartScreen warns you the first time you run it. Only run an installer you downloaded from the link above.
 
 ## Sign in
 
@@ -55,7 +46,7 @@ Signing in happens in your browser so you can use its saved passwords and passke
 
 If your team runs its own Wafflebase, point the app at it. The app connects to one server at a time.
 
-1. Open the **Change server…** menu item. On a Mac it's in the **Wafflebase** menu. On Windows it's in the **File** menu.
+1. Open the **Change server…** menu item in the **Wafflebase** menu.
 2. Under **Server address**, enter the address you open Wafflebase at in a web browser, for example `https://wafflebase.example.com`.
 3. Click **Connect**.
 
@@ -105,7 +96,7 @@ For team admins who run their own Wafflebase:
 
 ## Known limitations
 
-- No Linux version yet.
+- macOS only for now. Windows and Linux versions are coming later.
 - Google sign-in isn't available in the app yet. Use GitHub, or use Google in a web browser.
 - No offline editing. Documents open only while the app can reach the server.
 - The app connects to one server at a time.

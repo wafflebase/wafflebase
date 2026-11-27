@@ -10,8 +10,10 @@ flow the CLI uses. The design is
 
 Status: Phase 0 + 1, plus the release half of Phase 2: signed and notarized
 macOS builds and the in-app updater, published with every server release (see
-[Releasing](#releasing)). Google desktop sign-in, Authenticode for Windows and
-`test:webkit` in CI are still open.
+[Releasing](#releasing)). The release is macOS-only for now: Windows builds and
+is tested in CI but is not released until it is Authenticode-signed. Google
+desktop sign-in, Authenticode for Windows and `test:webkit` in CI are still
+open.
 
 ## Layout
 
@@ -54,8 +56,9 @@ The debug bundle lands at
 not part of `pnpm verify:fast`: they need a Rust toolchain the other packages
 do not. CI runs them in the `verify-desktop (macOS)` and
 `verify-desktop (Windows)` jobs of `.github/workflows/ci.yml` whenever this
-package changes, on the crate's `rust-version` (1.90): Windows because the
-release builds there and its `cfg(windows)` code compiles nowhere else. Linux
+package changes, on the crate's `rust-version` (1.90): Windows because its
+`cfg(windows)` code compiles nowhere else, which keeps that build ready for
+the release it is held out of (see [Releasing](#releasing)). Linux
 runners cannot build the crate without the WebKitGTK development libraries.
 
 ## Choosing a server
@@ -254,16 +257,22 @@ that redirects straight to the callback.
 The app has no release of its own. It carries the repository's version and
 ships in the same GitHub release as the server: publishing `vX.Y.Z` runs
 `.github/workflows/desktop-release.yml` next to the Docker and npm publishes,
-which builds a universal macOS `.dmg` (signed, notarized, stapled), a Windows
-NSIS installer (not Authenticode-signed yet) and the updater packages, and
-attaches them to that release with `latest.json`. Installed apps poll
-`releases/latest/download/latest.json` and install new versions silently when
-they quit; download links are:
+which builds a universal macOS `.dmg` (signed, notarized, stapled) and its
+updater package, and attaches them to that release with `latest.json`.
+Installed apps poll `releases/latest/download/latest.json` and install new
+versions silently when they quit; the download link is:
 
 ```
 https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_universal.dmg
-https://github.com/wafflebase/wafflebase/releases/latest/download/Wafflebase_x64-setup.exe
 ```
+
+**macOS only, for now.** The Windows NSIS build is not Authenticode-signed, so
+SmartScreen would warn every new user; the first public release leaves it out
+rather than ship that. It keeps compiling in `verify-desktop (Windows)`.
+Bringing it back is a `windows` job in the release workflow, a
+`windows-x86_64` entry in `latest.json`, its upload, and the download links on
+the homepage, in the docs and here — `scripts/test/desktop-release.test.mjs`
+pins the macOS-only set, so it is edited in the same change.
 
 The why is in [desktop-app.md §7](../../docs/design/desktop-app.md#7-release).
 

@@ -10,7 +10,7 @@ name: desktop-release
 # half an hour or fail; none of that may hold up or fail the server image.
 #
 # desktop-release.test.mjs pins the asset names this file must agree on
-# (Collect steps → manifest → upload) and the release overlay on both builds.
+# (Collect step → manifest → upload) and the release overlay on the build.
 #
 # WHAT IT ATTACHES. Installers under stable names, so the homepage can link to
 # `releases/latest/download/Wafflebase_universal.dmg`, and `latest.json`,
@@ -32,9 +32,13 @@ name: desktop-release
 # for a person whatever the file says. No job restores an Actions cache
 # (trusted-cache.test.mjs).
 #
-# Windows builds are NOT Authenticode-signed yet: SmartScreen warns on first
-# run. The updater package is still minisign-signed, which is what the
-# installed app checks.
+# MACOS ONLY, for now. The first public release ships the Mac app alone: the
+# Windows build is not Authenticode-signed, so SmartScreen would warn every
+# new user, and the maintainers chose not to ship or advertise it until a
+# signing route is chosen (docs/design/desktop-app.md §7). The Windows code
+# still compiles on every PR (`verify-desktop (Windows)` in ci.yml); bringing
+# it back is a `windows` job, its `windows-x86_64` manifest entry and upload,
+# and the download links that desktop-release.test.mjs checks.
 
 on:
   release:
@@ -177,59 +181,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  windows:
-    needs: version
-    runs-on: windows-latest
-    environment: desktop-release
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install the Tauri CLI
-        run: pnpm install --frozen-lockfile --filter @wafflebase/desktop
-
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-
-      - name: Build (NSIS)
-        working-directory: packages/desktop
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --ci --bundles nsis --config src-tauri/tauri.release.conf.json
-
-      - name: Collect
-        shell: bash
-        run: |
-          nsis=packages/desktop/src-tauri/target/release/bundle/nsis
-          mkdir out
-          cp "$nsis/Wafflebase_${VERSION}_x64-setup.exe" out/Wafflebase_x64-setup.exe
-          cp "$nsis/Wafflebase_${VERSION}_x64-setup.exe.sig" out/Wafflebase_x64-setup.exe.sig
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: out/
-          if-no-files-found: error
-          retention-days: 7
-
   publish:
-    needs: [version, macos, windows]
+    needs: [version, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -257,12 +210,9 @@ jobs:
             --arg notes "https://github.com/${GH_REPO}/releases/tag/${TAG}" \
             --arg mac_url "$base/Wafflebase_universal.app.tar.gz" \
             --arg mac_sig "$(cat out/Wafflebase_universal.app.tar.gz.sig)" \
-            --arg win_url "$base/Wafflebase_x64-setup.exe" \
-            --arg win_sig "$(cat out/Wafflebase_x64-setup.exe.sig)" \
             '{version: $version, notes: $notes, pub_date: $date, platforms: {
                "darwin-aarch64": {url: $mac_url, signature: $mac_sig},
-               "darwin-x86_64":  {url: $mac_url, signature: $mac_sig},
-               "windows-x86_64": {url: $win_url, signature: $win_sig}}}' \
+               "darwin-x86_64":  {url: $mac_url, signature: $mac_sig}}}' \
             > latest.json
           cat latest.json
 
@@ -271,6 +221,5 @@ jobs:
         run: |
           gh release upload "$TAG" --clobber \
             out/Wafflebase_universal.dmg \
-            out/Wafflebase_universal.app.tar.gz \
-            out/Wafflebase_x64-setup.exe
+            out/Wafflebase_universal.app.tar.gz
           gh release upload "$TAG" --clobber latest.json

@@ -13,8 +13,9 @@ deployment's frontend from its URL, so the server a team runs decides which
 version of Wafflebase they see. Sign-in leaves the window for the system
 browser and comes back through the loopback + PKCE flow the CLI already uses
 ([cli.md](cli.md) §3.1). The returned code is redeemed by a new endpoint that
-sets the ordinary session cookies inside the webview. The first release
-targets macOS and Windows.
+sets the ordinary session cookies inside the webview. The app is built for
+macOS and Windows; the first public release ships macOS only, and Windows
+follows once its installer is Authenticode-signed (§7).
 
 Tauri was chosen over Electron because the web app already edits well in
 Safari. The main cost of Tauri, running on WebKit on macOS, is one the
@@ -36,7 +37,8 @@ the remote origin gets no native API at all by default. The comparison is in
 - Cover the desktop basics: standard menus and shortcuts, remembered window
   state, multiple windows, external links in the system browser, downloads
   saved to disk, single instance, auto-update, signed and notarized builds.
-- Release for macOS and Windows.
+- Release for macOS and Windows. macOS first: the first public release is
+  macOS-only, and Windows joins it once Authenticode signing is chosen (§7).
 - Open the app's UI with no network, and say plainly that it is offline,
   rather than showing a blank window (§10).
 
@@ -368,9 +370,10 @@ that would reach the system browser without cookies.
   logged, not shown.
 - **Signing.** Apple Developer ID (G2 intermediate) with notarization on macOS.
   Windows builds are minisign-signed for the updater but not yet
-  Authenticode-signed, so SmartScreen warns on first run until a signing route
-  is chosen (Azure Artifact Signing, or an OV certificate in a cloud HSM —
-  EV no longer buys SmartScreen reputation). Signing secrets live only in the
+  Authenticode-signed, so SmartScreen would warn on first run until a signing
+  route is chosen (Azure Artifact Signing, or an OV certificate in a cloud
+  HSM — EV no longer buys SmartScreen reputation). Until then the Windows
+  build is not released at all (§7). Signing secrets live only in the
   `desktop-release` GitHub Environment, restricted to `v*` tags and gated by
   a required reviewer (§ Risks). The updater package and its `.sig` are
   turned on by `src-tauri/tauri.release.conf.json`, which only the release
@@ -404,8 +407,8 @@ The app carries the repository's lockstep version and ships in the same
 GitHub release as the server: publishing `vX.Y.Z` runs `docker-publish.yml`,
 `npm-publish.yml` and `.github/workflows/desktop-release.yml` side by side.
 The last builds a universal macOS bundle (signed, notarized, stapled; the disk
-image notarized separately) and a Windows NSIS installer and attaches them to
-that release. It is a separate workflow so that notarization, which waits on
+image notarized separately) and its updater package and attaches them to that
+release. It is a separate workflow so that notarization, which waits on
 Apple and can fail, never holds up or fails the server image. The secrets it
 needs are in [`packages/desktop/README.md`](../../packages/desktop/README.md#releasing).
 
@@ -431,9 +434,26 @@ Downloads need entitlements and review for what is a thin shell; the
 Microsoft Store adds a review cycle for no capability the installer lacks.
 Homebrew and winget manifests can point at the same assets later.
 
+**macOS only, for now (decided 2026-11-27).** The first public release ships
+the Mac app alone. The Windows NSIS build works, but it is not
+Authenticode-signed, so SmartScreen would greet every new Windows user with
+"Windows protected your PC" and a **Run anyway** that a cautious user should
+refuse; the maintainers chose not to ship or advertise a build whose first
+impression is a security warning. So the release workflow has no Windows job,
+the update manifest carries only the two `darwin-*` keys, and the homepage,
+docs and package README link only the Mac download (a Windows or Linux visitor
+is told those versions are coming). The Windows code is not dropped:
+`verify-desktop (Windows)` in `ci.yml` keeps it compiling and tested on every
+change to the package, and the backend keeps accepting the Windows webview's
+origin (§3), so a returning Windows build needs no server release. Bringing it
+back, once a signing route is decided, is one change: a `windows` job that
+signs the installer, its `windows-x86_64` manifest entry and upload, and the
+download links. `desktop-release.test.mjs` pins the macOS-only platform set,
+so that change has to edit it.
+
 **Where the manifest lives.** Every release carries the update manifest, latest.json, and
-installers under stable names (`Wafflebase_universal.dmg`,
-`Wafflebase_x64-setup.exe`), so the app polls
+installers under stable names (`Wafflebase_universal.dmg`; a Windows
+installer joins it when Windows ships), so the app polls
 <https://github.com/wafflebase/wafflebase/releases/latest/download/latest.json> and download links use
 `releases/latest/download/<name>`. The endpoint is compiled into every
 installed app and cannot move without a manual reinstall; a unit test pins
@@ -464,7 +484,7 @@ a yearly step in the README procedure.
 |-------|-------|
 | 0. Spike | Unsigned shell that loads a deployment; run the §6 checklist on macOS. Go or no-go for Tauri |
 | 1. Sign-in | Backend `mode=desktop` (GitHub), `/auth/desktop/session`, providers field. Shell: picker, navigation policy, login, downloads, menus. Unsigned macOS + Windows builds for the team |
-| 2. Release | Google `mode=desktop`; signing, notarization, updater, released with the server (shipped: `desktop-release.yml`, `update.rs`); Authenticode; `test:webkit` in CI; public release |
+| 2. Release | Google `mode=desktop`; signing, notarization, updater, released with the server (shipped: `desktop-release.yml`, `update.rs`); public release, macOS only (shipped); Authenticode, then the Windows release; `test:webkit` in CI |
 | Later | Linux; file associations into import; deep links; offline reading and editing (§10 follow-ups) |
 
 ### 9. What the Phase 0 spike found

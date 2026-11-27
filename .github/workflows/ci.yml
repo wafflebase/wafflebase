@@ -395,11 +395,12 @@ jobs:
   # branch protection: a desktop regression fails the run, which is what the
   # agent pipeline's promotion gate reads.
   #
-  # Windows too, because the release builds there (`desktop-release.yml`) and
-  # its `cfg(windows)` / `cfg(not(target_os = "macos"))` code compiles nowhere
-  # else: a macOS-only lane let a Windows compile error surface first in a
-  # release, where it would also hold back the macOS assets. WebView2 is
-  # Chromium and needs no SDK beyond the runner's MSVC toolchain.
+  # Windows too, because its `cfg(windows)` / `cfg(not(target_os = "macos"))`
+  # code compiles nowhere else. The release is macOS-only for now (the Windows
+  # build is not Authenticode-signed, docs/design/desktop-app.md §7), so this
+  # lane is what keeps that build ready to return to `desktop-release.yml`
+  # rather than rotting until then. WebView2 is Chromium and needs no SDK
+  # beyond the runner's MSVC toolchain.
   verify-desktop:
     name: verify-desktop (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}

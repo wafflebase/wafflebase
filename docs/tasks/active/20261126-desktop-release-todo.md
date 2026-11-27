@@ -25,6 +25,12 @@ other half of Phase 2 and are not in this task.
 - Windows: NSIS, **unsigned** until the Authenticode route (Azure Artifact
   Signing vs OV + cloud HSM) is chosen. The updater payload is still
   minisign-signed.
+- **First public release is macOS-only** (maintainer's call, 2026-11-27).
+  An unsigned installer greets every new Windows user with SmartScreen, so
+  Windows is neither shipped nor advertised yet: the `windows` release job,
+  its `windows-x86_64` manifest entry and every Windows download link are
+  gone; `verify-desktop (Windows)` keeps the build compiling. Re-add the job
+  and links when Authenticode is decided (desktop-app.md §7).
 - Updater key: Tauri minisign key; losing it strands every install.
 - Signing secrets live only in the `desktop-release` GitHub Environment
   (`v*` tags). The workflow refuses a release the agent App authored, as
@@ -76,6 +82,12 @@ other half of Phase 2 and are not in this task.
       server answers "too old"
 - [ ] User: App Store Connect API access + Team key; Environment secrets;
       first server release that carries the app
+- [x] macOS-only first release: drop the Windows job/manifest key/upload,
+      pin the macOS-only set in `desktop-release.test.mjs`, homepage offers
+      only the Mac build ("Windows and Linux versions are coming" elsewhere),
+      docs/README/design docs say macOS only for now
+- [ ] When Authenticode is chosen: sign in a `windows` release job, restore
+      the `windows-x86_64` manifest entry, upload and download links
 
 ## Review
 
