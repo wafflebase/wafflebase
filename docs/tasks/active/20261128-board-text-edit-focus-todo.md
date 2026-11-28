@@ -61,3 +61,10 @@ re-appended the box afterwards, too late.
   back.
 - `markDirty()` ends the edit (cancel) when a remote change deleted the
   element being edited — the old wipe→blur→commit closed it by accident.
+- Desktop slides (`SlidesView`, ≥768px) had the same bug through the same
+  editor: on `main` one remote edit gave detached 1, blur 1, edit closed,
+  `abc` + `def` → `defabc`; with the fix detached 0, blur 0, `abcdef`.
+  `MobileSlidesView` never calls the editor's `markDirty`/`setPeers`, so it
+  was unaffected.
+- After the round-3 commit change, re-checked the board in the browser:
+  remote edit + presence → no detach/blur, `abcdef`, Done commits it.
