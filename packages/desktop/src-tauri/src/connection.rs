@@ -1219,9 +1219,13 @@ mod tests {
 
     #[test]
     fn a_refused_connection_is_unreachable() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
+        // A free port below every OS's ephemeral range (Linux starts at
+        // 32768, macOS and Windows at 49152). A freed ephemeral port could go
+        // to a test running alongside that binds `:0` and accepts without
+        // answering, which reads as a slow server.
+        let port = (20000..21000)
+            .find(|&p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok())
+            .expect("no free port in 20000..21000");
         assert_eq!(
             run_probe(
                 &format!("http://127.0.0.1:{port}/login"),
