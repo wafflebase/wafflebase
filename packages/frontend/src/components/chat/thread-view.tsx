@@ -227,7 +227,9 @@ export function ThreadView({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3"
       >
         {root ? (
-          <ol className="border-b pb-2">
+          // `pt-1` keeps the root's hover toolbar, which rides up over the
+          // row's top edge, inside the scroller instead of clipped by it.
+          <ol className="border-b pt-1 pb-2">
             <MessageGroupView
               group={{ author: root.author, first: root, rest: [] }}
               {...host}
@@ -345,15 +347,17 @@ export function ThreadView({
                 : undefined
             }
             footer={
-              <div className="flex items-center gap-2 pointer-coarse:min-h-11">
+              <div className="flex min-w-0 items-center gap-2 pointer-coarse:min-h-11">
                 <Checkbox
                   id={checkboxId}
                   checked={alsoInChannel}
                   onCheckedChange={(v) => setAlsoInChannel(v === true)}
                 />
+                {/* One line: a long channel name truncates instead of
+                    folding the label under itself. */}
                 <Label
                   htmlFor={checkboxId}
-                  className="text-xs font-normal text-muted-foreground"
+                  className="block min-w-0 truncate text-xs leading-5 font-normal text-muted-foreground"
                 >
                   {channel?.kind === "dm"
                     ? "Also send to the conversation"

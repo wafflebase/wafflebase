@@ -690,7 +690,7 @@ function EditBox({
   const tooLong = mention.applyMentions(text).trim().length > CHAT_BODY_MAX;
 
   return (
-    <div className="mt-1 flex flex-col gap-2">
+    <div className="@container/edit mt-1 flex flex-col gap-2">
       <div className="relative">
         <Textarea
           ref={ref}
@@ -716,7 +716,9 @@ function EditBox({
         <Button size="sm" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <span className="text-xs text-muted-foreground">
+        {/* Beside Save and Cancel or not at all: in a thread's narrow
+            column it would wrap under itself. */}
+        <span className="whitespace-nowrap text-xs text-muted-foreground @max-xs/edit:hidden">
           Enter to save · Esc to cancel
         </span>
       </div>

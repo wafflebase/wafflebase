@@ -82,7 +82,10 @@ export function ChannelFilesButton({
           aria-label={label}
         >
           <IconFiles />
-          <span className="hidden md:inline">Files</span>
+          {/* By the header's width, not the viewport's: an open thread
+              narrows the conversation on a wide screen too, and the word
+              would squeeze the channel name out. */}
+          <span className="hidden @md/channel-header:inline">Files</span>
           {count !== undefined && <span>{count}</span>}
         </Button>
       </PopoverTrigger>
