@@ -5,19 +5,34 @@
 //! (capabilities grant commands only to the bundled pages in `../src`).
 //! Everything the desktop does for it is driven from the navigation,
 //! new-window and download hooks below.
+//!
+//! The same crate builds the iOS app (`cfg(mobile)`, which `tauri-build`
+//! sets for Android and iOS targets). What only a desktop has is compiled out
+//! there: the app menu, the updater and its dialogs, single-instance, saved
+//! window geometry and extra windows (a phone shows one webview, so a
+//! `window.open` loads in it instead). Every other rule, the navigation
+//! policy, the reachability probe and the bundled pages, is shared. The
+//! server picker, which the desktop reaches from the menu, is reached on iOS
+//! from the unreachable-server page's **Change server…**.
 
 mod connection;
 mod login;
+mod mobile_signin;
 mod navigation;
 mod server;
 mod signin;
+#[cfg(desktop)]
 mod update;
 
-use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(desktop)]
+use std::sync::atomic::AtomicU32;
+#[cfg(any(desktop, debug_assertions))]
+use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
@@ -38,10 +53,15 @@ macro_rules! dlog {
 }
 
 const MAIN_WINDOW: &str = "main";
+#[cfg(desktop)]
 const CHANGE_SERVER_ID: &str = "change-server";
+#[cfg(desktop)]
 const CHECK_UPDATES_ID: &str = "check-updates";
+#[cfg(desktop)]
 const BACK_ID: &str = "nav-back";
+#[cfg(desktop)]
 const FORWARD_ID: &str = "nav-forward";
+#[cfg(desktop)]
 const RELOAD_ID: &str = "nav-reload";
 
 /// Run in every page before its own scripts, so the frontend can tell it is
@@ -62,6 +82,7 @@ pub struct AppState {
     frontend: RwLock<Option<Url>>,
     signin: signin::SignIn,
     connection: connection::Connection,
+    #[cfg(desktop)]
     window_seq: AtomicU32,
     #[cfg(debug_assertions)]
     smoke_signin_started: std::sync::atomic::AtomicBool,
@@ -80,10 +101,11 @@ impl AppState {
     }
 }
 
-/// A bundled page's URL: `tauri://localhost/<path>` on macOS and Linux,
-/// `http://tauri.localhost/<path>` on Windows.
+/// A bundled page's URL: `tauri://localhost/<path>` on macOS, iOS and Linux,
+/// `http://tauri.localhost/<path>` on Windows and Android, the split Tauri's
+/// own `tauri_protocol_url` makes.
 pub(crate) fn bundled_url(path: &str) -> Url {
-    let base = if cfg!(windows) {
+    let base = if cfg!(windows) || cfg!(target_os = "android") {
         "http://tauri.localhost/"
     } else {
         "tauri://localhost/"
@@ -236,6 +258,7 @@ fn build_window<R: Runtime>(
             let decision = decide(&new_app, &new_label, &url, Request::NewWindow, None);
             dlog!("new window {} -> {:?}", log_url(&url), decision);
             match decision {
+                #[cfg(desktop)]
                 Decision::OpenAppWindow => {
                     // Built off this callback: creating a window from inside a
                     // webview delegate call deadlocks on Windows.
@@ -250,6 +273,16 @@ fn build_window<R: Runtime>(
                             dlog!("could not open a new window: {e}");
                         }
                     });
+                }
+                // One window per app: the page opens in this one, off the
+                // callback like the desktop's new window.
+                #[cfg(mobile)]
+                Decision::OpenAppWindow => {
+                    if let Some(window) = new_app.get_webview_window(&new_label) {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = window.navigate(url);
+                        });
+                    }
                 }
                 Decision::OpenExternal => open_external(&new_app, &url),
                 // A new window never starts sign-in or gets the session POST.
@@ -410,17 +443,30 @@ pub(crate) fn window_or_any<R: Runtime>(
         })
 }
 
-fn focus_main<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = window_or_any(app, MAIN_WINDOW) {
+/// Raise `window` in front of the user's other windows. A no-op on mobile,
+/// where the app's one window is the screen.
+pub(crate) fn bring_to_front<R: Runtime>(window: &WebviewWindow<R>) {
+    #[cfg(desktop)]
+    {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+    #[cfg(mobile)]
+    let _ = window;
+}
+
+#[cfg(desktop)]
+fn focus_main<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = window_or_any(app, MAIN_WINDOW) {
+        bring_to_front(&window);
     }
 }
 
 /// The default app menu (with its Edit menu, which macOS needs for
 /// Cmd+C/V/X/Z/A to reach the webview) plus "Check for Updates…" and
 /// "Change server…".
+#[cfg(desktop)]
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
     let updates = MenuItem::with_id(
@@ -488,6 +534,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 /// The window the user is looking at, for menu commands that act on a page.
+#[cfg(desktop)]
 fn focused_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     app.webview_windows()
         .into_values()
@@ -649,68 +696,80 @@ fn take_handoff<R: Runtime>(
     handoff
 }
 
+/// The app menu's commands.
+#[cfg(desktop)]
+fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    let page_script = match event.id().as_ref() {
+        BACK_ID => Some("history.back()"),
+        FORWARD_ID => Some("history.forward()"),
+        RELOAD_ID => Some("location.reload()"),
+        _ => None,
+    };
+    if let Some(script) = page_script {
+        if let Some(window) = focused_window(app) {
+            let _ = window.eval(script);
+        }
+    } else if event.id() == CHECK_UPDATES_ID {
+        update::check_from_menu(app);
+    } else if event.id() == CHANGE_SERVER_ID {
+        let state = app.state::<AppState>();
+        state.signin.cancel();
+        state.connection.stop();
+        if let Some(window) = window_or_any(app, MAIN_WINDOW) {
+            let _ = window.navigate(bundled_url("index.html"));
+            bring_to_front(&window);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
         // First, so a second launch hands over and exits before anything else.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             focus_main(app);
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        // Without its link script. That script catches every `target=_blank`
-        // click, cancels it and asks over IPC to open the URL, but the
-        // deployment's pages get no IPC on purpose (capabilities/local.json),
-        // so the click died silently. With it off, WebKit hands the request
-        // to `on_new_window`, and the navigation policy decides (§4).
-        .plugin(
-            tauri_plugin_opener::Builder::new()
-                .open_js_links_on_click(false)
-                .build(),
-        )
+        .plugin(tauri_plugin_window_state::Builder::default().build());
+    // Without its link script. That script catches every `target=_blank`
+    // click, cancels it and asks over IPC to open the URL, but the
+    // deployment's pages get no IPC on purpose (capabilities/local.json),
+    // so the click died silently. With it off, WebKit hands the request
+    // to `on_new_window`, and the navigation policy decides (§4).
+    let builder = builder.plugin(
+        tauri_plugin_opener::Builder::new()
+            .open_js_links_on_click(false)
+            .build(),
+    );
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
-            get_server,
-            set_server,
-            use_official_server,
-            login_status,
-            cancel_login,
-            take_handoff,
-            connection_status,
-            retry_connection
-        ])
-        .menu(build_menu)
+        .plugin(tauri_plugin_dialog::init());
+    // The `wafflebase://` scheme (`plugins.deep-link` in tauri.ios.conf.json)
+    // that sign-in returns on, since iOS has no loopback listener to return
+    // to.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        get_server,
+        set_server,
+        use_official_server,
+        login_status,
+        cancel_login,
+        take_handoff,
+        connection_status,
+        retry_connection
+    ]);
+    #[cfg(desktop)]
+    let builder = builder.menu(build_menu).on_menu_event(on_menu_event);
+    builder
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 window
                     .state::<AppState>()
                     .connection
                     .window_closed(window.label());
-            }
-        })
-        .on_menu_event(|app, event| {
-            let page_script = match event.id().as_ref() {
-                BACK_ID => Some("history.back()"),
-                FORWARD_ID => Some("history.forward()"),
-                RELOAD_ID => Some("location.reload()"),
-                _ => None,
-            };
-            if let Some(script) = page_script {
-                if let Some(window) = focused_window(app) {
-                    let _ = window.eval(script);
-                }
-            } else if event.id() == CHECK_UPDATES_ID {
-                update::check_from_menu(app);
-            } else if event.id() == CHANGE_SERVER_ID {
-                let state = app.state::<AppState>();
-                state.signin.cancel();
-                state.connection.stop();
-                if let Some(window) = window_or_any(app, MAIN_WINDOW) {
-                    let _ = window.navigate(bundled_url("index.html"));
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
             }
         })
         .setup(|app| {
@@ -722,22 +781,42 @@ pub fn run() {
                 frontend: RwLock::new(Some(initial.clone())),
                 signin: signin::SignIn::default(),
                 connection: connection::Connection::default(),
+                #[cfg(desktop)]
                 window_seq: AtomicU32::new(1),
                 #[cfg(debug_assertions)]
                 smoke_signin_started: std::sync::atomic::AtomicBool::new(false),
             });
+            // Sign-in's `wafflebase://auth/callback` (`mobile_signin.rs`). A
+            // link that arrives with no sign-in waiting, including the one
+            // that relaunches an app iOS terminated mid-sign-in (the nonce
+            // and verifier died with it), is dropped, so the launch URL
+            // (`get_current`) is not read.
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        signin::deliver_link(&handle, &url);
+                    }
+                });
+            }
             // Builds the main window once the server answers (or with the
             // unreachable-server page if it does not).
             connection::open(app.handle(), MAIN_WINDOW, initial);
-            app.manage(update::Updates::default());
-            update::start(app.handle());
+            #[cfg(desktop)]
+            {
+                app.manage(update::Updates::default());
+                update::start(app.handle());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building the Wafflebase desktop app")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                update::install_pending_at_exit(app);
+        .run(|_app, _event| {
+            #[cfg(desktop)]
+            if let tauri::RunEvent::Exit = _event {
+                update::install_pending_at_exit(_app);
             }
         });
 }
@@ -799,6 +878,27 @@ mod tests {
         );
         assert_eq!(super::window_title("  "), "Wafflebase");
         assert_eq!(super::window_title(""), "Wafflebase");
+    }
+
+    /// iOS sign-in returns on `wafflebase://auth/callback`, a custom scheme
+    /// and never a universal link: a self-hosted server cannot serve an
+    /// `apple-app-site-association` for this app's id. The deep-link plugin
+    /// writes this into the Info.plist's `CFBundleURLTypes` on every build.
+    #[test]
+    fn the_ios_app_registers_only_the_wafflebase_scheme() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.ios.conf.json")).unwrap();
+        let mobile = conf["plugins"]["deep-link"]["mobile"].as_array().unwrap();
+        assert_eq!(
+            mobile,
+            &[serde_json::json!({ "scheme": ["wafflebase"], "appLink": false })],
+            "{mobile:?}"
+        );
+        let plist = include_str!("../gen/apple/wafflebase-desktop_iOS/Info.plist");
+        assert!(
+            plist.contains("<string>wafflebase</string>"),
+            "Info.plist is stale; a `tauri ios build` rewrites it"
+        );
     }
 
     /// The deployment's origin gets no capability.

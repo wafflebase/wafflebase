@@ -154,6 +154,24 @@ started in was closed meanwhile, the handoff runs in the main window (or any
 open one). If the backend's redirect leaves the chosen server (its
 `FRONTEND_URL` is another address), the window shows that as the failure.
 
+On iOS (`cfg(mobile)`, see [iOS](#ios)) there is no listener, since iOS
+suspends the app while Safari is in front. Step 1 reads `mobile.github`
+instead (absent: the server is too old for mobile sign-in; `false`: turned
+off, for the same reasons as desktop). Step 2 opens
+`<backend>/auth/github?mode=mobile&nonce&challenge` in the system browser
+directly, with the same nonce and PKCE generators, and the backend redirects
+to `wafflebase://auth/callback?code&state` (or `?error&state`), the
+loopback callback's query on the app's scheme. `mobile_signin.rs` accepts
+exactly one such deep link, and only while a sign-in is waiting: scheme,
+host and path must match exactly, each parameter may appear once, and
+`state` must equal the nonce (constant-time compare). Anything else is
+refused and the wait goes on; the first accepted link spends the nonce, so a
+replay or a second app's copy finds nothing pending. Step 3 is unchanged.
+Another app can register the same scheme and intercept the redirect
+(RFC 8252 §8.1), but the code is useless without the verifier, which never
+leaves the app. If iOS terminates the app mid-sign-in, the nonce goes with
+it, the callback is dropped, and the user signs in again.
+
 ## Security notes
 
 - **No IPC for the remote origin.** `capabilities/local.json` has no `remote`
@@ -251,6 +269,61 @@ WAFFLEBASE_DESKTOP_BROWSER=/tmp/fake-browser.sh \
 `curl` cannot click the backend's confirmation page, so against a real backend
 the stand-in browser has to do that step itself, or point at a fake backend
 that redirects straight to the callback.
+
+## iOS
+
+The same crate builds an iOS app (status: scaffold; not released). Tauri sets
+`cfg(mobile)` for iOS and Android targets and `cfg(desktop)` otherwise, and
+`lib.rs` compiles out what only a desktop has:
+
+| Desktop only | Why, and what iOS does instead |
+|--------------|--------------------------------|
+| App menu (Change server…, Check for Updates…, Back/Forward/Reload) | iOS has no app menu. The picker is reached from the unreachable-server page's **Change server…**; a reachable server has no way back to it yet |
+| Updater and its dialogs | The App Store updates the app |
+| Single-instance, window-state | iOS runs one instance with one full-screen window |
+| Extra app windows | A link that asks for a new app window loads in the one window |
+
+The desktop-only plugins sit under a `cfg(not(any(target_os = "android",
+target_os = "ios")))` dependency table in `Cargo.toml`, so the iOS build does
+not even compile them. Everything else, the navigation policy, the
+reachability probe and the bundled pages, is shared; bundled pages are served
+from `tauri://localhost` as on macOS.
+
+Sign-in returns on the custom URL scheme `wafflebase://auth/callback`, since
+iOS has no loopback listener to return to. `tauri-plugin-deep-link` (iOS and
+Android only) registers the scheme from `plugins.deep-link` in
+`src-tauri/tauri.ios.conf.json`, which the CLI merges over `tauri.conf.json`
+for iOS builds; the plugin's build script writes it into
+`gen/apple/wafflebase-desktop_iOS/Info.plist` (`CFBundleURLTypes`) on every
+build. It is deliberately not a universal link: a self-hosted deployment
+cannot serve an `apple-app-site-association` for this app's id.
+
+The bundle identifier stays `io.wafflebase.desktop` on iOS too: the app is
+one product, and its `server.json` location follows the identifier.
+
+`src-tauri/gen/apple/` is the Xcode project `tauri ios init` generated
+(XcodeGen `project.yml`, the generated `.xcodeproj`, `Info.plist`,
+entitlements, the app icon set); its own `.gitignore` keeps build output
+(`build/`, `Externals/`, `xcuserdata/`) out. The app icon set comes from
+`app-icon.svg` through `tauri icon`.
+
+Prerequisites, on top of the desktop ones: full Xcode (not only the Command
+Line Tools) with the iOS platform and a simulator runtime matching its SDK
+(Xcode › Settings › Components, or `xcodebuild -downloadPlatform iOS`), the
+Rust targets, and XcodeGen and CocoaPods, which `tauri ios init` installs
+with Homebrew when they are missing:
+
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+brew install xcodegen cocoapods
+pnpm --filter @wafflebase/desktop tauri ios init     # only to regenerate gen/apple
+pnpm --filter @wafflebase/desktop ios:dev            # run on a simulator or device
+pnpm --filter @wafflebase/desktop ios:build:sim      # debug build for the Apple-silicon simulator
+cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml --target aarch64-apple-ios-sim
+```
+
+A device build also needs a signing team (`bundle > iOS > developmentTeam`
+or `APPLE_DEVELOPMENT_TEAM`); the simulator does not.
 
 ## Releasing
 

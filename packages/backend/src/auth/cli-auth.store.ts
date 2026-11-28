@@ -3,17 +3,38 @@ import { createHash, randomBytes } from 'node:crypto';
 import { hashSecret, timingSafeEqualStr } from './oauth-state';
 
 /**
- * Which loopback client a login attempt belongs to: `wafflebase login`
- * (`cli`) or the desktop app (`desktop`, see `docs/design/desktop-app.md`).
+ * Which native client a login attempt belongs to: `wafflebase login`
+ * (`cli`), the desktop app (`desktop`, see `docs/design/desktop-app.md`), or
+ * the iOS app (`mobile`).
  *
- * Both run the same state, confirmation and PKCE machinery, but they redeem
- * the code at different endpoints with different effects —
+ * All three run the same state, confirmation and PKCE machinery, but they
+ * redeem the code at different endpoints with different effects —
  * `POST /auth/cli/exchange` returns bearer tokens to the caller, while
  * `POST /auth/desktop/session` sets session cookies on the browser that
  * sent it. So the mode is carried from the start of the login into the code,
- * and a code only redeems through the endpoint of the mode it was minted for.
+ * and a code only redeems through the endpoint of the mode it was minted for
+ * (`desktop` and `mobile` share the session endpoint; `cli` has its own).
+ *
+ * `cli` and `desktop` receive the code on a loopback listener
+ * (`http://127.0.0.1:<port>/callback`); `mobile` has no port and receives it
+ * on the app's custom URL scheme instead (`MOBILE_CALLBACK_URL`).
  */
-export type CliAuthMode = 'cli' | 'desktop';
+export type CliAuthMode = 'cli' | 'desktop' | 'mobile';
+
+/**
+ * Where a `mobile` login's code is delivered: the iOS app's registered URL
+ * scheme, in place of the loopback listener the other modes use. The query
+ * it carries is the loopback callback's exactly (`code` or `error`, then
+ * `state`).
+ *
+ * Another app can register the same scheme and receive this redirect
+ * (RFC 8252 §7.1), so the code it carries is worth nothing on its own: it
+ * redeems only with the PKCE verifier that never leaves the app, and the app
+ * accepts it only with the nonce it sent as `state`. Universal links would
+ * close that gap but cannot be used — every self-hosted deployment would have
+ * to serve an `apple-app-site-association` naming the one app id.
+ */
+export const MOBILE_CALLBACK_URL = 'wafflebase://auth/callback';
 
 interface StateEntry {
   /**
@@ -25,7 +46,8 @@ interface StateEntry {
    */
   csrfHash: string;
   mode: CliAuthMode;
-  port: number;
+  /** The loopback port; `undefined` for `mobile`, which has none. */
+  port?: number;
   /**
    * Nonce the CLI generated for this login attempt. Echoed back on the
    * loopback redirect as `state` so the CLI's callback server can tell
@@ -67,7 +89,7 @@ export class CliAuthStore {
    */
   createState(
     mode: CliAuthMode,
-    port: number,
+    port: number | undefined,
     nonce?: string,
     challenge?: string,
   ): { stateToken: string; csrf: string } {
@@ -103,7 +125,7 @@ export class CliAuthStore {
   ):
     | {
         mode: CliAuthMode;
-        port: number;
+        port?: number;
         nonce?: string;
         challenge?: string;
       }
@@ -132,7 +154,8 @@ export class CliAuthStore {
    *
    * The code travels to the CLI as plaintext over loopback HTTP — a query
    * string in a `http://127.0.0.1:<port>/callback` navigation, on a port
-   * taken off the start URL. Anything that can observe that hop (a local
+   * taken off the start URL (or, for `mobile`, a custom-scheme URL any app
+   * may have claimed). Anything that can observe that hop (a local
    * process reading it, a redirect logged by a browser extension or
    * proxy, shell history) would otherwise hold a full credential: the
    * code alone used to buy access **and** refresh JWTs from
@@ -162,21 +185,25 @@ export class CliAuthStore {
    * burns the code rather than leaving it up for another try, so a stolen
    * code cannot be probed and never survives a redemption.
    *
-   * `mode` is the flow the caller redeems for. A code minted for the other
-   * one is refused exactly like an unknown code — and spent, like any other
-   * failed attempt — so the answer never says which flow a code belongs to.
+   * `modes` are the flows the caller's endpoint redeems for — one, or the
+   * pair that share an endpoint (`desktop` and `mobile`). A code minted for
+   * any other is refused exactly like an unknown code — and spent, like any
+   * other failed attempt — so the answer never says which flow a code
+   * belongs to.
    */
   consumeCode(
     code: string,
     verifier: string,
-    mode: CliAuthMode,
+    modes: CliAuthMode | readonly CliAuthMode[],
   ): number | undefined {
     const entry = this.codes.get(code);
     this.codes.delete(code);
     if (!entry || entry.expiresAt < Date.now()) {
       return undefined;
     }
-    if (entry.mode !== mode) {
+    const accepted: readonly CliAuthMode[] =
+      typeof modes === 'string' ? [modes] : modes;
+    if (!accepted.includes(entry.mode)) {
       return undefined;
     }
     if (!timingSafeEqualStr(entry.challenge, hashCliVerifier(verifier))) {

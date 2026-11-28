@@ -8,6 +8,7 @@ import {
   parseCliChallenge,
   parseCliNonce,
   parseCliPort,
+  refusedFetchSite,
 } from './github-auth.guard';
 import {
   hostPrefixedCookieName,
@@ -39,6 +40,15 @@ import {
  * `?mode=desktop` (the desktop app's sign-in, `docs/design/desktop-app.md`
  * §3) goes through the same gate for the same reason; only the page's
  * wording changes, to name the app instead of the command line.
+ *
+ * `?mode=mobile` (the iOS app) does too, and needs it as much: its code is
+ * delivered to a URL scheme rather than a port, and the attacker who chose
+ * the nonce and challenge can register that scheme in an app of their own.
+ * Its page names no port, because there is none; what the click consents to
+ * is a sign-in completing in an app on this device. A mobile start that
+ * arrives `Sec-Fetch-Site: cross-site` is not shown the page at all (see
+ * `use`), since that page is the only control against an app that started
+ * the login itself (`docs/design/desktop-app.md` §11).
  */
 const CLI_CONFIRM_COOKIE_BASE = 'wafflebase_cli_confirm';
 
@@ -99,6 +109,7 @@ export interface CliConfirmedRequest extends Request {
  *
  * Each part is length-prefixed so no combination of values can be re-cut
  * into a different one that signs the same (`"9|87,6"` vs `"98|7,6"`).
+ * A `mobile` login has no port and signs an empty one in its place.
  *
  * The mode is signed in too: the page names the program the sign-in is for
  * (command line or desktop app), and the code the login ends in redeems only
@@ -107,12 +118,17 @@ export interface CliConfirmedRequest extends Request {
  */
 export function cliConfirmToken(
   cookieSecret: string,
-  port: number,
+  port: number | undefined,
   nonce?: string,
   challenge?: string,
   mode: CliAuthMode = 'cli',
 ): string {
-  const parts = [mode, String(port), nonce ?? '', challenge ?? ''];
+  const parts = [
+    mode,
+    port === undefined ? '' : String(port),
+    nonce ?? '',
+    challenge ?? '',
+  ];
   return createHmac('sha256', cookieSecret)
     .update(parts.map((part) => `${part.length}:${part}`).join('|'))
     .digest('base64url');
@@ -135,12 +151,43 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
       return next();
     }
 
-    const port = parseCliPort(req.query?.port);
+    // `mobile` has no loopback port, so one on its start is ignored here
+    // exactly as the guard ignores it.
+    const port = mode === 'mobile' ? undefined : parseCliPort(req.query?.port);
     const nonce = parseCliNonce(req.query?.nonce);
     const challenge = parseCliChallenge(req.query?.challenge);
-    if (port === undefined) {
+    if (mode !== 'mobile' && port === undefined) {
       // Not a usable CLI request. The guard ignores it too, so it falls
       // through to an ordinary browser login rather than 404-ing here.
+      return next();
+    }
+    if (mode === 'mobile' && (!nonce || !challenge)) {
+      // Not a usable mobile request. The guard answers it with a 400 that
+      // says what is missing, rather than a consent page for a login that
+      // could only fail.
+      return next();
+    }
+    if (
+      mode === 'mobile' &&
+      refusedFetchSite(req.headers?.['sec-fetch-site']) !== undefined
+    ) {
+      // A mobile start another site navigated the browser into gets no
+      // consent page: handed on unconfirmed, the guard refuses it with its
+      // cross-site 400. The guard alone cannot catch this, because the only
+      // request it would ever see is the same-origin Continue click on the
+      // page this middleware served.
+      //
+      // That matters more here than on the loopback modes. A desktop or CLI
+      // code goes to a port on the victim's own machine; a mobile code goes
+      // to a URL scheme an attacker's app can claim, and that app can redeem
+      // it at `POST /auth/desktop/session` from native code with any
+      // `Origin` it likes. So a phishing link carrying the attacker's own
+      // nonce and challenge must not reach a page one tap from a session.
+      // Only mobile is checked here: the app opens the start URL straight in
+      // the system browser, which reports `none`, whereas a desktop start
+      // arrives through the loopback `/launch/<token>` redirect, where the
+      // verdict is not one this check could rely on
+      // (`docs/design/desktop-app.md` §3).
       return next();
     }
 
@@ -201,15 +248,17 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
  *
  * `mode` picks the wording and is carried into the link (and signed into
  * `confirmToken`), so a desktop start stays a desktop start through the hop.
+ * A `mobile` page has no `port` to name or carry.
  */
 export function renderConfirmPage(
-  port: number,
+  port: number | undefined,
   nonce: string | undefined,
   confirmToken: string,
   challenge?: string,
   mode: CliAuthMode = 'cli',
 ): string {
-  const params = new URLSearchParams({ mode, port: String(port) });
+  const params = new URLSearchParams({ mode });
+  if (port !== undefined) params.set('port', String(port));
   if (nonce) params.set('nonce', nonce);
   if (challenge) params.set('challenge', challenge);
   params.set('confirm', confirmToken);
@@ -323,8 +372,12 @@ export function renderConfirmPage(
   <main>
     <div class="card">
       <h1>${copy.heading}</h1>
-      <p class="lead">${copy.request} is asking to complete on this computer,
-         <span class="port">port ${escapeHtml(String(port))}</span>.</p>
+      <p class="lead">${
+        port === undefined
+          ? `${copy.request} is asking to complete in the Wafflebase app on this device.`
+          : `${copy.request} is asking to complete on this computer,
+         <span class="port">port ${escapeHtml(String(port))}</span>.`
+      }</p>
       <p class="note">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
         <span><strong>${copy.ifNot}, close this page.</strong>
@@ -354,6 +407,16 @@ const CONFIRM_COPY: Record<
     heading: 'Continue signing in to the Wafflebase desktop app?',
     request: 'A sign-in from the Wafflebase desktop app',
     ifNot: 'If you did not just sign in from the Wafflebase desktop app',
+  },
+  mobile: {
+    title: 'Wafflebase app sign-in',
+    heading: 'Continue signing in to the Wafflebase app?',
+    request: 'A sign-in from the Wafflebase app',
+    // Sharper than the loopback modes' wording: this page is the only
+    // control against an app that started the login itself and claims the
+    // scheme the code returns on (`docs/design/desktop-app.md` §11), and a
+    // link tapped in another app looks to Safari like the real app's start.
+    ifNot: 'If you did not tap Sign in inside the Wafflebase app a moment ago',
   },
 };
 

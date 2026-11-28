@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| ios mobile shell (2026-11-28) | [20261128-ios-mobile-shell-todo.md](./active/20261128-ios-mobile-shell-todo.md) | [20261128-ios-mobile-shell-lessons.md](./active/20261128-ios-mobile-shell-lessons.md) |
 | release v0.6.20 (2026-11-28) | [20261128-release-v0.6.20-todo.md](./active/20261128-release-v0.6.20-todo.md) | [20261128-release-v0.6.20-lessons.md](./active/20261128-release-v0.6.20-lessons.md) |
 | desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
 | desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
@@ -66,4 +67,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 682
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.20 (2026-11-28)
+Latest active task: ios mobile shell (2026-11-28)

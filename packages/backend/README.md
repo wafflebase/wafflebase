@@ -510,12 +510,12 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` and `?mode=desktop` are gated on a confirmation click) |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli`, `?mode=desktop` and `?mode=mobile` are gated on a confirmation click; `mobile` takes `nonce` and `challenge` but no `port`, `400`s without both, and `400`s a `Sec-Fetch-Site: cross-site` start instead of showing it the page) |
 | `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
 | `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
-| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google, windowsOrigin } }` — which sign-in buttons the login page should offer, which the desktop app can run, and whether the Windows app's handoff origin is still accepted |
-| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
+| `GET` | `/auth/providers` | - | `{ github, google, desktop: { github, google, windowsOrigin }, mobile: { github } }` — which sign-in buttons the login page should offer, which the desktop and iOS apps can run, and whether the Windows app's handoff origin is still accepted |
+| `POST` | `/auth/desktop/session` | Desktop `Origin` | Form `code`, `verifier` from a `?mode=desktop` or `?mode=mobile` login → session cookies + `303 FRONTEND_URL`; `403` from any origin but `tauri://localhost` and `http://tauri.localhost` (the latter droppable with `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false`) |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -1237,7 +1237,7 @@ membership would cost more than 2,000,000 checks, is a `400`. See
    a double-submit pair for the browser (secret in the
    `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
    `web.<hash>`), or
-   a CliAuthStore token for `?mode=cli` (or `?mode=desktop`), paired
+   a CliAuthStore token for `?mode=cli` (or `?mode=desktop`, `?mode=mobile`), paired
    with a secret in the
    `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
    this browser too
@@ -1269,6 +1269,16 @@ the page worded for the app; the code it ends in redeems only at
 `POST /auth/desktop/session`, which the app's bundled handoff page posts from
 its webview to get the session cookies there. Design:
 [`docs/design/desktop-app.md`](../../docs/design/desktop-app.md) §3.
+
+The iOS app's sign-in (`?mode=mobile&nonce=…&challenge=…`, no port) is the
+desktop flow with one difference: the callback redirects to the app's URL
+scheme, `wafflebase://auth/callback?code=…&state=<nonce>` (or `?error=…`),
+instead of a loopback port. Any app can register that scheme (RFC 8252 §7.1),
+so the start is refused without both the nonce and the PKCE challenge; an
+intercepted code is useless without the verifier only the app holds. Its
+code redeems at `POST /auth/desktop/session` like a desktop one — the iOS
+webview's origin is `tauri://localhost` too — and is refused at
+`POST /auth/cli/exchange`.
 
 ## Database Schema
 
