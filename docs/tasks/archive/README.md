@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 681
+Total archived tasks: 682
 
-## 2026/11 (51 tasks)
+## 2026/11 (52 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -17,6 +17,7 @@ Total archived tasks: 681
 | board text edit focus (2026-11-28) | [20261128-board-text-edit-focus-todo.md](./2026/11/20261128-board-text-edit-focus-todo.md) | [20261128-board-text-edit-focus-lessons.md](./2026/11/20261128-board-text-edit-focus-lessons.md) |
 | workspace bots (2026-11-28) | [20261128-workspace-bots-todo.md](./2026/11/20261128-workspace-bots-todo.md) | [20261128-workspace-bots-lessons.md](./2026/11/20261128-workspace-bots-lessons.md) |
 | instruction context budget (2026-11-27) | [20261127-instruction-context-budget-todo.md](./2026/11/20261127-instruction-context-budget-todo.md) | [20261127-instruction-context-budget-lessons.md](./2026/11/20261127-instruction-context-budget-lessons.md) |
+| release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./2026/11/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./2026/11/20261127-release-v0.6.19-lessons.md) |
 | chat review hardening (2026-11-25) | [20261125-chat-review-hardening-todo.md](./2026/11/20261125-chat-review-hardening-todo.md) | [20261125-chat-review-hardening-lessons.md](./2026/11/20261125-chat-review-hardening-lessons.md) |
 | desktop app (2026-11-23) | [20261123-desktop-app-todo.md](./2026/11/20261123-desktop-app-todo.md) | [20261123-desktop-app-lessons.md](./2026/11/20261123-desktop-app-lessons.md) |
 | share link qr code (2026-11-23) | [20261123-share-link-qr-code-todo.md](./2026/11/20261123-share-link-qr-code-todo.md) | [20261123-share-link-qr-code-lessons.md](./2026/11/20261123-share-link-qr-code-lessons.md) |

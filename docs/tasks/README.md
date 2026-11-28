@@ -18,8 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.20 (2026-11-28) | [20261128-release-v0.6.20-todo.md](./active/20261128-release-v0.6.20-todo.md) | [20261128-release-v0.6.20-lessons.md](./active/20261128-release-v0.6.20-lessons.md) |
 | desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
-| release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./active/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./active/20261127-release-v0.6.19-lessons.md) |
 | desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
 | sentry console breadcrumb arguments (2026-11-25) | [20261125-sentry-console-breadcrumb-arguments-todo.md](./active/20261125-sentry-console-breadcrumb-arguments-todo.md) | [20261125-sentry-console-breadcrumb-arguments-lessons.md](./active/20261125-sentry-console-breadcrumb-arguments-lessons.md) |
 | sheets first tab on load (2026-11-25) | [20261125-sheets-first-tab-on-load-todo.md](./active/20261125-sheets-first-tab-on-load-todo.md) | [20261125-sheets-first-tab-on-load-lessons.md](./active/20261125-sheets-first-tab-on-load-lessons.md) |
@@ -63,7 +63,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 681
+- Archived task count: 682
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: desktop download (2026-11-27)
+Latest active task: release v0.6.20 (2026-11-28)

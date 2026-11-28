@@ -4925,7 +4925,7 @@ dependencies = [
 
 [[package]]
 name = "wafflebase-desktop"
-version = "0.6.19"
+version = "0.6.20"
 dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
