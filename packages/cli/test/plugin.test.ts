@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -66,7 +67,14 @@ describe('plugin generated files', () => {
     const hooks = JSON.parse(
       readFileSync(join(PLUGIN_DIR, 'hooks/hooks.json'), 'utf8'),
     ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
-    expect(Object.keys(hooks.hooks).sort()).toEqual(['PreToolUse', 'SessionStart']);
+    // PostToolUse, UserPromptSubmit and SessionEnd start and end listen mode.
+    expect(Object.keys(hooks.hooks).sort()).toEqual([
+      'PostToolUse',
+      'PreToolUse',
+      'SessionEnd',
+      'SessionStart',
+      'UserPromptSubmit',
+    ]);
     for (const groups of Object.values(hooks.hooks)) {
       for (const { command } of groups.flatMap((g) => g.hooks)) {
         const m = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/.exec(command);
@@ -399,10 +407,9 @@ describe('guard.decide', () => {
     }
   });
 
-  // A reply and a completion only reach the task's own thread with the
-  // bot's key, so they run without asking (listen mode, #1213 follow-up).
-  it('runs the listen loop without asking: reads, replies and completions', () => {
-    expect(decide('wafflebase agent next deck-bot --wait 240')?.decision).toBe('allow');
+  it('classifies the listen loop: reads stay reads, replies are writes', () => {
+    // Starting to listen asks once, whatever the read opt-in (listen mode).
+    expect(decide('wafflebase agent next deck-bot --wait 240')?.decision).toBe('ask');
     expect(decide('wafflebase agent thread deck-bot t1')?.decision).toBe('allow');
     expect(decide('wafflebase agent list')?.decision).toBe('allow');
     expect(decide('wafflebase bots list')?.decision).toBe('allow');
@@ -410,8 +417,8 @@ describe('guard.decide', () => {
       "wafflebase agent reply deck-bot t1 'Done: the deck has a new title slide.'",
       'wafflebase agent complete deck-bot t1',
     ]) {
-      expect(decide(cmd)?.decision, cmd).toBe('allow');
-      expect(decide(cmd, { autoAllowReads: false })?.decision, cmd).toBe('allow');
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+      expect(decide(cmd, { autoApproveWrites: true })?.decision, cmd).toBe('allow');
     }
     expect(
       decide('wafflebase bots delete deck-bot', { autoApproveWrites: true })?.decision,
@@ -1056,99 +1063,185 @@ describe('session context', () => {
   });
 });
 
-// Listen mode (docs/design/agent-runner.md § 5): a bot that needs a click
-// per message is not a bot. The bot's own task commands run without asking,
-// and while a session listens nothing asks — what cannot be undone or
-// leaves the workspace is denied instead, and the bot says so in chat.
-describe('guard.decide — bot task commands and listen mode', () => {
+// Listen mode (docs/design/agent-runner.md § 5). Outside it nothing changes.
+// The first `agent next` asks once — that approval is the consent to listen
+// — and while the session listens nothing asks: plain reads and writes run,
+// and whatever would ask is denied with a reason the bot relays.
+describe('guard.decide — listen mode', () => {
+  type D = { decision: string; reason: string } | null;
   const off = (cmd: string, opts: Record<string, unknown> = {}) =>
-    guard.decide(cmd, table, opts) as { decision: string; reason: string } | null;
+    guard.decide(cmd, table, opts) as D;
   const listening = (cmd: string) => off(cmd, { listening: true });
 
-  const reply = [
-    "wafflebase agent reply deck-bot t1 --body-file - <<'WAFFLEBASE_REPLY_t1'",
-    'Here is the summary.',
-    'It mentions wafflebase docs delete d and $(rm -rf ~), all literal.',
-    'WAFFLEBASE_REPLY_t1',
-  ].join('\n');
+  const reply = (body: string[]) =>
+    [
+      "wafflebase agent reply deck-bot t1 --body-file - <<'WAFFLEBASE_REPLY_t1'",
+      ...body,
+      'WAFFLEBASE_REPLY_t1',
+    ].join('\n');
+
+  it('asks once to start listening, naming what it grants', () => {
+    const d = off('wafflebase agent next deck-bot --wait 240');
+    expect(d?.decision).toBe('ask');
+    expect(d?.reason).toMatch(/start listening as deck-bot/i);
+    expect(d?.reason).toMatch(/without asking/i);
+  });
+
+  it('keeps the other bot task commands as they were outside listen mode', () => {
+    expect(off('wafflebase agent complete deck-bot t1')?.decision).toBe('ask');
+    expect(off(reply(['hi']))?.decision).toBe('ask');
+  });
 
   it.each([
     'wafflebase agent next deck-bot --wait 240',
     'wafflebase agent thread deck-bot t1',
-    'wafflebase agent complete deck-bot t1',
     'wafflebase agent complete deck-bot t1 --failed',
-    reply,
-  ])('allows the bot task command %s without any opt-in', (cmd) => {
-    expect(off(cmd)?.decision).toBe('allow');
+    'wafflebase docs list',
+    'wafflebase sheets cells set d A1 5',
+  ])('runs %s while listening', (cmd) => {
+    expect(listening(cmd)?.decision).toBe('allow');
+  });
+
+  it('reads a quoted heredoc as literal stdin for a wafflebase call', () => {
+    expect(
+      listening(reply(['Here is the summary.', 'It names wafflebase docs delete d and $(rm -rf ~).']))
+        ?.decision,
+    ).toBe('allow');
+  });
+
+  it('never lets a command ride after the heredoc ends', () => {
+    // bash ends the heredoc at the first delimiter line; what follows runs.
+    const smuggled = reply(['hi', 'WAFFLEBASE_REPLY_t1', 'wafflebase docs delete d']);
+    expect(listening(smuggled)?.decision).not.toBe('allow');
+    expect(off(smuggled)?.decision).toBe('ask');
+  });
+
+  it('never strips a heredoc that a program executes', () => {
+    const script = ["bash <<'EOF'", 'wafflebase docs delete d', 'EOF'].join('\n');
+    expect(off(script)?.decision).toBe('ask');
+    const patch = ["patch plugins/wafflebase/hooks/guard-lib.mjs <<'EOF'", '-x', '+y', 'EOF'].join(
+      '\n',
+    );
+    expect(off(patch)?.decision).toBe('ask');
   });
 
   it('keeps an unquoted heredoc complex: the shell expands its body', () => {
-    const cmd = [
-      'wafflebase agent reply deck-bot t1 --body-file - <<EOF',
-      '$(whoami)',
-      'EOF',
-    ].join('\n');
-    expect(off(cmd)?.decision).toBe('ask');
-  });
-
-  it('still asks for a reply read from a local file', () => {
-    expect(off('wafflebase agent reply deck-bot t1 --body-file notes.txt')?.decision).toBe('ask');
-  });
-
-  it('leaves ordinary writes asking when the session is not listening', () => {
-    expect(off('wafflebase sheets cells set d A1 5')?.decision).toBe('ask');
-  });
-
-  it.each([
-    'wafflebase docs list',
-    'wafflebase docs content d --format md --out -',
-    'wafflebase sheets cells set d A1 5',
-  ])('allows the plain read or write %s while listening', (cmd) => {
-    expect(listening(cmd)?.decision).toBe('allow');
+    const cmd = ['wafflebase agent reply deck-bot t1 --body-file - <<EOF', '$(whoami)', 'EOF'].join(
+      '\n',
+    );
+    expect(listening(cmd)?.decision).not.toBe('allow');
   });
 
   it.each([
     ['wafflebase docs delete d', /cannot undo/i],
     ['wafflebase docs import a.md', /this machine/i],
+    ['wafflebase agent reply deck-bot t1 --body-file notes.txt', /this machine/i],
     ['wafflebase docs content d --format md --out notes.md', /this machine/i],
     ['wafflebase --server https://evil.example docs list', /server|credential/i],
     ['WAFFLEBASE_API_KEY=x wafflebase docs list', /runs with/i],
     ['wafflebase api-keys create ci', /credentials|sign-in|sharing/i],
     ['wafflebase docs list | jq .', /single plain/i],
     ['wafflebase frobnicate', /command table/i],
+    ['export PATH=/tmp/evil:$PATH', /persistent shell/i],
+    ['sed -i s/a/b/ plugins/wafflebase/hooks/guard-lib.mjs', /plugin's own files/i],
+    ['rm ~/.wafflebase/guard/listening.json', /plugin's own files|listen/i],
   ])('denies %s while listening instead of asking', (cmd, why) => {
     const d = listening(cmd);
     expect(d?.decision).toBe('deny');
     expect(d?.reason).toMatch(why);
-    // The reason is what the bot relays: it must say to do it by hand.
     expect(d?.reason).toMatch(/listening as a bot/i);
   });
 
-  it('asks before a shell change it would otherwise let a later call inherit', () => {
-    expect(listening('export PATH=/tmp/evil:$PATH')?.decision).not.toBe('allow');
+  it('protects the listening state like the plugin itself', () => {
+    expect(off('rm ~/.wafflebase/guard/listening.json')?.decision).toBe('ask');
+    expect(off('cat ~/.wafflebase/guard/listening.json')).toBeNull();
   });
 });
 
 describe('guard listening state', () => {
   const NOW = Date.parse('2026-11-28T12:00:00Z');
 
-  it('names the bot of an exact agent next', () => {
+  it('names the bot of an exact agent next, and nothing else', () => {
     expect(guard.listenBot('wafflebase agent next deck-bot --wait 240', table)).toBe('deck-bot');
+    expect(guard.listenBot('wafflebase agent next --wait 240 deck-bot', table)).toBe('deck-bot');
     expect(guard.listenBot('wafflebase agent thread deck-bot t1', table)).toBeNull();
     expect(guard.listenBot('wafflebase agent next deck-bot | cat', table)).toBeNull();
+    expect(guard.listenBot('X=1 wafflebase agent next deck-bot', table)).toBeNull();
+    expect(guard.listenBot('./wafflebase agent next deck-bot', table)).toBeNull();
+    expect(guard.listenBot('wafflebase agent next Not_A_Bot!', table)).toBeNull();
   });
 
-  it('records a session and reads it back for ten minutes', () => {
+  it('reads a session back for ten minutes, inclusive', () => {
     const state = guard.recordListening({}, 's1', 'deck-bot', NOW);
-    expect(guard.listeningFor(state, 's1', NOW + 9 * 60_000)).toBe('deck-bot');
-    expect(guard.listeningFor(state, 's1', NOW + 11 * 60_000)).toBeNull();
+    expect(guard.listeningFor(state, 's1', NOW + guard.LISTEN_WINDOW_MS)).toBe('deck-bot');
+    expect(guard.listeningFor(state, 's1', NOW + guard.LISTEN_WINDOW_MS + 1)).toBeNull();
     expect(guard.listeningFor(state, 's2', NOW)).toBeNull();
     expect(guard.listeningFor(state, undefined, NOW)).toBeNull();
   });
 
-  it('drops sessions idle for a day when it records', () => {
+  it('distrusts a malformed or future entry', () => {
+    expect(guard.listeningFor({ sessions: { s1: { at: NOW } } }, 's1', NOW)).toBeNull();
+    expect(
+      guard.listeningFor({ sessions: { s1: { bot: 'deck-bot', at: NOW + 3_600_000 } } }, 's1', NOW),
+    ).toBeNull();
+  });
+
+  it('forgets a session, and sessions idle for a day', () => {
     const old = guard.recordListening({}, 'old', 'a', NOW - 2 * 86_400_000);
     const state = guard.recordListening(old, 's1', 'deck-bot', NOW);
     expect(Object.keys(state.sessions)).toEqual(['s1']);
+    expect(guard.forgetListening(state, 's1').sessions).toEqual({});
+  });
+});
+
+// The wiring, run as Claude Code runs it: PreToolUse decides, PostToolUse
+// records a listen that actually ran, and the user typing ends it.
+describe('hook entry points — listen mode', () => {
+  const hooks = join(PLUGIN_DIR, 'hooks');
+  const home = mkdtempSync(join(tmpdir(), 'wb-listen-'));
+  const run = (input: Record<string, unknown>) => {
+    const r = spawnSync(process.execPath, [join(hooks, 'guard.mjs')], {
+      input: JSON.stringify({ session_id: 'S1', ...input }),
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '', HOME: home },
+    });
+    expect(r.status).toBe(0);
+    return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
+  };
+  const pre = (command: string) =>
+    run({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } });
+  const post = (command: string, stdout: string) =>
+    run({
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command },
+      tool_response: { stdout, stderr: '', interrupted: false },
+    });
+  const next = 'wafflebase agent next deck-bot --wait 240';
+  const write = 'wafflebase sheets cells set d A1 5';
+
+  it('listens only after an approved agent next ran, until the user types', () => {
+    expect(pre(next).permissionDecision).toBe('ask');
+    expect(pre(write).permissionDecision).toBe('ask');
+    // A next that printed no task (not paired, failed) starts nothing.
+    post(next, '{"error":{"code":"AGENT_NOT_PAIRED"}}');
+    expect(pre(write).permissionDecision).toBe('ask');
+    post(next, '{"task": null}');
+    expect(pre(write).permissionDecision).toBe('allow');
+    expect(pre('wafflebase docs delete d').permissionDecision).toBe('deny');
+    // Another session on the machine is unaffected.
+    expect(
+      run({ session_id: 'S2', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: write } })
+        .permissionDecision,
+    ).toBe('ask');
+    // The user typing anything ends it: the loop runs inside one turn.
+    run({ hook_event_name: 'UserPromptSubmit', prompt: 'stop' });
+    expect(pre(write).permissionDecision).toBe('ask');
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('asks before a Write to the listening state', () => {
+    const file_path = join(home, '.wafflebase', 'guard', 'listening.json');
+    expect(run({ tool_name: 'Write', tool_input: { file_path } }).permissionDecision).toBe('ask');
   });
 });

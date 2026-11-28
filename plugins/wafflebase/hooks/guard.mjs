@@ -6,7 +6,14 @@ import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decide, listenBot, listeningFor, recordListening, safe } from './guard-lib.mjs';
+import {
+  decide,
+  forgetListening,
+  listenBot,
+  listeningFor,
+  recordListening,
+  safe,
+} from './guard-lib.mjs';
 
 function loadTable() {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -44,10 +51,11 @@ function realPath(p) {
 const PLUGIN_ROOT = realPath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-// Which sessions listen as a bot (docs/design/agent-runner.md § 5). Beside
-// the agent files, readable only by this user.
-const AGENTS_DIR = join(homedir(), '.wafflebase', 'agents');
-const LISTEN_STATE = join(AGENTS_DIR, 'listening.json');
+// Which sessions listen as a bot (docs/design/agent-runner.md § 5), in a
+// directory of its own: bot names cannot contain "/", so no agent file can
+// collide with it, and the guard protects it like the plugin's own files.
+const GUARD_DIR = join(homedir(), '.wafflebase', 'guard');
+const LISTEN_STATE = join(GUARD_DIR, 'listening.json');
 
 function readListenState() {
   try {
@@ -59,7 +67,7 @@ function readListenState() {
 
 function writeListenState(state) {
   try {
-    mkdirSync(AGENTS_DIR, { recursive: true, mode: 0o700 });
+    mkdirSync(GUARD_DIR, { recursive: true, mode: 0o700 });
     const tmp = `${LISTEN_STATE}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
     renameSync(tmp, LISTEN_STATE);
@@ -81,6 +89,36 @@ function emit(result) {
   );
 }
 
+function insideDir(dir, target) {
+  const rel = relative(dir, target);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+/**
+ * After a Bash call ran: an approved `agent next` that printed a task (or
+ * `"task": null`) starts this session listening, and any plain wafflebase
+ * call while listening keeps it alive. Recording here, not in PreToolUse,
+ * means a proposed call the user rejected — or one that failed — grants
+ * nothing.
+ */
+function afterBash(input, sessionId) {
+  const command = input.tool_input?.command;
+  if (typeof command !== 'string' || !sessionId) return;
+  const table = loadTable();
+  const now = Date.now();
+  const state = readListenState();
+  const stdout = String(input.tool_response?.stdout ?? '');
+  const bot = listenBot(command, table);
+  if (bot && /"task"\s*:/.test(stdout)) {
+    writeListenState(recordListening(state, sessionId, bot, now));
+    return;
+  }
+  const current = listeningFor(state, sessionId, now);
+  if (current && /^\s*wafflebase\s/.test(command)) {
+    writeListenState(recordListening(state, sessionId, current, now));
+  }
+}
+
 function main() {
   let input;
   try {
@@ -88,15 +126,36 @@ function main() {
   } catch {
     return;
   }
-  // The plugin's own files decide every later answer: an edit to them asks.
+  const sessionId = typeof input?.session_id === 'string' ? input.session_id : undefined;
+  const event = input?.hook_event_name ?? 'PreToolUse';
+
+  // The listen loop runs inside one turn, so the user typing anything — or
+  // the session ending — ends it.
+  if (event === 'UserPromptSubmit' || event === 'SessionEnd') {
+    if (sessionId && listeningFor(readListenState(), sessionId, Date.now()) !== null) {
+      writeListenState(forgetListening(readListenState(), sessionId));
+    }
+    return;
+  }
+  if (event === 'PostToolUse') {
+    try {
+      if (input?.tool_name === 'Bash') afterBash(input, sessionId);
+    } catch {
+      // A failed record only means the session keeps asking.
+    }
+    return;
+  }
+
+  // The plugin's own files — and the listen state — decide every later
+  // answer: an edit to them asks.
   if (FILE_TOOLS.has(input?.tool_name)) {
     const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (typeof target !== 'string') return;
-    const rel = relative(PLUGIN_ROOT, realPath(resolve(input.cwd ?? process.cwd(), target)));
-    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) {
+    const real = realPath(resolve(input.cwd ?? process.cwd(), target));
+    if (insideDir(PLUGIN_ROOT, real) || insideDir(realPath(GUARD_DIR), real)) {
       emit({
         decision: 'ask',
-        reason: `This edits the Wafflebase plugin's own files (${safe(rel)}), which decide what later commands are allowed.`,
+        reason: `This edits the Wafflebase plugin's own files or its listen state (${safe(relative(PLUGIN_ROOT, real))}), which decide what later commands are allowed.`,
       });
     }
     return;
@@ -107,19 +166,8 @@ function main() {
 
   let result;
   try {
-    const table = loadTable();
-    const sessionId = typeof input.session_id === 'string' ? input.session_id : undefined;
-    const now = Date.now();
-    // `agent next <bot>` is the listen loop's heartbeat: it starts (or
-    // keeps) this session listening as that bot.
-    const bot = sessionId ? listenBot(command, table) : null;
-    let state = readListenState();
-    if (bot) {
-      state = recordListening(state, sessionId, bot, now);
-      writeListenState(state);
-    }
-    result = decide(command, table, {
-      listening: listeningFor(state, sessionId, now) !== null,
+    result = decide(command, loadTable(), {
+      listening: listeningFor(readListenState(), sessionId, Date.now()) !== null,
       // Claude Code exports each userConfig option to hook processes as
       // CLAUDE_PLUGIN_OPTION_<KEY>. Anything but true/1 leaves writes asking.
       autoAllowReads: /^(true|1)$/i.test(

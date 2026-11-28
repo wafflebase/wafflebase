@@ -24,3 +24,16 @@ when a command can change them.
 guards against, narrow what it matches (a call, a write) before asking
 people to type around it. Keep the cases that are real (a substitution in
 double quotes, a call behind a wrapper) as tests.
+
+## Removing a prompt needs a consent, an end, and a record of what really ran
+
+The first cut removed prompts by recording "listening" when the guard saw
+`agent next` proposed. Round 1 showed that anything able to make Claude
+*propose* that command — injected document text included — could grant
+itself unattended writes, that nothing ended it, and that a heredoc could
+smuggle commands past the allow. **Rule:** when a guard stops asking,
+(1) one explicit approval must start it, (2) a user action must end it,
+(3) record the state from what actually ran (PostToolUse), never from what
+was proposed, and (4) only strip shell syntax you can prove is inert.
+
+- Self-review round 1: 8 blocking (2 critical); all fixed by the redesign.

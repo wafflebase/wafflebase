@@ -106,8 +106,8 @@ A plugin hook checks every `wafflebase` command Claude runs. By default it asks 
 | A cell batch that deletes cells or reads its data from standard input | Always asks |
 | A command inside a pipe, `&&` chain, or substitution, or one the plugin doesn't recognize | Asks |
 | Any change to the plugin's own files (reading them does not ask) | Always asks |
-| A bot's own task commands: `agent next`, `thread`, `complete`, and `reply` from standard input | Runs without asking |
-| Anything, while the session listens as a bot ([`/wafflebase:listen`](./bots.md)) | Single reads and writes run; everything that would ask is refused, and the bot tells you in the thread |
+| Starting to listen as a bot ([`/wafflebase:listen`](./bots.md)) | Asks once |
+| `wafflebase` commands while the session listens, until you type in it again | Single reads and writes run; everything that would ask is refused, and the bot tells you in the thread |
 
 Naming `wafflebase` is not the same as running it: a commit message, a file path or a search pattern that contains the word is left to your own permission rules.
 

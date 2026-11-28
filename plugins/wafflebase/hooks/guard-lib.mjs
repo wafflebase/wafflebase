@@ -691,9 +691,11 @@ function globHitsPluginFile(word) {
   return PLUGIN_FILES.some((f) => re.test(f));
 }
 
-/** True when a command refers to the plugin's installed files. */
+/** True when a command refers to the plugin's installed files or its state. */
 export function touchesPlugin(command, pluginRoot) {
   if (pluginRoot && command.includes(pluginRoot)) return true;
+  // The listen state decides what runs without asking (guard.mjs).
+  if (/\.wafflebase\/guard(?:[/\s'"]|$)/.test(command)) return true;
   // Relative or cache paths: the plugin's hook files by name, or its tree.
   return /(?:^|[/\s'"])(?:guard-lib\.mjs|guard\.mjs|command-safety\.json|session-lib\.mjs|session-start\.mjs|hooks\.json)(?:[\s'"]|$)|plugins\/wafflebase(?:\/(?:hooks|\.claude-plugin))?(?:[/\s'"]|$)|\.claude\/plugins(?:[/\s'"]|$)/.test(
     command,
@@ -743,9 +745,10 @@ function innerCommand(words) {
  *   'deny' only ever comes back with `options.listening`.
  */
 export function decide(fullCommand, table, options = {}) {
-  // A trailing quoted heredoc is literal stdin: strip it so the command in
-  // front of it is judged on its own (see `literalHeredoc`).
-  const command = literalHeredoc(fullCommand) ?? fullCommand;
+  // A trailing quoted heredoc feeding a single plain wafflebase call is
+  // literal stdin: judge the call on its own (see `literalHeredoc`).
+  const head = literalHeredoc(fullCommand);
+  const command = head !== null && isPlainCall(head) ? head : fullCommand;
   const { segments, complex: topComplex } = splitCommand(command);
   let complex = topComplex;
   const found = [];
@@ -787,17 +790,12 @@ export function decide(fullCommand, table, options = {}) {
   // opt-ins off the guard grants nothing, so this would only cost prompts.
   // Bot task commands and a listening session are granted without either
   // opt-in, so they guard the shell the same way.
-  const grants =
-    options.autoAllowReads ||
-    options.autoApproveWrites ||
-    options.listening ||
-    found.some((c) => BOT_TASK_PATHS.has(c.path));
+  const grants = options.autoAllowReads || options.autoApproveWrites || options.listening;
   if (grants && changesShellState(command, segments)) {
-    return {
-      decision: 'ask',
-      reason:
-        'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and a later call the Wafflebase plugin or your own rules allow would run whatever it now points at.',
-    };
+    return refuse(
+      options,
+      'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and a later call the Wafflebase plugin or your own rules allow would run whatever it now points at.',
+    );
   }
   // The plugin's own files decide every later answer; changing them through
   // Bash asks, whatever the command.
@@ -808,11 +806,10 @@ export function decide(fullCommand, table, options = {}) {
       touchesPlugin(lexedText, options.pluginRoot) ||
       segments.some((ws) => ws.some((w) => !w.exact && globHitsPluginFile(w.text))))
   ) {
-    return {
-      decision: 'ask',
-      reason:
-        "This command touches the Wafflebase plugin's own files (its guard or command table), which decide what later commands are allowed.",
-    };
+    return refuse(
+      options,
+      "This command changes the Wafflebase plugin's own files (its guard, command table or listen state), which decide what later commands are allowed.",
+    );
   }
   // A call the walk above cannot see — inside `$(…)`, backticks, a subshell
   // or a group — still sits in a command position. A mere mention (a commit
@@ -820,7 +817,7 @@ export function decide(fullCommand, table, options = {}) {
   const hidden = cappedMention || hasHiddenCall(segments, table);
 
   const exact = !complex && plain && found.length === 1;
-  const judged = judge(found, table, options, exact);
+  const judged = judge(found, table, { ...options, listenBot: listenBot(command, table) }, exact);
   if (exact) return judged;
   if (judged) return judged;
   if (found.length > 0 || hidden) {
@@ -834,14 +831,13 @@ export function decide(fullCommand, table, options = {}) {
   return null;
 }
 
-/**
- * The bot's own task commands (docs/design/agent-runner.md § 5). They read
- * only the bot's key from its agent file — never the session or
- * WAFFLEBASE_API_KEY — and the server confines that key to the task's
- * thread, so an exact call runs without asking. A reply read from a local
- * file is still a local file read.
- */
-const BOT_TASK_PATHS = new Set(['agent next', 'agent thread', 'agent reply', 'agent complete']);
+/** A single plain `wafflebase …` call with nothing around it. */
+function isPlainCall(command) {
+  const { segments, complex } = splitCommand(command);
+  if (complex || segments.length !== 1) return false;
+  const hit = wafflebaseArgs(segments[0]);
+  return Boolean(hit && hit.plain && hit.env.length === 0);
+}
 
 /**
  * `ask`, or — while the session listens as a bot — `deny`: nobody is at
@@ -863,20 +859,28 @@ function refuse(options, reason) {
  * one is left to `splitCommand`, which counts it as complex.
  */
 export function literalHeredoc(command) {
-  const m = /^([^\n]*?)[ \t]*<<-?[ \t]*(['"])([A-Za-z0-9_.-]+)\2[ \t]*\n[\s\S]*?\n\3[ \t]*\n?$/.exec(
-    command,
-  );
+  const lines = command.split('\n');
+  const m = /^(.*?)[ \t]*<<(-?)[ \t]*(['"])([A-Za-z0-9_.-]+)\3[ \t]*$/.exec(lines[0]);
   if (!m || m[1].includes('<<') || m[1].trim() === '') return null;
+  const dash = m[2] === '-';
+  const delimiter = m[4];
+  // The shell ends the heredoc at the FIRST line that is the delimiter
+  // (after leading tabs for `<<-`); anything after it runs as commands.
+  const end = lines.findIndex(
+    (line, i) => i > 0 && (dash ? line.replace(/^\t+/, '') : line) === delimiter,
+  );
+  if (end < 0) return null;
+  if (lines.slice(end + 1).some((line) => line.trim() !== '')) return null;
   return m[1];
 }
 
+const BOT_NAME = /^[a-z0-9][a-z0-9-]{1,31}$/;
+
 /** The bot an exact `wafflebase agent next <bot>` listens as, or null. */
 export function listenBot(command, table) {
-  const text = literalHeredoc(command) ?? command;
-  const { segments, complex } = splitCommand(text);
-  if (complex || segments.length !== 1) return null;
+  if (!isPlainCall(command)) return null;
+  const { segments } = splitCommand(command);
   const hit = wafflebaseArgs(segments[0]);
-  if (!hit || !hit.plain || hit.env.length > 0) return null;
   const c = classify(hit.args, table);
   if (!c.known || c.path !== 'agent next') return null;
   const words = hit.args.map((w) => w.text);
@@ -886,7 +890,8 @@ export function listenBot(command, table) {
       i++;
       continue;
     }
-    if (!words[i].startsWith('-')) return words[i];
+    if (words[i].startsWith('-')) continue;
+    return BOT_NAME.test(words[i]) ? words[i] : null;
   }
   return null;
 }
@@ -899,8 +904,17 @@ const LISTEN_STATE_TTL_MS = 24 * 60 * 60 * 1000;
 export function listeningFor(state, sessionId, now) {
   if (!sessionId) return null;
   const entry = state?.sessions?.[sessionId];
-  if (!entry || typeof entry.at !== 'number') return null;
+  if (!entry || typeof entry.at !== 'number' || typeof entry.bot !== 'string') return null;
+  // A record from the future is not one this guard wrote.
+  if (entry.at > now + 60_000) return null;
   return now - entry.at <= LISTEN_WINDOW_MS ? entry.bot : null;
+}
+
+/** `state` without `sessionId`: listening ended. */
+export function forgetListening(state, sessionId) {
+  const sessions = { ...(state?.sessions ?? {}) };
+  delete sessions[sessionId];
+  return { sessions };
 }
 
 /** `state` with `sessionId` listening as `bot` from `now`; stale entries dropped. */
@@ -941,14 +955,12 @@ function judge(found, table, options, exact) {
     return refuse(options, `${describe(redirected)}. It is run with ${redirected.connection.map((c) => (/^--(server|frontend) host /.test(c) ? safeFull(c) : safe(c))).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`);
   }
 
-  if (
-    exact &&
-    found.every((c) => BOT_TASK_PATHS.has(c.path)) &&
-    !found.some((c) => c.localReads?.length > 0 || c.localWrites?.length > 0)
-  ) {
+  // Starting to listen is the consent: it always asks, once, and says
+  // what it grants. While listening, the loop's own call runs below.
+  if (!options.listening && found.length === 1 && found[0].path === 'agent next') {
     return {
-      decision: 'allow',
-      reason: `${describe(found[0])}; a bot task command uses only the bot's key and reaches only that task.`,
+      decision: 'ask',
+      reason: `Start listening as ${options.listenBot ?? 'this bot'}: until you type in this session again, plain wafflebase reads and writes run without asking, and anything that would ask (deletes, local files, credentials, compositions) is refused.`,
     };
   }
 

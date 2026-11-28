@@ -51,6 +51,32 @@ workspace is **denied** (the bot says so in the thread) instead of asked.
       shell-state rule apply to every session, so `source venv` and
       `export PATH` would start asking everywhere — more prompts, not fewer.
 
+## Self-review round 1 → consent-gated redesign
+
+Round 1 (on the first commit) found the design itself unsafe; fixed by
+redesign rather than patching:
+
+- [x] Heredoc smuggling: `literalHeredoc` matched the *last* delimiter
+      line; now the first, with nothing but blank lines after it.
+- [x] `bash <<'X'` / `patch … <<'X'`: a heredoc is stripped only when the
+      command before it is a single plain `wafflebase` call.
+- [x] Self-granted listening: recorded in PreToolUse from a merely
+      proposed `agent next`. Now the first `agent next` always asks (the
+      consent), and listening is recorded in **PostToolUse** only when it
+      ran and printed a task or `"task": null`.
+- [x] Never ended: **UserPromptSubmit** and **SessionEnd** now end it, so
+      typing in the session takes it back at once.
+- [x] Unprotected, colliding state: moved to `~/.wafflebase/guard/` (no
+      bot name contains "/"); Bash changes and Write-tool edits to it ask.
+- [x] Shell-state and plugin-file asks now `deny` while listening.
+- [x] Malformed or future state entries are distrusted; `listenBot` takes
+      only a valid bot name; boundaries tested.
+- [x] Dropped the unconditional bot-task `allow`: outside listen mode
+      those commands are judged as before.
+- [x] Docs: scope stated (the guard judges `wafflebase` calls only);
+      agent-runner.md § 5 contradiction resolved; accepted risk added to
+      Risks.
+
 ## Review
 
 - 20 tests written first and seen failing; one existing test pinned the

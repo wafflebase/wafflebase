@@ -161,19 +161,27 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | Any command with `--server`, `--api-key`, `--profile`, `--frontend` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
-| A bot task command — `agent next`, `agent thread`, `agent complete`, `agent reply` without a local file — as one plain invocation | `allow` | Reads only the bot's key from its agent file and reaches only that task's thread, which the server enforces ([agent-runner.md](agent-runner.md) § 5) |
-| Anything, while the session listens as a bot | `allow` for a plain read or write; `deny` (with the reason the bot relays) where it would otherwise `ask` | Nobody is at the prompt during listen mode; a refusal the bot reports beats a prompt nobody answers |
+| `agent next` while the session is not listening | `ask`, always, naming what listening grants | Starting to listen is the consent; approving it is the only way in |
+| A `wafflebase` call while the session listens as a bot | `allow` for a plain read or write; `deny` (with the reason the bot relays) where it would otherwise `ask` | Nobody is at the prompt during listen mode; a refusal the bot reports beats a prompt nobody answers |
 
-**Listening.** A session listens as a bot for 10 minutes after its last
-plain `wafflebase agent next <bot>` — the listen loop's heartbeat, which
-calls it at least every 240 s. The guard records `{sessionId, bot, at}` in
-`~/.wafflebase/agents/listening.json` (0600) from the hook's `session_id`,
-so another Claude Code session on the same machine is not affected. A
-trailing heredoc with a quoted delimiter (`<<'X'`) is literal stdin and is
-stripped before the command is judged; an unquoted one stays a composition.
-Anything that would grant without the user's opt-in (a bot task command, a
-listening session) also asks first when the command changes the shell's
-state.
+**Listening.** It starts only after an approved `wafflebase agent next
+<bot>` actually ran and printed a task or `"task": null` — recorded in
+**PostToolUse**, so a call the user rejected, or one that failed, grants
+nothing. The guard keeps `{sessionId, bot, at}` in
+`~/.wafflebase/guard/listening.json` (directory 0700, file 0600; a
+directory of its own, so no bot's agent file can collide with it), from
+the hook's `session_id`, so another Claude Code session on the same
+machine is unaffected. Every plain `wafflebase` call refreshes it, and it
+lapses 10 minutes after the last one. It **ends** on
+**UserPromptSubmit** — the loop runs inside one turn, so the user typing
+anything (Esc, then a message) takes the session back — and on
+**SessionEnd**. Changing that file through Bash or the Write tool asks like
+a change to the plugin itself. A quoted heredoc (`<<'X'`) is stripped
+only when what precedes it is a single plain `wafflebase` call and
+nothing follows the first delimiter line, so a body cannot smuggle
+commands and `bash <<'X'` is never read as inert. The guard judges only
+`wafflebase` calls: other Bash in a listening session falls to the user's
+own rules, which is why the listen skill uses nothing else.
 
 "Simple" is strict, because an `allow` skips the user's prompt, and it
 is an **allow-list**, not a list of dangerous characters: the whole
