@@ -116,4 +116,54 @@ describe('collaborator activity vs. the in-place text editor', () => {
     expect(document.activeElement).toBe(textarea);
     expect(editor.isTextEditing()).toBe(true);
   });
+
+  it('never leaves a stale text box behind when editing moves on', () => {
+    const fx = makeFixture();
+    let otherId = '';
+    fx.store.batch(() => {
+      otherId = fx.store.addElement(fx.store.read().slides[0].id, {
+        type: 'text',
+        frame: { x: 100, y: 300, w: 400, h: 120, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    editor = initialize({
+      canvas: fx.canvas,
+      overlay: fx.overlay,
+      store: fx.store,
+      hostWidth: 960,
+      hostHeight: 540,
+      dpr: 1,
+    });
+    editor.enterTextEditing(fx.textId);
+    // Focus moves to a keepalive toolbar control: the box stays open, and
+    // its blur-driven `commit()` becomes a no-op from here on.
+    const button = document.createElement('button');
+    button.setAttribute('data-text-edit-keepalive', '');
+    document.body.appendChild(button);
+    fx.overlay.querySelector('textarea')!.focus();
+    button.focus();
+    expect(editor.isTextEditing()).toBe(true);
+    editor.enterTextEditing(otherId);
+    editor.markDirty();
+
+    expect(fx.overlay.querySelectorAll('.wfb-slides-text-box-editor')).toHaveLength(1);
+  });
+
+  it('keeps the text box above a peer-cursor layer created mid-edit', () => {
+    const { editor, store, overlay } = startEditing();
+    const slideId = store.read().slides[0].id;
+    editor.setPeers([
+      {
+        clientID: 'peer-1',
+        color: '#ff0000',
+        label: 'Ada',
+        activeSlideId: slideId,
+        selectedElementIds: [],
+        cursor: { x: 10, y: 10 },
+      },
+    ]);
+    const last = overlay.lastElementChild;
+    expect(last?.classList.contains('wfb-slides-text-box-editor')).toBe(true);
+  });
 });

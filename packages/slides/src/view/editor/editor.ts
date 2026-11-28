@@ -1580,7 +1580,12 @@ class SlidesEditorImpl implements SlidesEditor {
       this.peerCursorLayer = layer;
     }
     if (layer.parentNode !== this.options.overlay) {
-      this.options.overlay.appendChild(layer);
+      // Below an open text box, which must stay the topmost child.
+      const box = this.editingTextBox?.container;
+      this.options.overlay.insertBefore(
+        layer,
+        box?.parentNode === this.options.overlay ? box : null,
+      );
     }
     return layer;
   }
@@ -4501,6 +4506,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // the text in flight is not lost when focus moves.
     if (this.editingElementId !== null) {
       this.exitEditMode('commit');
+      // `commit()` rides the textarea's blur, a no-op once focus has left
+      // for a keepalive toolbar control. Tear that box down anyway: it is
+      // persistent in the overlay, so nothing else would ever remove it.
+      if (this.editingTextBox !== null) this.finishEditMode();
     }
     // Single read so the slide and the deck theme come from the same
     // snapshot — the text-box editor needs a theme-aware colorResolver

@@ -50,7 +50,8 @@ re-appended the box afterwards, too late.
 - Not verified: real OS Hangul IME composition across a remote change (the
   browser driver cannot drive the IME). The textarea now never detaches, so
   the composition has nothing to cut it off.
-- Behaviour note: a peer-cursor layer created after a text box mounts now
-  sits above the box (previously the box was re-appended last). The layer
-  is `pointer-events: none`, so clicks are unaffected; a peer's cursor dot
-  may paint over the edited text.
+- The peer-cursor layer is inserted below an open text box, so the box stays
+  the topmost overlay child as it was when it was re-appended last.
+- Entering a new edit tears down the previous box even when its
+  blur-driven commit was a no-op (focus on a keepalive control) — it is
+  persistent now, so the old `innerHTML` wipe no longer reaps it.

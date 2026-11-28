@@ -19,3 +19,11 @@
   container on every repaint. Fixed: the editor marks (and, if needed,
   mounts) `tb.container` right after any `mountTextBox`;
   `text-box-editor.ts` is back to `main`.
+- Round 2: correctness + blast-radius blocked on the same defect — the
+  `innerHTML` wipe had been the only reaper for a box whose commit no-ops
+  (focus on a keepalive control) before the next edit opens. Fixed in
+  `enterEditMode` + test. Minor (peer-cursor layer above the box) fixed by
+  inserting the layer below the box. Docs lens blocked on MCP instructions
+  injected into its own session, not on the diff — disputed via rebuttal.
+- A persistent DOM node loses the implicit cleanup the old wipe gave it:
+  every path that drops ownership of one must remove it explicitly.
