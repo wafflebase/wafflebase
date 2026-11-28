@@ -7,7 +7,7 @@ import { PgBus, PgBusHandlers } from '../common/pg-bus';
 import { PrismaService } from '../database/prisma.service';
 import { AGENT_TASK_NOTIFY_CHANNEL } from '../chat/chat-agent-tasks';
 import { ChatMessageService } from '../chat/chat-message.service';
-import { AgentTaskService } from './agent-task.service';
+import { AgentTaskService, MAX_WAITERS_PER_BOT } from './agent-task.service';
 
 const BOT = 10;
 
@@ -109,6 +109,7 @@ function setup(
     bus,
     unlisten,
     notify: (payload: string) => handlers?.onNotify(payload),
+    connect: () => handlers?.onConnect?.(),
   };
 }
 
@@ -227,7 +228,9 @@ describe('AgentTaskService', () => {
       const { service, prisma } = setup({ claims: ['t1'] });
       const abort = new AbortController();
       abort.abort();
-      await expect(service.next(BOT, 'w1', 0, abort.signal)).resolves.toBeNull();
+      await expect(
+        service.next(BOT, 'w1', 0, abort.signal),
+      ).resolves.toBeNull();
       expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
 
@@ -253,6 +256,40 @@ describe('AgentTaskService', () => {
           leaseExpiresAt: null,
         },
       });
+    });
+
+    // With NOTIFY doing the waking, a parked wait must not keep hitting
+    // the database every second: one bot key would turn into steady writes.
+    it('polls slowly once the listener is connected', async () => {
+      const { service, prisma, connect } = setup();
+      await service.onModuleInit();
+      connect();
+      service.listeningPollMs = 1_000;
+      await service.next(BOT, 'w1', 100);
+      // One look now and one as the window closes — not one per 20 ms.
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it('polls quickly while no listener is connected', async () => {
+      const { service, prisma } = setup();
+      await service.next(BOT, 'w1', 100);
+      expect(prisma.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('refuses a wait beyond the per-bot cap with 429', async () => {
+      const { service } = setup();
+      const abort = new AbortController();
+      const parked = Array.from({ length: MAX_WAITERS_PER_BOT }, () =>
+        service.next(BOT, 'w1', 30_000, abort.signal),
+      );
+      await new Promise((r) => setTimeout(r, 10));
+      await expect(service.next(BOT, 'w1', 30_000)).rejects.toMatchObject({
+        status: 429,
+      });
+      // Another bot is not affected.
+      await expect(service.next(BOT + 1, 'w1', 0)).resolves.toBeNull();
+      abort.abort();
+      await Promise.all(parked);
     });
 
     it('leaves no waiter behind after a timeout', async () => {

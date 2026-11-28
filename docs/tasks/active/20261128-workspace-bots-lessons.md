@@ -30,3 +30,8 @@ the integrator and reviewers verbatim.
   routes (`agent` scope + `@AgentKeyRoute()`); bot names unique among all
   members; member-removal impact counts owned bots and the private channels
   they share. Tests first for each; scratch-DB e2e 86/86.
+- Round 2: blocked on 3 (design-fit, security ×2). Fixed all: one
+  `removeBotsInTx` helper behind both bot-removal paths; a parked long-poll
+  polls every 15 s once the listener is connected (1 s before) and a bot
+  may hold 4 waits per replica (429 beyond); the listen skill replies via
+  stdin with a quoted, task-id-keyed heredoc instead of a shell argument.

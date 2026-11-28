@@ -6,6 +6,8 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   Optional,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { AgentTask } from '@prisma/client';
 import { PgBus, sharedPgBus } from '../common/pg-bus';
@@ -25,6 +27,18 @@ const LEASE_SECONDS = 10 * 60;
  * for a listener that is down or behind a pooler that drops `LISTEN`.
  */
 const POLL_MS = 1_000;
+/**
+ * The same look once the listener is connected: NOTIFY does the waking and
+ * `onConnect` wakes every wait after a reconnect, so this only covers a
+ * listener that died without saying so — and keeps a parked wait from
+ * turning into a steady stream of writes.
+ */
+const LISTENING_POLL_MS = 15_000;
+/**
+ * Long-polls one bot may hold open on one replica. A host needs one; a few
+ * more cover a restart racing its old connection. Past this, 429.
+ */
+export const MAX_WAITERS_PER_BOT = 4;
 /**
  * How often a long-poll still waiting refreshes `botLastSeenAt`, so a host
  * parked on a four-minute wait still reads as listening (Settings shows
@@ -49,7 +63,8 @@ function heldElsewhere(): ConflictException {
  *
  * A wait holds no database connection: every look is one short statement,
  * and between looks the poll sleeps on an in-process waiter that the
- * `agent_task` NOTIFY (payload: the bot's id) or a one-second timer wakes.
+ * `agent_task` NOTIFY (payload: the bot's id) or a timer wakes (one second
+ * until the listener connects, fifteen after).
  * Every replica listens once, through the process's shared `PgBus`, and
  * fans a wake-up out to its own waiters for that bot.
  */
@@ -58,11 +73,15 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
   private readonly bus: PgBus;
   private unlisten: (() => Promise<void>) | null = null;
   private stopped = false;
+  /** The listener has connected at least once. */
+  private listening = false;
   /** Bot id → the wake-ups of the polls waiting for it on this replica. */
   private readonly waiters = new Map<number, Set<() => void>>();
 
   /** Overridable in tests. */
   pollMs = POLL_MS;
+  /** Overridable in tests. */
+  listeningPollMs = LISTENING_POLL_MS;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -82,7 +101,10 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     const unlisten = await this.bus.listen(AGENT_TASK_NOTIFY_CHANNEL, {
       onNotify: (payload) => this.receive(payload),
       // NOTIFYs sent while the listener was down are lost; look now.
-      onConnect: () => this.wakeAll(),
+      onConnect: () => {
+        this.listening = true;
+        this.wakeAll();
+      },
     });
     if (this.stopped) {
       await unlisten();
@@ -137,6 +159,15 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     apiKeyId?: string,
   ): Promise<AgentTaskDto | null> {
+    if (
+      waitMs > 0 &&
+      (this.waiters.get(botId)?.size ?? 0) >= MAX_WAITERS_PER_BOT
+    ) {
+      throw new HttpException(
+        'This bot already has the most long-polls open that it may',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
     await this.touch(botId);
     let touchedAt = Date.now();
     const deadline = Date.now() + waitMs;
@@ -152,7 +183,8 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
       if (task) return task;
       const remaining = deadline - Date.now();
       if (remaining <= 0 || signal?.aborted || this.stopped) return null;
-      await this.sleep(botId, Math.min(this.pollMs, remaining), signal);
+      const pollMs = this.listening ? this.listeningPollMs : this.pollMs;
+      await this.sleep(botId, Math.min(pollMs, remaining), signal);
       if (signal?.aborted || this.stopped) return null;
       if (Date.now() - touchedAt >= TOUCH_MS) {
         await this.touch(botId);

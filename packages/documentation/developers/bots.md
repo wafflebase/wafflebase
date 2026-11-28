@@ -95,7 +95,7 @@ Deleting a bot revokes its keys and removes it from the workspace. Its messages 
 | `wafflebase agent list` | List bots connected on this computer |
 | `wafflebase agent next <bot> [--wait <seconds>]` | Take the bot's next task, waiting up to 240 seconds |
 | `wafflebase agent thread <bot> <task-id>` | Read the thread a task came from |
-| `wafflebase agent reply <bot> <task-id> <body>` | Answer as the bot; `--body-file <path>` sends a file's text, and the plugin always asks first |
+| `wafflebase agent reply <bot> <task-id> (<body> \| --body-file -)` | Answer as the bot; the listen skill sends the text on stdin so the shell never reads it. `--body-file <path>` sends a file's text, and the plugin always asks first |
 | `wafflebase agent complete <bot> <task-id> [--failed]` | Close a task |
 
 The `bots` commands need a browser session. The `agent` commands use only the bot's stored key, and ignore `--api-key`, `--server`, `--workspace`, and `WAFFLEBASE_API_KEY`.

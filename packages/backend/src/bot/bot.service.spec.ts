@@ -293,22 +293,22 @@ describe('BotService', () => {
       await service.remove(WS, caller, BOT);
 
       expect(prisma.apiKey.updateMany).toHaveBeenCalledWith({
-        where: { workspaceId: WS, createdBy: BOT, revokedAt: null },
+        where: { workspaceId: WS, createdBy: { in: [BOT] }, revokedAt: null },
         data: { revokedAt: expect.any(Date) },
       });
       expect(prisma.workspaceMember.deleteMany).toHaveBeenCalledWith({
-        where: { workspaceId: WS, userId: BOT },
+        where: { workspaceId: WS, userId: { in: [BOT] } },
       });
       expect(prisma.botPairingCode.deleteMany).toHaveBeenCalledWith({
-        where: { botId: BOT, usedAt: null },
+        where: { botId: { in: [BOT] }, usedAt: null },
       });
       expect(prisma.chatChannelMember.deleteMany).toHaveBeenCalledWith({
-        where: { userId: BOT, channelId: { in: ['general'] } },
+        where: { userId: { in: [BOT] }, channelId: { in: ['general'] } },
       });
       // No host can claim them once the keys are revoked; close them out
       // rather than leave them queued forever.
       expect(prisma.agentTask.updateMany).toHaveBeenCalledWith({
-        where: { botId: BOT, status: { in: ['queued', 'claimed'] } },
+        where: { botId: { in: [BOT] }, status: { in: ['queued', 'claimed'] } },
         data: { status: 'failed', finishedAt: expect.any(Date) },
       });
       expect(webhookEvents.emitMemberEvent).toHaveBeenCalledWith(

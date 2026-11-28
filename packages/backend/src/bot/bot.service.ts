@@ -13,10 +13,8 @@ import { announceMembershipRaw } from '../chat/chat-bus';
 import { joinDefaultChannel } from '../chat/default-channel';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookEventService } from '../webhook/webhook-event.service';
-import {
-  WORKSPACE_CONTENT_NOTIFICATION_TYPES,
-  WorkspaceService,
-} from '../workspace/workspace.service';
+import { removeBotsInTx } from '../workspace/bot-teardown';
+import { WorkspaceService } from '../workspace/workspace.service';
 import type { BotDto, PairingCodeDto, PairResultDto } from './bot.dto';
 import { AGENT_SCOPE } from '../api-key/agent-key-scope';
 
@@ -235,45 +233,13 @@ export class BotService {
     );
 
     const channelIds = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.workspaceMember.deleteMany({
-        where: { workspaceId, userId: bot.id },
-      });
+      const { removed, channelIds } = await removeBotsInTx(
+        tx,
+        this.webhookEvents,
+        { workspaceId, botIds: [bot.id], actor: userId },
+      );
       // A concurrent delete got there first.
-      if (count === 0) throw new NotFoundException('Bot not found');
-      await tx.apiKey.updateMany({
-        where: { workspaceId, createdBy: bot.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      await tx.botPairingCode.deleteMany({
-        where: { botId: bot.id, usedAt: null },
-      });
-      // With its keys revoked no host can claim these any more.
-      await tx.agentTask.updateMany({
-        where: { botId: bot.id, status: { in: ['queued', 'claimed'] } },
-        data: { status: 'failed', finishedAt: new Date() },
-      });
-      const memberships = await tx.chatChannelMember.findMany({
-        where: { userId: bot.id, channel: { workspaceId } },
-        select: { channelId: true },
-      });
-      const channelIds = memberships.map((m) => m.channelId);
-      await tx.chatChannelMember.deleteMany({
-        where: { userId: bot.id, channelId: { in: channelIds } },
-      });
-      await tx.notification.deleteMany({
-        where: {
-          recipientId: bot.id,
-          workspaceId,
-          type: { in: [...WORKSPACE_CONTENT_NOTIFICATION_TYPES] },
-        },
-      });
-      await this.webhookEvents.emitMemberEvent(tx, {
-        type: 'member.removed',
-        workspaceId,
-        actor: userId,
-        userId: bot.id,
-        role: 'member',
-      });
+      if (removed === 0) throw new NotFoundException('Bot not found');
       return channelIds;
     });
 
