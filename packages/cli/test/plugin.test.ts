@@ -508,8 +508,8 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
-    // The strict rule: a composition that names it at all asks.
-    expect(decide('grep wafflebase README.md | head')?.decision).toBe('ask');
+    // Naming it is not calling it: only an invocation is judged.
+    expect(decide('grep wafflebase README.md | head')).toBeNull();
   });
 
   it('never echoes arguments on the unclassifiable paths', () => {
@@ -533,8 +533,8 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
-    // Strict: the name in a non-exact command asks even as data.
-    expect(decide('xargs grep wafflebase f')?.decision).toBe('ask');
+    // The name as data — a grep pattern — is not a call.
+    expect(decide('xargs grep wafflebase f')).toBeNull();
   });
 
   it('drops a descriptor number before a redirect and reads `< file`', () => {
@@ -693,11 +693,22 @@ describe('guard.decide', () => {
       'cp /tmp/x ~/.claude/plugins/m/plugins/wafflebase/hooks/command-safety.json',
       'sed -i s/destructive/read-only/ guard-lib.mjs',
       // Ninth pass: quote-split and globbed spellings.
-      'cd ~/.cla"ude"/plugins/cache/m/plugins/waffleb"ase"/hooks',
       'cp /tmp/evil comman"d-safety.json"',
       'cp /tmp/evil comman*fety.json',
     ]) {
       expect(guard.decide(cmd, table, { pluginRoot: root })?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it("lets Bash read the plugin's files without asking", () => {
+    const root = '/home/u/.claude/plugins/cache/m/plugins/wafflebase';
+    for (const cmd of [
+      `cat ${root}/hooks/guard-lib.mjs`,
+      'grep -n MENTION plugins/wafflebase/hooks/guard-lib.mjs',
+      'ls ~/.claude/plugins',
+      'cd ~/.cla"ude"/plugins/cache/m/plugins/waffleb"ase"/hooks',
+    ]) {
+      expect(guard.decide(cmd, table, { pluginRoot: root }), cmd).toBeNull();
     }
   });
 
@@ -723,22 +734,25 @@ describe('guard.decide', () => {
   it('reaches the plugin by a symlink-making or cache path too', () => {
     for (const cmd of [
       'ln -s ~/.claude/plugins/cache/m/plugins/wafflebase/hooks /tmp/h',
-      'ls ~/.claude/plugins',
+      'echo x > ~/.claude/plugins/cache/m/plugins/wafflebase/hooks/hooks.json',
     ]) {
       expect(guard.decide(cmd, table)?.decision, cmd).toBe('ask');
     }
     expect(guard.decide('ls *.md', table)).toBeNull();
   });
 
-  it('sees the name through shell quoting and case', () => {
-    expect(decide('cp /tmp/evil /tmp/waffle"base"')?.decision).toBe('ask');
+  it('sees an invocation through case, but not a mere mention', () => {
     expect(decide('Wafflebase docs delete x')?.decision).toBe('ask');
+    expect(decide('cp /tmp/evil /tmp/waffle"base"')).toBeNull();
   });
 
-  it('leaves other commands to the user — unless they name wafflebase inexactly', () => {
+  // Developing this repository names it in every other command; that is
+  // text, not a call, and the user's own rules decide it.
+  it('leaves other commands to the user, mentions included', () => {
     expect(decide('ls -la')).toBeNull();
-    expect(decide('git commit -m "update wafflebase docs"')?.decision).toBe('ask');
-    expect(decide("echo 'wafflebase docs delete x'")?.decision).toBe('ask');
+    expect(decide('git commit -m "update wafflebase docs"')).toBeNull();
+    expect(decide("echo 'wafflebase docs delete x'")).toBeNull();
+    expect(decide('cd /src/wafflebase/wafflebase && git status')).toBeNull();
     // The repository path contains the name; that is not an invocation.
     expect(decide('cd /src/wafflebase/waffledocs && git status')).toBeNull();
     expect(decide('wafflebase docs list # what is here')?.decision).toBe('ask');

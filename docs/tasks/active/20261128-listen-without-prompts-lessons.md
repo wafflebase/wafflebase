@@ -15,6 +15,12 @@ strings against the guard, and state the prompts per task the user will see.
 
 Once the plugin is installed in a session that develops this repo,
 `cd /…/wafflebase/wafflebase && git …` asks, because `MENTION` cannot tell
-a directory from `/usr/local/bin/wafflebase`. **Rule:** in this repo, run
-commands from the repo root with relative paths, and write files with the
-Write tool rather than a heredoc that mentions `wafflebase`.
+a directory from `/usr/local/bin/wafflebase`. The first workaround was to change how commands are typed;
+the maintainer's verdict was that the boundary itself was wrong. The guard
+now judges calls, not mentions, and asks about the plugin's files only
+when a command can change them.
+
+**Rule:** when a safety check prompts on work that is plainly not what it
+guards against, narrow what it matches (a call, a write) before asking
+people to type around it. Keep the cases that are real (a substitution in
+double quotes, a call behind a wrapper) as tests.

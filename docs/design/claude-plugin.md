@@ -199,12 +199,25 @@ between them is the whole design:
    to the user's rules or, opted in, is allowed; a write asks unless
    auto-approved; a delete always asks), and only here can anything be
    allowed.
-2. **Not exact, and names `wafflebase` anywhere** — asks. Reads
-   included, and without enumerating how the shell might hide a call:
-   a composition, a wrapper (known or not), a `VAR=` or `export` prefix,
-   a leading redirect, a substitution, an inner shell, an interpreter's
-   quoted string. When the guard can still classify the call it says
-   what the call is; otherwise the prompt says the command is not exact.
+2. **Not exact, and calls `wafflebase`** — asks. Reads included, and
+   without enumerating how the shell might hide a call: a composition, a
+   wrapper (known or not), a `VAR=` or `export` prefix, a leading
+   redirect, a substitution (also inside double quotes), an inner shell.
+   A *call* is a word that is the CLI (`wafflebase`, a path to it, or
+   `@wafflebase/cli`) followed by one of its subcommands or an option.
+   When the guard can still classify the call it says what the call is;
+   otherwise the prompt says the command is not exact.
+
+   **A mention is not a call** (changed in the listen-mode follow-up to
+   #1213). Until then any inexact command that *named* `wafflebase` asked —
+   a commit message, a `grep` pattern, a path such as
+   `cd …/wafflebase/wafflebase`. Once the plugin was installed in a
+   session that develops this repository, nearly every command asked, and
+   the prompts taught nothing. The cost of the change: a call spelled so
+   that no word is the CLI (`waffle"base"`, `${w}base`) is not seen —
+   such a call is never exact, so it is never *allowed* either, and falls
+   to the user's own Bash rules. An inner shell nested past the recursion
+   cap still asks on any mention.
 
 **Allowing is opt-in, for reads as well as writes.** Six review passes
 narrowed the gaps around an `allow` to one class the guard cannot close:
@@ -242,9 +255,12 @@ was tried and dropped: it prompted on `~/go/bin/tool` and
 `"$HOME/.venv/bin/python"` in unrelated work.
 
 The plugin's own files — its guard, its command table, its manifest —
-decide every later answer, so a Bash command that names them (raw, after
-quote-joining, or as a glob that could match one), the plugin's tree or
-`~/.claude/plugins` asks,
+decide every later answer, so a Bash command that can **change** a file
+(a write redirect, or `rm`, `mv`, `cp`, `ln`, `tee`, `chmod`,
+`touch`, `sed -i`, …) and names them (raw, after quote-joining, or as a
+glob that could match one), the plugin's tree or `~/.claude/plugins`
+asks. Reading them (`cat`, `grep`, `ls`, `cd`) does not: it decides
+nothing,
 and the hook also registers on `Edit|Write|MultiEdit|NotebookEdit` to ask
 before any edit whose real path (symlinks resolved, also for a file not
 created yet) lies inside the plugin root. The name is also matched

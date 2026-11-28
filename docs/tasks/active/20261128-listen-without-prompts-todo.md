@@ -37,6 +37,20 @@ workspace is **denied** (the bot says so in the thread) instead of asked.
 - [x] Listen skill, plugin README Safety table, docs page, design docs
 - [ ] `pnpm verify:fast`; `/self-review`; PR (no merge)
 
+## Also in this PR (maintainer, 2026-11-28: "the boundary is too inconvenient")
+
+- [x] A mention is not a call: an inexact command asks only when a word is
+      the CLI followed by a subcommand or option (substitutions inside
+      double quotes included; an inner shell past the recursion cap still
+      asks on any mention). Commit messages, paths and grep patterns no
+      longer ask. Reverses the "names it anywhere" rule from #1097's
+      review passes, deliberately.
+- [x] The plugin's own files ask only for a command that can change a file
+      (write redirect, rm/mv/cp/ln/tee/chmod/touch/sed -i, …), not for reads.
+- [x] Considered and not done: reads allowed by default. That would make the
+      shell-state rule apply to every session, so `source venv` and
+      `export PATH` would start asking everywhere — more prompts, not fewer.
+
 ## Review
 
 - 20 tests written first and seen failing; one existing test pinned the

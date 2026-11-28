@@ -500,6 +500,50 @@ function classifyPath(words, table) {
 const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/i;
 
 /**
+ * A call the walk cannot attribute — behind a wrapper (`chronic`,
+ * `/usr/bin/env`), a leading redirect, `$(…)`, backticks or a subshell —
+ * still shows as a word that is the CLI (`wafflebase`, a path to it, or
+ * `@wafflebase/cli`) followed by one of its subcommands or an option. Text
+ * that only names it — a commit message (one quoted word), a path, an
+ * argument to grep — does not, and the user's own rules decide it:
+ * developing this repository names it constantly.
+ */
+function hasHiddenCall(segments, table, depth = 0) {
+  const subcommands = new Set(Object.keys(table.root?.children ?? {}));
+  // `"$(wafflebase …)"` is one quoted word to the splitter, but the shell
+  // still runs the substitution: split each body and look again.
+  if (depth < 3) {
+    for (const words of segments) {
+      for (const w of words) {
+        for (const m of w.text.matchAll(/\$\(([^)]*)\)|`([^`]*)`/g)) {
+          const body = m[1] ?? m[2] ?? '';
+          if (hasHiddenCall(splitCommand(body).segments, table, depth + 1)) return true;
+        }
+      }
+    }
+  }
+  const bare = (t) => t.replace(/^(?:\$\(|[`({])+/, '').replace(/[`)}]+$/, '');
+  for (const words of segments) {
+    for (let i = 0; i < words.length - 1; i++) {
+      const name = bare(words[i].text).split('/').pop()?.toLowerCase();
+      const cli = name === 'wafflebase' || bare(words[i].text).toLowerCase() === '@wafflebase/cli';
+      if (!cli) continue;
+      const next = bare(words[i + 1].text);
+      if (next.startsWith('-') || subcommands.has(next)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A command that can change a file: a write redirect, or a program that
+ * writes, moves, links or deletes. Reading the plugin's files is fine; only
+ * changing them decides what later commands are allowed.
+ */
+const MUTATES =
+  /(?:^|[;&|(\s`])(?:rm|rmdir|mv|cp|ln|tee|chmod|chown|truncate|touch|install|rsync|dd|patch|unlink|sed\s+[^;&|]*-[a-zA-Z]*i|perl\s+[^;&|]*-[a-zA-Z]*i)(?=[\s;&|)]|$)|>/;
+
+/**
  * Variables whose value, once in the persistent shell, changes what a later
  * bare `wafflebase` runs or where it connects: the lookup path, Node's
  * preload hooks, the dynamic loader, the CLI's own server / key / config,
@@ -706,6 +750,7 @@ export function decide(fullCommand, table, options = {}) {
   let complex = topComplex;
   const found = [];
   let plain = true;
+  let cappedMention = false;
   const visit = (segs, depth) => {
     for (const words of segs) {
       const inner = innerCommand(words);
@@ -715,6 +760,8 @@ export function decide(fullCommand, table, options = {}) {
         // the command is not exact either way, so it asks regardless.
         complex = true;
         if (depth < 3) visit(splitCommand(inner).segments, depth + 1);
+        // Past the cap the string is not read; naming the CLI there asks.
+        else if (MENTION.test(inner)) cappedMention = true;
         continue;
       }
       const hit = wafflebaseArgs(words);
@@ -756,9 +803,10 @@ export function decide(fullCommand, table, options = {}) {
   // Bash asks, whatever the command.
   const lexedText = segments.map((ws) => ws.map((w) => w.text).join(' ')).join(' ; ');
   if (
-    touchesPlugin(command, options.pluginRoot) ||
-    touchesPlugin(lexedText, options.pluginRoot) ||
-    segments.some((ws) => ws.some((w) => !w.exact && globHitsPluginFile(w.text)))
+    MUTATES.test(command) &&
+    (touchesPlugin(command, options.pluginRoot) ||
+      touchesPlugin(lexedText, options.pluginRoot) ||
+      segments.some((ws) => ws.some((w) => !w.exact && globHitsPluginFile(w.text))))
   ) {
     return {
       decision: 'ask',
@@ -766,15 +814,16 @@ export function decide(fullCommand, table, options = {}) {
         "This command touches the Wafflebase plugin's own files (its guard or command table), which decide what later commands are allowed.",
     };
   }
-  // The name, also when the shell will join it from quoted pieces
-  // (`waffle"base"`): test the lexed words as well as the raw text.
-  const mentioned = MENTION.test(command) || MENTION.test(lexedText);
+  // A call the walk above cannot see — inside `$(…)`, backticks, a subshell
+  // or a group — still sits in a command position. A mere mention (a commit
+  // message, a path, an argument) does not, and is not judged.
+  const hidden = cappedMention || hasHiddenCall(segments, table);
 
   const exact = !complex && plain && found.length === 1;
   const judged = judge(found, table, options, exact);
   if (exact) return judged;
   if (judged) return judged;
-  if (found.length > 0 || mentioned) {
+  if (found.length > 0 || hidden) {
     const why =
       'is not a single plain wafflebase invocation the Wafflebase plugin can read exactly (a composition, wrapper, prefix, substitution or inner shell), so it asks even for reads';
     return refuse(
