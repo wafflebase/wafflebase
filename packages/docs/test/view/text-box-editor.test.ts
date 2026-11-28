@@ -250,6 +250,38 @@ describe('initializeTextBox', () => {
     expect(Array.isArray(committed)).toBe(true);
   });
 
+  it('commit() fires onCommit after a keepalive blur skipped it', () => {
+    // Focus parked on a `data-text-edit-keepalive` control: the blur
+    // skips the commit, so `blur()` can no longer close the box and the
+    // host needs a commit that does not depend on focus.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const keepalive = document.createElement('button');
+    keepalive.setAttribute('data-text-edit-keepalive', '');
+    document.body.appendChild(keepalive);
+    let commitCount = 0;
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit: () => { commitCount++; },
+    });
+    api.focus();
+    keepalive.focus();
+    expect(commitCount).toBe(0);
+
+    api.blur();
+    expect(commitCount).toBe(0);
+    api.commit();
+    expect(commitCount).toBe(1);
+  });
+
   it('detach() does not double-fire onCommit when already blurred', () => {
     // If the user blurred (saving) and the parent then detaches, the
     // detach path must NOT fire onCommit a second time — the caller's

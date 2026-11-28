@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Element, ShapeElement } from '../../../src/model/element';
 import type { ConnectorElement } from '../../../src/model/connector';
-import { renderOverlay } from '../../../src/view/editor/overlay';
+import { OVERLAY_PERSISTENT_ATTR, renderOverlay } from '../../../src/view/editor/overlay';
 
 const HANDLE_SIZE = 8;
 const HOST_SCALE = 1; // demo uses 1:1 for these tests
@@ -30,6 +30,33 @@ describe('renderOverlay', () => {
     const overlay = makeOverlay();
     renderOverlay(overlay, [], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     expect(overlay.children.length).toBe(0);
+  });
+
+  it('keeps persistent children mounted and on top of rebuilt chrome', () => {
+    const overlay = makeOverlay();
+    const layer = document.createElement('div');
+    const textBox = document.createElement('div');
+    layer.setAttribute(OVERLAY_PERSISTENT_ATTR, '');
+    textBox.setAttribute(OVERLAY_PERSISTENT_ATTR, '');
+    overlay.append(layer, textBox);
+    const removed: Node[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const r of records) removed.push(...r.removedNodes);
+    });
+    watch.observe(overlay, { childList: true });
+
+    const opts = { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H };
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], opts);
+    renderOverlay(overlay, [shape(300, 50, 200, 100)], opts);
+
+    removed.push(...watch.takeRecords().flatMap((r) => [...r.removedNodes]));
+    watch.disconnect();
+    expect(removed).not.toContain(layer);
+    expect(removed).not.toContain(textBox);
+    const children = Array.from(overlay.children);
+    expect(children.length).toBeGreaterThan(2);
+    // Chrome first, then the persistent nodes in their original order.
+    expect(children.slice(-2)).toEqual([layer, textBox]);
   });
 
   it('renders 9 handles + 1 frame for a single selected element', () => {
