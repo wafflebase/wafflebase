@@ -285,3 +285,20 @@ describe("EditBox", () => {
     expect(save).toBeEnabled();
   });
 });
+
+describe("MessageGroupView header", () => {
+  beforeEach(() => setPointer(false));
+
+  it("labels a bot author", () => {
+    renderLine(
+      msg({ author: { id: 9, username: "helper", photo: null, kind: "bot" } }),
+    );
+    expect(screen.getByText("helper")).toBeInTheDocument();
+    expect(screen.getByText("Bot")).toBeInTheDocument();
+  });
+
+  it("does not label a person", () => {
+    renderLine(msg());
+    expect(screen.queryByText("Bot")).toBeNull();
+  });
+});

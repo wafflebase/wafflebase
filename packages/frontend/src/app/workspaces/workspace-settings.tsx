@@ -52,6 +52,9 @@ import {
 import { WorkspaceWebhooksSection } from "./webhooks/webhooks-section";
 import { WEBHOOKS_SECTION_ID } from "./webhooks/webhook-paths";
 import { RemoveMemberDialog } from "./webhooks/remove-member-dialog";
+import { BotsSection } from "./bots/bots-section";
+import { BOTS_SECTION_ID } from "./bots/bot-status";
+import { CLI_DEFAULT_SERVER, apiServer } from "./cli-server";
 
 const MEMBERS_SECTION_ID = "members";
 const API_KEYS_SECTION_ID = "api-keys";
@@ -60,6 +63,7 @@ const API_KEYS_SECTION_ID = "api-keys";
 const ANCHORED_SECTIONS = [
   MEMBERS_SECTION_ID,
   API_KEYS_SECTION_ID,
+  BOTS_SECTION_ID,
   DATASOURCES_SECTION_ID,
   WEBHOOKS_SECTION_ID,
 ];
@@ -68,18 +72,10 @@ const ANCHORED_SECTIONS = [
 const SECTION_INDEX = [
   { id: MEMBERS_SECTION_ID, label: "Members" },
   { id: API_KEYS_SECTION_ID, label: "API keys" },
+  { id: BOTS_SECTION_ID, label: "Bots" },
   { id: DATASOURCES_SECTION_ID, label: "Data sources" },
   { id: WEBHOOKS_SECTION_ID, label: "Webhooks" },
 ];
-
-/** The CLI's built-in server (packages/cli/src/config/config.ts). */
-const CLI_DEFAULT_SERVER = "https://api.wafflebase.io";
-
-/** The API server this page talks to, as the CLI's `--server` expects it. */
-function apiServer(): string {
-  const base = import.meta.env.VITE_BACKEND_API_URL || "/";
-  return new URL(base, window.location.origin).href.replace(/\/$/, "");
-}
 
 /**
  * The shell lines that put a freshly minted key to work with the CLI and
@@ -426,7 +422,14 @@ export default function WorkspaceSettings() {
             <TableBody>
               {workspace.members.map((member) => (
                 <TableRow key={member.id}>
-                  <TableCell>{member.user.username}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2">
+                      {member.user.username}
+                      {member.user.kind === "bot" && (
+                        <Badge variant="outline">Bot</Badge>
+                      )}
+                    </span>
+                  </TableCell>
                   {/* Wraps instead of nowrap so a long address cannot push
                       the Actions column off a phone-width screen. */}
                   <TableCell className="text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
@@ -616,6 +619,19 @@ export default function WorkspaceSettings() {
           <p className="text-sm text-muted-foreground">No API keys.</p>
         )}
       </section>
+
+      <Separator />
+      <BotsSection
+        workspaceId={workspace.id}
+        meId={me?.id}
+        isOwner={!!isOwner}
+        onMembersChanged={() =>
+          void queryClient.invalidateQueries({
+            queryKey: ["workspaces", workspaceId],
+            exact: true,
+          })
+        }
+      />
 
       <Separator />
       <WorkspaceDataSourcesSection workspaceId={workspaceId!} />

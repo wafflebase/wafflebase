@@ -20,6 +20,7 @@ import {
   fetchWorkspaceDataSources,
 } from "@/api/workspaces";
 import { deleteDataSource, testDataSourceConnection } from "@/api/datasources";
+import { fetchBots } from "@/api/bots";
 import { fetchMemberRemovalImpact, fetchWebhooks } from "@/api/webhooks";
 import type { WebhookList } from "@/api/webhooks";
 import type { DataSource } from "@/types/datasource";
@@ -62,6 +63,13 @@ vi.mock("@/api/webhooks", async (importOriginal) => ({
   createWebhook: vi.fn(),
 }));
 
+vi.mock("@/api/bots", () => ({
+  fetchBots: vi.fn().mockResolvedValue([]),
+  createBot: vi.fn(),
+  deleteBot: vi.fn(),
+  createPairingCode: vi.fn(),
+}));
+
 vi.mock("@/api/datasources", () => ({
   deleteDataSource: vi.fn(),
   testDataSourceConnection: vi.fn(),
@@ -85,6 +93,18 @@ const OTHER_MEMBER = {
   role: "member",
   joinedAt: "2026-01-03T00:00:00.000Z",
   user: { id: 3, username: "other", email: "other@example.com" },
+};
+
+const BOT_MEMBER = {
+  id: "m-bot",
+  role: "member",
+  joinedAt: "2026-01-04T00:00:00.000Z",
+  user: {
+    id: 4,
+    username: "helper",
+    email: "bot-1@bots.wafflebase.invalid",
+    kind: "bot" as const,
+  },
 };
 
 const WORKSPACE: WorkspaceDetail = {
@@ -133,13 +153,14 @@ function renderAs(
     canManage: userId === OWNER.user.id,
     webhooks: [],
   },
+  workspace: WorkspaceDetail = WORKSPACE,
 ) {
   vi.mocked(fetchMe).mockResolvedValue({
     id: userId,
     username: "u",
     email: "u@example.com",
   } as Awaited<ReturnType<typeof fetchMe>>);
-  vi.mocked(fetchWorkspace).mockResolvedValue(WORKSPACE);
+  vi.mocked(fetchWorkspace).mockResolvedValue(workspace);
   vi.mocked(fetchInvites).mockResolvedValue([INVITE]);
   vi.mocked(fetchApiKeys).mockResolvedValue(keys);
   vi.mocked(fetchWorkspaceDataSources).mockResolvedValue(datasources);
@@ -651,6 +672,48 @@ describe("WorkspaceSettings data sources", () => {
     );
     await waitFor(() =>
       expect(vi.mocked(fetchWorkspaceDataSources)).toHaveBeenCalledTimes(2),
+    );
+  });
+});
+
+describe("WorkspaceSettings bots", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("labels a bot in the Members table", async () => {
+    renderAs(OWNER.user.id, [], [], undefined, {
+      ...WORKSPACE,
+      members: [...WORKSPACE.members, BOT_MEMBER],
+    });
+
+    await waitFor(() =>
+      expect(
+        within(memberRow(BOT_MEMBER.user.email)).getByText("Bot"),
+      ).toBeTruthy(),
+    );
+    expect(within(memberRow(MEMBER.user.email)).queryByText("Bot")).toBeNull();
+  });
+
+  it("lists the Bots section in the index, between API keys and Data sources", async () => {
+    renderAs(MEMBER.user.id);
+    const nav = await screen.findByRole("navigation", {
+      name: "Settings sections",
+    });
+    const labels = within(nav)
+      .getAllByRole("link")
+      .map((a) => a.textContent);
+    expect(labels).toEqual([
+      "Members",
+      "API keys",
+      "Bots",
+      "Data sources",
+      "Webhooks",
+    ]);
+    expect(await screen.findByRole("heading", { name: "Bots" })).toBeTruthy();
+    // Asked for by the workspace's real id, not the route's slug.
+    await waitFor(() =>
+      expect(vi.mocked(fetchBots)).toHaveBeenCalledWith(WORKSPACE.id),
     );
   });
 });

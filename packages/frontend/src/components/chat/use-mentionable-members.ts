@@ -9,6 +9,7 @@ const toMention = (u: ChatUserSummary): MentionMember => ({
   userId: String(u.id),
   username: u.username,
   photo: u.photo || undefined,
+  kind: u.kind,
 });
 
 /**

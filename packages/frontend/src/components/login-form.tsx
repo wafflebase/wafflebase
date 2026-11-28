@@ -48,6 +48,12 @@ const LOGIN_ERRORS = new Map<string, string>([
     "email_conflict",
     "An account already exists for that email address under the other sign-in provider. Sign in with that provider once, and this one will work too.",
   ],
+  // The account is a workspace bot's: it works only through the API keys a
+  // host is paired with, never through a sign-in.
+  [
+    "bot_account",
+    "That account belongs to a workspace bot, which cannot sign in. Sign in with your own account.",
+  ],
   // The desktop app's handoff could not redeem its one-time code: it expired,
   // was already used, or came from another sign-in.
   [

@@ -15,6 +15,8 @@ export interface ChatUserSummary {
   id: number;
   username: string;
   photo: string | null;
+  /** "bot" for a bot member (docs/design/chat.md § Bot Members). */
+  kind?: "person" | "bot";
 }
 
 /** A row of a public or private channel's member list. */

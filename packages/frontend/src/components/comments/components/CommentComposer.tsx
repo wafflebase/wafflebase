@@ -33,6 +33,8 @@ export type MentionMember = {
   userId: string;
   username: string;
   photo?: string;
+  /** "bot" labels the suggestion as a bot member. */
+  kind?: "person" | "bot";
 };
 
 type CommentComposerProps = {

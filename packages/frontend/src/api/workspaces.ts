@@ -18,7 +18,14 @@ export interface WorkspaceMember {
   id: string;
   role: string;
   joinedAt: string;
-  user: { id: number; username: string; email: string; photo?: string };
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    photo?: string;
+    /** "bot" for a bot member (docs/design/chat.md § Bot Members). */
+    kind?: "person" | "bot";
+  };
 }
 
 export interface WorkspaceDetail extends Workspace {

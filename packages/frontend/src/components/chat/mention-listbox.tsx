@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { AuthorAvatar } from "@/components/comments/components/AuthorAvatar";
 import type { MentionMember } from "@/components/comments/components/CommentComposer";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ export function MentionListbox({
                 <AuthorAvatar author={m} size="md" />
               </span>
               <span className="truncate">{m.username}</span>
+              {m.kind === "bot" && <Badge variant="outline">Bot</Badge>}
             </li>
           ))}
         </ul>
