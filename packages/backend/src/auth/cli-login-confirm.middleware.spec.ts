@@ -42,8 +42,9 @@ describe('CliLoginConfirmMiddleware', () => {
   function run(
     query: Record<string, unknown>,
     cookies: Record<string, string> = {},
+    headers: Record<string, string> = {},
   ) {
-    const req = { query, cookies } as unknown as Request;
+    const req = { query, cookies, headers } as unknown as Request;
     const res = {
       cookie: jest.fn(),
       clearCookie: jest.fn(),
@@ -313,10 +314,133 @@ describe('CliLoginConfirmMiddleware', () => {
     });
 
     it('lets an unknown mode through as an ordinary browser login', () => {
-      const { res, next } = run({ mode: 'mobile', port: '51234' });
+      const { res, next } = run({ mode: 'tablet', port: '51234' });
 
       expect(next).toHaveBeenCalled();
       expect(res.send).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The iOS app's start has no port, so the page names none and the link
+   * carries none — but it is consent all the same, and signed over the
+   * mode, nonce and challenge it shows.
+   */
+  describe('mode=mobile', () => {
+    const nonce = 'e'.repeat(64);
+    const challenge = 'c'.repeat(43);
+
+    function continueHref(html: string) {
+      return (/class="button" href="([^"]+)"/.exec(html)?.[1] ?? '').replace(
+        /&amp;/g,
+        '&',
+      );
+    }
+
+    it('answers with a confirmation page that names the app and no port', () => {
+      const { res, next } = run({ mode: 'mobile', nonce, challenge });
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.setHeader).toHaveBeenCalledWith('X-Frame-Options', 'DENY');
+      const [html] = res.send.mock.calls[0] as [string];
+      expect(html).toContain('<title>Wafflebase app sign-in</title>');
+      expect(html).toContain('Continue signing in to the Wafflebase app?');
+      expect(html).toContain('in the Wafflebase app on this device');
+      expect(html).toContain(
+        'If you did not tap Sign in inside the Wafflebase app a moment ago',
+      );
+      expect(html).not.toMatch(/port \d/);
+
+      const href = continueHref(html);
+      const params = new URLSearchParams(href.split('?')[1] ?? '');
+      expect(params.get('mode')).toBe('mobile');
+      expect(params.has('port')).toBe(false);
+      expect(params.get('nonce')).toBe(nonce);
+      expect(params.get('challenge')).toBe(challenge);
+      const [, secret] = res.cookie.mock.calls[0] as [string, string];
+      expect(params.get('confirm')).toBe(
+        cliConfirmToken(secret, undefined, nonce, challenge, 'mobile'),
+      );
+    });
+
+    it('proceeds when the confirm param matches the cookie', () => {
+      const { req, next } = run(
+        {
+          mode: 'mobile',
+          nonce,
+          challenge,
+          confirm: cliConfirmToken(
+            'secret-value',
+            undefined,
+            nonce,
+            challenge,
+            'mobile',
+          ),
+        },
+        { [cliConfirmCookieName()]: 'secret-value' },
+      );
+
+      expect(next).toHaveBeenCalled();
+      expect(req.__cliConfirmed).toBe(true);
+    });
+
+    it('does not let a desktop click start a mobile login', () => {
+      const desktopToken = cliConfirmToken(
+        'secret-value',
+        51234,
+        nonce,
+        challenge,
+        'desktop',
+      );
+      const { req, next } = run(
+        { mode: 'mobile', nonce, challenge, confirm: desktopToken },
+        { [cliConfirmCookieName()]: 'secret-value' },
+      );
+      expect(next).not.toHaveBeenCalled();
+      expect(req.__cliConfirmed).toBeUndefined();
+    });
+
+    /**
+     * The page is the only gate against an app that starts its own login and
+     * claims the scheme the code comes back on, so a start another site
+     * navigated the browser into must not reach it. Handed on unconfirmed,
+     * the guard answers it with its cross-site 400.
+     */
+    it('shows no confirmation page for a cross-site mobile start', () => {
+      const { req, res, next } = run(
+        { mode: 'mobile', nonce, challenge },
+        {},
+        { 'sec-fetch-site': 'cross-site' },
+      );
+      expect(next).toHaveBeenCalled();
+      expect(res.send).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(req.__cliConfirmed).toBeUndefined();
+    });
+
+    it('still shows the page to a start the system browser opened', () => {
+      for (const site of ['none', 'same-origin', 'same-site']) {
+        const { res, next } = run(
+          { mode: 'mobile', nonce, challenge },
+          {},
+          { 'sec-fetch-site': site },
+        );
+        expect(next).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.cookie).toHaveBeenCalled();
+      }
+    });
+
+    it('passes a start missing its nonce or challenge to the guard', () => {
+      for (const query of [
+        { mode: 'mobile', nonce },
+        { mode: 'mobile', challenge },
+      ]) {
+        const { res, next } = run(query);
+        expect(next).toHaveBeenCalled();
+        expect(res.send).not.toHaveBeenCalled();
+      }
     });
   });
 

@@ -41,6 +41,8 @@ the remote origin gets no native API at all by default. The comparison is in
   macOS-only, and Windows joins it once Authenticode signing is chosen (§7).
 - Open the app's UI with no network, and say plainly that it is offline,
   rather than showing a blank window (§10).
+- Build the same shell for iOS, sharing the server picker, navigation policy
+  and handoff, with a sign-in that survives the app being suspended (§11).
 
 ### Non-Goals
 
@@ -58,7 +60,10 @@ the remote origin gets no native API at all by default. The comparison is in
 - **File associations, deep links, `wafflebase://` share links opening in the
   app.** These come after the first release and need a design for routing a
   link to the right server.
-- **Mobile.** Tauri 2 supports it, but the web app already has mobile views.
+- **Mobile beyond a spike.** The same shell builds for iOS (§11) with its
+  sign-in moved to a custom-scheme callback, but an App Store release waits on
+  the review questions §11 lists. Android is not planned; the web app already
+  has mobile views.
 
 ## Proposal Details
 
@@ -485,6 +490,7 @@ a yearly step in the README procedure.
 | 0. Spike | Unsigned shell that loads a deployment; run the §6 checklist on macOS. Go or no-go for Tauri |
 | 1. Sign-in | Backend `mode=desktop` (GitHub), `/auth/desktop/session`, providers field. Shell: picker, navigation policy, login, downloads, menus. Unsigned macOS + Windows builds for the team |
 | 2. Release | Google `mode=desktop`; signing, notarization, updater, released with the server (shipped: `desktop-release.yml`, `update.rs`); public release, macOS only (shipped); Authenticode, then the Windows release; `test:webkit` in CI |
+| iOS spike | The shell built for iOS with desktop-only features gated off; `mode=mobile` sign-in over the `wafflebase` scheme (§11). No App Store submission |
 | Later | Linux; file associations into import; deep links; offline reading and editing (§10 follow-ups) |
 
 ### 9. What the Phase 0 spike found
@@ -616,6 +622,158 @@ this order:
    that trade more pressing, not different: it opens documents in several
    windows of one webview profile.
 
+### 11. Mobile (iOS)
+
+Tauri 2 builds the same crate for iOS, so the iPhone and iPad app is this
+shell, not a second one. It is at the spike stage: the Rust crate compiles
+and passes clippy for the iOS simulator and device targets, but a full Xcode
+build and an end-to-end sign-in on a simulator or device are still pending,
+so the Safari hand-off and the scheme callback's arrival are unverified. It
+is not submitted to the App Store (see below).
+
+**What is shared.** Everything that does not depend on a desktop window
+manager: the server profile and picker (§2), the reachability probe and
+offline page, the navigation policy (§4), the bundled pages and their
+capability, and the handoff page and `POST /auth/desktop/session` (§3). The
+remote origin still gets no IPC. On iOS, as on macOS, Tauri serves bundled
+pages from `tauri://localhost` through a `WKURLSchemeHandler`, so the
+handoff POST carries an `Origin` the backend already accepts and the
+allowlist does not grow.
+
+**What is gated off.** These are compiled only under `cfg(desktop)`:
+
+| Desktop feature | Why not on iOS |
+|-----------------|----------------|
+| `updater` (§5) | The App Store forbids an app replacing its own code (Guideline 2.5.2); the shell updates through the store. The UI still updates with the server, since it is loaded from it |
+| `single-instance` | iOS runs one instance of an app by definition |
+| `window-state` | There is one full-screen window; nothing to remember |
+| App, Edit and View menus | iOS has no menu bar. The system's edit menu and keyboard shortcuts reach the webview without one |
+| New windows (`window.open` to the frontend origin) | One window. A same-origin new-window request loads in the current window instead; other origins still go to the system browser |
+| Loopback sign-in listener | Replaced by the scheme callback below |
+
+**Why the loopback flow cannot work.** Opening Safari sends the app to the
+background, and iOS suspends a backgrounded app within seconds, listener
+included, so the callback to `127.0.0.1` has nobody to answer it. RFC 8252
+§7.1 names the alternative for native apps: a private-use URI scheme.
+
+**Sign-in on iOS.** The app registers the scheme `wafflebase` (the deep-link
+plugin writes it into the app's URL types). The flow is §3's with the
+listener taken out:
+
+```text
+Webview navigates to <backend>/auth/github  (no `mode` param), from /login
+  │
+  ├─ 1. Cancelled; GET <backend>/auth/providers must report mobile.github
+  ├─ 2. Nonce + PKCE verifier generated and held in memory only
+  ├─ 3. System browser (opener plugin) opens
+  │     <backend>/auth/github?mode=mobile&nonce=<hex>&challenge=<s256>
+  │     (no port, no /launch token: there is no listener to front it)
+  ├─ 4. Confirmation page → Continue → provider consent → callback
+  ├─ 5. Backend redirects to
+  │     wafflebase://auth/callback?code=…&state=<nonce>
+  │     (or ?error=<reason>&state=<nonce>); Safari asks to open the app
+  ├─ 6. The app is resumed with the URL; it accepts it only while a sign-in
+  │     is pending and only if state equals the pending nonce (constant
+  │     time), then discards the nonce, so a second delivery is refused
+  └─ 7. Handoff page POSTs { code, verifier, returnTo } to
+        <backend>/auth/desktop/session, as §3 steps 8–10
+```
+
+Backend side, `mode=mobile` is a third `CliAuthMode` beside `cli` and
+`desktop`, with the desktop gates: a PKCE challenge is required, and the
+mode is offered only where desktop sign-in is (`/auth/providers` reports
+`mobile: { github }` under the same condition as `desktop.github`). The
+callback's query parameters are exactly the loopback callback's (`code` or
+`error`, plus `state`); only the base changes from
+`http://127.0.0.1:<port>/callback` to `wafflebase://auth/callback`. A code
+minted for `mobile` redeems only at `POST /auth/desktop/session`, never at
+`cli/exchange`, and that endpoint keeps its `Origin` check.
+
+If iOS terminates the suspended app rather than resuming it (memory
+pressure during a long consent), the nonce and verifier are gone, the
+callback finds no pending sign-in and is dropped, and the user signs in
+again. Persisting the verifier to survive that is not worth what it would
+expose.
+
+**Threat model.** Any app can register `wafflebase` too, and iOS does not
+say which one receives the URL when two do (RFC 8252 §8.1). What a hijacker
+gets is a single-use code and the nonce. The code is bound to a PKCE
+challenge whose verifier never leaves the shell, so it cannot be redeemed at
+`/auth/desktop/session` or anywhere else, and it expires in five minutes.
+The reverse direction, a page or app that opens
+`wafflebase://auth/callback?code=<attacker's code>` to sign the victim's app
+into the attacker's account, fails the state check: the app accepts a
+callback only for the nonce of a sign-in it started, and an attacker who
+does not intercept that sign-in's redirect never learns it. What remains is
+denial of service: a hijacking app can swallow the callback, and the sign-in
+times out. That is accepted.
+
+That covers a hijacked sign-in the real app started. It does not cover
+client impersonation (RFC 8252 §8.6): a malicious app that holds the scheme
+starts its own `mode=mobile` login, with a nonce and verifier of its own,
+and gets the victim to tap Continue (a link in a message, a page that
+navigates Safari to the start). The code then comes back on the shared
+scheme to the app that holds the matching verifier, and it redeems it at
+`/auth/desktop/session` from native code. The `Origin` check there does not
+stop it: an allowlist of origins constrains browsers, and a native HTTP
+client sets `Origin: tauri://localhost` itself. The result is a full session
+for the victim's account, not a denial of service.
+
+The gate against that is the confirmation page (§3), which is shown before
+anything is minted and says the sign-in completes in an app on this device.
+`CliLoginConfirmMiddleware` also refuses to show it to a mobile start that
+arrives `Sec-Fetch-Site: cross-site`, so a page on another site cannot
+navigate the victim one tap away from a session; the start is handed to the
+guard unconfirmed, which answers its cross-site 400. A start the app opens
+through the opener reports `none` and is unaffected. That check cannot tell
+a link tapped in another app (which Safari also reports as `none`) from the
+real app's start, so the page's wording is the last control there.
+`ASWebAuthenticationSession` does not close this variant: it protects the
+initiator's callback, and here the attacker is the initiator.
+
+**Why not universal links.** An `https://` callback that iOS verifies as
+belonging to the app would rule out the hijack, but it needs an
+`apple-app-site-association` file for the app's team and bundle ID on the
+callback's domain. A self-hosted deployment is on its own domain, and every
+one of them would have to host that file for an app it does not build. The
+scheme works on any server, and PKCE already makes interception harmless.
+
+**Follow-up: `ASWebAuthenticationSession`.** This release opens Safari
+through the opener plugin. Apple's authentication session would keep the
+user in the app, share Safari's cookies and passkeys, and deliver the
+callback to the session that asked for it, so a second app registering the
+scheme would never see it. It needs a small Swift plugin, since Tauri does
+not expose it; the backend side does not change.
+
+**Before an App Store submission.** None of these block the spike; each has
+to be answered before the app is submitted:
+
+- **Guideline 4.2 (minimum functionality).** An app that loads a website in
+  a webview is the classic 4.2 rejection. The argument is that this is a
+  client for a server the user chooses, with native sign-in and offline
+  handling, but it may need more native surface (share sheet, Files export)
+  to pass.
+- **Guideline 4.8 (Sign in with Apple).** An app whose only sign-in is a
+  third-party social login must also offer Sign in with Apple or an
+  equivalent privacy-preserving option. GitHub, and Google in Phase 2, put
+  the app in scope, and that means a new backend provider.
+- **Guideline 5.1.1(v) (account deletion).** An app that lets users create
+  an account must let them delete it from within the app. Wafflebase has no
+  account deletion today; it would be a web-app feature the shell then
+  reaches.
+- **Privacy manifest.** The app needs a privacy manifest declaring the
+  required-reason APIs it and its SDKs use (`UserDefaults`, file timestamps)
+  and the data collected, and the App Store privacy labels to match.
+- **Service Workers and App-Bound Domains.** wry turns on
+  `limitsNavigationsToAppBoundDomains` on iOS (§10), and a third-party
+  WKWebView on iOS runs Service Workers only for app-bound domains, which
+  are a fixed list of at most ten in the app's Info.plist. A user-chosen
+  server cannot be on it, so §10's offline boot is not expected to work on
+  iOS, and that limit also needs checking against navigation to an
+  arbitrary server.
+
+Distribution is then TestFlight and the App Store, not GitHub Releases (§7).
+
 ### Risks and Mitigation
 
 | Risk | Mitigation |
@@ -637,7 +795,10 @@ this order:
 | The window's URL is read after a `/auth/github` navigation is cancelled (client-side routing to `/login` fires no event), so a foreign sign-in link clicked just as the window itself moves to `/login` is taken over against the foreign origin | Accepted. The race needs the click and an app-driven route change within one main-thread turn. The foreign backend then holds that attempt's nonce, so it can cancel a real sign-in in progress or finish the attempt against itself, but its OAuth page opens in the system browser with an address bar, and its session POST sets no cookie on the chosen server. Requiring the link to be on the frontend origin is not an option: the backend may have its own (`VITE_BACKEND_API_URL`). Pinning the backend origin after the first sign-in is the follow-up if this needs closing |
 | Every Tauri app on the machine serves its bundled pages from the same origins (`tauri://localhost`, `http://tauri.localhost`), so another installed Tauri app, or one that renders untrusted HTML in its bundled origin, can POST an attacker's code with an allowed `Origin` (login CSRF) | Accepted. It needs a hostile or vulnerable app already on the machine. Tauri offers no per-app origin to check instead; binding the code to the app would need a secret the app holds and a page cannot read, which is a larger change than this risk warrants today |
 | `http://tauri.localhost` is reachable from an ordinary browser in more than one way: Chrome and Firefox resolve RFC 6761 `*.localhost` to loopback, so a process already listening on the user's port 80 could serve a page with an allowed `Origin`; and `tauri.localhost` is also a real DNS name, so a browser that does not special-case `.localhost`, or a resolver that answers for it, can be pointed at a remote page that produces the origin | Accepted by default, because dropping it costs Windows users their sign-in. `WAFFLEBASE_DESKTOP_WINDOWS_ORIGIN=false` is the per-deployment opt-out; macOS and Linux keep theirs on `tauri://localhost`, which no browser can produce at all. The residual risk is a login CSRF, bounded by the code's 5-minute single-use lifetime |
-| A `mode=cli` or `mode=desktop` start that another site navigated the browser into is answered with the confirmation page, not refused. `CliLoginConfirmMiddleware` runs before the guard's `Sec-Fetch-Site` check, which therefore only ever sees the same-origin Continue click. This is inherited from the CLI flow | The confirmation click remains the gate. Enforcing the check in the middleware is a follow-up: first confirm what `Sec-Fetch-Site` browsers report after the loopback `/launch` redirect, so the fix does not refuse genuine sign-ins |
+| Another iOS app registers the `wafflebase` scheme and receives the callback of a sign-in the real app started (§11) | The code is useless without the PKCE verifier, which never leaves the shell; a forged callback fails the nonce check. Residual: the hijacker can swallow the callback, so that sign-in fails. `ASWebAuthenticationSession` is the follow-up that closes it |
+| An app that holds the `wafflebase` scheme starts its own `mode=mobile` login with its own nonce and verifier, gets the victim to tap Continue, and redeems the code at `/auth/desktop/session` from native code with a forged `Origin` (client impersonation, RFC 8252 §8.6; §11) | The `Origin` check does not constrain a native client, so the confirmation page is the gate: it names the app and asks the user to continue only if they just tapped Sign in in it. A mobile start arriving `Sec-Fetch-Site: cross-site` is not shown the page and gets the guard's 400. Residual: a start opened from another app's link reports `none` and still reaches the page. `ASWebAuthenticationSession` does not close this, since the attacker is the initiator |
+| The iOS app is rejected at App Store review (4.2 minimum functionality, 4.8 Sign in with Apple, 5.1.1(v) account deletion, privacy manifest) | Not submitted until each is answered (§11). The spike costs little if the answer is no: the iOS code is the desktop crate with features gated off |
+| A `mode=cli` or `mode=desktop` start that another site navigated the browser into is answered with the confirmation page, not refused. `CliLoginConfirmMiddleware` runs before the guard's `Sec-Fetch-Site` check, which therefore only ever sees the same-origin Continue click. This is inherited from the CLI flow | The confirmation click remains the gate, and the code goes to a loopback port on the victim's own machine. Enforcing the check in the middleware for these modes is a follow-up: first confirm what `Sec-Fetch-Site` browsers report after the loopback `/launch` redirect, so the fix does not refuse genuine sign-ins. `mode=mobile` is already checked there (row above), since the app opens the start directly in Safari, which reports `none` |
 
 ## Alternatives Considered
 
@@ -647,6 +808,6 @@ this order:
 | Installable PWA | No control over sign-in, downloads, menus or updates, and it depends on the user's browser (Safari and Firefox install support differs). Adding a web manifest is cheap and worth doing on its own, but it is not this app |
 | Bundle the frontend into the app | Every server upgrade would need an app release, and a team on an older server would get a frontend newer than its API |
 | A shell-level copy of the last frontend, served offline through a custom protocol | Considered for §10 in case Service Workers did not work in WKWebView; they do. It would need the shell to fetch and store a remote bundle, and serving it from a bundled origin puts the deployment's code where `capabilities/local.json` grants IPC, the one property §1 rules out |
-| Custom URL scheme (`wafflebase://`) for the OAuth callback | Any other app can register the same scheme. Loopback + PKCE is the RFC 8252 recommendation, and the CLI already has it |
+| Custom URL scheme (`wafflebase://`) for the OAuth callback on desktop | Any other app can register the same scheme. Loopback + PKCE is the RFC 8252 recommendation, and the CLI already has it. iOS, where a loopback listener does not survive the switch to Safari, does use the scheme, with PKCE answering the hijack (§11) |
 | `cli/exchange` tokens injected as cookies from native code | Per-platform cookie APIs, and the shell would hold long-lived JWTs (§3) |
 | OAuth inside the webview | Google refuses embedded user agents; GitHub sign-in without an address bar looks like phishing |

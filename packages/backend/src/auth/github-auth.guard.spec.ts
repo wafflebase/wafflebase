@@ -8,6 +8,7 @@ import {
   parseCliChallenge,
   parseCliNonce,
   parseFetchSite,
+  refusedFetchSite,
 } from './github-auth.guard';
 import { CliAuthStore } from './cli-auth.store';
 
@@ -34,10 +35,12 @@ describe('parseCliNonce', () => {
 });
 
 describe('parseCliAuthMode', () => {
-  it('accepts exactly the two loopback modes', () => {
+  it('accepts exactly the three native modes', () => {
     expect(parseCliAuthMode('cli')).toBe('cli');
     expect(parseCliAuthMode('desktop')).toBe('desktop');
+    expect(parseCliAuthMode('mobile')).toBe('mobile');
     expect(parseCliAuthMode('Desktop')).toBeUndefined();
+    expect(parseCliAuthMode('ios')).toBeUndefined();
     expect(parseCliAuthMode(undefined)).toBeUndefined();
     expect(parseCliAuthMode(['desktop'])).toBeUndefined();
   });
@@ -254,10 +257,97 @@ describe('GitHubAuthGuard.canActivate', () => {
     });
 
     it('treats an unknown mode as a browser login', () => {
-      const { req } = activate({ mode: 'mobile', port: '51234' });
+      const { req } = activate({ mode: 'tablet', port: '51234' });
 
       expect(createState).not.toHaveBeenCalled();
       expect(req.__oauthState).toMatch(/^web\./);
+    });
+  });
+
+  /**
+   * `?mode=mobile` is the desktop branch for the iOS app, with no loopback
+   * port: its code comes back on the app's URL scheme. That scheme is one
+   * any app may claim, so the nonce and challenge are required at the start
+   * rather than left for the callback to notice.
+   */
+  describe('mode=mobile', () => {
+    const nonce = 'e'.repeat(64);
+    const challenge = 'c'.repeat(43);
+
+    it('binds the mode, nonce and challenge into a state with no port', () => {
+      const { req, res, result } = activate({
+        mode: 'mobile',
+        nonce,
+        challenge,
+      });
+
+      expect(result).toBe(true);
+      expect(createState).toHaveBeenCalledWith(
+        'mobile',
+        undefined,
+        nonce,
+        challenge,
+      );
+      expect(req.__oauthState).toBe('state-token');
+      expect(res.cookie).toHaveBeenCalledWith(
+        'wafflebase_cli_state',
+        'csrf',
+        expect.objectContaining({ httpOnly: true }),
+      );
+    });
+
+    it('ignores a port on a mobile start', () => {
+      activate({ mode: 'mobile', port: '51234', nonce, challenge });
+      expect(createState).toHaveBeenCalledWith(
+        'mobile',
+        undefined,
+        nonce,
+        challenge,
+      );
+    });
+
+    it('refuses a mobile start without a challenge', () => {
+      expect(() => activate({ mode: 'mobile', nonce })).toThrow(
+        /Mobile sign-in requires a nonce and a proof-of-possession/,
+      );
+      expect(() =>
+        activate({ mode: 'mobile', nonce, challenge: 'short' }),
+      ).toThrow(/Mobile sign-in requires/);
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('refuses a mobile start without a nonce', () => {
+      expect(() => activate({ mode: 'mobile', challenge })).toThrow(
+        /Mobile sign-in requires/,
+      );
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('mints no mobile state for an unconfirmed request', () => {
+      const { req } = activate({ mode: 'mobile', nonce, challenge }, {});
+
+      expect(createState).not.toHaveBeenCalled();
+      expect(req.__oauthState).toMatch(/^web\./);
+    });
+
+    it('refuses a mobile login navigated in from another site', () => {
+      expect(() =>
+        activate(
+          { mode: 'mobile', nonce, challenge },
+          { __cliConfirmed: true, headers: { 'sec-fetch-site': 'cross-site' } },
+        ),
+      ).toThrow(/Start the login from the Wafflebase app/);
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('refuses a mobile login where the CLI login is refused', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      expect(() => activate({ mode: 'mobile', nonce, challenge })).toThrow(
+        /Mobile sign-in requires an https server/,
+      );
+      expect(createState).not.toHaveBeenCalled();
     });
   });
 
@@ -673,5 +763,19 @@ describe('parseFetchSite', () => {
     expect(parseFetchSite('  ')).toBeUndefined();
     expect(parseFetchSite([])).toBeUndefined();
     expect(parseFetchSite(42)).toBeUndefined();
+  });
+});
+
+describe('refusedFetchSite', () => {
+  it('returns the verdict a native start is refused for', () => {
+    expect(refusedFetchSite('cross-site')).toBe('cross-site');
+    expect(refusedFetchSite(['Cross-Site', 'none'])).toBe('cross-site');
+    expect(refusedFetchSite('something-new')).toBe('something-new');
+  });
+
+  it('lets an allowed or missing verdict through', () => {
+    for (const site of ['none', 'same-origin', 'same-site', undefined, '']) {
+      expect(refusedFetchSite(site)).toBeUndefined();
+    }
   });
 });

@@ -169,6 +169,52 @@ describe('CliAuthStore', () => {
       expect(store.consumeState(stateToken, csrf)?.mode).toBe('desktop');
     });
 
+    /**
+     * The iOS app hands off through the desktop app's session endpoint, so
+     * that endpoint redeems both modes in one call — and a mobile code is
+     * still no bearer credential at `cli/exchange`.
+     */
+    it('redeems a mobile code where its endpoint accepts the mobile mode', () => {
+      const code = store.createCode(42, CHALLENGE, 'mobile');
+      expect(store.consumeCode(code, VERIFIER, ['desktop', 'mobile'])).toBe(42);
+    });
+
+    it('still redeems a desktop code at the shared session endpoint', () => {
+      const code = store.createCode(42, CHALLENGE, 'desktop');
+      expect(store.consumeCode(code, VERIFIER, ['desktop', 'mobile'])).toBe(42);
+    });
+
+    it('refuses a mobile code redeemed as a CLI code, and burns it', () => {
+      const code = store.createCode(42, CHALLENGE, 'mobile');
+      expect(store.consumeCode(code, VERIFIER, 'cli')).toBeUndefined();
+      expect(
+        store.consumeCode(code, VERIFIER, ['desktop', 'mobile']),
+      ).toBeUndefined();
+    });
+
+    it('refuses a CLI code at the shared session endpoint', () => {
+      const code = store.createCode(42, CHALLENGE, 'cli');
+      expect(
+        store.consumeCode(code, VERIFIER, ['desktop', 'mobile']),
+      ).toBeUndefined();
+    });
+
+    it('round-trips a mobile login state, which has no port', () => {
+      const nonce = 'e'.repeat(64);
+      const { stateToken, csrf } = store.createState(
+        'mobile',
+        undefined,
+        nonce,
+        CHALLENGE,
+      );
+      expect(store.consumeState(stateToken, csrf)).toEqual({
+        mode: 'mobile',
+        port: undefined,
+        nonce,
+        challenge: CHALLENGE,
+      });
+    });
+
     it('returns undefined for expired code entry', () => {
       const code = store.createCode(42, CHALLENGE, 'cli');
       // Simulate time past the 60-second TTL

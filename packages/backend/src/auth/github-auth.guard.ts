@@ -149,15 +149,32 @@ export function parseFetchSite(raw: unknown): string | undefined {
 }
 
 /**
- * The loopback flow a `GET /auth/github` start asks for — `?mode=cli`
- * (`wafflebase login`) or `?mode=desktop` (the desktop app) — or
- * `undefined` for an ordinary browser login. Both loopback modes take the
- * same `port`, `nonce` and `challenge` and pass the same gates; the mode is
- * recorded so the code they end in only redeems through its own endpoint
- * (see `CliAuthMode`).
+ * The `Sec-Fetch-Site` verdict a native start is refused for, or
+ * `undefined` when the request may proceed: a value outside
+ * `ALLOWED_FETCH_SITES` (in practice `cross-site`) is returned, and a missing
+ * header passes for the reason `GitHubAuthGuard.assertCliStartNotCrossSite`
+ * gives. Shared with `CliLoginConfirmMiddleware`, which applies it to a
+ * mobile start before showing the consent page, so the two cannot drift.
+ */
+export function refusedFetchSite(raw: unknown): string | undefined {
+  const value = parseFetchSite(raw);
+  if (value === undefined || ALLOWED_FETCH_SITES.has(value)) return undefined;
+  return value;
+}
+
+/**
+ * The native flow a `GET /auth/github` start asks for — `?mode=cli`
+ * (`wafflebase login`), `?mode=desktop` (the desktop app) or `?mode=mobile`
+ * (the iOS app) — or `undefined` for an ordinary browser login. The two
+ * loopback modes take the same `port`, `nonce` and `challenge`; `mobile`
+ * takes the `nonce` and `challenge` without a port. All three pass the same
+ * gates, and the mode is recorded so the code they end in only redeems
+ * through its own endpoint (see `CliAuthMode`).
  */
 export function parseCliAuthMode(raw: unknown): CliAuthMode | undefined {
-  return raw === 'cli' || raw === 'desktop' ? raw : undefined;
+  return raw === 'cli' || raw === 'desktop' || raw === 'mobile'
+    ? raw
+    : undefined;
 }
 
 /** The loopback port, or `undefined` when it is not a usable one. */
@@ -190,11 +207,19 @@ export function parseCliPort(raw: unknown): number | undefined {
  *   verbatim, for the desktop app's system-browser sign-in
  *   (`docs/design/desktop-app.md` §3). The mode rides the state into the
  *   code, which then redeems only at `POST /auth/desktop/session`.
+ * - **Mobile** (`?mode=mobile&nonce=<hex>&challenge=<s256>`, no port) —
+ *   the desktop branch for the iOS app, whose code comes back on its URL
+ *   scheme (`MOBILE_CALLBACK_URL`) rather than to a loopback port. A
+ *   scheme redirect is one any app on the device may have claimed, so the
+ *   nonce and challenge that make an intercepted code useless are not
+ *   optional here: a start missing either is refused with a 400
+ *   (`assertMobileStartComplete`) instead of minting a state the callback
+ *   would only refuse later, in a browser tab the app is not watching.
  * - **Browser** — a double-submit cookie pair (see `oauth-state.ts`).
  *   Without it, `/auth/github/callback` would set session cookies for any
  *   code presented to it, which is login CSRF / session fixation.
  *
- * Ahead of the loopback branches only, a `?mode=cli` (or `desktop`) start
+ * Ahead of the native branches only, a `?mode=cli` (or `desktop`, `mobile`) start
  * another *site*
  * navigated the browser into is refused outright
  * (`assertCliStartNotCrossSite`). Neither state mechanism covers that on
@@ -229,14 +254,24 @@ export class GitHubAuthGuard extends AuthGuard('github') {
       this.assertCliStartNotCrossSite(req, mode);
       this.assertCliLoginAvailable(mode);
     }
-    const port = parseCliPort(req.query?.port);
+    const nonce = parseCliNonce(req.query?.nonce);
+    const challenge = parseCliChallenge(req.query?.challenge);
+    if (mode === 'mobile') {
+      this.assertMobileStartComplete(nonce, challenge);
+    }
+    // `mobile` has no loopback port; a `port` on its start is ignored.
+    const port = mode === 'mobile' ? undefined : parseCliPort(req.query?.port);
 
-    if (mode && port !== undefined && req.__cliConfirmed) {
+    if (
+      mode &&
+      (mode === 'mobile' || port !== undefined) &&
+      req.__cliConfirmed
+    ) {
       const { stateToken, csrf } = this.cliAuthStore.createState(
         mode,
         port,
-        parseCliNonce(req.query?.nonce),
-        parseCliChallenge(req.query?.challenge),
+        nonce,
+        challenge,
       );
       // The state token alone is transferable — it goes through GitHub in
       // a URL. This cookie is what ties it to *this* browser, and the
@@ -260,7 +295,8 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    * rather than a silent downgrade to a browser login, because the person
    * running `wafflebase login` is waiting on a loopback callback that would
    * otherwise never arrive and would time out five minutes later with
-   * nothing to act on. The desktop app waits on the same kind of callback.
+   * nothing to act on. The desktop and iOS apps wait on the same kind of
+   * callback.
    */
   private assertCliLoginAvailable(mode: CliAuthMode) {
     if (cliLoginAvailable()) return;
@@ -269,11 +305,12 @@ export class GitHubAuthGuard extends AuthGuard('github') {
         'GITHUB_CALLBACK_URL, no COOKIE_SECURE=true, not loopback), so the ' +
         'consent cookie cannot be trusted.',
     );
-    if (mode === 'desktop') {
+    if (mode === 'desktop' || mode === 'mobile') {
       throw new BadRequestException(
-        'Desktop sign-in requires an https server. Serve Wafflebase over ' +
-          'https and set GITHUB_CALLBACK_URL to that URL (or set ' +
-          'COOKIE_SECURE=true if TLS terminates at a proxy in front of it).',
+        `${mode === 'desktop' ? 'Desktop' : 'Mobile'} sign-in requires an ` +
+          'https server. Serve Wafflebase over https and set ' +
+          'GITHUB_CALLBACK_URL to that URL (or set COOKIE_SECURE=true if ' +
+          'TLS terminates at a proxy in front of it).',
       );
     }
     throw new BadRequestException(
@@ -281,6 +318,25 @@ export class GitHubAuthGuard extends AuthGuard('github') {
         'over https and set GITHUB_CALLBACK_URL to that URL (or set ' +
         'COOKIE_SECURE=true if TLS terminates at a proxy in front of it). ' +
         'The browser sign-in still works, and `--api-key` needs no login.',
+    );
+  }
+
+  /**
+   * Refuse a `?mode=mobile` start that does not carry both a well-formed
+   * nonce and a PKCE challenge.
+   *
+   * The loopback modes tolerate a missing one at the start because an older
+   * CLI is told what to do at the callback, where it is still listening. The
+   * iOS app is newer than this server's support for it, so it always sends
+   * both, and the scheme delivery is what makes them load-bearing: without
+   * the challenge an intercepting app could redeem the code, and without
+   * the nonce the app could not tell our redirect from a forged one.
+   */
+  private assertMobileStartComplete(nonce?: string, challenge?: string) {
+    if (nonce && challenge) return;
+    throw new BadRequestException(
+      'Mobile sign-in requires a nonce and a proof-of-possession ' +
+        'challenge. Update the Wafflebase app and sign in again.',
     );
   }
 
@@ -341,18 +397,21 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    *
    * A desktop start has the CLI's shape exactly — the app hands a loopback
    * `/launch/<token>` URL to the OS opener — so it is held to the same rule.
+   * So is a mobile start: the iOS app hands the start URL to the system
+   * browser through the OS opener, which reports `none`.
    */
   private assertCliStartNotCrossSite(req: Request, mode: CliAuthMode) {
-    const value = parseFetchSite(req.headers?.['sec-fetch-site']);
+    const value = refusedFetchSite(req.headers?.['sec-fetch-site']);
     if (value === undefined) return;
-    if (ALLOWED_FETCH_SITES.has(value)) return;
     this.logger.warn(
       `Refused a cross-site-initiated ${mode} login (Sec-Fetch-Site: ${value}).`,
     );
     throw new BadRequestException(
       mode === 'desktop'
         ? 'Start the login from the Wafflebase desktop app.'
-        : 'Start the login from Wafflebase itself (or run `wafflebase login`).',
+        : mode === 'mobile'
+          ? 'Start the login from the Wafflebase app.'
+          : 'Start the login from Wafflebase itself (or run `wafflebase login`).',
     );
   }
 }

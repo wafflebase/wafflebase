@@ -33,7 +33,7 @@ import {
   oauthRefusal,
   type OAuthProfile,
 } from './auth.types';
-import { CliAuthStore } from './cli-auth.store';
+import { CliAuthStore, MOBILE_CALLBACK_URL } from './cli-auth.store';
 import { cliLoginAvailable, GitHubAuthGuard } from './github-auth.guard';
 import { GoogleAuthGuard, GoogleCallbackGuard } from './google-auth.guard';
 import { googleAuthConfigured } from './oauth-providers';
@@ -59,8 +59,11 @@ const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * The webview origin Tauri serves the desktop app's bundled pages from on
- * macOS and Linux. `https://tauri.localhost` (Tauri's `useHttpsScheme`) is
- * not accepted in either direction, because the app does not use it.
+ * macOS and Linux — and the iOS app's too: Tauri 2 serves a custom protocol
+ * from `<scheme>://localhost` everywhere but Windows and Android
+ * (`tauri::protocol::origin`), so the iOS handoff page posts from this same
+ * origin and needs no entry of its own. `https://tauri.localhost` (Tauri's `useHttpsScheme`) is not accepted
+ * in either direction, because neither app uses it.
  */
 const DESKTOP_CUSTOM_ORIGIN = 'tauri://localhost';
 
@@ -112,7 +115,8 @@ function desktopOrigins(): ReadonlySet<string> {
 }
 
 /**
- * Whether a request's `Origin` is the desktop app's bundled handoff page.
+ * Whether a request's `Origin` is the desktop (or iOS) app's bundled
+ * handoff page.
  *
  * `POST /auth/desktop/session` signs in *the browser that sent it*, so
  * without this check any web page could auto-submit a form carrying the
@@ -287,12 +291,21 @@ export class AuthController {
       });
       // A desktop-app login (`?mode=desktop`) is this same branch: same
       // state, cookie and loopback redirect. Its mode is minted into the
-      // code, which then redeems only at `POST /auth/desktop/session`.
+      // code, which then redeems only at `POST /auth/desktop/session`. An
+      // iOS-app login (`?mode=mobile`) is too, except that its code goes to
+      // the app's URL scheme rather than a loopback port, and it redeems at
+      // the same session endpoint as the desktop app's.
       const state = this.cliAuthStore.consumeState(stateToken, cliCookieSecret);
-      if (state && (state.mode === 'cli' || state.mode === 'desktop')) {
-        const port = state.port;
-        if (port < 1024 || port > 65535) {
-          throw new BadRequestException('Invalid CLI port');
+      if (state) {
+        let callbackUrl: string;
+        if (state.mode === 'mobile') {
+          callbackUrl = MOBILE_CALLBACK_URL;
+        } else {
+          const port = state.port;
+          if (port === undefined || port < 1024 || port > 65535) {
+            throw new BadRequestException('Invalid CLI port');
+          }
+          callbackUrl = `http://127.0.0.1:${port}/callback`;
         }
         // No challenge, no code. The code is delivered as plaintext in a
         // loopback URL, so on its own it is a bearer credential worth a
@@ -306,8 +319,11 @@ export class AuthController {
               ? 'Desktop sign-in is missing its proof-of-possession ' +
                 'challenge. Update the Wafflebase desktop app and sign ' +
                 'in again.'
-              : 'CLI login is missing its proof-of-possession challenge. ' +
-                'Update the wafflebase CLI and run `wafflebase login` again.',
+              : state.mode === 'mobile'
+                ? 'Mobile sign-in is missing its proof-of-possession ' +
+                  'challenge. Update the Wafflebase app and sign in again.'
+                : 'CLI login is missing its proof-of-possession challenge. ' +
+                  'Update the wafflebase CLI and run `wafflebase login` again.',
           );
         }
         // Echo the CLI's per-attempt nonce back as `state`: the CLI's
@@ -319,14 +335,14 @@ export class AuthController {
           ? `&state=${encodeURIComponent(state.nonce)}`
           : '';
 
-        // A refused profile is reported to the loopback listener rather than
-        // thrown. `wafflebase login` is blocked on that callback, and a
-        // backend 401 it never sees would leave it waiting out the whole
-        // five-minute timeout with nothing to act on.
+        // A refused profile is reported to the loopback listener (or the
+        // app's scheme) rather than thrown. `wafflebase login` is blocked on
+        // that callback, and a backend 401 it never sees would leave it
+        // waiting out the whole five-minute timeout with nothing to act on.
         const result = await this.resolveOAuthUser('github', githubUser);
         if ('error' in result) {
           return res.redirect(
-            `http://127.0.0.1:${port}/callback?error=${encodeURIComponent(result.error)}${stateParam}`,
+            `${callbackUrl}?error=${encodeURIComponent(result.error)}${stateParam}`,
           );
         }
 
@@ -336,7 +352,7 @@ export class AuthController {
           state.mode,
         );
         return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateParam}`,
+          `${callbackUrl}?code=${encodeURIComponent(code)}${stateParam}`,
         );
       }
 
@@ -348,7 +364,7 @@ export class AuthController {
       throw new BadRequestException(
         'CLI login state expired, invalid, or completed in a different ' +
           'browser. Please run `wafflebase login` again (or sign in again ' +
-          'from the Wafflebase desktop app).',
+          'from the Wafflebase desktop or mobile app).',
       );
     }
   }
@@ -435,6 +451,10 @@ export class AuthController {
    * browser, instead of after the user has signed in and the handoff 403s.
    * It stays a separate field rather than folding into `github`, because
    * macOS and Linux hand off from `tauri://localhost` and are unaffected.
+   *
+   * `mobile` is the same answer for the iOS app (`?mode=mobile`): GitHub
+   * behind the same gate, and nothing for Google, which has no native mode.
+   * iOS hands off from `tauri://localhost`, so it needs no origin field.
    */
   @Get('providers')
   authProviders() {
@@ -445,6 +465,9 @@ export class AuthController {
         github: cliLoginAvailable(),
         google: false,
         windowsOrigin: windowsDesktopOriginAllowed(),
+      },
+      mobile: {
+        github: cliLoginAvailable(),
       },
     };
   }
@@ -536,7 +559,8 @@ export class AuthController {
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: CliExchangeDto) {
-    // A code minted for the desktop app is refused here as an unknown one.
+    // A code minted for the desktop or iOS app is refused here as an unknown
+    // one: those redeem only as session cookies, at `desktop/session`.
     const userId = this.cliAuthStore.consumeCode(
       body.code,
       body.verifier,
@@ -579,6 +603,10 @@ export class AuthController {
    * page with `?error=desktop_session`: the webview is the reader, and a
    * JSON error would strand it on the backend origin. A CLI code is refused
    * as an unknown one.
+   *
+   * The iOS app ends its sign-in here too: its handoff page is the same
+   * bundled page on the same `tauri://localhost` origin, so a `mobile` code
+   * redeems exactly as a `desktop` one does.
    */
   @Post('desktop/session')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -596,7 +624,7 @@ export class AuthController {
     const userId = this.cliAuthStore.consumeCode(
       code as string,
       verifier as string,
-      'desktop',
+      ['desktop', 'mobile'],
     );
     if (userId === undefined) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));

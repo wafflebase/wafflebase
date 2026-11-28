@@ -122,6 +122,12 @@ pub enum Refusal {
 impl Refusal {
     pub fn message(self) -> &'static str {
         match self {
+            // The iOS scheme callback (`mobile_signin`) reports this refusal
+            // too, so the wording names the flow that build runs.
+            Self::NoState if cfg!(mobile) => {
+                "the redirect carried no `state`. The server is likely older than \
+                 this app and cannot do mobile sign-in."
+            }
             Self::NoState => {
                 "the redirect carried no `state`. The server is likely older than \
                  this app and cannot do desktop sign-in."

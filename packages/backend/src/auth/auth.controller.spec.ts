@@ -14,6 +14,7 @@ import {
   cliStateCookieName,
   createWebOAuthState,
   refreshCookieName,
+  sessionCookieName,
 } from './oauth-state';
 
 /** The PKCE pair a current CLI registers for a login attempt. */
@@ -910,6 +911,7 @@ describe('AuthController', () => {
         github: true,
         google: false,
         desktop: { github: true, google: false, windowsOrigin: true },
+        mobile: { github: true },
       });
 
       process.env.GOOGLE_CLIENT_ID = 'id';
@@ -924,6 +926,7 @@ describe('AuthController', () => {
         google: true,
         // Google has no loopback mode yet, configured or not.
         desktop: { github: true, google: false, windowsOrigin: true },
+        mobile: { github: true },
       });
     });
 
@@ -949,6 +952,22 @@ describe('AuthController', () => {
         'http://wafflebase.internal:3000/auth/github/callback';
       process.env.COOKIE_SECURE = 'true';
       expect(controller.authProviders().desktop.github).toBe(true);
+    });
+
+    /**
+     * The iOS app reads `mobile.github` the same way, and `?mode=mobile`
+     * sits behind the same gate, so the two answers move together.
+     */
+    it('reports mobile GitHub sign-in only where the CLI gate allows it', () => {
+      expect(controller.authProviders().mobile).toEqual({ github: true });
+
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+      expect(controller.authProviders().mobile).toEqual({ github: false });
+
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+      expect(controller.authProviders().mobile).toEqual({ github: true });
     });
 
     /**
@@ -1191,6 +1210,16 @@ describe('AuthController', () => {
       expect(authService.createTokens).not.toHaveBeenCalled();
     });
 
+    it('refuses a code minted for the iOS app as an invalid code', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'mobile');
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+
+      await expect(
+        controller.cliExchange({ code, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow('Invalid or expired code');
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
     it('refuses a code minted for the desktop app as an invalid code', async () => {
       const code = cliAuthStore.createCode(42, CLI_CHALLENGE, 'desktop');
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
@@ -1306,6 +1335,138 @@ describe('AuthController', () => {
         303,
         'http://localhost:5173',
       );
+    });
+  });
+
+  /**
+   * `?mode=mobile` is the desktop flow for the iOS app with one difference:
+   * no loopback port, so the code goes to the app's URL scheme instead. The
+   * query it carries must be the loopback callback's exactly, because the
+   * app parses it with the same rules (`code` or `error`, then `state`).
+   */
+  describe('githubAuthCallback — mobile flow', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+    const nonce = 'e'.repeat(64);
+
+    beforeEach(() => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+    });
+
+    async function callback(
+      user: Record<string, unknown>,
+      // `null` for none: an explicit `undefined` would take the default.
+      challenge: string | null = CLI_CHALLENGE,
+    ) {
+      const { stateToken, csrf } = cliAuthStore.createState(
+        'mobile',
+        undefined,
+        nonce,
+        challenge ?? undefined,
+      );
+      const res = createMockResponse();
+      await controller.githubAuthCallback(
+        {
+          user,
+          cookies: { [cliStateCookieName()]: csrf },
+          query: { state: stateToken },
+        } as any,
+        res,
+        stateToken,
+      );
+      return res;
+    }
+
+    it('redirects to the app scheme with the code and its nonce', async () => {
+      const res = await callback({
+        username: 'bob',
+        email: 'bob@example.com',
+        photo: null,
+      });
+
+      const [url] = (res.redirect as jest.Mock).mock.calls[0] as [string];
+      const match = new RegExp(
+        `^wafflebase://auth/callback\\?code=([^&]+)&state=${nonce}$`,
+      ).exec(url);
+      expect(match).not.toBeNull();
+      // No session for the system browser: the webview gets it, later.
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('reports a refused profile to the app scheme with its nonce', async () => {
+      const res = await callback({
+        authProvider: 'github',
+        error: 'unverified_email',
+      });
+
+      const [url] = (res.redirect as jest.Mock).mock.calls[0] as [string];
+      expect(url).toBe(
+        `wafflebase://auth/callback?error=unverified_email&state=${nonce}`,
+      );
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('refuses a mobile login that carries no challenge', async () => {
+      await expect(
+        callback(
+          { username: 'bob', email: 'bob@example.com', photo: null },
+          null,
+        ),
+      ).rejects.toThrow(/Mobile sign-in is missing its proof-of-possession/);
+    });
+
+    it('mints a code that redeems at desktop/session and not at cli/exchange', async () => {
+      const first = await callback({
+        username: 'bob',
+        email: 'bob@example.com',
+        photo: null,
+      });
+      const [firstUrl] = (first.redirect as jest.Mock).mock.calls[0] as [
+        string,
+      ];
+      const sessionCode = new URL(firstUrl).searchParams.get('code')!;
+
+      const sessionRes = createMockResponse();
+      await controller.desktopSession(
+        {
+          headers: { origin: 'tauri://localhost' },
+          body: { code: sessionCode, verifier: CLI_VERIFIER },
+        } as unknown as Request,
+        sessionRes,
+      );
+      expect(sessionRes.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173',
+      );
+      expect(sessionRes.cookie).toHaveBeenCalledWith(
+        sessionCookieName(),
+        'at',
+        expect.anything(),
+      );
+
+      const second = await callback({
+        username: 'bob',
+        email: 'bob@example.com',
+        photo: null,
+      });
+      const [secondUrl] = (second.redirect as jest.Mock).mock.calls[0] as [
+        string,
+      ];
+      const cliCode = new URL(secondUrl).searchParams.get('code')!;
+      await expect(
+        controller.cliExchange({ code: cliCode, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow('Invalid or expired code');
     });
   });
 

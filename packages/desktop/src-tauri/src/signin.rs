@@ -9,8 +9,18 @@
 //!    handoff page, which takes `{ backend, code, verifier }` once through
 //!    `take_handoff` and POSTs it to `<backend>/auth/desktop/session`.
 //!
+//! The iOS app (`cfg(mobile)`, §11) runs the same three steps with the
+//! listener taken out: step 1 reads `mobile.github` instead, step 2 opens
+//! `<backend>/auth/github?mode=mobile&nonce&challenge` directly and waits for
+//! the one `wafflebase://auth/callback` deep link whose `state` is the
+//! nonce (`mobile_signin.rs`), and step 3 is unchanged, so the handoff page
+//! and `POST /auth/desktop/session` are the desktop's. The branch is
+//! `cfg!(mobile)`, not `#[cfg]`, so both waits are compiled, and tested, on
+//! every target.
+//!
 //! Only one sign-in runs at a time: starting another cancels the previous
-//! listener, and a result from a superseded attempt is dropped.
+//! listener (or pending deep link), and a result from a superseded attempt
+//! is dropped.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -21,6 +31,7 @@ use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 use crate::login::{self, Canceller, Event, Listener, Outcome};
+use crate::mobile_signin::{self, Pending};
 use crate::{bundled_url, dlog, AppState};
 
 /// What the bundled sign-in page shows.
@@ -46,14 +57,41 @@ pub struct Handoff {
     pub return_to: Option<String>,
 }
 
+/// What a running attempt waits on for its callback.
+enum Waiter {
+    /// The desktop's loopback listener.
+    Loopback(Canceller),
+    /// The iOS app's pending `wafflebase://` callback.
+    Scheme(Pending),
+}
+
+impl Waiter {
+    /// Stop the wait: the waiting task sees `Outcome::Cancelled`.
+    fn release(self) {
+        match self {
+            Self::Loopback(canceller) => canceller.cancel(),
+            // Dropping the sender closes the task's channel.
+            Self::Scheme(pending) => drop(pending),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Inner {
     generation: u64,
     status: Option<Status>,
     window: Option<String>,
-    canceller: Option<Canceller>,
+    waiter: Option<Waiter>,
     handoff: Option<Handoff>,
     session_post: Option<Url>,
+}
+
+impl Inner {
+    fn release_waiter(&mut self) {
+        if let Some(waiter) = self.waiter.take() {
+            waiter.release();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -85,9 +123,7 @@ impl SignIn {
     fn begin(&self, label: &str) -> u64 {
         let mut inner = self.lock();
         inner.generation += 1;
-        if let Some(c) = inner.canceller.take() {
-            c.cancel();
-        }
+        inner.release_waiter();
         inner.status = Some(Status::Checking);
         inner.window = Some(label.to_string());
         inner.handoff = None;
@@ -95,16 +131,53 @@ impl SignIn {
         inner.generation
     }
 
-    /// Hand the listener's canceller to the state, if this attempt is still
-    /// the current one. `false` means it was superseded: drop the listener.
-    fn arm(&self, generation: u64, canceller: Canceller) -> bool {
+    /// Hand the attempt's waiter to the state, if this attempt is still the
+    /// current one. `false` means it was superseded: drop the waiter (and,
+    /// for a listener, release it).
+    fn arm(&self, generation: u64, waiter: Waiter) -> bool {
         let mut inner = self.lock();
         if inner.generation != generation {
             return false;
         }
-        inner.canceller = Some(canceller);
+        inner.waiter = Some(waiter);
         inner.status = Some(Status::Waiting);
         true
+    }
+
+    /// A `wafflebase://` deep link reached the app (iOS). It settles the
+    /// sign-in only while one is waiting for it, and only with that attempt's
+    /// nonce as `state`; the first that does spends the nonce, so a second
+    /// delivery finds nothing pending. `None` when nothing was waiting (a
+    /// link with no sign-in running, or after iOS terminated the app and the
+    /// nonce with it): the link is dropped.
+    #[cfg_attr(not(mobile), allow(dead_code))]
+    pub fn deliver(&self, url: &Url) -> Option<mobile_signin::Delivery> {
+        let mut inner = self.lock();
+        let Some(Waiter::Scheme(pending)) = inner.waiter.as_mut() else {
+            return None;
+        };
+        match pending.check(url) {
+            Ok(outcome) => {
+                let Some(Waiter::Scheme(pending)) = inner.waiter.take() else {
+                    unreachable!("matched above");
+                };
+                pending.settle(outcome);
+                Some(mobile_signin::Delivery::Accepted)
+            }
+            Err(rejection) => Some(mobile_signin::Delivery::Rejected(rejection)),
+        }
+    }
+
+    /// The last `state` refusal a pending deep link saw, for attempt
+    /// `generation`'s timeout message.
+    fn scheme_last_refusal(&self, generation: u64) -> Option<login::Refusal> {
+        let inner = self.lock();
+        match &inner.waiter {
+            Some(Waiter::Scheme(pending)) if inner.generation == generation => {
+                pending.last_refusal()
+            }
+            _ => None,
+        }
     }
 
     /// Fail the current attempt: release its listener and forget its
@@ -114,9 +187,7 @@ impl SignIn {
         if inner.generation != generation {
             return false;
         }
-        if let Some(c) = inner.canceller.take() {
-            c.cancel();
-        }
+        inner.release_waiter();
         inner.status = Some(Status::Failed(message));
         inner.handoff = None;
         inner.session_post = None;
@@ -133,7 +204,7 @@ impl SignIn {
             return false;
         }
         inner.window = Some(label.to_string());
-        inner.canceller = None;
+        inner.waiter = None;
         inner.status = Some(Status::Done);
         inner.handoff = Some(handoff);
         inner.session_post = Some(session_post);
@@ -227,9 +298,7 @@ impl SignIn {
         // A new generation, as `cancel` does: a worker still checking the
         // server must not arm a listener or complete over this failure.
         inner.generation += 1;
-        if let Some(c) = inner.canceller.take() {
-            c.cancel();
-        }
+        inner.release_waiter();
         inner.handoff = None;
         inner.session_post = None;
         inner.status = Some(Status::Failed(
@@ -261,15 +330,22 @@ impl SignIn {
 
     fn cancel_locked(inner: &mut Inner) -> Option<String> {
         inner.generation += 1;
-        if let Some(c) = inner.canceller.take() {
-            c.cancel();
-        }
+        inner.release_waiter();
         inner.status = None;
         inner.handoff = None;
         inner.session_post = None;
         inner.window.take()
     }
 }
+
+/// What the user-facing messages below call this flow. iOS runs the same
+/// code with the scheme callback in place of the listener, and its users
+/// have no desktop app to read about.
+const SIGN_IN_NAME: &str = if cfg!(mobile) {
+    "mobile sign-in"
+} else {
+    "desktop sign-in"
+};
 
 fn status_message_for_timeout(last: Option<login::Refusal>) -> String {
     let base = "Sign-in timed out. Try again.".to_string();
@@ -279,8 +355,9 @@ fn status_message_for_timeout(last: Option<login::Refusal>) -> String {
     }
 }
 
-/// The browser opener for the launch URL. Debug builds can swap in an
-/// executable for unattended smoke tests (`WAFFLEBASE_DESKTOP_BROWSER`).
+/// The browser opener for the launch URL (on iOS, the authorization URL
+/// itself). Debug builds can swap in an executable for unattended smoke tests
+/// (`WAFFLEBASE_DESKTOP_BROWSER`).
 fn open_launch_url<R: Runtime>(app: &AppHandle<R>, launch_url: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     if let Some(exe) = std::env::var_os("WAFFLEBASE_DESKTOP_BROWSER") {
@@ -299,6 +376,14 @@ fn open_launch_url<R: Runtime>(app: &AppHandle<R>, launch_url: &str) -> Result<(
 #[derive(serde::Deserialize)]
 struct Providers {
     desktop: Option<DesktopProviders>,
+    mobile: Option<MobileProviders>,
+}
+
+/// `mobile` in `/auth/providers`: whether the iOS app's `mode=mobile` flow
+/// is available. Absent on a server older than the iOS app.
+#[derive(serde::Deserialize)]
+struct MobileProviders {
+    github: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -374,7 +459,11 @@ async fn check_providers(backend: &Url) -> Result<(), String> {
         .json()
         .await
         .map_err(|_| "The server's sign-in options could not be read.".to_string())?;
-    desktop_signin_verdict(providers.desktop.as_ref(), cfg!(windows))
+    if cfg!(mobile) {
+        mobile_signin::verdict(providers.mobile.and_then(|m| m.github))
+    } else {
+        desktop_signin_verdict(providers.desktop.as_ref(), cfg!(windows))
+    }
 }
 
 /// Start desktop sign-in against `backend` in window `label`. Cancels any
@@ -405,7 +494,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
             state.signin.fail(
                 generation,
                 format!(
-                    "{} is not a secure address: desktop sign-in needs https:// \
+                    "{} is not a secure address: {SIGN_IN_NAME} needs https:// \
                      (plain http:// works only for localhost). Ask its \
                      administrator, or sign in from a web browser.",
                     crate::server::origin_string(&backend)
@@ -418,6 +507,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
         dlog!(
             "providers checked: {}",
             match &checked {
+                Ok(()) if cfg!(mobile) => "mobile.github is true".to_string(),
                 Ok(()) => "desktop.github is true".to_string(),
                 Err(e) => e.clone(),
             }
@@ -430,35 +520,13 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
         let nonce = login::create_nonce();
         let verifier = login::create_verifier();
         let challenge = login::pkce_challenge(&verifier);
-        let listener = match Listener::start(&nonce, |port| {
-            login::authorization_url(&backend, port, &nonce, &challenge)
-        }) {
-            Ok(l) => l,
-            Err(e) => {
-                state
-                    .signin
-                    .fail(generation, format!("Could not start sign-in: {e}"));
-                return;
-            }
+        let waited = if cfg!(mobile) {
+            wait_for_scheme(&app, generation, &backend, &nonce, &challenge).await
+        } else {
+            wait_for_loopback(&app, generation, &backend, &nonce, &challenge).await
         };
-        dlog!("listener port {}", listener.port());
-        if !state.signin.arm(generation, listener.canceller()) {
-            return;
-        }
-        if let Err(message) = open_launch_url(&app, listener.launch_url()) {
-            state.signin.fail(generation, message);
-            return;
-        }
-
-        let outcome = tauri::async_runtime::spawn_blocking(move || {
-            listener.wait(login::CALLBACK_TIMEOUT, |event| match event {
-                Event::LaunchRedirected => dlog!("launch link redirected to the server"),
-                Event::LaunchSpent => dlog!("launch link visited again (410)"),
-                Event::Refused(r) => dlog!("callback refused: {}", r.message()),
-            })
-        })
-        .await
-        .unwrap_or(Outcome::Cancelled);
+        // Already failed, or superseded.
+        let Some(outcome) = waited else { return };
 
         match outcome {
             Outcome::Code(code) => {
@@ -487,9 +555,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
                 {
                     return;
                 }
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+                crate::bring_to_front(&window);
                 let _ = window.navigate(bundled_url("handoff.html"));
             }
             Outcome::ServerRefused(code) => {
@@ -510,6 +576,101 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, label: &str, backend: Url, return_t
             Outcome::Cancelled => dlog!("sign-in cancelled"),
         }
     });
+}
+
+/// The desktop's wait: a loopback listener for the nonce, and the system
+/// browser on its launch URL. `None` once the attempt failed here or was
+/// superseded.
+async fn wait_for_loopback<R: Runtime>(
+    app: &AppHandle<R>,
+    generation: u64,
+    backend: &Url,
+    nonce: &str,
+    challenge: &str,
+) -> Option<Outcome> {
+    let state = app.state::<AppState>();
+    let listener = match Listener::start(nonce, |port| {
+        login::authorization_url(backend, port, nonce, challenge)
+    }) {
+        Ok(l) => l,
+        Err(e) => {
+            state
+                .signin
+                .fail(generation, format!("Could not start sign-in: {e}"));
+            return None;
+        }
+    };
+    dlog!("listener port {}", listener.port());
+    if !state
+        .signin
+        .arm(generation, Waiter::Loopback(listener.canceller()))
+    {
+        return None;
+    }
+    if let Err(message) = open_launch_url(app, listener.launch_url()) {
+        state.signin.fail(generation, message);
+        return None;
+    }
+
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        listener.wait(login::CALLBACK_TIMEOUT, |event| match event {
+            Event::LaunchRedirected => dlog!("launch link redirected to the server"),
+            Event::LaunchSpent => dlog!("launch link visited again (410)"),
+            Event::Refused(r) => dlog!("callback refused: {}", r.message()),
+        })
+    })
+    .await
+    .unwrap_or(Outcome::Cancelled);
+    Some(outcome)
+}
+
+/// The iOS app's wait: no listener (iOS suspends the app while Safari is in
+/// front), so the system browser opens the authorization URL itself and the
+/// backend's redirect comes back as a `wafflebase://auth/callback` deep link,
+/// which `SignIn::deliver` checks against the nonce. `None` once the attempt
+/// failed here or was superseded.
+async fn wait_for_scheme<R: Runtime>(
+    app: &AppHandle<R>,
+    generation: u64,
+    backend: &Url,
+    nonce: &str,
+    challenge: &str,
+) -> Option<Outcome> {
+    let state = app.state::<AppState>();
+    let (pending, callback) = Pending::new(nonce);
+    // Armed before the browser opens, so a redirect faster than this task
+    // still finds the nonce pending.
+    if !state.signin.arm(generation, Waiter::Scheme(pending)) {
+        return None;
+    }
+    let authorization = mobile_signin::authorization_url(backend, nonce, challenge);
+    if let Err(message) = open_launch_url(app, authorization.as_str()) {
+        state.signin.fail(generation, message);
+        return None;
+    }
+    dlog!("waiting for the wafflebase:// callback");
+    Some(
+        match tokio::time::timeout(login::CALLBACK_TIMEOUT, callback).await {
+            Ok(Ok(outcome)) => outcome,
+            // The pending callback was dropped: superseded or cancelled.
+            Ok(Err(_)) => Outcome::Cancelled,
+            Err(_) => Outcome::TimedOut(state.signin.scheme_last_refusal(generation)),
+        },
+    )
+}
+
+/// A `wafflebase://` deep link reached the app: offer it to the running
+/// sign-in. Never logs the URL, which carries the code and the nonce.
+#[cfg(mobile)]
+pub fn deliver_link<R: Runtime>(app: &AppHandle<R>, url: &Url) {
+    let state = app.state::<AppState>();
+    match state.signin.deliver(url) {
+        None => dlog!("deep link dropped: no sign-in is waiting for one"),
+        Some(mobile_signin::Delivery::Accepted) => dlog!("deep link accepted as the callback"),
+        Some(mobile_signin::Delivery::Rejected(rejection)) => {
+            dlog!("deep link refused: {rejection:?}")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -591,7 +752,7 @@ mod tests {
         let signin = SignIn::default();
         let generation = signin.begin("main");
         let (canceller, outcome) = listener();
-        assert!(signin.arm(generation, canceller));
+        assert!(signin.arm(generation, Waiter::Loopback(canceller)));
         assert_eq!(signin.status(), Status::Waiting);
         assert!(signin.fail(generation, "timed out".into()));
         assert_eq!(signin.status(), Status::Failed("timed out".into()));
@@ -609,7 +770,7 @@ mod tests {
         assert!(!signin.fail(old, "could not open the browser".into()));
         assert_eq!(signin.status(), Status::Checking);
         let (canceller, outcome) = listener();
-        assert!(!signin.arm(old, canceller.clone()));
+        assert!(!signin.arm(old, Waiter::Loopback(canceller.clone())));
         canceller.cancel();
         assert_eq!(
             outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
@@ -635,7 +796,7 @@ mod tests {
         let signin = SignIn::default();
         let generation = signin.begin("main");
         let (canceller, outcome) = listener();
-        assert!(signin.arm(generation, canceller));
+        assert!(signin.arm(generation, Waiter::Loopback(canceller)));
         signin.begin("main");
         assert_eq!(
             outcome.recv_timeout(Duration::from_secs(5)).unwrap(),
@@ -755,7 +916,7 @@ mod tests {
         );
         let generation = signin.begin("main");
         let (canceller, outcome) = listener();
-        signin.arm(generation, canceller);
+        signin.arm(generation, Waiter::Loopback(canceller));
         assert_eq!(
             signin.page_loaded("window-2", false, false),
             PageCheck::Fine
@@ -785,7 +946,10 @@ mod tests {
             PageCheck::Unexpected
         );
         let (canceller, _outcome) = listener();
-        assert!(!signin.arm(generation, canceller), "armed after failing");
+        assert!(
+            !signin.arm(generation, Waiter::Loopback(canceller)),
+            "armed after failing"
+        );
         assert!(!signin.complete(
             generation,
             "main",
@@ -810,13 +974,139 @@ mod tests {
         assert!(signin.take_handoff("main").is_some());
     }
 
+    // The iOS app's wait: a pending `wafflebase://` callback in place of
+    // the listener, under the same generation rules.
+
+    const NONCE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn scheme(signin: &SignIn, generation: u64) -> tokio::sync::oneshot::Receiver<Outcome> {
+        let (pending, rx) = Pending::new(NONCE);
+        assert!(signin.arm(generation, Waiter::Scheme(pending)));
+        rx
+    }
+
+    fn link(query: &str) -> Url {
+        u(&format!("wafflebase://auth/callback?{query}"))
+    }
+
+    #[test]
+    fn a_deep_link_settles_the_pending_sign_in_once() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let mut rx = scheme(&signin, generation);
+        assert_eq!(signin.status(), Status::Waiting);
+        assert_eq!(
+            signin.deliver(&link(&format!("code=real&state={NONCE}"))),
+            Some(mobile_signin::Delivery::Accepted)
+        );
+        assert_eq!(rx.try_recv().unwrap(), Outcome::Code("real".into()));
+        // The nonce is spent: a replay, or a second app's copy, finds
+        // nothing waiting.
+        assert_eq!(
+            signin.deliver(&link(&format!("code=again&state={NONCE}"))),
+            None
+        );
+    }
+
+    #[test]
+    fn a_forged_deep_link_is_refused_and_the_wait_goes_on() {
+        let signin = SignIn::default();
+        let generation = signin.begin("main");
+        let mut rx = scheme(&signin, generation);
+        for (query, rejection) in [
+            (
+                "code=attacker&state=nope".to_string(),
+                mobile_signin::Rejection::Refused(login::Refusal::BadState),
+            ),
+            (
+                format!("code=a&code=b&state={NONCE}"),
+                mobile_signin::Rejection::Malformed,
+            ),
+        ] {
+            assert_eq!(
+                signin.deliver(&link(&query)),
+                Some(mobile_signin::Delivery::Rejected(rejection))
+            );
+        }
+        assert_eq!(
+            signin.deliver(&u(&format!("wafflebase://auth/other?code=x&state={NONCE}"))),
+            Some(mobile_signin::Delivery::Rejected(
+                mobile_signin::Rejection::NotCallback
+            ))
+        );
+        assert!(rx.try_recv().is_err(), "no refusal settles the wait");
+        assert_eq!(
+            signin.scheme_last_refusal(generation),
+            Some(login::Refusal::BadState)
+        );
+        assert_eq!(signin.scheme_last_refusal(generation + 1), None);
+        assert_eq!(
+            signin.deliver(&link(&format!("error=no_email&state={NONCE}"))),
+            Some(mobile_signin::Delivery::Accepted)
+        );
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            Outcome::ServerRefused("no_email".into())
+        );
+    }
+
+    #[test]
+    fn a_deep_link_with_no_sign_in_waiting_is_dropped() {
+        let signin = SignIn::default();
+        let link = link(&format!("code=c&state={NONCE}"));
+        assert_eq!(signin.deliver(&link), None, "idle");
+        // Checking the server: nothing pending yet.
+        signin.begin("main");
+        assert_eq!(signin.deliver(&link), None, "checking");
+        // A desktop listener is not fed deep links.
+        let generation = signin.begin("main");
+        let (canceller, _outcome) = listener();
+        assert!(signin.arm(generation, Waiter::Loopback(canceller)));
+        assert_eq!(signin.deliver(&link), None, "loopback");
+        signin.cancel();
+    }
+
+    #[test]
+    fn a_new_attempt_or_a_cancel_releases_the_pending_deep_link() {
+        let signin = SignIn::default();
+        let old = signin.begin("main");
+        let mut old_rx = scheme(&signin, old);
+        let new = signin.begin("main");
+        assert_eq!(
+            old_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+        // The old attempt's nonce is no longer accepted.
+        assert_eq!(
+            signin.deliver(&link(&format!("code=c&state={NONCE}"))),
+            None
+        );
+        let (pending, _rx) = Pending::new(NONCE);
+        assert!(!signin.arm(old, Waiter::Scheme(pending)), "superseded");
+
+        let mut rx = scheme(&signin, new);
+        assert!(signin.fail(new, "could not open the browser".into()));
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+
+        let generation = signin.begin("main");
+        let mut rx = scheme(&signin, generation);
+        assert_eq!(signin.cancel(), Some("main".into()));
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+    }
+
     #[test]
     fn cancel_in_leaves_a_sign_in_in_another_window_running() {
         let signin = SignIn::default();
         signin.begin("window-1");
         let generation = signin.begin("window-2");
         let (canceller, outcome) = listener();
-        assert!(signin.arm(generation, canceller));
+        assert!(signin.arm(generation, Waiter::Loopback(canceller)));
         // window-1 still shows the page of the attempt window-2 replaced.
         assert!(!signin.cancel_in("window-1"));
         assert_eq!(signin.status(), Status::Waiting);
