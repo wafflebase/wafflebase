@@ -292,6 +292,23 @@ describe('AgentTaskService', () => {
       await Promise.all(parked);
     });
 
+    it('holds the cap when polls arrive together', async () => {
+      // The cap is checked and the slot taken before any await, so polls
+      // racing in on one tick cannot all slip past it.
+      const { service } = setup();
+      const abort = new AbortController();
+      const polls = Array.from({ length: MAX_WAITERS_PER_BOT + 2 }, () =>
+        service.next(BOT, 'w1', 30_000, abort.signal).then(
+          () => 'ok',
+          (e: { status?: number }) => e.status,
+        ),
+      );
+      await new Promise((r) => setTimeout(r, 10));
+      abort.abort();
+      const results = await Promise.all(polls);
+      expect(results.filter((r) => r === 429)).toHaveLength(2);
+    });
+
     it('leaves no waiter behind after a timeout', async () => {
       const { service } = setup();
       await service.next(BOT, 'w1', 50);
@@ -334,15 +351,38 @@ describe('AgentTaskService', () => {
   describe('thread', () => {
     it("reads the task's thread as the bot", async () => {
       const { service, messages } = setup();
+      messages.page.mockResolvedValue([
+        { id: 'm1', author: { id: OWNER } },
+        { id: 'r1', author: { id: BOT } },
+      ]);
       const rows = await service.thread(BOT, 'w1', 't1');
       expect(messages.page).toHaveBeenCalledWith(BOT, 'c1', { thread: 'm1' });
       expect(rows.map((r) => r.id)).toEqual(['m1', 'r1']);
       expect(messages.get).not.toHaveBeenCalled();
     });
 
+    // Anyone in the channel can reply in the thread, but only the member
+    // who asked may steer the session that acts with their authority: a
+    // third party's reply never reaches it.
+    it("keeps only the invoker's and the bot's own messages", async () => {
+      const { service, messages } = setup();
+      messages.page.mockResolvedValue([
+        { id: 'm1', author: { id: OWNER } },
+        { id: 'r1', author: { id: 99 } },
+        { id: 'r2', author: { id: BOT } },
+        { id: 'r3', author: null },
+      ]);
+      const rows = await service.thread(BOT, 'w1', 't1');
+      expect(rows.map((r) => r.id)).toEqual(['m1', 'r2']);
+    });
+
     it('puts the root first when the page no longer reaches it', async () => {
       const { service, messages } = setup();
-      messages.page.mockResolvedValue([{ id: 'r50' }, { id: 'r51' }]);
+      messages.page.mockResolvedValue([
+        { id: 'r50', author: { id: OWNER } },
+        { id: 'r51', author: { id: BOT } },
+      ]);
+      messages.get.mockResolvedValue({ id: 'm1', author: { id: OWNER } });
       const rows = await service.thread(BOT, 'w1', 't1');
       expect(messages.get).toHaveBeenCalledWith(BOT, 'm1', 'w1');
       expect(rows.map((r) => r.id)).toEqual(['m1', 'r50', 'r51']);

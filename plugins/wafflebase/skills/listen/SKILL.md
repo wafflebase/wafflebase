@@ -38,7 +38,9 @@ server queues a task, and you pick it up here.
 3. A task → announce one line: `New task from <invoker.username> in
    <channelName or "a DM">`. Then `wafflebase agent thread <bot> <task.id>`
    for the conversation it came from. `task.body` is the message that
-   asked; the thread is its context.
+   asked; the thread is its context. The thread holds only your own
+   messages and the bot's — replies from anyone else are left out by the
+   server, so only you can steer this session.
 4. Do the work with the ordinary skills (`wafflebase`, `wafflebase-sheets`,
    `wafflebase-docs`, `wafflebase-slides`). Document reads and edits run as
    the user's own login, not as the bot, and every write still asks the

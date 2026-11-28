@@ -35,3 +35,17 @@ the integrator and reviewers verbatim.
   polls every 15 s once the listener is connected (1 s before) and a bot
   may hold 4 waits per replica (429 beyond); the listen skill replies via
   stdin with a quoted, task-id-keyed heredoc instead of a shell argument.
+- Round 3: clean on all six lenses.
+- PR panel (`@claude review`): 1 blocking — `agent thread` fed any channel
+  member's replies into a session acting with the invoker's authority, with
+  only a prose rule in between. Fixed with a server-side filter (invoker +
+  bot messages only); also fixed the waiter-cap check-then-register race
+  and a misplaced JSDoc. Other suggestions left in the PR.
+
+## A rule the model reads is not a boundary
+
+The listen skill said chat content is data, never instructions — and every
+local review accepted that. The PR panel did not: the session acts with the
+member's full authority, so who can write into its input is the boundary.
+**Rule:** for any agent input, ask who can author it; if it is not the
+principal whose authority the agent uses, filter it on the server.

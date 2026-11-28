@@ -77,6 +77,8 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
   private listening = false;
   /** Bot id → the wake-ups of the polls waiting for it on this replica. */
   private readonly waiters = new Map<number, Set<() => void>>();
+  /** Bot id → long-polls open on this replica, for the per-bot cap. */
+  private readonly polling = new Map<number, number>();
 
   /** Overridable in tests. */
   pollMs = POLL_MS;
@@ -159,15 +161,35 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     apiKeyId?: string,
   ): Promise<AgentTaskDto | null> {
-    if (
-      waitMs > 0 &&
-      (this.waiters.get(botId)?.size ?? 0) >= MAX_WAITERS_PER_BOT
-    ) {
+    if (waitMs <= 0) {
+      return this.poll(botId, workspaceId, waitMs, signal, apiKeyId);
+    }
+    // Checked and taken before the first await, so polls arriving together
+    // cannot all pass the cap before any of them is counted.
+    const open = this.polling.get(botId) ?? 0;
+    if (open >= MAX_WAITERS_PER_BOT) {
       throw new HttpException(
         'This bot already has the most long-polls open that it may',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
+    this.polling.set(botId, open + 1);
+    try {
+      return await this.poll(botId, workspaceId, waitMs, signal, apiKeyId);
+    } finally {
+      const left = (this.polling.get(botId) ?? 1) - 1;
+      if (left > 0) this.polling.set(botId, left);
+      else this.polling.delete(botId);
+    }
+  }
+
+  private async poll(
+    botId: number,
+    workspaceId: string,
+    waitMs: number,
+    signal?: AbortSignal,
+    apiKeyId?: string,
+  ): Promise<AgentTaskDto | null> {
     await this.touch(botId);
     let touchedAt = Date.now();
     const deadline = Date.now() + waitMs;
@@ -204,6 +226,11 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
    * sees exactly what its membership lets it. A thread longer than one page
    * is its newest page, with the root put back in front: the root is the
    * question, and a host must never lose it.
+   *
+   * Only the invoker's and the bot's own messages are returned. Anyone in
+   * the channel can reply in the thread, but the host acts with the
+   * invoker's authority, so text from anybody else must never reach it —
+   * an enforced boundary, not a request to the model.
    */
   async thread(
     botId: number,
@@ -214,9 +241,15 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     const rows = await this.messages.page(botId, task.channelId, {
       thread: task.threadRootId,
     });
-    if (rows[0]?.id === task.threadRootId) return rows;
-    const root = await this.messages.get(botId, task.threadRootId, workspaceId);
-    return [root, ...rows];
+    const all =
+      rows[0]?.id === task.threadRootId
+        ? rows
+        : [
+            await this.messages.get(botId, task.threadRootId, workspaceId),
+            ...rows,
+          ];
+    const trusted = new Set([task.invokerId, botId]);
+    return all.filter((m) => m.author !== null && trusted.has(m.author.id));
   }
 
   /**
@@ -324,13 +357,7 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /**
-   * One look at the queue: first return this bot's expired leases to it (a
-   * host that died mid-task gives its work back), then claim the oldest
-   * queued task under `FOR UPDATE SKIP LOCKED`, so racing polls each take a
-   * different row or none. Times are UTC, as the `timestamp(3)` columns hold
-   * them.
-   */
+  /** Hands a claimed task back to the queue, if this host still holds it. */
   private async release(taskId: string, apiKeyId: string | null) {
     await this.prisma.agentTask.updateMany({
       where: { id: taskId, status: 'claimed', claimedByKeyId: apiKeyId },
@@ -343,6 +370,13 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * One look at the queue: first return this bot's expired leases to it (a
+   * host that died mid-task gives its work back), then claim the oldest
+   * queued task under `FOR UPDATE SKIP LOCKED`, so racing polls each take a
+   * different row or none. Times are UTC, as the `timestamp(3)` columns hold
+   * them.
+   */
   private async claim(
     botId: number,
     workspaceId: string,

@@ -61,7 +61,7 @@ A host holds a task for 10 minutes, and each reply it sends renews that. If a ta
 3. Approve the commands Claude asks about, as in any other session.
 4. The bot answers in the thread.
 
-Edits to documents run as you, not as the bot, so the document history shows your name.
+Edits to documents run as you, not as the bot, so the document history shows your name. Because the bot acts with your access, it reads only your messages and its own in the thread; replies from other people never reach your Claude Code.
 
 ## Know the limits
 

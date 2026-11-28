@@ -538,6 +538,10 @@ bot". Where it departs from the sections above:
 - **Leases carry a holder.** `AgentTask.claimedByKeyId` records the claiming
   host key; `reply` renews that lease, and another host gets 409. No
   heartbeat yet: a host silent for over 10 minutes can lose the task.
+- **A task's thread is the invoker's.** `agent thread` returns only the
+  invoker's and the bot's own messages. Anyone in the channel may reply,
+  but listen mode acts with the invoker's full authority, so third-party
+  text is kept out by the server rather than by a rule the model reads.
 - **Owner-only, no bot→bot.** Only the bot's owner creates tasks (channel
   mention or DM); a message written by a bot never does, so the hop cap is
   not needed yet. A non-owner mention is silent.
