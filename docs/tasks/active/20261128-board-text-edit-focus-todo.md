@@ -28,7 +28,8 @@ re-appended the box afterwards, too late.
       `data-overlay-persistent` (text-box container, peer-cursor layer) stay
       mounted; fresh chrome is moved in front of them so z-order is
       unchanged and the persistent nodes are never moved.
-- [x] Mark the text-box container and peer-cursor layer persistent; update
+- [x] Editor marks the text-box container (any `mountTextBox`) and the
+      peer-cursor layer persistent; update
       comments that describe the old detach.
 - [x] Unit tests green: new test, overlay/editor suites.
 - [x] Browser re-check with the same two-client scenario.

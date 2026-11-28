@@ -11,3 +11,11 @@
 - A collaborator can be simulated from Node with `@yorkie-js/sdk` attached
   to `board-<id>`; synthetic pointer events in a background tab do not
   drive the board editor.
+
+## Self-review
+
+- Round 1: blast-radius blocked — the persistent mark lived in
+  `mountSlidesTextBox`, so an injected `mountTextBox` would lose its
+  container on every repaint. Fixed: the editor marks (and, if needed,
+  mounts) `tb.container` right after any `mountTextBox`;
+  `text-box-editor.ts` is back to `main`.

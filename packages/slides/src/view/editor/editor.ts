@@ -4784,6 +4784,14 @@ class SlidesEditorImpl implements SlidesEditor {
       onCancel: () => {},
     });
     this.editingTextBox = tb;
+    // Survives every overlay chrome rebuild (`OVERLAY_PERSISTENT_ATTR`): a
+    // repaint must never detach — and so blur, and so commit — the box
+    // mid-typing. Owned here rather than in `mountSlidesTextBox` so it
+    // holds for any `mountTextBox` the host injects.
+    tb.container.setAttribute(OVERLAY_PERSISTENT_ATTR, '');
+    if (tb.container.parentNode !== this.options.overlay) {
+      this.options.overlay.appendChild(tb.container);
+    }
     // The label knockout, live: the connector line passes under the box.
     if (target.kind === 'connector-label') {
       tb.container.style.background = labelKnockoutColor(getActiveTheme(doc));
