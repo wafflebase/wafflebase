@@ -27,3 +27,17 @@
   injected into its own session, not on the diff — disputed via rebuttal.
 - A persistent DOM node loses the implicit cleanup the old wipe gave it:
   every path that drops ownership of one must remove it explicitly.
+- Round 3 (last): correctness, design-fit and test-adequacy blocked on the
+  same root — `commit()` rode the textarea blur, a no-op from a keepalive
+  control, so every `exitEditMode('commit')` caller (Done, click-out,
+  setStore, crop) could leave a ghost box. Fixed at the root with a
+  focus-independent docs `commit()`, plus a chokepoint guard in
+  `exitEditMode`; round 2's per-call-site guard removed. Correctness also
+  caught a remote delete of the edited element no longer ending the edit —
+  fixed in `markDirty`. Docs lens re-raised the session-injection item
+  (no file, so no rebuttal can match it) and flagged the round-2 lessons
+  line that recorded it; both concern the reviewer's environment, not the
+  change. Bound reached; no round 4.
+- Removing an accidental behaviour (here: the wipe→blur→commit that closed
+  every edit) also removes whatever it was silently fixing. List those
+  side effects before deleting the mechanism.

@@ -598,10 +598,11 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
       }
     },
     commit(): void {
-      // Trigger commit via blur (the docs text-box wires onCommit to
-      // the focusout path). If the textarea is already blurred,
-      // committedAlready guards against duplicate fires.
-      api.blur();
+      // Commit directly rather than via blur: with focus parked on a
+      // keepalive toolbar control the textarea is already blurred and
+      // its focusout skipped the commit, so `blur()` would be a no-op and
+      // the box would never close. `committedAlready` guards duplicates.
+      api.commit();
     },
     detach(): void {
       if (!mounted) return;

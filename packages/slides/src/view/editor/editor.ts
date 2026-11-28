@@ -2999,6 +2999,15 @@ class SlidesEditorImpl implements SlidesEditor {
 
   markDirty(): void {
     this.renderer.markDirty();
+    // A peer deleted the element being edited: there is nothing left to
+    // commit into, so drop the edit instead of letting the user keep
+    // typing into a box whose commit would be discarded.
+    if (this.editingElementId !== null) {
+      const slide = this.currentSlide();
+      if (slide && !findElement(slide.elements, this.editingElementId)) {
+        this.exitEditMode('cancel');
+      }
+    }
     // External markDirty signals "the store changed in a way the editor
     // didn't initiate" (remote Yorkie edit, host shell mutation outside
     // an interaction handler). Both the canvas AND the overlay need to
@@ -4506,10 +4515,6 @@ class SlidesEditorImpl implements SlidesEditor {
     // the text in flight is not lost when focus moves.
     if (this.editingElementId !== null) {
       this.exitEditMode('commit');
-      // `commit()` rides the textarea's blur, a no-op once focus has left
-      // for a keepalive toolbar control. Tear that box down anyway: it is
-      // persistent in the overlay, so nothing else would ever remove it.
-      if (this.editingTextBox !== null) this.finishEditMode();
     }
     // Single read so the slide and the deck theme come from the same
     // snapshot — the text-box editor needs a theme-aware colorResolver
@@ -4973,11 +4978,14 @@ class SlidesEditorImpl implements SlidesEditor {
     if (tb === null) return;
     if (reason === 'commit') {
       tb.commit();
+      // commit() above routes synchronously through onCommit →
+      // finishEditMode. The box is persistent in the overlay — no repaint
+      // removes it — so it must never outlive edit mode even if an
+      // injected `mountTextBox` commits without calling back.
+      if (this.editingTextBox === tb) this.finishEditMode();
     }
-    // commit() above synchronously blurs the textarea, which routes
-    // through onCommit → finishEditMode. If reason === 'cancel' we
-    // detach without committing. finishEditMode is idempotent in
-    // either case.
+    // If reason === 'cancel' we detach without committing.
+    // finishEditMode is idempotent in either case.
     if (reason === 'cancel') {
       // Before detaching, not after: `detach()` synchronously flushes
       // `onCommit` for a still-focused box, and that write would push an

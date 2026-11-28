@@ -194,6 +194,13 @@ export interface TextBoxEditorAPI {
   blur(): void;
 
   /**
+   * Fire `onCommit` with the current blocks now, whatever holds focus.
+   * `blur()` cannot: it is a no-op once focus has left for a
+   * `data-text-edit-keepalive` control, whose focusout skips the commit.
+   */
+  commit(): void;
+
+  /**
    * Insert plain text at the current caret position. Used by slides
    * type-to-edit entry to forward the printable key that triggered the
    * edit; safer than poking the hidden textarea + dispatching synthetic
@@ -739,6 +746,23 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     requestRender();
   };
 
+  const flushCommit = (): void => {
+    if (detached || committedOnce) return;
+    committedOnce = true;
+    try {
+      // Flush any in-progress IME pre-edit / software Hangul jamo into
+      // the doc before snapshotting blocks — otherwise the visible
+      // preview (which lives view-local) is dropped on blur and the
+      // committed snapshot is missing the user's last keystrokes.
+      // Mirrors the full editor's commit path (editor.ts:1880).
+      textEditor.cancelComposition();
+      opts.onCommit?.(docStore.getDocument().blocks);
+    } finally {
+      // Reset so a re-focus cycle (without detach) re-arms commit.
+      committedOnce = false;
+    }
+  };
+
   const handleBlur = (e?: FocusEvent): void => {
     focused = false;
     cursor.stopBlink();
@@ -755,21 +779,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       requestRender();
       return;
     }
-    if (!detached && !committedOnce) {
-      committedOnce = true;
-      try {
-        // Flush any in-progress IME pre-edit / software Hangul jamo into
-        // the doc before snapshotting blocks — otherwise the visible
-        // preview (which lives view-local) is dropped on blur and the
-        // committed snapshot is missing the user's last keystrokes.
-        // Mirrors the full editor's commit path (editor.ts:1880).
-        textEditor.cancelComposition();
-        opts.onCommit?.(docStore.getDocument().blocks);
-      } finally {
-        // Reset so a re-focus cycle (without detach) re-arms commit.
-        committedOnce = false;
-      }
-    }
+    flushCommit();
     requestRender();
   };
 
@@ -968,6 +978,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
     blur(): void {
       if (textarea) textarea.blur();
+    },
+    commit(): void {
+      flushCommit();
     },
     insertText(text: string): void {
       textEditor.insertText(text);

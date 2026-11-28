@@ -52,6 +52,12 @@ re-appended the box afterwards, too late.
   the composition has nothing to cut it off.
 - The peer-cursor layer is inserted below an open text box, so the box stays
   the topmost overlay child as it was when it was re-appended last.
-- Entering a new edit tears down the previous box even when its
-  blur-driven commit was a no-op (focus on a keepalive control) — it is
-  persistent now, so the old `innerHTML` wipe no longer reaps it.
+- `SlidesTextBoxEditor.commit()` now calls a new docs
+  `TextBoxEditorAPI.commit()` instead of `blur()`. `blur()` was a no-op once
+  focus sat on a `data-text-edit-keepalive` control (e.g. Done inside the
+  ⋮ More menu), so the box never closed; the old `innerHTML` wipe used to
+  hide that by removing the box. `exitEditMode('commit')` also tears the
+  box down itself if an injected `mountTextBox` commits without calling
+  back.
+- `markDirty()` ends the edit (cancel) when a remote change deleted the
+  element being edited — the old wipe→blur→commit closed it by accident.

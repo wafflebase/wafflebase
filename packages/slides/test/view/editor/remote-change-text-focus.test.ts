@@ -166,4 +166,46 @@ describe('collaborator activity vs. the in-place text editor', () => {
     const last = overlay.lastElementChild;
     expect(last?.classList.contains('wfb-slides-text-box-editor')).toBe(true);
   });
+
+  it('commits and closes the box from a keepalive control', async () => {
+    const fx = makeFixture();
+    editor = initialize({
+      canvas: fx.canvas,
+      overlay: fx.overlay,
+      store: fx.store,
+      hostWidth: 960,
+      hostHeight: 540,
+      dpr: 1,
+    });
+    // Type-to-edit: the key lands in the box as its first character.
+    editor.setSelection([fx.textId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    await Promise.resolve();
+    expect(editor.isTextEditing()).toBe(true);
+    // Focus parks on a keepalive control (e.g. the ⋮ More menu holding
+    // Done), so the textarea's blur skipped the commit.
+    const button = document.createElement('button');
+    button.setAttribute('data-text-edit-keepalive', '');
+    document.body.appendChild(button);
+    button.focus();
+    expect(editor.isTextEditing()).toBe(true);
+
+    editor.exitTextEditing();
+
+    expect(editor.isTextEditing()).toBe(false);
+    expect(fx.overlay.querySelector('.wfb-slides-text-box-editor')).toBeNull();
+    const el = fx.store.read().slides[0].elements.find((e) => e.id === fx.textId);
+    expect(JSON.stringify(el)).toContain('"text":"x"');
+  });
+
+  it('ends the edit when a peer deletes the element being edited', () => {
+    const { editor, store, overlay, textId } = startEditing();
+    const slideId = store.read().slides[0].id;
+
+    store.batch(() => store.removeElement(slideId, textId));
+    editor.markDirty();
+
+    expect(editor.isTextEditing()).toBe(false);
+    expect(overlay.querySelector('.wfb-slides-text-box-editor')).toBeNull();
+  });
 });
