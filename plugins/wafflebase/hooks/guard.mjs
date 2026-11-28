@@ -2,10 +2,11 @@
 // Entry point for the PreToolUse(Bash) hook; the decision logic and its
 // rationale live in guard-lib.mjs.
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decide, safe } from './guard-lib.mjs';
+import { decide, listenBot, listeningFor, recordListening, safe } from './guard-lib.mjs';
 
 function loadTable() {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,30 @@ function realPath(p) {
 
 const PLUGIN_ROOT = realPath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+// Which sessions listen as a bot (docs/design/agent-runner.md § 5). Beside
+// the agent files, readable only by this user.
+const AGENTS_DIR = join(homedir(), '.wafflebase', 'agents');
+const LISTEN_STATE = join(AGENTS_DIR, 'listening.json');
+
+function readListenState() {
+  try {
+    return JSON.parse(readFileSync(LISTEN_STATE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeListenState(state) {
+  try {
+    mkdirSync(AGENTS_DIR, { recursive: true, mode: 0o700 });
+    const tmp = `${LISTEN_STATE}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
+    renameSync(tmp, LISTEN_STATE);
+  } catch {
+    // Without the record the session simply is not listening: it asks.
+  }
+}
 
 function emit(result) {
   if (!result) return;
@@ -82,7 +107,19 @@ function main() {
 
   let result;
   try {
-    result = decide(command, loadTable(), {
+    const table = loadTable();
+    const sessionId = typeof input.session_id === 'string' ? input.session_id : undefined;
+    const now = Date.now();
+    // `agent next <bot>` is the listen loop's heartbeat: it starts (or
+    // keeps) this session listening as that bot.
+    const bot = sessionId ? listenBot(command, table) : null;
+    let state = readListenState();
+    if (bot) {
+      state = recordListening(state, sessionId, bot, now);
+      writeListenState(state);
+    }
+    result = decide(command, table, {
+      listening: listeningFor(state, sessionId, now) !== null,
       // Claude Code exports each userConfig option to hook processes as
       // CLAUDE_PLUGIN_OPTION_<KEY>. Anything but true/1 leaves writes asking.
       autoAllowReads: /^(true|1)$/i.test(

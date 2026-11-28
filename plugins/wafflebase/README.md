@@ -57,6 +57,8 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
 | Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
+| A bot's own task commands (`agent next`, `thread`, `complete`, `reply` through stdin) | Run without asking: they use only the bot's key and reach only that task |
+| Anything above, while this session listens as a bot (`/wafflebase:listen`) | Nothing asks: plain reads and writes run, and every "Always ask" or "Ask" row is **denied** instead — the bot tells you in the thread to do it yourself |
 
 The classification comes from the CLI's own schema
 (`wafflebase schema`), generated into

@@ -523,6 +523,16 @@ bot". Where it departs from the sections above:
   `LISTEN agent_task` with a 1 s poll fallback. `botLastSeenAt` is set on
   every call and refreshed every 30 s while a wait is parked, so *Listening*
   (last seen under 60 s) holds through a 240 s wait.
+- **Listen mode does not prompt.** The plugin guard lets the bot's task
+  commands run without asking, and while a session listens (its last
+  `agent next` under 10 minutes ago) it allows plain reads and writes and
+  *denies* what it would otherwise ask about — deletes, replaces, local
+  files, credentials, connection overrides, compositions — so the bot
+  reports a refusal in the thread instead of waiting on a prompt nobody
+  answers ([claude-plugin.md](claude-plugin.md) § Permission guard). The
+  risk this accepts: instructions hidden in a document's *content* can now
+  reach unattended writes; they cannot reach anything irreversible, and
+  every write is in the revision history.
 - **No `--as-bot`.** Bot chat I/O goes through `agent thread|reply|complete`,
   which are task-scoped: a bot can read only the thread of a task it holds
   and post only there. Document edits from listen mode run as the member's

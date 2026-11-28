@@ -694,10 +694,14 @@ function innerCommand(words) {
  *   Both default off. An `allow` trusts that a bare `wafflebase` in Claude
  *   Code's persistent shell is the real CLI — something earlier commands
  *   can change and the guard cannot see — so it is the user's to opt into.
- * @returns {{ decision: 'allow' | 'ask', reason: string } | null}
+ * @returns {{ decision: 'allow' | 'ask' | 'deny', reason: string } | null}
  *   null means "not ours": print nothing and let the user's rules decide.
+ *   'deny' only ever comes back with `options.listening`.
  */
-export function decide(command, table, options = {}) {
+export function decide(fullCommand, table, options = {}) {
+  // A trailing quoted heredoc is literal stdin: strip it so the command in
+  // front of it is judged on its own (see `literalHeredoc`).
+  const command = literalHeredoc(fullCommand) ?? fullCommand;
   const { segments, complex: topComplex } = splitCommand(command);
   let complex = topComplex;
   const found = [];
@@ -734,7 +738,14 @@ export function decide(command, table, options = {}) {
   // Shell state that a later exact call would inherit.
   // Only an allow can be subverted by earlier shell state; with both
   // opt-ins off the guard grants nothing, so this would only cost prompts.
-  if ((options.autoAllowReads || options.autoApproveWrites) && changesShellState(command, segments)) {
+  // Bot task commands and a listening session are granted without either
+  // opt-in, so they guard the shell the same way.
+  const grants =
+    options.autoAllowReads ||
+    options.autoApproveWrites ||
+    options.listening ||
+    found.some((c) => BOT_TASK_PATHS.has(c.path));
+  if (grants && changesShellState(command, segments)) {
     return {
       decision: 'ask',
       reason:
@@ -766,12 +777,93 @@ export function decide(command, table, options = {}) {
   if (found.length > 0 || mentioned) {
     const why =
       'is not a single plain wafflebase invocation the Wafflebase plugin can read exactly (a composition, wrapper, prefix, substitution or inner shell), so it asks even for reads';
-    return {
-      decision: 'ask',
-      reason: found.length > 0 ? `${describe(found[0])}; the whole command ${why}.` : `This command ${why}.`,
-    };
+    return refuse(
+      options,
+      found.length > 0 ? `${describe(found[0])}; the whole command ${why}.` : `This command ${why}.`,
+    );
   }
   return null;
+}
+
+/**
+ * The bot's own task commands (docs/design/agent-runner.md § 5). They read
+ * only the bot's key from its agent file — never the session or
+ * WAFFLEBASE_API_KEY — and the server confines that key to the task's
+ * thread, so an exact call runs without asking. A reply read from a local
+ * file is still a local file read.
+ */
+const BOT_TASK_PATHS = new Set(['agent next', 'agent thread', 'agent reply', 'agent complete']);
+
+/**
+ * `ask`, or — while the session listens as a bot — `deny`: nobody is at
+ * the prompt to answer it, so the bot is told why and says so in the
+ * thread instead.
+ */
+function refuse(options, reason) {
+  if (!options.listening) return { decision: 'ask', reason };
+  return {
+    decision: 'deny',
+    reason: `Listening as a bot: ${reason} It is not run from chat — reply in the thread that the owner should do this themselves.`,
+  };
+}
+
+/**
+ * The command in front of a single trailing heredoc whose delimiter is
+ * quoted, or null. A quoted delimiter turns off every expansion in the
+ * body, so the body is literal stdin and cannot run anything; an unquoted
+ * one is left to `splitCommand`, which counts it as complex.
+ */
+export function literalHeredoc(command) {
+  const m = /^([^\n]*?)[ \t]*<<-?[ \t]*(['"])([A-Za-z0-9_.-]+)\2[ \t]*\n[\s\S]*?\n\3[ \t]*\n?$/.exec(
+    command,
+  );
+  if (!m || m[1].includes('<<') || m[1].trim() === '') return null;
+  return m[1];
+}
+
+/** The bot an exact `wafflebase agent next <bot>` listens as, or null. */
+export function listenBot(command, table) {
+  const text = literalHeredoc(command) ?? command;
+  const { segments, complex } = splitCommand(text);
+  if (complex || segments.length !== 1) return null;
+  const hit = wafflebaseArgs(segments[0]);
+  if (!hit || !hit.plain || hit.env.length > 0) return null;
+  const c = classify(hit.args, table);
+  if (!c.known || c.path !== 'agent next') return null;
+  const words = hit.args.map((w) => w.text);
+  const at = words.indexOf('next');
+  for (let i = at + 1; i < words.length; i++) {
+    if (words[i] === '--wait') {
+      i++;
+      continue;
+    }
+    if (!words[i].startsWith('-')) return words[i];
+  }
+  return null;
+}
+
+/** How long a session counts as listening after its last `agent next`. */
+export const LISTEN_WINDOW_MS = 10 * 60 * 1000;
+const LISTEN_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The bot `sessionId` listens as at `now`, or null. */
+export function listeningFor(state, sessionId, now) {
+  if (!sessionId) return null;
+  const entry = state?.sessions?.[sessionId];
+  if (!entry || typeof entry.at !== 'number') return null;
+  return now - entry.at <= LISTEN_WINDOW_MS ? entry.bot : null;
+}
+
+/** `state` with `sessionId` listening as `bot` from `now`; stale entries dropped. */
+export function recordListening(state, sessionId, bot, now) {
+  const sessions = {};
+  for (const [id, entry] of Object.entries(state?.sessions ?? {})) {
+    if (typeof entry?.at === 'number' && now - entry.at < LISTEN_STATE_TTL_MS) {
+      sessions[id] = entry;
+    }
+  }
+  sessions[sessionId] = { bot, at: now };
+  return { sessions };
 }
 
 /**
@@ -783,71 +875,76 @@ function judge(found, table, options, exact) {
   if (found.length === 0) return null;
   const unknown = found.find((c) => !c.known);
   if (unknown) {
-    return {
-      decision: 'ask',
-      reason: unknown.why
+    return refuse(
+      options,
+      unknown.why
         ? `\`${commandName(unknown)}\`: ${unknown.why}; review it before it runs.`
         : `\`${commandName(unknown)}\` is not in the Wafflebase plugin's command table (generated for CLI ${table.cliVersion}); review it before it runs.`,
-    };
+    );
   }
 
   const prefixed = found.find((c) => c.env?.length > 0);
   if (prefixed) {
-    return {
-      decision: 'ask',
-      reason: `${describe(prefixed)}. It runs with ${prefixed.env.map((n) => `${safe(n)}=…`).join(', ')} set, which can change what runs or where your Wafflebase credentials go.`,
-    };
+    return refuse(options, `${describe(prefixed)}. It runs with ${prefixed.env.map((n) => `${safe(n)}=…`).join(', ')} set, which can change what runs or where your Wafflebase credentials go.`);
   }
   const redirected = found.find((c) => c.connection?.length > 0);
   if (redirected) {
+    return refuse(options, `${describe(redirected)}. It is run with ${redirected.connection.map((c) => (/^--(server|frontend) host /.test(c) ? safeFull(c) : safe(c))).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`);
+  }
+
+  if (
+    exact &&
+    found.every((c) => BOT_TASK_PATHS.has(c.path)) &&
+    !found.some((c) => c.localReads?.length > 0 || c.localWrites?.length > 0)
+  ) {
     return {
-      decision: 'ask',
-      reason: `${describe(redirected)}. It is run with ${redirected.connection.map((c) => (/^--(server|frontend) host /.test(c) ? safeFull(c) : safe(c))).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
+      decision: 'allow',
+      reason: `${describe(found[0])}; a bot task command uses only the bot's key and reaches only that task.`,
     };
   }
 
   const worst = found.reduce((a, b) => (RANK[b.level] > RANK[a.level] ? b : a));
   if (worst.level === 'destructive') {
-    return {
-      decision: 'ask',
-      reason: `${describe(worst)}. Wafflebase cannot undo this over the API.`,
-    };
+    return refuse(options, `${describe(worst)}. Wafflebase cannot undo this over the API.`);
   }
   // Writing a local file is outside what "auto-approve writes" opted into
   // (Wafflebase edits), so it always asks — as Claude Code does for a file
   // write of its own.
   const local = found.find((c) => c.localWrites?.length > 0);
   if (local) {
-    return {
-      decision: 'ask',
-      reason: `${describe(local)}. It writes ${local.localWrites.map(safe).join(', ')} on this machine.`,
-    };
+    return refuse(
+      options,
+      `${describe(local)}. It writes ${local.localWrites.map(safe).join(', ')} on this machine.`,
+    );
   }
   // Uploading a local file is outside the opt-in for the same reason:
   // it is the user's disk, and the destination may be shared.
   const upload = found.find((c) => c.localReads?.length > 0);
   if (upload) {
-    return {
-      decision: 'ask',
-      reason: `${describe(upload)}. It reads ${upload.localReads.map(safe).join(', ')} from this machine.`,
-    };
+    return refuse(
+      options,
+      `${describe(upload)}. It reads ${upload.localReads.map(safe).join(', ')} from this machine.`,
+    );
   }
   if (worst.level === 'write') {
     const sensitive = found.find((c) => c.neverAutoApprove);
     if (sensitive) {
-      return {
-        decision: 'ask',
-        reason: `${describe(sensitive)}. It changes credentials, sign-in or sharing, which auto-approve never covers.`,
-      };
+      return refuse(
+        options,
+        `${describe(sensitive)}. It changes credentials, sign-in or sharing, which auto-approve never covers.`,
+      );
+    }
+    if (options.listening && exact) {
+      return { decision: 'allow', reason: `${describe(worst)}; listening as a bot, writes run without asking.` };
     }
     if (options.autoApproveWrites && exact) {
       return { decision: 'allow', reason: `${describe(worst)}; writes are auto-approved.` };
     }
-    return { decision: 'ask', reason: `${describe(worst)}.` };
+    return refuse(options, `${describe(worst)}.`);
   }
   // Read-only: allowed only when exact and the user opted in; otherwise
   // the user's own permission rules decide.
-  return exact && options.autoAllowReads
+  return exact && (options.autoAllowReads || options.listening)
     ? { decision: 'allow', reason: `${describe(worst)}; reads are auto-allowed.` }
     : null;
 }

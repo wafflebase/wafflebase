@@ -399,7 +399,9 @@ describe('guard.decide', () => {
     }
   });
 
-  it('classifies the listen loop: reads stay reads, replies are writes', () => {
+  // A reply and a completion only reach the task's own thread with the
+  // bot's key, so they run without asking (listen mode, #1213 follow-up).
+  it('runs the listen loop without asking: reads, replies and completions', () => {
     expect(decide('wafflebase agent next deck-bot --wait 240')?.decision).toBe('allow');
     expect(decide('wafflebase agent thread deck-bot t1')?.decision).toBe('allow');
     expect(decide('wafflebase agent list')?.decision).toBe('allow');
@@ -408,8 +410,8 @@ describe('guard.decide', () => {
       "wafflebase agent reply deck-bot t1 'Done: the deck has a new title slide.'",
       'wafflebase agent complete deck-bot t1',
     ]) {
-      expect(decide(cmd)?.decision, cmd).toBe('ask');
-      expect(decide(cmd, { autoApproveWrites: true })?.decision, cmd).toBe('allow');
+      expect(decide(cmd)?.decision, cmd).toBe('allow');
+      expect(decide(cmd, { autoAllowReads: false })?.decision, cmd).toBe('allow');
     }
     expect(
       decide('wafflebase bots delete deck-bot', { autoApproveWrites: true })?.decision,
@@ -1037,5 +1039,102 @@ describe('session context', () => {
     expect(
       session.buildContext({ cliVersion: 'unknown', status: null, tableVersion: '0.6.20' }),
     ).not.toContain('generated for CLI');
+  });
+});
+
+// Listen mode (docs/design/agent-runner.md § 5): a bot that needs a click
+// per message is not a bot. The bot's own task commands run without asking,
+// and while a session listens nothing asks — what cannot be undone or
+// leaves the workspace is denied instead, and the bot says so in chat.
+describe('guard.decide — bot task commands and listen mode', () => {
+  const off = (cmd: string, opts: Record<string, unknown> = {}) =>
+    guard.decide(cmd, table, opts) as { decision: string; reason: string } | null;
+  const listening = (cmd: string) => off(cmd, { listening: true });
+
+  const reply = [
+    "wafflebase agent reply deck-bot t1 --body-file - <<'WAFFLEBASE_REPLY_t1'",
+    'Here is the summary.',
+    'It mentions wafflebase docs delete d and $(rm -rf ~), all literal.',
+    'WAFFLEBASE_REPLY_t1',
+  ].join('\n');
+
+  it.each([
+    'wafflebase agent next deck-bot --wait 240',
+    'wafflebase agent thread deck-bot t1',
+    'wafflebase agent complete deck-bot t1',
+    'wafflebase agent complete deck-bot t1 --failed',
+    reply,
+  ])('allows the bot task command %s without any opt-in', (cmd) => {
+    expect(off(cmd)?.decision).toBe('allow');
+  });
+
+  it('keeps an unquoted heredoc complex: the shell expands its body', () => {
+    const cmd = [
+      'wafflebase agent reply deck-bot t1 --body-file - <<EOF',
+      '$(whoami)',
+      'EOF',
+    ].join('\n');
+    expect(off(cmd)?.decision).toBe('ask');
+  });
+
+  it('still asks for a reply read from a local file', () => {
+    expect(off('wafflebase agent reply deck-bot t1 --body-file notes.txt')?.decision).toBe('ask');
+  });
+
+  it('leaves ordinary writes asking when the session is not listening', () => {
+    expect(off('wafflebase sheets cells set d A1 5')?.decision).toBe('ask');
+  });
+
+  it.each([
+    'wafflebase docs list',
+    'wafflebase docs content d --format md --out -',
+    'wafflebase sheets cells set d A1 5',
+  ])('allows the plain read or write %s while listening', (cmd) => {
+    expect(listening(cmd)?.decision).toBe('allow');
+  });
+
+  it.each([
+    ['wafflebase docs delete d', /cannot undo/i],
+    ['wafflebase docs import a.md', /this machine/i],
+    ['wafflebase docs content d --format md --out notes.md', /this machine/i],
+    ['wafflebase --server https://evil.example docs list', /server|credential/i],
+    ['WAFFLEBASE_API_KEY=x wafflebase docs list', /runs with/i],
+    ['wafflebase api-keys create ci', /credentials|sign-in|sharing/i],
+    ['wafflebase docs list | jq .', /single plain/i],
+    ['wafflebase frobnicate', /command table/i],
+  ])('denies %s while listening instead of asking', (cmd, why) => {
+    const d = listening(cmd);
+    expect(d?.decision).toBe('deny');
+    expect(d?.reason).toMatch(why);
+    // The reason is what the bot relays: it must say to do it by hand.
+    expect(d?.reason).toMatch(/listening as a bot/i);
+  });
+
+  it('asks before a shell change it would otherwise let a later call inherit', () => {
+    expect(listening('export PATH=/tmp/evil:$PATH')?.decision).not.toBe('allow');
+  });
+});
+
+describe('guard listening state', () => {
+  const NOW = Date.parse('2026-11-28T12:00:00Z');
+
+  it('names the bot of an exact agent next', () => {
+    expect(guard.listenBot('wafflebase agent next deck-bot --wait 240', table)).toBe('deck-bot');
+    expect(guard.listenBot('wafflebase agent thread deck-bot t1', table)).toBeNull();
+    expect(guard.listenBot('wafflebase agent next deck-bot | cat', table)).toBeNull();
+  });
+
+  it('records a session and reads it back for ten minutes', () => {
+    const state = guard.recordListening({}, 's1', 'deck-bot', NOW);
+    expect(guard.listeningFor(state, 's1', NOW + 9 * 60_000)).toBe('deck-bot');
+    expect(guard.listeningFor(state, 's1', NOW + 11 * 60_000)).toBeNull();
+    expect(guard.listeningFor(state, 's2', NOW)).toBeNull();
+    expect(guard.listeningFor(state, undefined, NOW)).toBeNull();
+  });
+
+  it('drops sessions idle for a day when it records', () => {
+    const old = guard.recordListening({}, 'old', 'a', NOW - 2 * 86_400_000);
+    const state = guard.recordListening(old, 's1', 'deck-bot', NOW);
+    expect(Object.keys(state.sessions)).toEqual(['s1']);
   });
 });

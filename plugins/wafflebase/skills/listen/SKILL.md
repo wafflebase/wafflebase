@@ -43,9 +43,16 @@ server queues a task, and you pick it up here.
    server, so only you can steer this session.
 4. Do the work with the ordinary skills (`wafflebase`, `wafflebase-sheets`,
    `wafflebase-docs`, `wafflebase-slides`). Document reads and edits run as
-   the user's own login, not as the bot, and every write still asks the
-   user under the plugin's guard. Keep to what the message asked; when it
-   is unclear, ask in the reply instead of guessing.
+   the user's own login, not as the bot. While this session listens,
+   nothing asks: reads and ordinary writes run, and the plugin's guard
+   **denies** what cannot be undone or leaves the workspace — deletes,
+   whole-document replaces, local file reads and writes, credential and
+   sharing changes, `--server` / `--api-key` overrides, and anything that
+   is not one plain `wafflebase` command. When the guard denies a step, do
+   not look for another way to do it: say in the reply what the owner needs
+   to do by hand. Run each `wafflebase` command on its own, without pipes
+   or `&&`. Keep to what the message asked; when it is unclear, ask in the
+   reply instead of guessing.
 5. Reply through stdin with a quoted heredoc — never as a command-line
    argument: the answer is built from chat content, and the shell must
    never interpret it.
