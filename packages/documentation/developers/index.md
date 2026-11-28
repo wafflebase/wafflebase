@@ -37,6 +37,7 @@ Use it to:
 | To do this | See |
 |---|---|
 | Install the plugin, find and publish documents, and control what asks for confirmation | [Claude Code plugin](/developers/claude-code-plugin) |
+| Create a bot and let your Claude Code session answer when you mention it in chat | [Put a bot to work](/developers/bots) |
 
 ## Call the REST API
 

@@ -1734,6 +1734,114 @@ const registry: CommandSchema[] = [
     response: { id: 'string (the webhook-id header)', eventType: 'string', status: "'pending' | 'in_flight' | 'delivered' | 'failed'", attempts: 'number', lastStatus: 'number | null', lastError: 'string | null', lastDurationMs: 'number | null', nextAttemptAt: 'string', deliveredAt: 'string | null', createdAt: 'string' },
     aliases: ['webhook.redeliver'],
   },
+
+  // Bots namespace (docs/design/chat.md § Bot Members). JWT workspace routes
+  // like `api-keys`: a session from `wafflebase login`. Deleting and asking
+  // for a pairing code are for the bot's owner or a workspace owner.
+  {
+    name: 'bots.list',
+    description: 'List bots in workspace, with their owners and connected hosts',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'number', username: 'string', photo: 'string | null', invokers: "'owner' | 'members'", owner: '{ id, username }', createdAt: 'string', lastSeenAt: 'string | null', hosts: 'Array<{ apiKeyId, name, lastUsedAt }>' } },
+    aliases: ['bot.list'],
+  },
+  {
+    name: 'bots.create',
+    description: 'Create a bot you manage; only you can mention it for now',
+    safety: 'write',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Bot name: 2-32 lowercase letters, digits or hyphens, unique among the workspace\'s bots' },
+    },
+    response: { id: 'number', username: 'string', photo: 'string | null', invokers: "'owner' | 'members'", owner: '{ id, username }', createdAt: 'string', lastSeenAt: 'string | null', hosts: 'Array<{ apiKeyId, name, lastUsedAt }>' },
+    aliases: ['bot.create'],
+  },
+  {
+    name: 'bots.delete',
+    description: 'Delete a bot: revokes its host keys and removes it from the workspace; its messages stay',
+    safety: 'destructive',
+    parameters: {
+      'name-or-id': { type: 'string', required: true, description: 'Bot name or id' },
+    },
+    response: { ok: 'boolean' },
+    aliases: ['bot.delete'],
+  },
+  {
+    name: 'bots.pair-code',
+    description: 'Get a single-use pairing code (valid 10 minutes) to connect a host with `agent pair`',
+    safety: 'write',
+    parameters: {
+      'name-or-id': { type: 'string', required: true, description: 'Bot name or id' },
+    },
+    response: { code: 'string (XXXX-XXXX)', expiresAt: 'string' },
+    aliases: ['bot.pair-code'],
+  },
+
+  // Agent namespace (docs/design/agent-runner.md § 4-5): this host acting as
+  // a bot. `pair` is unauthenticated; the rest authenticate only with the key
+  // in ~/.wafflebase/agents/<bot>.json and ignore --api-key, --server,
+  // --workspace, WAFFLEBASE_API_KEY and the login session.
+  {
+    name: 'agent.pair',
+    description: 'Redeem a pairing code and store the bot key in ~/.wafflebase/agents/<bot>.json (0600); the key is never printed',
+    safety: 'write',
+    parameters: {
+      code: { type: 'string', required: true, description: 'Pairing code (XXXX-XXXX) from Settings → Bots or `bots pair-code`' },
+      '--host-name': { type: 'string', required: false, description: 'Name this host shows under the bot', default: "this machine's hostname" },
+      '--replace': { type: 'boolean', required: false, description: 'Replace a different bot of the same name (another workspace or server) already paired here; without it that pairing is refused', default: 'false' },
+    },
+    response: { botName: 'string', botId: 'number', workspaceId: 'string', server: 'string', pairedAt: 'string', file: 'string' },
+  },
+  {
+    name: 'agent.list',
+    description: 'List bots paired on this host (local; never shows keys)',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { botName: 'string', botId: 'number', workspaceId: 'string', server: 'string', pairedAt: 'string' } },
+  },
+  {
+    name: 'agent.next',
+    description: "Claim the bot's oldest queued task (a 10-minute lease), waiting up to --wait seconds for one",
+    safety: 'read-only',
+    parameters: {
+      bot: { type: 'string', required: true, description: 'Paired bot name' },
+      '--wait': { type: 'number', required: false, description: 'Seconds to wait for a task (0-240)', default: '0' },
+    },
+    response: { task: '{ id, channelId, channelKind, channelName, threadRootId, triggerMessageId, invoker: { id, username }, body, createdAt } | null' },
+  },
+  {
+    name: 'agent.thread',
+    description: 'Read the chat thread a task came from (root and replies, oldest first)',
+    safety: 'read-only',
+    parameters: {
+      bot: { type: 'string', required: true, description: 'Paired bot name' },
+      'task-id': { type: 'string', required: true, description: 'Task id from agent.next' },
+    },
+    response: { type: 'array', items: 'ChatMessage (author carries kind)' },
+  },
+  {
+    name: 'agent.reply',
+    description: "Post a message as the bot in the task's thread",
+    safety: 'write',
+    parameters: {
+      bot: { type: 'string', required: true, description: 'Paired bot name' },
+      'task-id': { type: 'string', required: true, description: 'Task id from agent.next' },
+      body: { type: 'string', required: false, description: 'Reply text; give this or --body-file' },
+      '--body-file': { type: 'string', required: false, description: 'Read the reply from a file (- for stdin)' },
+    },
+    response: { type: 'ChatMessage' },
+  },
+  {
+    name: 'agent.complete',
+    description: 'Close a task as done, or as failed with --failed',
+    safety: 'write',
+    parameters: {
+      bot: { type: 'string', required: true, description: 'Paired bot name' },
+      'task-id': { type: 'string', required: true, description: 'Task id from agent.next' },
+      '--failed': { type: 'boolean', required: false, description: 'Mark the task failed instead of done' },
+    },
+    response: { ok: 'boolean' },
+  },
 ];
 
 /**

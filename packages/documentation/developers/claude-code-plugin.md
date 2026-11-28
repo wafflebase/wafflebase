@@ -101,7 +101,7 @@ A plugin hook checks every `wafflebase` command Claude runs. By default it asks 
 | Writes: create, rename, set cells, import, add slides | Asks |
 | Deletes, whole-document replaces, `--replace` imports | Always asks |
 | Exports and downloads that write a local file, and uploads of a local file | Always asks |
-| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` | Always asks |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `bots create`, `bots pair-code`, `agent pair` | Always asks |
 | Any command with `--server`, `--api-key`, `--profile`, or `--frontend`, or with a `VAR=` prefix | Always asks |
 | A cell batch that deletes cells or reads its data from standard input | Always asks |
 | A command inside a pipe, `&&` chain, or substitution, or one the plugin doesn't recognize | Asks |
@@ -145,6 +145,7 @@ export WAFFLEBASE_WEB_URL=https://office.example.com
 
 ## Related
 
+- [Put a bot to work](/developers/bots) to answer chat mentions from this session with `/wafflebase:listen`.
 - [Install and sign in](/developers/cli/) for CLI sign-in, profiles, and API keys.
 - [Automation and agents](/developers/cli/automation) for safety levels, skills, and error codes.
 - [Documents and notes](/developers/cli/documents) for the commands Claude runs most.

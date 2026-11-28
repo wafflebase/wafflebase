@@ -91,6 +91,13 @@ describe('NEVER_AUTO_APPROVE', () => {
       expect(getCommandSchema(name)?.name, name).toBe(name);
     }
   });
+
+  it('covers the bot commands that mint or store a credential', () => {
+    for (const name of ['bots.create', 'bots.pair-code', 'agent.pair']) {
+      expect(NEVER_AUTO_APPROVE.has(name), name).toBe(true);
+      expect(table.root.children?.[name.split('.')[0]]?.children?.[name.split('.')[1]]?.neverAutoApprove, name).toBe(true);
+    }
+  });
 });
 
 describe('root options', () => {
@@ -351,6 +358,10 @@ describe('guard.decide', () => {
       'wafflebase board add-stickies b --file /home/me/.aws/credentials',
       'wafflebase board move b --file=moves.json',
       'wafflebase board add-text b --file notes.txt',
+      // A bot reply posts the file into a chat channel, so a thread message
+      // that names a path must not turn into an unprompted upload of it.
+      'wafflebase agent reply deck-bot t1 --body-file /tmp/r.txt',
+      'wafflebase agent reply deck-bot t1 --body-file /Users/me/.wafflebase/agents/deck-bot.json',
     ]) {
       const d = decide(cmd, { autoApproveWrites: true });
       expect(d?.decision, cmd).toBe('ask');
@@ -365,6 +376,10 @@ describe('guard.decide', () => {
       decide('wafflebase board add-stickies b --file -', { autoApproveWrites: true })
         ?.decision,
     ).toBe('allow');
+    expect(
+      decide('wafflebase agent reply deck-bot t1 --body-file -', { autoApproveWrites: true })
+        ?.decision,
+    ).toBe('allow');
   });
 
   it('never auto-approves credential, sign-in or sharing changes', () => {
@@ -375,9 +390,30 @@ describe('guard.decide', () => {
       'wafflebase ctx switch ws-2',
       'wafflebase login',
       'wafflebase logout',
+      // Bots: a pairing code mints a credential, and pairing stores one.
+      'wafflebase bots create deck-bot',
+      'wafflebase bots pair-code deck-bot',
+      'wafflebase agent pair 4F2K-9QXD',
     ]) {
       expect(decide(cmd, { autoApproveWrites: true })?.decision, cmd).toBe('ask');
     }
+  });
+
+  it('classifies the listen loop: reads stay reads, replies are writes', () => {
+    expect(decide('wafflebase agent next deck-bot --wait 240')?.decision).toBe('allow');
+    expect(decide('wafflebase agent thread deck-bot t1')?.decision).toBe('allow');
+    expect(decide('wafflebase agent list')?.decision).toBe('allow');
+    expect(decide('wafflebase bots list')?.decision).toBe('allow');
+    for (const cmd of [
+      "wafflebase agent reply deck-bot t1 'Done: the deck has a new title slide.'",
+      'wafflebase agent complete deck-bot t1',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+      expect(decide(cmd, { autoApproveWrites: true })?.decision, cmd).toBe('allow');
+    }
+    expect(
+      decide('wafflebase bots delete deck-bot', { autoApproveWrites: true })?.decision,
+    ).toBe('ask');
   });
 
   it('looks inside strings handed to another shell', () => {

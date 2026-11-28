@@ -43,3 +43,5 @@ Finish with what the plugin does on its own:
   ask.
 - Links use the web origin derived from the server; set
   `WAFFLEBASE_WEB_URL` if they do not open.
+- `/wafflebase:listen <code>` connects one of the user's bots (Settings →
+  Bots) to this session so it answers its mentions and DMs.

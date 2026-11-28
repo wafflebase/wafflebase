@@ -106,7 +106,7 @@ Use an API key in scripts and CI, where no browser is available. A key belongs t
    wafflebase docs list
    ```
 
-A key from `--api-key` or `WAFFLEBASE_API_KEY` wins over a saved browser session. A few commands need the browser session and refuse a key: `api-keys`, `templates publish`, `templates use`, and `slides render`.
+A key from `--api-key` or `WAFFLEBASE_API_KEY` wins over a saved browser session. A few commands need the browser session and refuse a key: `api-keys`, `bots`, `templates publish`, `templates use`, and `slides render`. The `agent` commands use only a bot's stored key; see [Put a bot to work](/developers/bots#keep-its-key-safe).
 
 ::: danger Keep API keys secret
 A key acts as the member who created it, with read and write access to that workspace. Store it in your CI secret store, never in a repository. Revoke a leaked key with `wafflebase api-keys revoke <key-id>`.
@@ -190,6 +190,8 @@ Commands are grouped by what they act on. Singular forms work as aliases, so `wa
 | `files` | `file` | Store any file as a document | [Files and images](/developers/cli/files-and-images) |
 | `images` | `image` | Workspace images that documents embed | [Files and images](/developers/cli/files-and-images#workspace-images) |
 | `api-keys` | `api-key` | Create, list, and revoke API keys | [Automation and agents](/developers/cli/automation#create-and-revoke-api-keys) |
+| `bots` | `bot` | Create, list, and delete workspace bots; get a pairing code | [Put a bot to work](/developers/bots) |
+| `agent` | | Connect this computer to a bot and answer its tasks | [Put a bot to work](/developers/bots#commands) |
 | `schema` | | Describe any command's parameters and output | [Automation and agents](/developers/cli/automation#look-up-a-command-with-schema) |
 | `login`, `logout`, `status`, `ctx` | | Sign-in and workspace selection | This page |
 

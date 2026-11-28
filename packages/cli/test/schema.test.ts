@@ -222,6 +222,19 @@ describe('schema registry', () => {
     }
     expect(getCommandSchema('webhooks.delete')!.safety).toBe('destructive');
     expect(getCommandSchema('webhook.delete')?.name).toBe('webhooks.delete');
+    // docs/tasks/active/20261128-workspace-bots-todo.md § CLI contract.
+    expect(getCommandSchema('bots.list')!.safety).toBe('read-only');
+    expect(getCommandSchema('bots.create')!.safety).toBe('write');
+    expect(getCommandSchema('bots.delete')!.safety).toBe('destructive');
+    expect(getCommandSchema('bots.pair-code')!.safety).toBe('write');
+    expect(getCommandSchema('bot.delete')?.name).toBe('bots.delete');
+    expect(getCommandSchema('agent.pair')!.safety).toBe('write');
+    for (const read of ['list', 'next', 'thread']) {
+      expect(getCommandSchema(`agent.${read}`)!.safety).toBe('read-only');
+    }
+    for (const write of ['reply', 'complete']) {
+      expect(getCommandSchema(`agent.${write}`)!.safety).toBe('write');
+    }
   });
 
   describe('alias resolution', () => {

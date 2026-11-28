@@ -165,3 +165,32 @@ export function documentTemplateUrl(
 export function templateUseUrl(config: CliConfig, templateId: string): string {
   return `${origin(config)}/templates/${seg(templateId)}/use`;
 }
+
+/**
+ * The bot management URLs (`workspaces/:id/bots/…`). JWT workspace routes the
+ * browser's Settings → Bots uses, like the API-key ones: managing a bot —
+ * above all asking for a pairing code, which mints a credential — needs the
+ * member's own session. `segments` are escaped one by one.
+ */
+export function botsUrl(config: CliConfig, segments: string[] = []): string {
+  const base = `${origin(config)}/workspaces/${workspaceSeg(config)}/bots`;
+  return `${base}${segments.map((s) => `/${seg(s)}`).join('')}`;
+}
+
+/** `POST /auth/pair` — exchange a pairing code for a host's bot key. */
+export function pairUrl(config: CliConfig): string {
+  return `${origin(config)}/auth/pair`;
+}
+
+/**
+ * A bot's task route, relative to the v1 base (`/agent/tasks/…`), so the
+ * request and the `--dry-run` preview (`printDryRun`) share one path.
+ */
+export function agentTasksPath(
+  segments: string[],
+  query?: URLSearchParams,
+): string {
+  const path = segments.map((s) => `/${seg(s)}`).join('');
+  const qs = query?.toString();
+  return `/agent/tasks${path}${qs ? `?${qs}` : ''}`;
+}

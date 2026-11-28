@@ -38,6 +38,7 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Command | Does |
 | --- | --- |
 | `/wafflebase:find <query>` | Search titles; table of matches with links |
+| `/wafflebase:listen <bot-name \| code>` | Host one of your bots in this session: answer its mentions and DMs until you press Esc |
 | `/wafflebase:publish <file> [title]` | `.md` → note, `.csv` → sheet, `.docx` → doc, `.pptx` → deck, anything else → file |
 | `/wafflebase:setup` | Check install, login and workspace |
 
@@ -50,8 +51,8 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Writes (create, rename, set cells, import, …) | Asks first |
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
 | Exports / downloads that write a local file (`-` for stdout does not) | Always ask |
-| Uploads of a local file (`files upload`, `… import <file>`) | Always ask |
-| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `webhooks create`/`update`/`enable`/`reveal-secret`/`rotate-secret` | Always ask |
+| Uploads of a local file (`files upload`, `… import <file>`, `agent reply --body-file <path>`) | Always ask |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `webhooks create`/`update`/`enable`/`reveal-secret`/`rotate-secret`, `bots create`/`pair-code`, `agent pair` | Always ask |
 | Anything run with `--server`, `--api-key`, `--profile`, `--frontend` (slides render), or any `VAR=` prefix (chooses what runs or where your credentials go) | Always ask |
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
 | Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |
