@@ -23,6 +23,9 @@ import { checkMinFont } from './rules/min-font';
 import { checkOutOfBounds } from './rules/out-of-bounds';
 import { checkOverflow } from './rules/overflow';
 import { checkOverlap } from './rules/overlap';
+import { checkTokenWrap } from './rules/token-wrap';
+import { checkEmptyRegion } from './rules/empty-region';
+import { checkInsetInconsistent } from './rules/inset-inconsistent';
 import type { Finding, LintOptions, LintRuleId } from './types';
 
 type RuleCheck = (
@@ -40,6 +43,9 @@ const RULES: [LintRuleId, RuleCheck][] = [
   ['contrast', checkContrast],
   ['min-font', checkMinFont],
   ['edge-margin', checkEdgeMargin],
+  ['token-wrap', checkTokenWrap],
+  ['empty-region', checkEmptyRegion],
+  ['inset-inconsistent', checkInsetInconsistent],
 ];
 
 /**

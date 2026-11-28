@@ -349,7 +349,7 @@ export function registerSlidesCommand(program: Command) {
   slides
     .command('lint [doc-id]')
     .description(
-      'Flag slides that look broken: overflow, out-of-bounds, overlap, contrast, min-font, edge-margin (advisory)',
+      'Flag slides that look broken: overflow, out-of-bounds, overlap, contrast, min-font, edge-margin, token-wrap, empty-region, inset-inconsistent (advisory)',
     )
     .option('--file <path>', 'Read a local .pptx or .json deck instead of <doc-id>')
     .option('--slide <n>', 'Only slide N (1-based)')

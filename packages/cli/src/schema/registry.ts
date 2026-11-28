@@ -366,7 +366,7 @@ const registry: CommandSchema[] = [
   {
     name: 'slides.lint',
     description:
-      'Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default',
+      'Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin, token-wrap, empty-region, inset-inconsistent); advisory by default',
     safety: 'read-only',
     parameters: {
       'doc-id': { type: 'string', required: false, description: 'Document ID (or pass --file)' },
