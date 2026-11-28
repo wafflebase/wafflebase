@@ -1,0 +1,107 @@
+---
+title: listen-without-prompts
+target-version: 0.6.21
+---
+
+# Listen Without Prompts — Task Tracking
+
+Running `/wafflebase:listen` on wafflebase.io (v0.6.20) asked the owner to
+approve every step of every task: `agent next` and `agent thread` fell to
+Claude Code's default prompt, `agent complete` asked as a write, and
+`agent reply … --body-file - <<'X'` — the form the listen skill mandates —
+always asked, because the guard read the heredoc delimiter as a local file
+name and treated any redirect as a composition. A bot that needs a click
+per message is not a bot.
+
+## Decision (maintainer, 2026-11-28)
+
+While a session listens, nothing asks: the bot's task commands, reads and
+ordinary document writes run, and what cannot be undone or leaves the
+workspace is **denied** (the bot says so in the thread) instead of asked.
+
+## Plan
+
+- [x] Tests first (`packages/cli/test/plugin.test.ts`)
+- [x] Guard: a single trailing **quoted** heredoc is literal stdin — strip
+      it before splitting; unquoted heredocs stay complex
+- [x] Guard: `agent next|thread|complete` and `agent reply` without a local
+      file are allowed when exact, by default (bot-key, task-scoped)
+- [x] Guard: listening state — `agent next <bot>` records
+      `{sessionId, bot, at}` in `~/.wafflebase/agents/listening.json`; a
+      session is listening for 10 minutes after its last `agent next`
+- [x] Guard, listening: exact reads and writes allow; destructive, local
+      file I/O, connection overrides, env prefixes, never-auto-approve,
+      unknown and inexact commands **deny** with a reason the bot relays
+- [x] Shell-state changes ask whenever the guard would otherwise grant
+      without the user's opt-in (bot task commands, listening)
+- [x] Listen skill, plugin README Safety table, docs page, design docs
+- [x] `pnpm verify:fast`; `/self-review` (3 rounds, bound); PR (no merge)
+
+## Also in this PR (maintainer, 2026-11-28: "the boundary is too inconvenient")
+
+- [x] A mention is not a call: an inexact command asks only when a word is
+      the CLI followed by a subcommand or option (substitutions inside
+      double quotes included; an inner shell past the recursion cap still
+      asks on any mention). Commit messages, paths and grep patterns no
+      longer ask. Reverses the "names it anywhere" rule from #1097's
+      review passes, deliberately.
+- [x] The plugin's own files ask only for a command that can change a file
+      (write redirect, rm/mv/cp/ln/tee/chmod/touch/sed -i, …), not for reads.
+- [x] Considered and not done: reads allowed by default. That would make the
+      shell-state rule apply to every session, so `source venv` and
+      `export PATH` would start asking everywhere — more prompts, not fewer.
+
+## Self-review round 1 → consent-gated redesign
+
+Round 1 (on the first commit) found the design itself unsafe; fixed by
+redesign rather than patching:
+
+- [x] Heredoc smuggling: `literalHeredoc` matched the *last* delimiter
+      line; now the first, with nothing but blank lines after it.
+- [x] `bash <<'X'` / `patch … <<'X'`: a heredoc is stripped only when the
+      command before it is a single plain `wafflebase` call.
+- [x] Self-granted listening: recorded in PreToolUse from a merely
+      proposed `agent next`. Now the first `agent next` always asks (the
+      consent), and listening is recorded in **PostToolUse** only when it
+      ran and printed a task or `"task": null`.
+- [x] Never ended: **UserPromptSubmit** and **SessionEnd** now end it, so
+      typing in the session takes it back at once.
+- [x] Unprotected, colliding state: moved to `~/.wafflebase/guard/` (no
+      bot name contains "/"); Bash changes and Write-tool edits to it ask.
+- [x] Shell-state and plugin-file asks now `deny` while listening.
+- [x] Malformed or future state entries are distrusted; `listenBot` takes
+      only a valid bot name; boundaries tested.
+- [x] Dropped the unconditional bot-task `allow`: outside listen mode
+      those commands are judged as before.
+- [x] Docs: scope stated (the guard judges `wafflebase` calls only);
+      agent-runner.md § 5 contradiction resolved; accepted risk added to
+      Risks.
+
+## Self-review round 2
+
+- [x] Plugin self-protection gated on a hand-written writer list (critical
+      ×3): replaced by an allow-list of read-only programs; `node -e`,
+      `tar -x`, `git checkout`, quote-split `"rm"`, `find -delete` ask.
+- [x] Hidden calls: aliases (`doc`), a trailing `… | xargs wafflebase`,
+      an expanded subcommand (`wafflebase $sub`).
+- [x] `~/.wafflebase` protected by any path through it and by globs on
+      any segment, not a literal `.wafflebase/guard` substring.
+- [x] Consent prompt only for an exact `agent next`; `listenBot` skips
+      every value-taking option the table knows.
+- [x] PostToolUse ignores an interrupted call and requires a JSON object
+      with a `task` key; keep-alive tested.
+- [x] One file per session (no shared read-modify-write); a two-hour cap
+      per approval.
+- [x] Tests assert exact decisions instead of `not.toBe('allow')`.
+- Accepted, documented: a shell change made before listening started.
+
+## Review
+
+- 20 tests written first and seen failing; one existing test pinned the
+  old policy (replies and completions ask) and now states the new one.
+- Hook checked end to end with a temp HOME: a write asks before
+  listening, `agent next` records the session (file 0600, dir 0700), the
+  same write then runs, a delete is denied with the relay reason, and
+  another session still asks.
+- The `cd …/wafflebase/wafflebase` prompt was first left alone, then
+  fixed by "a mention is not a call" (second commit).

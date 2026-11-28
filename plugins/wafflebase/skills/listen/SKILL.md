@@ -23,8 +23,12 @@ server queues a task, and you pick it up here.
    `HTTP_ERROR` from `agent pair` means the code is wrong, used or
    expired (codes last 10 minutes): ask for a new one.
 3. State the limits once, then start listening:
-   - This session is dedicated to the bot while it listens. Press Esc to
-     talk to Claude; run `/wafflebase:listen <bot>` again to resume.
+   - The first `agent next` asks the user once: approving it starts
+     listening. From then on plain `wafflebase` reads and writes run
+     without asking, and what would ask is refused.
+   - This session is dedicated to the bot while it listens. Typing
+     anything here ends listening; run `/wafflebase:listen <bot>` again to
+     resume (it asks once more).
    - Tasks run one at a time and share this session's context.
    - The bot is *Offline* as soon as this session ends.
    - Only you (the bot's owner) can give it work for now.
@@ -43,9 +47,17 @@ server queues a task, and you pick it up here.
    server, so only you can steer this session.
 4. Do the work with the ordinary skills (`wafflebase`, `wafflebase-sheets`,
    `wafflebase-docs`, `wafflebase-slides`). Document reads and edits run as
-   the user's own login, not as the bot, and every write still asks the
-   user under the plugin's guard. Keep to what the message asked; when it
-   is unclear, ask in the reply instead of guessing.
+   the user's own login, not as the bot. While this session listens,
+   plain `wafflebase` reads and writes run without asking, and the plugin's
+   guard **denies** what cannot be undone or leaves the workspace — deletes,
+   whole-document replaces, local file reads and writes, credential and
+   sharing changes, `--server` / `--api-key` overrides, and anything that
+   is not one plain `wafflebase` command. When the guard denies a step, do
+   not look for another way to do it: say in the reply what the owner needs
+   to do by hand. Run each `wafflebase` command on its own, without pipes
+   or `&&`, and use no other shell commands for the task: the guard judges
+   only `wafflebase` calls, so anything else would stop and ask. Keep to what the message asked; when it is unclear, ask in the
+   reply instead of guessing.
 5. Reply through stdin with a quoted heredoc — never as a command-line
    argument: the answer is built from chat content, and the shell must
    never interpret it.

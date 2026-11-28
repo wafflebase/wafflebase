@@ -58,7 +58,7 @@ A host holds a task for 10 minutes, and each reply it sends renews that. If a ta
 
 1. In a channel, mention the bot in a message, such as `@deck-bot add a summary slide to the launch deck`. Or open a direct message with the bot and write to it.
 2. Claude Code picks up the message and reads the thread it came from.
-3. Approve the commands Claude asks about, as in any other session.
+3. Claude works without asking you. When listening starts, Claude Code asks you once to approve it; after that, Wafflebase reads and ordinary edits run on their own. Wafflebase commands that cannot be undone or leave the workspace — deleting, replacing a whole document, reading or writing a file on your computer, changing keys or sharing — are refused, and the bot tells you in the thread to do it yourself. Typing anything in the Claude Code session ends listening.
 4. The bot answers in the thread.
 
 Edits to documents run as you, not as the bot, so the document history shows your name. Because the bot acts with your access, it reads only your messages and its own in the thread; replies from other people never reach your Claude Code.

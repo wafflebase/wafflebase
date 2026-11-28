@@ -161,6 +161,36 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | Any command with `--server`, `--api-key`, `--profile`, `--frontend` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
+| `agent next` while the session is not listening | `ask`, always, naming what listening grants | Starting to listen is the consent; approving it is the only way in |
+| A `wafflebase` call while the session listens as a bot | `allow` for a plain read or write; `deny` (with the reason the bot relays) where it would otherwise `ask` | Nobody is at the prompt during listen mode; a refusal the bot reports beats a prompt nobody answers |
+
+**Listening.** It starts only after an approved `wafflebase agent next
+<bot>` actually ran and printed a task or `"task": null` — recorded in
+**PostToolUse**, so a call the user rejected, or one that failed, grants
+nothing, and so does an interrupted one. The guard keeps
+`{bot, at, startedAt}` in `~/.wafflebase/guard/<session>.json` — one file
+per session, so concurrent sessions never rewrite each other's record, in
+a directory of its own (0700, files 0600) that no bot's agent file can
+collide with. Another Claude Code session on the same machine is
+unaffected. Every plain `wafflebase` call that ran refreshes it; it lapses
+10 minutes after the last one, and one approval never lasts more than two
+hours however often the loop renews it. It **ends** on
+**UserPromptSubmit** — the loop runs inside one turn, so the user typing
+anything (Esc, then a message) takes the session back — and on
+**SessionEnd**. Any path through `~/.wafflebase` — the listen state and
+the bots' keys — is protected like the plugin itself, for Bash and the
+Write tool alike.
+
+Accepted: the shell-state rule cannot see what an *earlier* command did. A
+`PATH` change made before listening started, while nothing was granted
+and so nothing asked, decides what a later allowed call runs. This is the
+same class the read and write opt-ins already accept, and the consent
+prompt names what listening grants. A quoted heredoc (`<<'X'`) is stripped
+only when what precedes it is a single plain `wafflebase` call and
+nothing follows the first delimiter line, so a body cannot smuggle
+commands and `bash <<'X'` is never read as inert. The guard judges only
+`wafflebase` calls: other Bash in a listening session falls to the user's
+own rules, which is why the listen skill uses nothing else.
 
 "Simple" is strict, because an `allow` skips the user's prompt, and it
 is an **allow-list**, not a list of dangerous characters: the whole
@@ -186,12 +216,27 @@ between them is the whole design:
    to the user's rules or, opted in, is allowed; a write asks unless
    auto-approved; a delete always asks), and only here can anything be
    allowed.
-2. **Not exact, and names `wafflebase` anywhere** — asks. Reads
-   included, and without enumerating how the shell might hide a call:
-   a composition, a wrapper (known or not), a `VAR=` or `export` prefix,
-   a leading redirect, a substitution, an inner shell, an interpreter's
-   quoted string. When the guard can still classify the call it says
-   what the call is; otherwise the prompt says the command is not exact.
+2. **Not exact, and calls `wafflebase`** — asks. Reads included, and
+   without enumerating how the shell might hide a call: a composition, a
+   wrapper (known or not), a `VAR=` or `export` prefix, a leading
+   redirect, a substitution (also inside double quotes), an inner shell.
+   A *call* is a word that is the CLI (`wafflebase`, a path to it, or
+   `@wafflebase/cli`) followed by one of its subcommands or their aliases,
+   an option, or an expansion (`wafflebase $sub`) — or a bare
+   `wafflebase` that ends a wrapper's arguments (`… | xargs wafflebase`).
+   When the guard can still classify the call it says what the call is;
+   otherwise the prompt says the command is not exact.
+
+   **A mention is not a call** (changed in the listen-mode follow-up to
+   #1213). Until then any inexact command that *named* `wafflebase` asked —
+   a commit message, a `grep` pattern, a path such as
+   `cd …/wafflebase/wafflebase`. Once the plugin was installed in a
+   session that develops this repository, nearly every command asked, and
+   the prompts taught nothing. The cost of the change: a call spelled so
+   that no word is the CLI (`waffle"base"`, `${w}base`) is not seen —
+   such a call is never exact, so it is never *allowed* either, and falls
+   to the user's own Bash rules. An inner shell nested past the recursion
+   cap still asks on any mention.
 
 **Allowing is opt-in, for reads as well as writes.** Six review passes
 narrowed the gaps around an `allow` to one class the guard cannot close:
@@ -230,8 +275,13 @@ was tried and dropped: it prompted on `~/go/bin/tool` and
 
 The plugin's own files — its guard, its command table, its manifest —
 decide every later answer, so a Bash command that names them (raw, after
-quote-joining, or as a glob that could match one), the plugin's tree or
-`~/.claude/plugins` asks,
+quote-joining, or as a glob any path segment of which could match), the
+plugin's tree, `~/.claude/plugins` or `~/.wafflebase` asks — unless every
+program in it only reads: an allow-list (`cat`, `grep`, `ls`, `cd`,
+`head`, `diff`, `git log|show|diff|status`, `find` without
+`-exec`/`-delete`, …) with no write redirect. An allow-list because the
+programs that can write a file — interpreters, archivers, `git checkout`,
+editors — are too many to enumerate. Reading decides nothing,
 and the hook also registers on `Edit|Write|MultiEdit|NotebookEdit` to ask
 before any edit whose real path (symlinks resolved, also for a file not
 created yet) lies inside the plugin root. The name is also matched

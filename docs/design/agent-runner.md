@@ -523,6 +523,15 @@ bot". Where it departs from the sections above:
   `LISTEN agent_task` with a 1 s poll fallback. `botLastSeenAt` is set on
   every call and refreshed every 30 s while a wait is parked, so *Listening*
   (last seen under 60 s) holds through a 240 s wait.
+- **Listen mode prompts once.** This replaces § 5's "a write still asks"
+  and its `--as-bot` guard row: the first `agent next` asks the member to
+  start listening, and from then until they type in the session, plain
+  `wafflebase` reads and writes run without asking while everything the
+  guard would ask about — deletes, replaces, local files, credentials,
+  connection overrides, compositions — is *denied*, and the bot reports
+  the refusal in the thread ([claude-plugin.md](claude-plugin.md)
+  § Permission guard). The headless profile planned in § 9 for the runner
+  is the same policy and should reuse this code path.
 - **No `--as-bot`.** Bot chat I/O goes through `agent thread|reply|complete`,
   which are task-scoped: a bot can read only the thread of a task it holds
   and post only there. Document edits from listen mode run as the member's
@@ -599,6 +608,12 @@ phase 3 is a personal bot with a human watching; phase 4 is always-on.
 
 ## Risks
 
+- **Listen mode writes unattended.** Instructions hidden in a document's
+  *content* — not the thread, which the server filters to the invoker and
+  the bot — can reach writes the member no longer approves one by one.
+  They cannot reach anything the guard denies (deletes, replaces, local
+  files, credentials), every write is in the revision history, and the
+  member ends listening by typing in the session.
 - **Policy drift.** The terms can change; the credential table (§ 7) is the
   single place to update, and the runner guard is one function.
 - **Self-declared runner.** The server cannot verify which credential a

@@ -47,7 +47,7 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Command kind | What happens |
 | --- | --- |
 | Read-only (`list`, `get`, `content`, …), as one plain command | Your own Claude Code rules decide (a prompt by default); runs unprompted with **Auto-allow read-only commands** |
-| Any other command that names `wafflebase` — pipes, `&&`, wrappers, prefixes, substitutions | Asks, reads included |
+| Any other command that calls `wafflebase` — pipes, `&&`, wrappers, prefixes, substitutions (merely naming it, e.g. in a commit message or a path, is not a call) | Asks, reads included |
 | Writes (create, rename, set cells, import, …) | Asks first |
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
 | Exports / downloads that write a local file (`-` for stdout does not) | Always ask |
@@ -55,8 +55,10 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `webhooks create`/`update`/`enable`/`reveal-secret`/`rotate-secret`, `bots create`/`pair-code`, `agent pair` | Always ask |
 | Anything run with `--server`, `--api-key`, `--profile`, `--frontend` (slides render), or any `VAR=` prefix (chooses what runs or where your credentials go) | Always ask |
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
-| Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |
+| Anything that changes the plugin's own files (Bash, Edit or Write); reading them does not ask | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
+| Starting to listen as a bot (the first `agent next` of `/wafflebase:listen`) | Asks once — approving it is the consent |
+| `wafflebase` commands while the session listens, until you type in it again | Plain reads and writes run without asking; every "Always ask" or "Ask" row is **denied** instead, and the bot tells you in the thread to do it yourself |
 
 The classification comes from the CLI's own schema
 (`wafflebase schema`), generated into
