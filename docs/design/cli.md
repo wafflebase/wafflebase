@@ -173,7 +173,11 @@ the `exp` claim, converted to ISO 8601.
 ### 3. Authentication
 
 The CLI supports two authentication paths. OAuth is the default for
-developers; API keys are the path for CI and headless environments.
+developers; API keys are the path for CI and headless environments. A third,
+narrower credential belongs to bots: `wafflebase agent pair <code>` stores
+a bot key in `~/.wafflebase/agents/<bot>.json`, read only by the
+`agent` commands and never by `resolveConfig`
+([agent-runner.md](agent-runner.md) § 4).
 
 #### 3.1 Login flow (OAuth)
 

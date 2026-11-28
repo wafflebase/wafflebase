@@ -333,6 +333,10 @@ needs and links there for the rest.
   file (`.md` → note, `.csv` → sheet, `.docx` → doc, `.pptx` → deck,
   anything else → file upload), create it, print the link.
 - `/wafflebase:setup` — install / login / workspace walkthrough.
+- `/wafflebase:listen <bot | pairing-code>` — turn this session into the
+  host for one of the member's own bots: pair if given a code, then loop on
+  `wafflebase agent next` / `thread` / `reply` / `complete`. See
+  [agent-runner.md](agent-runner.md) § 5 and "MVP as built".
 
 ### Risks and Mitigation
 

@@ -513,6 +513,36 @@ people need to see it:
   backend's task creation with an env flag (`AGENT_TASKS_ENABLED=false`)
   until a UI for it is designed.
 
+## MVP as built
+
+The first PR ships phases 1–3 cut to "a member can chat with their own
+bot". Where it departs from the sections above:
+
+- **Long-poll, not SSE.** `GET /api/v1/workspaces/:wid/agent/tasks/next?wait=0..240`
+  claims the oldest queued task, waiting on one process-wide
+  `LISTEN agent_task` with a 1 s poll fallback. `botLastSeenAt` is set on
+  every call and refreshed every 30 s while a wait is parked, so *Listening*
+  (last seen under 60 s) holds through a 240 s wait.
+- **No `--as-bot`.** Bot chat I/O goes through `agent thread|reply|complete`,
+  which are task-scoped: a bot can read only the thread of a task it holds
+  and post only there. Document edits from listen mode run as the member's
+  own login until `--as-bot` lands with its guard row.
+- **Leases carry a holder.** `AgentTask.claimedByKeyId` records the claiming
+  host key; `reply` renews that lease, and another host gets 409. No
+  heartbeat yet: a host silent for over 10 minutes can lose the task.
+- **Owner-only, no bot→bot.** Only the bot's owner creates tasks (channel
+  mention or DM); a message written by a bot never does, so the hop cap is
+  not needed yet. A non-owner mention is silent.
+- **Removal.** Deleting a bot, or removing its owner from the workspace,
+  revokes its keys, drops its memberships and fails its open tasks; the
+  `User` row stays so messages keep the name. `agent pair` refuses to
+  overwrite a different bot's file of the same name without `--replace`.
+- **Sign-in refusal.** OAuth (`?error=bot_account`), CLI exchange, desktop
+  session and refresh all refuse `kind: "bot"`; a bot authenticates only by
+  key.
+- **Not yet:** the headless runner, people pairing, `Any member`, caps, the
+  task log, *Pause all bots*, and a non-owner notice.
+
 ## Phases
 
 1. **Bot members + chat API** (chat.md P3 subset): `User.kind/botOwnerId/

@@ -78,6 +78,7 @@ model AgentTask {
   threadRootId     String                      // trigger.threadRootId ?? trigger.id
   status           String    @default("queued") // queued|claimed|done|failed
   claimedAt        DateTime?
+  claimedByKeyId   String?                     // the host (ApiKey) holding the claim (review round)
   leaseExpiresAt   DateTime?
   createdAt        DateTime  @default(now())
   finishedAt       DateTime?
@@ -135,8 +136,8 @@ user is `kind: "bot"`:
 | --- | --- |
 | `GET agent/tasks/next?wait=<0..240>` | `{ task: AgentTaskDto \| null }` — claims the oldest queued task (lease 10 min; an expired claimed lease is re-queued first); waits up to `wait` s; sets `botLastSeenAt` on every call |
 | `GET agent/tasks/:taskId/thread` | `ChatMessageDto[]` of the task's thread (root + replies, oldest first), only for a task of this bot |
-| `POST agent/tasks/:taskId/reply` `{ body }` | `ChatMessageDto` posted **as the bot** in the task's channel/thread, `agentTaskId` set |
-| `POST agent/tasks/:taskId/complete` `{ status: 'done' \| 'failed' }` | 204 |
+| `POST agent/tasks/:taskId/reply` `{ body }` | `ChatMessageDto` posted **as the bot** in the task's channel/thread, `agentTaskId` set; renews the caller's lease (or re-claims a re-queued task); 409 when finished or another host holds it |
+| `POST agent/tasks/:taskId/complete` `{ status: 'done' \| 'failed' }` | 204 (also when already finished); 409 when another host holds it |
 
 ```ts
 interface AgentTaskDto {
@@ -173,11 +174,11 @@ member); a private channel or DM needs the bot to already be a member.
 
 | Command | Auth | Safety |
 | --- | --- | --- |
-| `bots list` | session/key | read-only |
+| `bots list` | session | read-only |
 | `bots create <name>` | session | write, never auto-approve |
 | `bots delete <name-or-id>` | session | destructive |
 | `bots pair-code <name-or-id>` | session | write, never auto-approve |
-| `agent pair <code> [--host-name <n>]` | none (posts to `<server>/auth/pair`) | write, never auto-approve |
+| `agent pair <code> [--host-name <n>] [--replace]` | none (posts to `<server>/auth/pair`) | write, never auto-approve |
 | `agent list` | local | read-only |
 | `agent next <bot> [--wait <s>]` | agent file | read-only (it claims, but changes nothing a person sees) |
 | `agent thread <bot> <taskId>` | agent file | read-only |
@@ -241,13 +242,87 @@ imports beyond what exists.
 
 ## Plan
 
-- [ ] Foundation: schema + migration + `prisma generate`; `pnpm backend test` still green
-- [ ] Parallel: backend-bots, backend-tasks, cli-plugin, frontend (tests first in each)
-- [ ] Integrate: `pnpm verify:fast`; backend e2e on a scratch DB
+- [x] Foundation: schema + migration + `prisma generate`; `pnpm backend test` still green
+- [x] Parallel: backend-bots, backend-tasks, cli-plugin, frontend (tests first in each)
+- [x] Integrate: `pnpm verify:fast`; backend e2e on a scratch DB
       (`wafflebase_bots_e2e`, never the dev DB); CLI → backend smoke
-- [ ] Review: authority/security lens + cross-package contract lens; fix
+- [x] Review: authority/security lens + cross-package contract lens; fix
 - [ ] agent-runner.md "MVP as built"; docs page; `pnpm verify:self`; PR
 
-## Review
+## Integration notes
 
-(to fill in)
+Cross-package pass (backend routes and DTOs, CLI `url.ts` / `http-client.ts`
+/ `commands/{bots,agent}.ts`, frontend `api/bots.ts`, `skills/listen`):
+paths, bodies (`{ name }`, `{ code, hostName }`, `{ body }`,
+`{ status }`), `?wait=` and response shapes all line up. Fixed:
+
+- Frontend `BotDto.owner` is now `{…} | null`, matching the backend
+  (`botOwnerId` is `onDelete: SetNull`); the Bots table shows "—" and only
+  a workspace owner can manage such a bot (test added).
+- Login page explains `?error=bot_account` (test added).
+- `WorkspaceService.removeMember` now removes the bots the removed member
+  owns in that workspace, in the same transaction (membership, keys, unused
+  codes, chat rows, bell rows, `member.removed`), per chat.md § Bot
+  Members. Without it a removed member's paired host kept a read/write key
+  into the workspace. Unit tests + an e2e case added.
+
+Verified:
+
+- `pnpm verify:fast` passes (after `pnpm --filter @wafflebase/docs build`).
+- Backend e2e on `wafflebase_bots_e2e`: `workspace-bots` (9 tests, full loop
+  create → code → `/auth/pair` → owner mention → next → thread → reply
+  as bot with `agentTaskId` → complete; non-owner mention → no task; DM;
+  NOTIFY wake; race; lease; authority; owner removal) plus `chat`,
+  `chat-document-refs`, `chat-bus`, `api-key-http`, `authenticated-http`:
+  6 suites, 108 tests pass.
+- Live smoke: built backend on :3110 against the scratch DB, built CLI with
+  a temp `HOME` and a decoy `WAFFLEBASE_API_KEY`: `agent pair` (file 0600,
+  dir 0700, key never printed) → owner mention wakes a parked
+  `agent next --wait 30` → `thread` → `reply --body-file` (author kind
+  bot) → `complete` → `next` null → late reply 409 → bot deleted →
+  `next` gives `AUTH_ERROR` with the re-pair hint.
+
+Remaining (for the Review step):
+
+- Contract says `bots list` works with a session or a key; the routes are
+  `JwtAuthGuard` only (as the HTTP table says), so a key gets 401. The docs
+  already call `bots` session-only; the CLI table above is the stale side.
+- ~~`agent reply --body-file` auto-approvable~~ — fixed in the review
+  round below.
+- ~~Deleting a bot leaves its queued `AgentTask` rows~~ — both removal paths
+  (bot delete, owner removed) now fail open tasks (tests in bot and
+  workspace service specs).
+- `docs/design/agent-runner.md` "MVP as built", `docs/design/cli.md` and
+  `docs/design/claude-plugin.md` still need the bots/agent/listen notes.
+- Frontend `tsc -p tsconfig.app.json` reports 149 errors, all in files this
+  branch did not touch (stale slides/sheets/board dist); not in verify:fast.
+
+## Review round
+
+Fixed:
+
+- P1 (authority-security, contract-correctness — same finding twice):
+  `agent reply --body-file <path>` was auto-approvable, so a thread line
+  could get any local file posted into chat. `--body-file` joined
+  `LOCAL_INPUT_OPTIONS` (`packages/cli/src/plugin/safety-table.ts`);
+  `command-safety.json` regenerated; a path always asks, `-` stays
+  auto-approvable. The listen skill now replies with a single-quoted
+  `<body>` argument and keeps `--body-file` for text holding a `'`. Test:
+  `plugin.test.ts` "never auto-approves uploading a local file".
+- P2 agent file keyed by name only: `agent pair` now refuses
+  (`AGENT_NAME_TAKEN`, file untouched) when `<botName>.json` holds a
+  different bot (server, workspaceId or botId differ) unless `--replace`.
+  A re-pairing of the same bot still overwrites. The path stays
+  `<botName>.json` as the contract fixes it. Tests: `agent.test.ts` pair
+  (re-pair, other workspace, other server, `--replace`).
+- P2 lease with no holder: `AgentTask.claimedByKeyId` (added to the
+  branch's own `20261128000000_workspace_bots` migration) records the
+  claiming key. `reply` renews the holder's lease (or re-claims a task its
+  lapsed lease re-queued) and is 409 once another host claimed it;
+  `complete` is 409 for a task another host holds, still a no-op once
+  finished. The listen skill and `bots.md` describe the 10-minute lease
+  and the 409. Tests: `agent-task.service.spec.ts` reply/complete,
+  `agent-tasks.controller.spec.ts`, and the e2e "lets only the host
+  holding a task answer it once its lease passed on".
+
+Rejected: none.

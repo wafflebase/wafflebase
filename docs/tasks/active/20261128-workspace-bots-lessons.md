@@ -1,3 +1,24 @@
 # Workspace Bots MVP — Lessons
 
 Paired with [20261128-workspace-bots-todo.md](20261128-workspace-bots-todo.md).
+
+## A written contract made four parallel implementers agree
+
+Backend (two implementers), CLI + plugin, and frontend were built at the
+same time against `20261128-workspace-bots-todo.md`. The integrator's
+cross-package pass found route paths, bodies and response shapes already
+lined up; the only drift was a nullable `owner` the backend chose for a
+real reason and reported as a deviation.
+
+**Rule:** before a parallel build, fix every cross-package shape, the
+ownership of each file, and "report, don't improvise" in one shared file —
+and have a single foundation step own the schema so nobody races on it.
+
+## Implementers' open problems are the review's best leads
+
+The `agent reply --body-file` auto-approve hole was first raised by the
+CLI implementer as an open problem, then confirmed by both review lenses.
+The `botLastSeenAt` vs 60 s *Listening* tension was raised by the frontend
+implementer and fixed in the backend. **Rule:** ask every implementer for
+"deviations" and "open problems" in a structured report, and feed them to
+the integrator and reviewers verbatim.
