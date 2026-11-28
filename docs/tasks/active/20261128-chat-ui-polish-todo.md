@@ -30,3 +30,9 @@ lines, and a pass over the chat surfaces (Chat page, thread, the editor's
 - A thread deep link focuses the channel composer, not the thread's.
 
 ## Review
+
+Self-review ran 3 rounds. Round 1 caught a late-draft caret gap; its fix
+(re-running autofocus on draft swaps) was itself caught in round 2 as
+focus-stealing and replaced with a focused-box guard. Round 3 was clean.
+Verified in the browser at 1103px (page + thread), 320px editor panel and
+a 720px mobile-layout thread; chat tests green.

@@ -28,3 +28,7 @@
 - Lesson: before "fixing" a reviewer's case, check whether the platform
   already handles it. The value setter moves the caret, so the first fix
   added a side effect (refocus) to cover a path that was never broken.
+- Round 3: clean — no blocking findings; both rebuttals overturned the
+  findings they answered. Minors (container-name coupling for the Files
+  label, untested container-query classes, no tooltip on a truncated
+  channel name) go to the PR body as known limitations.
