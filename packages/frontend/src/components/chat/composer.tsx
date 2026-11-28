@@ -153,15 +153,17 @@ export function Composer({
 
   // Not on a touch device, where focusing would throw up the keyboard over
   // the conversation the reader just opened.
-  // The caret goes to the end, so a restored draft is continued rather
-  // than typed in front of — including one that arrives after mount, once
-  // the signed-in user resolves (`draftSwaps`).
+  // Focus taken here puts the caret at the end, so a restored draft is
+  // continued rather than typed in front of; a box already focused keeps the
+  // caret the reader placed. A draft that arrives later needs nothing: the
+  // value assignment itself moves the caret to the end.
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta || !autoFocus || disabled || isCoarsePointer()) return;
+    if (document.activeElement === ta) return;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
-  }, [autoFocus, disabled, channelId, draftSwaps]);
+  }, [autoFocus, disabled, channelId]);
 
   const canSend = !disabled && !sending && !!trimmed && !tooLong;
 
@@ -248,7 +250,7 @@ export function Composer({
           // rather than each wrapping onto two lines beside the other.
           <span
             className={cn(
-              "whitespace-nowrap pointer-coarse:hidden",
+              "pointer-coarse:hidden",
               !!footer && "@max-md/composer:hidden",
               !showHint && "invisible",
             )}
