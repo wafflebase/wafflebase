@@ -153,10 +153,13 @@ export function Composer({
 
   // Not on a touch device, where focusing would throw up the keyboard over
   // the conversation the reader just opened.
+  // The caret goes to the end, so a restored draft is continued rather
+  // than typed in front of.
   useEffect(() => {
-    if (autoFocus && !disabled && !isCoarsePointer()) {
-      textareaRef.current?.focus();
-    }
+    const ta = textareaRef.current;
+    if (!ta || !autoFocus || disabled || isCoarsePointer()) return;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
   }, [autoFocus, disabled, channelId]);
 
   const canSend = !disabled && !sending && !!trimmed && !tooLong;
@@ -183,7 +186,7 @@ export function Composer({
   const hasFooterContent = !!disabledReason || tooLong || !!footer;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="@container/composer flex flex-col gap-1.5">
       <div
         className={cn(
           "relative flex items-end gap-1 rounded-md border border-input-border bg-background p-1 transition-[color,box-shadow]",
@@ -228,7 +231,7 @@ export function Composer({
           never pushes the conversation up. */}
       <div
         className={cn(
-          "flex min-h-5 items-center justify-between gap-2 text-xs text-muted-foreground",
+          "flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground",
           !hasFooterContent && "pointer-coarse:hidden",
         )}
       >
@@ -240,8 +243,14 @@ export function Composer({
             {CHAT_BODY_MAX.toLocaleString()} limit
           </span>
         ) : (
+          // In a column too narrow for both, the hint yields to the footer
+          // rather than each wrapping onto two lines beside the other.
           <span
-            className={cn("pointer-coarse:hidden", !showHint && "invisible")}
+            className={cn(
+              "whitespace-nowrap pointer-coarse:hidden",
+              !!footer && "@max-md/composer:hidden",
+              !showHint && "invisible",
+            )}
           >
             Enter to send · Shift+Enter for new line
           </span>
