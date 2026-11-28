@@ -83,7 +83,7 @@ above are enforced by the hook rather than left to the model.
 | Setting | Effect |
 | --- | --- |
 | `WAFFLEBASE_WEB_URL` (env) | Web app origin for document links, when the guess from the API server is wrong |
-| `WAFFLEBASE_API_KEY` (env) | Use a workspace API key instead of `wafflebase login` |
+| `WAFFLEBASE_API_KEY` + `WAFFLEBASE_WORKSPACE` (env) | Use a workspace API key instead of `wafflebase login`. Settings → API keys prints both lines when it creates the key |
 | Auto-allow read-only commands (plugin option) | See Safety |
 | Auto-approve document writes (plugin option) | See Safety |
 

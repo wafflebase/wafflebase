@@ -406,7 +406,7 @@ describe("WorkspaceSettings API keys", () => {
     // member too — the server is what narrows the list to their own keys.
     await waitFor(() => expect(keyRow(MEMBER_KEY.name)).toBeTruthy());
     expect(vi.mocked(fetchApiKeys)).toHaveBeenCalledWith("acme");
-    expect(screen.getByText("API keys")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API keys" })).toBeTruthy();
     expect(screen.getByText("Create API key")).toBeTruthy();
 
     expect(
@@ -439,7 +439,58 @@ describe("WorkspaceSettings API keys", () => {
     );
   });
 
-  it("lets a non-owner member revoke their own key", async () => {
+  it("hands over the CLI setup lines with a new key, and keeps it on Escape", async () => {
+    vi.mocked(createApiKey).mockResolvedValue({
+      id: "k-new",
+      name: "Laptop",
+      prefix: "wfb_k-new",
+      key: "wfb_k-new_secret",
+    });
+    renderAs(MEMBER.user.id);
+
+    await waitFor(() => expect(screen.getByText("Create API key")).toBeTruthy());
+    await userEvent.click(screen.getByText("Create API key"));
+    await userEvent.type(screen.getByLabelText("API key name"), "Laptop");
+    await userEvent.click(screen.getByText("Create"));
+
+    const dialog = await screen.findByRole("dialog", { name: "API key created" });
+    // The workspace id, not the slug: renaming the URL must not break a
+    // script that was set up from this dialog.
+    const setup = within(dialog).getByLabelText("CLI setup");
+    expect(setup.textContent).toContain(
+      "export WAFFLEBASE_API_KEY=wfb_k-new_secret",
+    );
+    expect(setup.textContent).toContain(
+      `export WAFFLEBASE_WORKSPACE=${WORKSPACE.id}`,
+    );
+
+    // Escape (or a stray click outside) must not throw the key away.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "API key created" })).toBeTruthy();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "API key created" })).toBeNull(),
+    );
+  });
+
+  it("links each long section from an index at the top", async () => {
+    renderAs(MEMBER.user.id, [MEMBER_KEY]);
+
+    const nav = await screen.findByRole("navigation", { name: "Settings sections" });
+    for (const [label, id] of [
+      ["Members", "members"],
+      ["API keys", "api-keys"],
+      ["Data sources", "datasources"],
+      ["Webhooks", "webhooks"],
+    ]) {
+      const link = within(nav).getByRole("link", { name: label });
+      expect(link.getAttribute("href")).toBe(`#${id}`);
+      expect(document.getElementById(id)).toBeTruthy();
+    }
+  });
+
+  it("lets a non-owner member revoke their own key, after confirming", async () => {
     vi.mocked(revokeApiKey).mockResolvedValue(undefined);
     renderAs(MEMBER.user.id, [MEMBER_KEY]);
 
@@ -447,6 +498,13 @@ describe("WorkspaceSettings API keys", () => {
       within(keyRow(MEMBER_KEY.name)).getByLabelText("Revoke API key"),
     );
     await userEvent.click(button);
+
+    // The trash can only opens the confirmation; nothing is revoked yet.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(`Revoke ${MEMBER_KEY.name}`)).toBeTruthy();
+    expect(vi.mocked(revokeApiKey)).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
     await waitFor(() =>
       expect(vi.mocked(revokeApiKey)).toHaveBeenCalledWith(

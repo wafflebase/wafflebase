@@ -134,7 +134,7 @@ export WAFFLEBASE_WEB_URL=https://office.example.com
 | Setting | Effect |
 |---|---|
 | `WAFFLEBASE_WEB_URL` | Web app address for document links. A path is kept, for an app served under one. |
-| `WAFFLEBASE_API_KEY` | Use a workspace API key instead of `wafflebase login`. Also set `WAFFLEBASE_WORKSPACE`. |
+| `WAFFLEBASE_API_KEY` | Use a workspace API key instead of `wafflebase login`. Also set `WAFFLEBASE_WORKSPACE`; Settings → API keys prints both lines when it creates the key. |
 | **Auto-allow read-only commands** | See [Turn on auto-approval](#turn-on-auto-approval). |
 | **Auto-approve document writes** | See [Turn on auto-approval](#turn-on-auto-approval). |
 

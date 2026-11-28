@@ -373,26 +373,7 @@ export async function runLogin(
   );
 
   // 8. Select workspace
-  let activeWorkspace = '';
-  if (workspaces.length === 0) {
-    console.log('No workspaces found.');
-  } else if (workspaces.length === 1) {
-    activeWorkspace = workspaces[0].id;
-    console.log(`Workspace: ${workspaces[0].name}`);
-  } else {
-    console.log('Select a workspace:');
-    workspaces.forEach((ws, i) => {
-      console.log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
-    });
-    const choice = await ask('Enter number: ');
-    const idx = parseInt(choice, 10) - 1;
-    if (idx >= 0 && idx < workspaces.length) {
-      activeWorkspace = workspaces[idx].id;
-    } else {
-      activeWorkspace = workspaces[0].id;
-      console.log(`Invalid choice, using ${workspaces[0].name}.`);
-    }
-  }
+  const activeWorkspace = await chooseWorkspace(workspaces, ask, console.log);
 
   // 9. Save session
   const session: Session = {
@@ -407,6 +388,48 @@ export async function runLogin(
 
   deps.saveSession(session);
   console.log(`Logged in as ${user.username}.`);
+}
+
+/** How many answers `chooseWorkspace` takes before settling on the first. */
+const WORKSPACE_CHOICE_ATTEMPTS = 3;
+
+/**
+ * Picks the workspace a fresh login starts in. A mistyped number asks again
+ * rather than silently landing in the first workspace — the one a later
+ * `WAFFLEBASE_WORKSPACE`-less command would then write to. After
+ * `WORKSPACE_CHOICE_ATTEMPTS` misses it does take the first, so the login
+ * the user just completed in the browser is never thrown away, and says how
+ * to change it.
+ */
+export async function chooseWorkspace(
+  workspaces: ReadonlyArray<{ id: string; name: string }>,
+  askFn: (prompt: string) => Promise<string>,
+  log: (line: string) => void,
+): Promise<string> {
+  if (workspaces.length === 0) {
+    log('No workspaces found.');
+    return '';
+  }
+  if (workspaces.length === 1) {
+    log(`Workspace: ${workspaces[0].name}`);
+    return workspaces[0].id;
+  }
+  log('Select a workspace:');
+  workspaces.forEach((ws, i) => {
+    log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
+  });
+  for (let attempt = 1; attempt <= WORKSPACE_CHOICE_ATTEMPTS; attempt++) {
+    const choice = (await askFn('Enter number: ')).trim();
+    const idx = /^\d+$/.test(choice) ? Number(choice) - 1 : -1;
+    if (idx >= 0 && idx < workspaces.length) return workspaces[idx].id;
+    if (attempt < WORKSPACE_CHOICE_ATTEMPTS) {
+      log(`Enter a number from 1 to ${workspaces.length}.`);
+    }
+  }
+  log(
+    `Using ${workspaces[0].name}. Change it later with \`wafflebase ctx switch <name-or-id>\`.`,
+  );
+  return workspaces[0].id;
 }
 
 function ask(prompt: string): Promise<string> {

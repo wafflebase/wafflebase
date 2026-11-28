@@ -16,7 +16,8 @@ step and stop at the first one that needs the user.
      or `wafflebase docs list` succeeds → authenticated; go on to step 3.
    - `loggedIn: false` otherwise → ask the user to run `! wafflebase login` (it
      opens a browser; pass `--server <url>` for a self-hosted server), or
-     to set `WAFFLEBASE_API_KEY` for a workspace API key.
+     to set `WAFFLEBASE_API_KEY` and `WAFFLEBASE_WORKSPACE` for a workspace
+     API key (Settings → API keys prints both lines when it creates the key).
    - `session: "expired"` → the CLI refreshes it on the next call; only
      if step 4 fails with `AUTH_ERROR`, ask for `! wafflebase login`.
 3. `wafflebase ctx list` → show the workspaces; mark the active one. Offer
