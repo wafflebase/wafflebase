@@ -18,6 +18,7 @@ import {
   WorkspaceService,
 } from '../workspace/workspace.service';
 import type { BotDto, PairingCodeDto, PairResultDto } from './bot.dto';
+import { AGENT_SCOPE } from '../api-key/agent-key-scope';
 
 /** A bot's name: also its `username` and what `@` mentions show. */
 const BOT_NAME = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -167,12 +168,15 @@ export class BotService {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-names:${workspaceId}`}))`;
         const clash = await tx.workspaceMember.findFirst({
-          where: { workspaceId, user: { kind: 'bot', username: name } },
+          where: {
+            workspaceId,
+            user: { username: { equals: name, mode: 'insensitive' } },
+          },
           select: { userId: true },
         });
         if (clash) {
           throw new ConflictException(
-            `A bot named "${name}" already exists in this workspace`,
+            `A member named "${name}" already exists in this workspace`,
           );
         }
 
@@ -356,9 +360,9 @@ export class BotService {
 
     const hostName =
       rawHostName.trim().slice(0, HOST_NAME_MAX).trim() || 'Unnamed host';
+    // `agent`, not read/write: the host reaches the task routes only.
     const key = await this.apiKeyService.create(bot.id, workspaceId, hostName, [
-      'read',
-      'write',
+      AGENT_SCOPE,
     ]);
     return {
       botId: bot.id,

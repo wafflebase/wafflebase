@@ -527,6 +527,14 @@ bot". Where it departs from the sections above:
   which are task-scoped: a bot can read only the thread of a task it holds
   and post only there. Document edits from listen mode run as the member's
   own login until `--as-bot` lands with its guard row.
+- **Bot keys reach the task routes only.** Pairing mints a key with the
+  `agent` scope instead of `read`/`write`; `ApiKeyAuthGuard` refuses it on
+  any controller not marked `@AgentKeyRoute()`, so a key on a host
+  Wafflebase does not control cannot read documents or files.
+- **Bot names are unique among all members** (case-insensitive), so a bot
+  cannot borrow a person's name in chat.
+- **Removing a member** says in its dialog how many bots go with them and
+  counts private channels only they and their bots share.
 - **Leases carry a holder.** `AgentTask.claimedByKeyId` records the claiming
   host key; `reply` renews that lease, and another host gets 409. No
   heartbeat yet: a host silent for over 10 minutes can lose the task.

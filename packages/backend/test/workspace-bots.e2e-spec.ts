@@ -173,6 +173,8 @@ describeDb('Workspace bots integration', () => {
     );
 
     const host = withKey(bot.apiKey);
+    // The host key reaches the task routes and nothing else in /api/v1.
+    await host.get(`/api/v1/workspaces/${wid}/documents`).expect(403);
     const { body: next } = await host
       .get(`${tasks(wid)}/next?wait=0`)
       .expect(200);

@@ -206,7 +206,9 @@ describe('BotService', () => {
       });
     });
 
-    it('answers 409 when an active bot of the workspace has the name', async () => {
+    // A bot named after a person would read as that person in chat, Bot
+    // badge or not, so the name is unique among every member here.
+    it('answers 409 when any member of the workspace has the name', async () => {
       const { service, prisma } = harness();
       prisma.workspaceMember.findFirst.mockResolvedValue({ userId: 51 });
 
@@ -216,7 +218,7 @@ describe('BotService', () => {
       expect(prisma.workspaceMember.findFirst).toHaveBeenCalledWith({
         where: {
           workspaceId: WS,
-          user: { kind: 'bot', username: 'deck-bot' },
+          user: { username: { equals: 'deck-bot', mode: 'insensitive' } },
         },
         select: { userId: true },
       });
@@ -422,7 +424,7 @@ describe('BotService', () => {
         BOT,
         WS,
         'MacBook Pro',
-        ['read', 'write'],
+        ['agent'],
       );
       expect(result).toEqual({
         botId: BOT,

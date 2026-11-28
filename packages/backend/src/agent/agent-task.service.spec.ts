@@ -223,6 +223,38 @@ describe('AgentTaskService', () => {
       expect(service.waiting).toBe(0);
     });
 
+    it('claims nothing for a caller already gone', async () => {
+      const { service, prisma } = setup({ claims: ['t1'] });
+      const abort = new AbortController();
+      abort.abort();
+      await expect(service.next(BOT, 'w1', 0, abort.signal)).resolves.toBeNull();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('hands a task back when the caller left while it was claimed', async () => {
+      // A claim that lands after the client hung up would otherwise sit
+      // on its lease for ten minutes with nobody working it.
+      const { service, prisma } = setup({ claims: ['t1'] });
+      const abort = new AbortController();
+      const claim = prisma.$queryRaw.getMockImplementation()!;
+      prisma.$queryRaw.mockImplementation((...args: unknown[]) => {
+        abort.abort();
+        return claim(...(args as []));
+      });
+      await expect(
+        service.next(BOT, 'w1', 0, abort.signal, 'key-1'),
+      ).resolves.toBeNull();
+      expect(prisma.agentTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 't1', status: 'claimed', claimedByKeyId: 'key-1' },
+        data: {
+          status: 'queued',
+          claimedAt: null,
+          claimedByKeyId: null,
+          leaseExpiresAt: null,
+        },
+      });
+    });
+
     it('leaves no waiter behind after a timeout', async () => {
       const { service } = setup();
       await service.next(BOT, 'w1', 50);

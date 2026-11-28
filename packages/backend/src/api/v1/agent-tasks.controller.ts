@@ -25,6 +25,7 @@ import {
 } from '../../agent/agent-task.dto';
 import { ChatMessageDto } from '../../chat/chat.types';
 import { UserThrottlerGuard } from '../../notification/user-throttler.guard';
+import { AgentKeyRoute } from '../../api-key/agent-key-scope';
 
 /**
  * The pace of a bot's replies: the bound `ChatController` puts on a
@@ -43,6 +44,7 @@ const REPLY_THROTTLE = { default: { ttl: 10_000, limit: 30 } };
  * has no queue. A task of another bot is 404, as an unknown one is.
  */
 @Controller('api/v1/workspaces/:workspaceId/agent/tasks')
+@AgentKeyRoute()
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1AgentTasksController {
   constructor(private readonly tasks: AgentTaskService) {}

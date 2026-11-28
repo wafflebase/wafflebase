@@ -141,7 +141,14 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     let touchedAt = Date.now();
     const deadline = Date.now() + waitMs;
     for (;;) {
+      if (signal?.aborted) return null;
       const task = await this.claim(botId, workspaceId, apiKeyId ?? null);
+      if (task && signal?.aborted) {
+        // The caller left while the claim ran: nobody will read this answer,
+        // so hand the task back rather than let it sit out its lease.
+        await this.release(task.id, apiKeyId ?? null);
+        return null;
+      }
       if (task) return task;
       const remaining = deadline - Date.now();
       if (remaining <= 0 || signal?.aborted || this.stopped) return null;
@@ -286,6 +293,18 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
    * different row or none. Times are UTC, as the `timestamp(3)` columns hold
    * them.
    */
+  private async release(taskId: string, apiKeyId: string | null) {
+    await this.prisma.agentTask.updateMany({
+      where: { id: taskId, status: 'claimed', claimedByKeyId: apiKeyId },
+      data: {
+        status: 'queued',
+        claimedAt: null,
+        claimedByKeyId: null,
+        leaseExpiresAt: null,
+      },
+    });
+  }
+
   private async claim(
     botId: number,
     workspaceId: string,

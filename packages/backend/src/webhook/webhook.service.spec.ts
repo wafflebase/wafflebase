@@ -149,6 +149,7 @@ function createMockPrisma(state: { webhook: Row }) {
       ),
     },
     user: {
+      findMany: jest.fn(() => Promise.resolve([] as { id: number }[])),
       findUnique: jest.fn((args: { where: { id: number } }) =>
         Promise.resolve({
           id: args.where.id,
@@ -615,12 +616,41 @@ describe('WebhookService', () => {
       expect(await service.removalImpact(WS, OWNER, 3)).toEqual({
         privateChannelsDeleted: 2,
         webhooksDisabled: 1,
+        botsRemoved: 0,
       });
       expect(prisma.chatChannel.count).toHaveBeenCalledWith({
         where: {
           workspaceId: WS,
           kind: 'private',
-          members: { some: { userId: 3 }, every: { userId: 3 } },
+          members: { some: { userId: 3 }, every: { userId: { in: [3] } } },
+        },
+      });
+    });
+
+    // Their bots leave with them (WorkspaceService.removeMember), so a
+    // private channel holding only them and their bots empties too.
+    it('counts the bots they own and the channels only they and those bots share', async () => {
+      prisma.user.findMany.mockResolvedValue([{ id: 50 }, { id: 51 }]);
+      expect(await service.removalImpact(WS, OWNER, 3)).toMatchObject({
+        botsRemoved: 2,
+      });
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: {
+          kind: 'bot',
+          botOwnerId: 3,
+          botWorkspaceId: WS,
+          workspaceMembers: { some: { workspaceId: WS } },
+        },
+        select: { id: true },
+      });
+      expect(prisma.chatChannel.count).toHaveBeenCalledWith({
+        where: {
+          workspaceId: WS,
+          kind: 'private',
+          members: {
+            some: { userId: 3 },
+            every: { userId: { in: [3, 50, 51] } },
+          },
         },
       });
       expect(prisma.webhook.count).toHaveBeenCalledWith({

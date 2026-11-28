@@ -22,3 +22,11 @@ The `botLastSeenAt` vs 60 s *Listening* tension was raised by the frontend
 implementer and fixed in the backend. **Rule:** ask every implementer for
 "deviations" and "open problems" in a structured report, and feed them to
 the integrator and reviewers verbatim.
+
+## Self-review log
+
+- Round 1: blocked on 5 (correctness, security ×2, blast-radius ×2). Fixed
+  all: a claim whose caller left is released; bot keys scoped to the agent
+  routes (`agent` scope + `@AgentKeyRoute()`); bot names unique among all
+  members; member-removal impact counts owned bots and the private channels
+  they share. Tests first for each; scratch-DB e2e 86/86.
