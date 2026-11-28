@@ -44,3 +44,8 @@ was proposed, and (4) only strip shell syntax you can prove is inert.
 - Tooling trap: in a Node `String.replace` replacement string, `$\``
   inserts the text before the match. A regex containing `[$\`]` was
   silently mangled. Use a replacer function, `s.replace(a, () => b)`.
+- Self-review round 3 (the bound): security and blast-radius failed on
+  infrastructure and did not review; the four blocking findings shown were
+  round-2 findings carried forward, all already fixed (`MUTATES` removed,
+  exact decisions asserted, keep-alive tested, per-session files), with
+  the verifier erroring on them. Stopped at the bound; recorded in the PR.

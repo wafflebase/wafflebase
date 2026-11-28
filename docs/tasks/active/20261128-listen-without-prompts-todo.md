@@ -35,7 +35,7 @@ workspace is **denied** (the bot says so in the thread) instead of asked.
 - [x] Shell-state changes ask whenever the guard would otherwise grant
       without the user's opt-in (bot task commands, listening)
 - [x] Listen skill, plugin README Safety table, docs page, design docs
-- [ ] `pnpm verify:fast`; `/self-review`; PR (no merge)
+- [x] `pnpm verify:fast`; `/self-review` (3 rounds, bound); PR (no merge)
 
 ## Also in this PR (maintainer, 2026-11-28: "the boundary is too inconvenient")
 
