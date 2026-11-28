@@ -28,6 +28,7 @@ import { TemplateModule } from './template/template.module';
 import { DemoResetModule } from './demo-reset/demo-reset.module';
 import { ChatModule } from './chat/chat.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { BotModule } from './bot/bot.module';
 
 @Module({
   imports: [
@@ -129,6 +130,7 @@ import { WebhookModule } from './webhook/webhook.module';
     DemoResetModule,
     ChatModule,
     WebhookModule,
+    BotModule,
     // Wires the SDK that `instrument.ts` already initialized into Nest's
     // lifecycle, so spans carry the handler that produced them. A no-op when
     // no `SENTRY_DSN` was configured — `Sentry.init` was never called, and the

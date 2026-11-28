@@ -14,6 +14,7 @@ import {
   ChatSharedInDto,
   ChatUserSummary,
 } from './chat.types';
+import { toUserSummary, USER_SUMMARY_SELECT } from './chat-user';
 
 /**
  * Document cards (`docs/design/chat.md` § Document Cards and Anchors): the
@@ -311,10 +312,10 @@ export class ChatDocumentRefService {
         ? []
         : await this.prisma.user.findMany({
             where: { id: { in: authorIds } },
-            select: { id: true, username: true, photo: true },
+            select: USER_SUMMARY_SELECT,
           });
     const byId = new Map<number, ChatUserSummary>(
-      authors.map((a) => [a.id, a]),
+      authors.map((a) => [a.id, toUserSummary(a)]),
     );
     const files = page.map((r) => ({
       documentId: r.documentId,

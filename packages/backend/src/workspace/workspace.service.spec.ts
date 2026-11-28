@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
-import { WorkspaceService } from './workspace.service';
+import { BOT_PRIVATE_FIELDS, WorkspaceService } from './workspace.service';
 import { CHAT_NOTIFY_CHANNEL, memPayload } from '../chat/chat-bus';
 import type { WebhookEventService } from '../webhook/webhook-event.service';
 
@@ -58,6 +58,15 @@ function createMockPrisma() {
     },
     notification: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    user: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    botPairingCode: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    agentTask: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $executeRaw: jest.fn().mockResolvedValue(1),
     // `removeMember` runs its membership delete + key revocation in one
@@ -192,8 +201,23 @@ describe('WorkspaceService', () => {
       expect(result).toEqual(workspace);
       expect(prisma.workspace.findUnique).toHaveBeenCalledWith({
         where: { id: '11111111-1111-1111-1111-111111111111' },
-        include: { members: { include: { user: true } } },
+        include: {
+          members: { include: { user: { omit: BOT_PRIVATE_FIELDS } } },
+        },
       });
+    });
+
+    // Members carry `kind` so the UI can badge a bot, but not the bot's
+    // management columns: who owns it and when its host last polled are the
+    // Bots section's business, not every member's.
+    it('omits bot management fields from member users, but not kind', () => {
+      expect(BOT_PRIVATE_FIELDS).toEqual({
+        botOwnerId: true,
+        botWorkspaceId: true,
+        botInvokers: true,
+        botLastSeenAt: true,
+      });
+      expect(BOT_PRIVATE_FIELDS).not.toHaveProperty('kind');
     });
 
     it('looks up by slug when identifier is not a UUID', async () => {
@@ -210,7 +234,9 @@ describe('WorkspaceService', () => {
       expect(result).toEqual(workspace);
       expect(prisma.workspace.findUnique).toHaveBeenCalledWith({
         where: { slug: 'my-team' },
-        include: { members: { include: { user: true } } },
+        include: {
+          members: { include: { user: { omit: BOT_PRIVATE_FIELDS } } },
+        },
       });
     });
 
@@ -374,6 +400,73 @@ describe('WorkspaceService', () => {
       });
       // Both halves land together, so a key cannot survive a committed removal.
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    // chat.md § Bot Members: a bot is managed by its owner, so it cannot
+    // outlive the owner's membership. Left behind, its paired hosts would
+    // keep a read/write key into a workspace the owner no longer belongs to.
+    it("removes the bots the removed member owns in this workspace", async () => {
+      const wid = '11111111-1111-1111-1111-111111111111';
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+      prisma.workspaceMember.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.user.findMany.mockResolvedValue([{ id: 50 }]);
+      prisma.chatChannelMember.findMany
+        .mockResolvedValueOnce([{ channelId: 'c1' }]) // the owner's
+        .mockResolvedValueOnce([{ channelId: 'dm' }]); // the bot's
+
+      await service.removeMember(wid, 1, 2);
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: {
+          kind: 'bot',
+          botOwnerId: 2,
+          botWorkspaceId: wid,
+          workspaceMembers: { some: { workspaceId: wid } },
+        },
+        select: { id: true },
+      });
+      expect(prisma.workspaceMember.deleteMany).toHaveBeenCalledWith({
+        where: { workspaceId: wid, userId: { in: [50] } },
+      });
+      expect(prisma.apiKey.updateMany).toHaveBeenCalledWith({
+        where: { workspaceId: wid, createdBy: { in: [50] }, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(prisma.botPairingCode.deleteMany).toHaveBeenCalledWith({
+        where: { botId: { in: [50] }, usedAt: null },
+      });
+      expect(prisma.agentTask.updateMany).toHaveBeenCalledWith({
+        where: { botId: { in: [50] }, status: { in: ['queued', 'claimed'] } },
+        data: { status: 'failed', finishedAt: expect.any(Date) },
+      });
+      expect(prisma.chatChannelMember.deleteMany).toHaveBeenCalledWith({
+        where: { userId: { in: [50] }, channelId: { in: ['dm'] } },
+      });
+      expect(emitMemberEvent).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          type: 'member.removed',
+          userId: 50,
+          role: 'member',
+        }),
+      );
+      // The bot's channels are announced along with the owner's.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it('touches no bot rows when the removed member owns none', async () => {
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' })
+        .mockResolvedValueOnce({ role: 'member', userId: 2 });
+      prisma.workspaceMember.delete.mockResolvedValue({});
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      expect(prisma.workspaceMember.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.botPairingCode.deleteMany).not.toHaveBeenCalled();
     });
 
     it("drops the removed member's chat memberships and announces each", async () => {

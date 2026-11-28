@@ -27,6 +27,7 @@ export const OAUTH_REFUSAL_CODES = [
   'unverified_email',
   'no_email',
   'email_conflict',
+  'bot_account',
 ] as const;
 
 export type OAuthRefusalCode = (typeof OAUTH_REFUSAL_CODES)[number];

@@ -1,5 +1,9 @@
 import { PrismaService } from '../database/prisma.service';
-import { EmailProviderConflictError, UserService } from './user.service';
+import {
+  BotSignInRefusedError,
+  EmailProviderConflictError,
+  UserService,
+} from './user.service';
 import type { WebhookEventService } from '../webhook/webhook-event.service';
 
 /** A `WebhookEventService` double; `emitMemberEvent` records each join. */
@@ -200,6 +204,36 @@ describe('UserService.findOrCreateUser', () => {
     ).rejects.toThrow('database is down');
     expect(state.users()).toHaveLength(0);
   });
+
+  /**
+   * A bot's `.invalid` address can never be verified by a provider, so this
+   * is defense in depth: whatever lands on a bot row is refused, even a
+   * proven one, and the row is left untouched.
+   */
+  it.each([null, new Date()])(
+    'refuses to sign in as a bot (emailVerifiedAt %s)',
+    async (emailVerifiedAt) => {
+      const { service: users, state } = service();
+      state.users().push({
+        id: 1,
+        kind: 'bot',
+        authProvider: 'bot',
+        username: 'deck-bot',
+        email: 'bot-1@bots.wafflebase.invalid',
+        emailVerifiedAt,
+      });
+
+      await expect(
+        users.findOrCreateUser({
+          authProvider: 'bot',
+          username: 'deck-bot',
+          email: 'bot-1@bots.wafflebase.invalid',
+        }),
+      ).rejects.toBeInstanceOf(BotSignInRefusedError);
+      expect(state.users()[0].emailVerifiedAt).toBe(emailVerifiedAt);
+      expect(state.workspaces()).toHaveLength(0);
+    },
+  );
 
   /**
    * The email is the identity both providers are matched on, so a row whose

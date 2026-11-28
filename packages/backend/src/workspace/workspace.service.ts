@@ -29,6 +29,18 @@ export const WORKSPACE_CONTENT_NOTIFICATION_TYPES = [
   'thread_resolved',
 ] as const;
 
+/**
+ * `User` columns that only the Bots section reads (`src/bot/`), left out of
+ * the member list every member receives. `kind` stays, so the UI can badge a
+ * bot.
+ */
+export const BOT_PRIVATE_FIELDS = {
+  botOwnerId: true,
+  botWorkspaceId: true,
+  botInvokers: true,
+  botLastSeenAt: true,
+} as const satisfies Prisma.UserOmit;
+
 @Injectable()
 export class WorkspaceService {
   private readonly logger = new Logger(WorkspaceService.name);
@@ -92,7 +104,7 @@ export class WorkspaceService {
     const workspace = await this.prisma.workspace.findUnique({
       where: isUUID ? { id: idOrSlug } : { slug: idOrSlug },
       include: {
-        members: { include: { user: true } },
+        members: { include: { user: { omit: BOT_PRIVATE_FIELDS } } },
       },
     });
     if (!workspace) throw new NotFoundException('Workspace not found');
@@ -199,6 +211,17 @@ export class WorkspaceService {
         await tx.chatChannelMember.deleteMany({
           where: { userId: targetUserId, channelId: { in: channelIds } },
         });
+        // Their bots here go with them (chat.md § Bot Members): a bot is
+        // managed by its owner, and a bot left behind would keep its paired
+        // hosts' read/write keys into a workspace the owner has left.
+        for (const id of await this.removeOwnedBots(
+          tx,
+          workspaceId,
+          targetUserId,
+          requesterId,
+        )) {
+          if (!channelIds.includes(id)) channelIds.push(id);
+        }
         // Their bell rows that quote this workspace go too: a chat row
         // quotes a channel (public ones included) and a comment row quotes a
         // document's comment thread, and they can read neither now. Rows
@@ -246,6 +269,73 @@ export class WorkspaceService {
     );
     await this.announceChatMembership(announce);
     return deleted;
+  }
+
+  /**
+   * Inside `removeMember`'s transaction: remove the bots `ownerId` manages
+   * in this workspace the way `BotService.remove` does (membership, keys,
+   * unused pairing codes, chat rows, bell rows, `member.removed`). The bot
+   * `User` rows stay so their messages keep a name. Returns the chat
+   * channels the bots left, for the membership announcement.
+   */
+  private async removeOwnedBots(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    ownerId: number,
+    actor: number,
+  ): Promise<string[]> {
+    const bots = await tx.user.findMany({
+      where: {
+        kind: 'bot',
+        botOwnerId: ownerId,
+        botWorkspaceId: workspaceId,
+        workspaceMembers: { some: { workspaceId } },
+      },
+      select: { id: true },
+    });
+    const botIds = bots.map((b) => b.id);
+    if (botIds.length === 0) return [];
+
+    await tx.workspaceMember.deleteMany({
+      where: { workspaceId, userId: { in: botIds } },
+    });
+    await tx.apiKey.updateMany({
+      where: { workspaceId, createdBy: { in: botIds }, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await tx.botPairingCode.deleteMany({
+      where: { botId: { in: botIds }, usedAt: null },
+    });
+    // With their keys revoked no host can claim these any more.
+    await tx.agentTask.updateMany({
+      where: { botId: { in: botIds }, status: { in: ['queued', 'claimed'] } },
+      data: { status: 'failed', finishedAt: new Date() },
+    });
+    const memberships = await tx.chatChannelMember.findMany({
+      where: { userId: { in: botIds }, channel: { workspaceId } },
+      select: { channelId: true },
+    });
+    const channelIds = [...new Set(memberships.map((m) => m.channelId))];
+    await tx.chatChannelMember.deleteMany({
+      where: { userId: { in: botIds }, channelId: { in: channelIds } },
+    });
+    await tx.notification.deleteMany({
+      where: {
+        recipientId: { in: botIds },
+        workspaceId,
+        type: { in: [...WORKSPACE_CONTENT_NOTIFICATION_TYPES] },
+      },
+    });
+    for (const botId of botIds) {
+      await this.webhookEvents.emitMemberEvent(tx, {
+        type: 'member.removed',
+        workspaceId,
+        actor,
+        userId: botId,
+        role: 'member',
+      });
+    }
+    return channelIds;
   }
 
   /**

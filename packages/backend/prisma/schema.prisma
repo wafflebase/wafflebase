@@ -27,6 +27,26 @@ model User {
   chatMemberships       ChatChannelMember[]
   chatMessages          ChatMessage[]
   webhooksCreated       Webhook[]
+  /// "person" | "bot". A bot is a member only an agent host can drive (see
+  /// `docs/design/agent-runner.md`); it never signs in through OAuth.
+  kind           String     @default("person")
+  /// Bot only: the member who manages it. Null once that member is deleted.
+  botOwnerId     Int?
+  botOwner       User?      @relation("BotOwner", fields: [botOwnerId], references: [id], onDelete: SetNull)
+  ownedBots      User[]     @relation("BotOwner")
+  /// Bot only: the one workspace it is in.
+  botWorkspaceId String?
+  botWorkspace   Workspace? @relation(fields: [botWorkspaceId], references: [id], onDelete: SetNull)
+  /// Bot only: who may hand it a task — "owner" (MVP) | "members".
+  botInvokers    String?
+  /// Bot only: the last `agent/tasks/next` poll from any of its hosts.
+  botLastSeenAt  DateTime?
+  botPairingCodes        BotPairingCode[] @relation("BotPairingCodeBot")
+  botPairingCodesCreated BotPairingCode[] @relation("BotPairingCodeCreator")
+  agentTasks             AgentTask[]      @relation("AgentTaskBot")
+  agentTasksInvoked      AgentTask[]      @relation("AgentTaskInvoker")
+
+  @@index([botWorkspaceId])
 }
 
 model UserDocStyles {
@@ -200,6 +220,8 @@ model Workspace {
   claim       WorkspaceClaim?
   chatChannels ChatChannel[]
   webhooks     Webhook[]
+  bots         User[]
+  agentTasks   AgentTask[]
 }
 
 model WorkspaceMember {
@@ -535,6 +557,7 @@ model ChatChannel {
   lastMessageAt DateTime?
   members       ChatChannelMember[]
   messages      ChatMessage[]
+  agentTasks    AgentTask[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId, kind])
@@ -578,11 +601,16 @@ model ChatMessage {
   /// The poster's own id for this send. A retry carrying the same one gets
   /// the message back instead of a second copy.
   clientId      String?
+  /// Set on messages a bot posts while working a task. Null once the task
+  /// is gone — the message survives it.
+  agentTaskId   String?
+  agentTask     AgentTask?  @relation(fields: [agentTaskId], references: [id], onDelete: SetNull)
 
   @@unique([channelId, seq])
   @@unique([channelId, authorId, clientId])
   @@index([threadRootId, seq])
   @@index([channelId, threadRootId, seq])
+  @@index([agentTaskId])
 }
 
 /// A document card: a Wafflebase document URL in a message body that names a
@@ -694,4 +722,56 @@ model WebhookContentPending {
   lastIssuedAt DateTime @default(now())
   /// `[{ api_key_id, user_id, at }]` — `/api/v1` writes inside the window.
   apiWriters   Json     @default("[]")
+}
+
+/// A one-time code that pairs an agent host with a bot. Redeemed by
+/// `POST /auth/pair`, which mints the host's API key. See
+/// `docs/design/agent-runner.md`.
+model BotPairingCode {
+  id        String    @id @default(uuid())
+  /// "XXXX-XXXX" from A-Z2-9 without 0/O/1/I.
+  code      String    @unique
+  botId     Int
+  bot       User      @relation("BotPairingCodeBot", fields: [botId], references: [id], onDelete: Cascade)
+  /// The member who asked for the code.
+  createdBy Int
+  creator   User      @relation("BotPairingCodeCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  /// Ten minutes after creation.
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([botId])
+}
+
+/// One unit of work for a bot: a chat message that addressed it. Hosts
+/// claim tasks with `agent/tasks/next` under a lease and finish them with
+/// `agent/tasks/:id/complete`. See `docs/design/agent-runner.md`.
+model AgentTask {
+  id               String        @id @default(uuid())
+  workspaceId      String
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId            Int
+  bot              User          @relation("AgentTaskBot", fields: [botId], references: [id], onDelete: Cascade)
+  invokerId        Int
+  invoker          User          @relation("AgentTaskInvoker", fields: [invokerId], references: [id], onDelete: Cascade)
+  triggerMessageId String
+  channelId        String
+  channel          ChatChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  /// `trigger.threadRootId ?? trigger.id`: the thread the bot answers in.
+  threadRootId     String
+  /// queued | claimed | done | failed
+  status           String        @default("queued")
+  claimedAt        DateTime?
+  /// The ApiKey (host) holding the claim; only it may reply or complete.
+  claimedByKeyId   String?
+  /// A claimed task past its lease is re-queued on the next poll.
+  leaseExpiresAt   DateTime?
+  createdAt        DateTime      @default(now())
+  finishedAt       DateTime?
+  messages         ChatMessage[]
+
+  @@index([botId, status, createdAt])
+  @@index([workspaceId])
+  @@index([channelId])
 }

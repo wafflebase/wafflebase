@@ -17,6 +17,7 @@ import {
 } from './chat-access';
 import { ChatBus } from './chat-bus';
 import { ChannelKind, ChannelMember, ChannelSummary } from './chat.types';
+import { toUserSummary, USER_SUMMARY_SELECT } from './chat-user';
 import { dmKey } from './dm-key';
 import { ensureDefaultChannel, joinDefaultChannel } from './default-channel';
 
@@ -538,9 +539,7 @@ export class ChatChannelService {
       select: {
         user: {
           select: {
-            id: true,
-            username: true,
-            photo: true,
+            ...USER_SUMMARY_SELECT,
             workspaceMembers: {
               where: { workspaceId: channel.workspaceId },
               select: { role: true },
@@ -554,7 +553,7 @@ export class ChatChannelService {
     // exactly where the server will accept it.
     const callerRole = await this.workspaceRole(channel.workspaceId, userId);
     return rows.map(({ user: { workspaceMembers, ...user } }) => ({
-      ...user,
+      ...toUserSummary(user),
       canRemove:
         user.id !== userId &&
         channel.defaultKey === null &&
@@ -701,7 +700,7 @@ export class ChatChannelService {
           orderBy: { userId: 'asc' },
           select: {
             channelId: true,
-            user: { select: { id: true, username: true, photo: true } },
+            user: { select: USER_SUMMARY_SELECT },
           },
         })
       : [];
@@ -724,7 +723,9 @@ export class ChatChannelService {
         isCreator: r.isCreator,
         isWorkspaceOwner: r.isWorkspaceOwner,
       }),
-      members: dmMembers.filter((m) => m.channelId === r.id).map((m) => m.user),
+      members: dmMembers
+        .filter((m) => m.channelId === r.id)
+        .map((m) => toUserSummary(m.user)),
       lastSeq: Number(r.lastSeq),
       lastReadSeq: r.lastReadSeq === null ? null : Number(r.lastReadSeq),
       unreadCount: r.unreadCount,

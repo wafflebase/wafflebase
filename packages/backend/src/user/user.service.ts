@@ -28,6 +28,22 @@ export class EmailProviderConflictError extends Error {
   }
 }
 
+/**
+ * A sign-in that matched a bot's row. A bot is driven only by an agent host,
+ * through its API key (`docs/design/agent-runner.md`), and never gets a
+ * session.
+ *
+ * Its `.invalid` address cannot be verified by any provider, so this is the
+ * second wall, not the first. Turned into a refusal by the OAuth callbacks
+ * (`?error=bot_account`), never a 500.
+ */
+export class BotSignInRefusedError extends Error {
+  constructor() {
+    super('This is a bot account. Bots cannot sign in.');
+    this.name = 'BotSignInRefusedError';
+  }
+}
+
 /** How many times a taken slug is retried before the error is the caller's. */
 const SLUG_ATTEMPTS = 5;
 
@@ -145,6 +161,7 @@ export class UserService {
       },
     });
     if (user) {
+      if (user.kind === 'bot') throw new BotSignInRefusedError();
       if (user.emailVerifiedAt) return user;
       if (user.authProvider !== data.authProvider) {
         throw new EmailProviderConflictError(user.authProvider);
