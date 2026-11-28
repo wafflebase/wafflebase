@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scripts/hooks/session-prime.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/session-prime.sh"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scripts/hooks/guard-generated-files.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/guard-generated-files.sh"
           }
         ]
       },
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scripts/hooks/require-ai-disclosure.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/require-ai-disclosure.sh"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scripts/hooks/check-arch-boundary.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/check-arch-boundary.sh"
           }
         ]
       },
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "scripts/hooks/post-task-reminder.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/post-task-reminder.sh"
           }
         ]
       }
