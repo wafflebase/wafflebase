@@ -52,3 +52,15 @@ describe('chooseWorkspace', () => {
     );
   });
 });
+
+describe('chooseWorkspace without a terminal', () => {
+  it('does not prompt when stdin is not interactive, and says how to change it', async () => {
+    const { ask } = scripted([]);
+    const log = vi.fn();
+    expect(await chooseWorkspace([ACME, BETA], ask, log, false)).toBe(ACME.id);
+    expect(ask).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(
+      'Using Acme. Change it later with `wafflebase ctx switch <name-or-id>`.',
+    );
+  });
+});

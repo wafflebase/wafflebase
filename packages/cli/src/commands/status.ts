@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { getGlobalOpts } from './root.js';
+import { getConfig, getGlobalOpts } from './root.js';
 import {
   output,
   outputError,
@@ -7,6 +7,7 @@ import {
 } from '../output/formatter.js';
 import { loadSession, isSessionExpired } from '../config/session.js';
 import type { Session } from '../config/session.js';
+import type { CliConfig } from '../config/config.js';
 
 /**
  * `status` payload. Flat (rather than nesting user / workspace /
@@ -15,8 +16,15 @@ import type { Session } from '../config/session.js';
  * `[object Object]`.
  */
 export interface StatusPayload {
+  /** A browser login session exists (`wafflebase login`). */
   loggedIn: boolean;
-  /** Present only when logged out; tells a human what to do next. */
+  /**
+   * What the next command authenticates with — an API key (flag, env or
+   * profile) wins over the session, so this can differ from `loggedIn`.
+   * Absent when the caller did not resolve the config.
+   */
+  auth?: 'session' | 'api-key' | 'none';
+  /** Tells a human what to do next, or that an API key is in charge. */
   message?: string;
   user?: string;
   email?: string;
@@ -29,21 +37,62 @@ export interface StatusPayload {
 }
 
 export const NOT_LOGGED_IN_MESSAGE = 'Not logged in. Run `wafflebase login`.';
+export const API_KEY_ONLY_MESSAGE =
+  'No browser session; commands authenticate with an API key.';
+export const API_KEY_OVERRIDES_MESSAGE =
+  'An API key is set, so commands use it instead of this login session.';
+
+const AUTH_FROM_MODE: Record<CliConfig['authMode'], StatusPayload['auth']> = {
+  'api-key': 'api-key',
+  jwt: 'session',
+  none: 'none',
+};
 
 /**
  * Build the structured auth state for a session, or the logged-out
  * payload when there is none. Pure so it can be asserted without
  * spawning the CLI.
  */
-export function buildStatus(session: Session | null): StatusPayload {
+export function buildStatus(
+  session: Session | null,
+  config?: Pick<CliConfig, 'authMode' | 'workspace'>,
+): StatusPayload {
+  const auth = config ? AUTH_FROM_MODE[config.authMode] : undefined;
   if (!session) {
-    return { loggedIn: false, message: NOT_LOGGED_IN_MESSAGE };
+    if (auth === 'api-key') {
+      return {
+        loggedIn: false,
+        auth,
+        message: API_KEY_ONLY_MESSAGE,
+        workspaceId: config!.workspace,
+      };
+    }
+    return {
+      loggedIn: false,
+      ...(auth ? { auth } : {}),
+      message: NOT_LOGGED_IN_MESSAGE,
+    };
+  }
+
+  if (auth === 'api-key') {
+    return {
+      loggedIn: true,
+      auth,
+      message: API_KEY_OVERRIDES_MESSAGE,
+      user: session.user.username,
+      email: session.user.email,
+      server: session.server,
+      workspaceId: config!.workspace,
+      session: isSessionExpired(session) ? 'expired' : 'valid',
+      expiresAt: session.expiresAt,
+    };
   }
 
   const ws = session.workspaces.find((w) => w.id === session.activeWorkspace);
 
   return {
     loggedIn: true,
+    ...(auth ? { auth } : {}),
     user: session.user.username,
     email: session.user.email,
     server: session.server,
@@ -64,7 +113,7 @@ export function registerStatusCommand(program: Command): void {
         const fmt = parseOutputFormat(opts.format);
         // Being logged out is a successful answer to "what is my auth
         // state?", so this stays exit 0 — agents branch on `loggedIn`.
-        output(buildStatus(loadSession()), fmt);
+        output(buildStatus(loadSession(), getConfig(opts)), fmt);
       } catch (e) {
         outputError(e, this);
       }

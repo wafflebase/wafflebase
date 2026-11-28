@@ -396,7 +396,7 @@ describe("WorkspaceSettings API keys", () => {
     ).toBeTruthy();
 
     // An owner may revoke any of them.
-    expect(screen.getAllByLabelText("Revoke API key")).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Revoke API key /)).toHaveLength(2);
   });
 
   it("shows the section to a non-owner member, without Created by", async () => {
@@ -412,7 +412,7 @@ describe("WorkspaceSettings API keys", () => {
     expect(
       screen.queryByRole("columnheader", { name: "Created by" }),
     ).toBeNull();
-    expect(screen.getAllByLabelText("Revoke API key")).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^Revoke API key /)).toHaveLength(1);
   });
 
   it("lets a non-owner member mint a key and reveals it once", async () => {
@@ -463,6 +463,11 @@ describe("WorkspaceSettings API keys", () => {
     expect(setup.textContent).toContain(
       `export WAFFLEBASE_WORKSPACE=${WORKSPACE.id}`,
     );
+    // An export lives only as long as its shell, and Claude Code reads the
+    // environment when it starts: say both.
+    expect(
+      within(dialog).getByText(/Start Claude Code from that same shell/),
+    ).toBeTruthy();
 
     // Escape (or a stray click outside) must not throw the key away.
     await userEvent.keyboard("{Escape}");
@@ -495,7 +500,9 @@ describe("WorkspaceSettings API keys", () => {
     renderAs(MEMBER.user.id, [MEMBER_KEY]);
 
     const button = await waitFor(() =>
-      within(keyRow(MEMBER_KEY.name)).getByLabelText("Revoke API key"),
+      within(keyRow(MEMBER_KEY.name)).getByLabelText(
+        `Revoke API key ${MEMBER_KEY.name}`,
+      ),
     );
     await userEvent.click(button);
 

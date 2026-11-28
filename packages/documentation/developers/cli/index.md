@@ -58,7 +58,7 @@ The CLI also prints the sign-in URL, so you can open it yourself if no browser a
 wafflebase status
 ```
 
-The output has `loggedIn`, `user`, `email`, `server`, `workspaceId`, `workspaceName`, `session` (`valid` or `expired`), and `expiresAt`. An expired session refreshes itself on the next command. `status` reports only the browser session; when you use an API key it shows `loggedIn: false` even though your commands work.
+The output has `loggedIn`, `auth`, `user`, `email`, `server`, `workspaceId`, `workspaceName`, `session` (`valid` or `expired`), and `expiresAt`. An expired session refreshes itself on the next command. `loggedIn` says whether a browser session exists; `auth` says what your commands actually use — `session`, `api-key` (an API key wins over the session, and `workspaceId` is then the key's workspace) or `none`.
 
 ### Sign out
 

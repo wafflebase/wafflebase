@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  API_KEY_ONLY_MESSAGE,
+  API_KEY_OVERRIDES_MESSAGE,
   buildStatus,
   NOT_LOGGED_IN_MESSAGE,
   registerStatusCommand,
@@ -155,6 +157,7 @@ describe('status / ctx list command wiring', () => {
     run(['status']);
     expect(JSON.parse(lastStdout())).toEqual({
       loggedIn: false,
+      auth: 'none',
       message: NOT_LOGGED_IN_MESSAGE,
     });
     expect(process.exitCode).toBe(0);
@@ -162,7 +165,7 @@ describe('status / ctx list command wiring', () => {
 
   it('honors `status --format csv`', () => {
     run(['status', '--format', 'csv']);
-    expect(lastStdout().split('\n')[0]).toBe('loggedIn,message');
+    expect(lastStdout().split('\n')[0]).toBe('loggedIn,auth,message');
   });
 
   it('rejects `status --format bogus` with a JSON error and exit 1', () => {
@@ -247,5 +250,44 @@ describe('status / ctx list command wiring', () => {
     const out = lastStdout();
     expect(out).not.toContain('[object Object]');
     expect(out).toContain('"active"');
+  });
+});
+
+describe('buildStatus with the credential the next command would use', () => {
+  it('says an API key authenticates when there is no browser session', () => {
+    const status = buildStatus(null, { authMode: 'api-key', workspace: 'ws-key' });
+    // `loggedIn` keeps meaning "a browser session exists"; `auth` is what
+    // the next command actually uses, so an API-key setup no longer reads
+    // as signed out.
+    expect(status.loggedIn).toBe(false);
+    expect(status.auth).toBe('api-key');
+    expect(status.workspaceId).toBe('ws-key');
+    expect(status.message).toBe(API_KEY_ONLY_MESSAGE);
+  });
+
+  it('flags an API key that overrides a saved session', () => {
+    const status = buildStatus(makeSession(), {
+      authMode: 'api-key',
+      workspace: 'ws-key',
+    });
+    expect(status.loggedIn).toBe(true);
+    expect(status.auth).toBe('api-key');
+    expect(status.workspaceId).toBe('ws-key');
+    expect(status.message).toBe(API_KEY_OVERRIDES_MESSAGE);
+  });
+
+  it('reports session auth for a plain login', () => {
+    const status = buildStatus(makeSession(), {
+      authMode: 'jwt',
+      workspace: 'e98ff707-1111-2222-3333-444444444444',
+    });
+    expect(status.auth).toBe('session');
+    expect(status.message).toBeUndefined();
+  });
+
+  it('reports none when nothing authenticates', () => {
+    const status = buildStatus(null, { authMode: 'none', workspace: '' });
+    expect(status.auth).toBe('none');
+    expect(status.message).toBe(NOT_LOGGED_IN_MESSAGE);
   });
 });

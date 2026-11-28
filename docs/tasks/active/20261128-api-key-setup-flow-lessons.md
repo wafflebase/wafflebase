@@ -20,3 +20,13 @@ hid the key and server at 400px. A user who cannot see a line cannot check
 it before pasting it into a shell. **Rule:** command snippets in dialogs wrap
 (`whitespace-pre-wrap` + `overflow-wrap:anywhere`); check them at phone
 width with real-length values.
+
+## A fix can open the next dead end
+
+Round 1 made the reveal dialog hand out `export WAFFLEBASE_API_KEY …`. Round
+2 found that the setup skill then sends exactly those users to `ctx list`,
+which needs a browser session. The new path was tested in the dialog and
+never walked one step further.
+
+**Rule:** after adding a handoff, follow the user through the next surface
+it sends them to (here: the setup skill) before calling the journey fixed.

@@ -29,6 +29,22 @@ half.
       `WAFFLEBASE_API_KEY`
 - [x] `pnpm verify:fast`; render check of the settings page
 
+## Round 2 (re-critique 25 → 26/40)
+
+- [x] Setup skill: branch on `status.auth`; an API-key user skips `ctx`,
+      which reads only the browser session and threw NOT_LOGGED_IN on the
+      very path the reveal dialog now advertises
+- [x] `status`: new `auth` field (`session` / `api-key` / `none`) and a
+      message when a key overrides or replaces the session; `loggedIn`
+      keeps its meaning (tests first; two contract tests updated)
+- [x] Reveal dialog: say to start Claude Code from that shell and where to
+      keep the key
+- [x] Revoke buttons labelled with the key name for screen readers
+- [x] Login without a terminal (`!` inside Claude Code, CI): no prompt, take
+      the first workspace and print the `ctx switch` hint (test first)
+- [x] Rejected: "the plugin README opens with a 10-row safety table" — it is
+      the third section, after Install and What you can ask
+
 ## Review
 
 - Tests written first and seen failing: 3 frontend (CLI setup lines + Escape,

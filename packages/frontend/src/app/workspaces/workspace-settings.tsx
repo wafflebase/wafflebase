@@ -596,7 +596,7 @@ export default function WorkspaceSettings() {
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
-                        aria-label="Revoke API key"
+                        aria-label={`Revoke API key ${apiKey.name}`}
                         onClick={() => setKeyToRevoke(apiKey)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -875,6 +875,11 @@ export default function WorkspaceSettings() {
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
+              <p className="text-sm text-muted-foreground">
+                Start Claude Code from that same shell. The lines last only as
+                long as the shell, so keep the key in a password manager or
+                your shell profile.
+              </p>
             </div>
           )}
           <DialogFooter>

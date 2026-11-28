@@ -373,7 +373,12 @@ export async function runLogin(
   );
 
   // 8. Select workspace
-  const activeWorkspace = await chooseWorkspace(workspaces, ask, console.log);
+  const activeWorkspace = await chooseWorkspace(
+    workspaces,
+    ask,
+    console.log,
+    Boolean(process.stdin.isTTY),
+  );
 
   // 9. Save session
   const session: Session = {
@@ -399,12 +404,14 @@ const WORKSPACE_CHOICE_ATTEMPTS = 3;
  * `WAFFLEBASE_WORKSPACE`-less command would then write to. After
  * `WORKSPACE_CHOICE_ATTEMPTS` misses it does take the first, so the login
  * the user just completed in the browser is never thrown away, and says how
- * to change it.
+ * to change it. Without a terminal (a `!` command inside Claude Code, CI)
+ * there is no one to answer, so it takes the first straight away.
  */
 export async function chooseWorkspace(
   workspaces: ReadonlyArray<{ id: string; name: string }>,
   askFn: (prompt: string) => Promise<string>,
   log: (line: string) => void,
+  interactive = true,
 ): Promise<string> {
   if (workspaces.length === 0) {
     log('No workspaces found.');
@@ -414,15 +421,18 @@ export async function chooseWorkspace(
     log(`Workspace: ${workspaces[0].name}`);
     return workspaces[0].id;
   }
-  log('Select a workspace:');
-  workspaces.forEach((ws, i) => {
-    log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
-  });
-  for (let attempt = 1; attempt <= WORKSPACE_CHOICE_ATTEMPTS; attempt++) {
+  const attempts = interactive ? WORKSPACE_CHOICE_ATTEMPTS : 0;
+  if (interactive) {
+    log('Select a workspace:');
+    workspaces.forEach((ws, i) => {
+      log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
+    });
+  }
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     const choice = (await askFn('Enter number: ')).trim();
     const idx = /^\d+$/.test(choice) ? Number(choice) - 1 : -1;
     if (idx >= 0 && idx < workspaces.length) return workspaces[idx].id;
-    if (attempt < WORKSPACE_CHOICE_ATTEMPTS) {
+    if (attempt < attempts) {
       log(`Enter a number from 1 to ${workspaces.length}.`);
     }
   }
@@ -433,6 +443,9 @@ export async function chooseWorkspace(
 }
 
 function ask(prompt: string): Promise<string> {
+  // No terminal, no one to answer: take the default rather than wait on a
+  // stdin that never delivers a line.
+  if (!process.stdin.isTTY) return Promise.resolve('');
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
