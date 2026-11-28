@@ -285,9 +285,12 @@ POST /auth/pair  { code, hostName }                 unauthenticated, throttled
 (a server, a container, a teammate's CI): Settings → API keys → *Connect a
 machine* shows a code, and `wafflebase login --pair <code>` stores the
 minted key in a CLI profile named after the workspace and makes it the
-default profile. No key is ever displayed. The shown-once *Create API key*
-dialog stays for scripts that need a raw key, but stops being the path the
-docs and the setup skill recommend. A profile key ranks below a browser
+default profile. No key is ever displayed. People pairing ships in the
+**same phase as bot pairing** (phase 2) — it is the same endpoint, and until
+it exists the shown-once *Create API key* dialog is the only way to put a
+person's key on a machine. Once it ships, that dialog stays for scripts that
+need a raw key, and the docs, the setup skill and the dialog itself point to
+*Connect a machine* instead. A profile key ranks below a browser
 session in `resolveConfig`, so on a machine that also has a session,
 `wafflebase status` reports `auth: "session"` and the pairing says so when it
 finishes.
@@ -502,6 +505,13 @@ people need to see it:
   receives `bots.paused` and hosts stop claiming. The kill switch for a
   runaway or a cost spike, without revoking a single key.
 - Settings gains a **Bots** entry in the section index once bots ship.
+- Host status (*● Listening*, *Offline*) is text, not only a glyph or a
+  colour, and changes are announced through an `aria-live="polite"` region
+  on the bot row.
+- Out of scope here and noted as a gap: an instance-wide switch above the
+  workspace (*Pause all bots* is per workspace); an operator can stop the
+  backend's task creation with an env flag (`AGENT_TASKS_ENABLED=false`)
+  until a UI for it is designed.
 
 ## Phases
 
@@ -511,8 +521,10 @@ people need to see it:
    `wafflebase bots`, Bot / via API labels, `/auth/me` returning `kind`.
 2. **Agent tasks + pairing**: `AgentTask`, `ChatMessage.agentTaskId`,
    creation rules, bot event stream, claim/lease/heartbeat, cancel, system
-   notices, pairing codes, `wafflebase agent pair|next|complete`, host status
-   on the bot row, task-header authority narrowing.
+   notices, pairing codes for bots **and people** (`/auth/pair`,
+   `wafflebase agent pair`, `wafflebase login --pair`, Settings → API keys →
+   *Connect a machine*), `wafflebase agent next|complete`, host status on the
+   bot row, task-header authority narrowing.
 3. **Listen mode**: `/wafflebase:listen`, `--as-bot`, SessionStart bot
    identity line, and the docs-site page "Put a bot to work" — written with
    the first host, not after it.
@@ -523,8 +535,8 @@ people need to see it:
    caps, the task log (§ 11) and *Pause all bots*. The docs page gains the
    server section.
 5. **Hardening**: Docker image for team servers, comment mentions feeding the
-   same queue, `wafflebase login --pair` for people, revision snapshot
-   before the first write once `/api/v1` exposes revisions.
+   same queue, revision snapshot before the first write once `/api/v1`
+   exposes revisions.
 
 Each phase is shippable alone: phase 1 lets a person script a bot with the
 CLI and pull its inbox; phase 2 lets any agent framework consume the stream;

@@ -37,6 +37,9 @@ this task. Related: issue #696 (Notes AI toolbar, BYOK seam).
       listening bot only, and is labelled attended; runner Claude credential
       via `agent credential set` from stdin; § 11 task log, caps and *Pause
       all bots*, shipped together with *Any member* bots in phase 4
+- [x] Third critique (25/40) folded in: people pairing moved to phase 2
+      beside bot pairing (same endpoint), host status announced as text via
+      aria-live, instance-wide gap named with an env-flag stopgap
 - [x] Follow-up PR (separate branch): today's P2s — API key dialog next
       step + Done-only dismiss, revoke confirmation, README/setup
       `WAFFLEBASE_WORKSPACE`, settings section index, setup skill pointer,
