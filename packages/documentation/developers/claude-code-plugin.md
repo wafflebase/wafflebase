@@ -141,7 +141,7 @@ export WAFFLEBASE_WEB_URL=https://office.example.com
 ## Known limitations
 
 - Claude can do only what the CLI can. It can't create a board or open a comment thread on doc text, for example. See [Automation and agents](/developers/cli/automation#known-limitations).
-- `wafflebase status` reports only the browser sign-in. With an API key, `/wafflebase:setup` sees you as signed out and confirms access by listing documents instead.
+- `wafflebase status` reports what your commands authenticate with in `auth` (`session`, `api-key` or `none`). `/wafflebase:setup` reads it, so an API key no longer looks like being signed out.
 
 ## Related
 

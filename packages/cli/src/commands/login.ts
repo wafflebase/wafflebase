@@ -342,7 +342,9 @@ export async function runLogin(
   // opener gets that instead.
   const { verifier, challenge } = createPkcePair();
   const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}&challenge=${encodeURIComponent(challenge)}`;
-  console.error('Opening browser for GitHub login...');
+  // Name the server: a self-hosted user who forgot `--server` should see
+  // the hosted service named here, before the browser opens.
+  console.error(`Opening the browser to sign in to ${server}...`);
   // The server answers this URL with a confirmation page rather than
   // going straight to GitHub — a sign-in the user did not start must
   // not proceed on a bare navigation. Say so, or the wait looks stuck.

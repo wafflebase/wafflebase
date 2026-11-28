@@ -157,8 +157,9 @@ export function buildContext({
   // Mirror the CLI's own precedence (`resolveConfig` in
   // packages/cli/src/config/config.ts): an API key in the environment wins
   // over a login session, and WAFFLEBASE_SERVER / WAFFLEBASE_WORKSPACE
-  // override the session's server and workspace. `status` reports the
-  // session alone, so reading it naively would name the wrong identity.
+  // override the session's server and workspace. The hook reads the
+  // environment itself rather than `status.auth`, because it runs before
+  // the CLI is known to be installed or current.
   if (apiKeyInEnv) {
     lines.push(
       `- Authenticating with WAFFLEBASE_API_KEY${status.loggedIn ? ', which overrides the saved login session' : ''}.${envWorkspace ? ` Workspace ${quote(envWorkspace)}.` : ''}`,

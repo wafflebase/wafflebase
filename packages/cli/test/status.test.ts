@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  API_KEY_NO_WORKSPACE_MESSAGE,
   API_KEY_ONLY_MESSAGE,
   API_KEY_OVERRIDES_MESSAGE,
   buildStatus,
@@ -255,20 +256,37 @@ describe('status / ctx list command wiring', () => {
 
 describe('buildStatus with the credential the next command would use', () => {
   it('says an API key authenticates when there is no browser session', () => {
-    const status = buildStatus(null, { authMode: 'api-key', workspace: 'ws-key' });
+    const status = buildStatus(null, {
+      authMode: 'api-key',
+      workspace: 'ws-key',
+      server: 'https://office.example.com',
+    });
     // `loggedIn` keeps meaning "a browser session exists"; `auth` is what
     // the next command actually uses, so an API-key setup no longer reads
     // as signed out.
     expect(status.loggedIn).toBe(false);
     expect(status.auth).toBe('api-key');
     expect(status.workspaceId).toBe('ws-key');
+    // A self-hosted key is easy to point at the wrong server; name it.
+    expect(status.server).toBe('https://office.example.com');
     expect(status.message).toBe(API_KEY_ONLY_MESSAGE);
+  });
+
+  it('says the workspace is missing when a key has none', () => {
+    const status = buildStatus(null, {
+      authMode: 'api-key',
+      workspace: '',
+      server: 'https://api.wafflebase.io',
+    });
+    expect(status.workspaceId).toBeUndefined();
+    expect(status.message).toBe(API_KEY_NO_WORKSPACE_MESSAGE);
   });
 
   it('flags an API key that overrides a saved session', () => {
     const status = buildStatus(makeSession(), {
       authMode: 'api-key',
       workspace: 'ws-key',
+      server: 'http://localhost:3000',
     });
     expect(status.loggedIn).toBe(true);
     expect(status.auth).toBe('api-key');
@@ -280,13 +298,14 @@ describe('buildStatus with the credential the next command would use', () => {
     const status = buildStatus(makeSession(), {
       authMode: 'jwt',
       workspace: 'e98ff707-1111-2222-3333-444444444444',
+      server: 'http://localhost:3000',
     });
     expect(status.auth).toBe('session');
     expect(status.message).toBeUndefined();
   });
 
   it('reports none when nothing authenticates', () => {
-    const status = buildStatus(null, { authMode: 'none', workspace: '' });
+    const status = buildStatus(null, { authMode: 'none', workspace: '', server: '' });
     expect(status.auth).toBe('none');
     expect(status.message).toBe(NOT_LOGGED_IN_MESSAGE);
   });

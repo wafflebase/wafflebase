@@ -468,6 +468,11 @@ describe("WorkspaceSettings API keys", () => {
     expect(
       within(dialog).getByText(/Start Claude Code from that same shell/),
     ).toBeTruthy();
+    // Which workspace the key belongs to is said, not left to the id.
+    expect(within(dialog).getByText(`Workspace: ${WORKSPACE.name}`)).toBeTruthy();
+    // A shell-profile export would outlive the session and override the
+    // browser login on that machine for good — never recommend it.
+    expect(within(dialog).queryByText(/shell profile/)).toBeNull();
 
     // Escape (or a stray click outside) must not throw the key away.
     await userEvent.keyboard("{Escape}");

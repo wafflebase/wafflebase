@@ -12,8 +12,9 @@ step and stop at the first one that needs the user.
 2. `wafflebase status`. `auth` says what commands authenticate with;
    `loggedIn` only says whether a browser session exists.
    - `auth: "api-key"` → an API key (`WAFFLEBASE_API_KEY`, `--api-key` or a
-     CLI profile) is in charge; report `workspaceId` and skip step 3 —
-     `ctx` reads only the browser session and fails without one.
+     CLI profile) is in charge; report `workspaceId` and `server`, or relay
+     `message` when no workspace is set, and skip step 3 — `ctx` reads only
+     the browser session and fails without one.
    - `auth: "session"` → go on to step 3. `session: "expired"` refreshes
      itself on the next call; only if step 4 fails with `AUTH_ERROR`, ask
      for `! wafflebase login`.
@@ -23,7 +24,8 @@ step and stop at the first one that needs the user.
      key (Settings → API keys prints both lines when it creates the key)
      and restart Claude Code from that shell.
 3. Session only: `wafflebase ctx list` → show the workspaces; mark the
-   active one. Offer `wafflebase ctx switch <id>` if the user wants another.
+   active one. Offer `wafflebase ctx switch <name-or-id>` if the user wants
+   another.
 4. `wafflebase docs list` → confirm access by reporting how many
    documents the workspace has.
 

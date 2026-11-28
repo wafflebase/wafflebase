@@ -30,3 +30,15 @@ never walked one step further.
 
 **Rule:** after adding a handoff, follow the user through the next surface
 it sends them to (here: the setup skill) before calling the journey fixed.
+
+## Guidance copy is a design decision too
+
+Round 2 added "keep the key in a password manager or your shell profile" to
+the reveal dialog to reassure. Round 3 found the second half teaches the
+pattern the agent-runner design bans: an exported key in a profile beats the
+browser session on that machine indefinitely. One reassuring clause undid a
+design principle.
+
+**Rule:** before writing advice into UI copy, check it against the
+credential-precedence rules and the design docs the same way code is
+checked; "helpful" copy can carry the bug.

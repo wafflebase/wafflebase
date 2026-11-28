@@ -39,6 +39,8 @@ export interface StatusPayload {
 export const NOT_LOGGED_IN_MESSAGE = 'Not logged in. Run `wafflebase login`.';
 export const API_KEY_ONLY_MESSAGE =
   'No browser session; commands authenticate with an API key.';
+export const API_KEY_NO_WORKSPACE_MESSAGE =
+  'An API key is set but no workspace is. Set WAFFLEBASE_WORKSPACE (Settings → API keys shows the line).';
 export const API_KEY_OVERRIDES_MESSAGE =
   'An API key is set, so commands use it instead of this login session.';
 
@@ -55,7 +57,7 @@ const AUTH_FROM_MODE: Record<CliConfig['authMode'], StatusPayload['auth']> = {
  */
 export function buildStatus(
   session: Session | null,
-  config?: Pick<CliConfig, 'authMode' | 'workspace'>,
+  config?: Pick<CliConfig, 'authMode' | 'workspace' | 'server'>,
 ): StatusPayload {
   const auth = config ? AUTH_FROM_MODE[config.authMode] : undefined;
   if (!session) {
@@ -63,8 +65,11 @@ export function buildStatus(
       return {
         loggedIn: false,
         auth,
-        message: API_KEY_ONLY_MESSAGE,
-        workspaceId: config!.workspace,
+        message: config!.workspace
+          ? API_KEY_ONLY_MESSAGE
+          : API_KEY_NO_WORKSPACE_MESSAGE,
+        server: config!.server,
+        ...(config!.workspace ? { workspaceId: config!.workspace } : {}),
       };
     }
     return {
@@ -81,7 +86,7 @@ export function buildStatus(
       message: API_KEY_OVERRIDES_MESSAGE,
       user: session.user.username,
       email: session.user.email,
-      server: session.server,
+      server: config!.server,
       workspaceId: config!.workspace,
       session: isSessionExpired(session) ? 'expired' : 'valid',
       expiresAt: session.expiresAt,

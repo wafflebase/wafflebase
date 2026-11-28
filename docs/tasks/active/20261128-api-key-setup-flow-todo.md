@@ -45,6 +45,22 @@ half.
 - [x] Rejected: "the plugin README opens with a 10-row safety table" — it is
       the third section, after Install and What you can ask
 
+## Round 3 (re-critique 26 → 25/40; deeper findings)
+
+- [x] Reveal dialog no longer suggests a shell-profile export — that would
+      override the browser login on that machine for good, the exact
+      identity bleed agent-runner.md forbids for bots; it names the
+      workspace and server the key belongs to
+- [x] `ctx switch` warns when `WAFFLEBASE_API_KEY` or a different
+      `WAFFLEBASE_WORKSPACE` will keep winning (tests first)
+- [x] `status` in api-key mode reports the key's `server`, and says so
+      when no workspace is set instead of returning an empty id
+- [x] `login` names the server before opening the browser, so a
+      self-hosted user who forgot `--server` sees the hosted service named
+- [x] Stale truth removed: the plugin docs' "status reports only the
+      browser sign-in" line and the hook comment that said the same;
+      setup skill uses `ctx switch <name-or-id>`
+
 ## Review
 
 - Tests written first and seen failing: 3 frontend (CLI setup lines + Escape,

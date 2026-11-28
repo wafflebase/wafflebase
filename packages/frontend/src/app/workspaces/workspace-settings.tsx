@@ -75,6 +75,12 @@ const SECTION_INDEX = [
 /** The CLI's built-in server (packages/cli/src/config/config.ts). */
 const CLI_DEFAULT_SERVER = "https://api.wafflebase.io";
 
+/** The API server this page talks to, as the CLI's `--server` expects it. */
+function apiServer(): string {
+  const base = import.meta.env.VITE_BACKEND_API_URL || "/";
+  return new URL(base, window.location.origin).href.replace(/\/$/, "");
+}
+
 /**
  * The shell lines that put a freshly minted key to work with the CLI and
  * the Claude Code plugin. The workspace goes in by id, not slug, so renaming
@@ -82,8 +88,7 @@ const CLI_DEFAULT_SERVER = "https://api.wafflebase.io";
  * server line appears only when this deployment is not the CLI's default.
  */
 function cliSetupLines(key: string, workspaceId: string): string {
-  const base = import.meta.env.VITE_BACKEND_API_URL || "/";
-  const server = new URL(base, window.location.origin).href.replace(/\/$/, "");
+  const server = apiServer();
   const lines = [
     `export WAFFLEBASE_API_KEY=${key}`,
     `export WAFFLEBASE_WORKSPACE=${workspaceId}`,
@@ -830,6 +835,12 @@ export default function WorkspaceSettings() {
               Copy your key now. It is shown only once.
             </DialogDescription>
           </DialogHeader>
+          <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            <span>Workspace: {workspace.name}</span>
+            <span className="[overflow-wrap:anywhere]">
+              Server: {apiServer()}
+            </span>
+          </p>
           <div className="flex items-center gap-2 rounded-md border bg-muted p-3">
             <Key className="h-4 w-4 shrink-0 text-muted-foreground" />
             <code className="flex-1 text-sm break-all">
@@ -877,8 +888,7 @@ export default function WorkspaceSettings() {
               </div>
               <p className="text-sm text-muted-foreground">
                 Start Claude Code from that same shell. The lines last only as
-                long as the shell, so keep the key in a password manager or
-                your shell profile.
+                long as the shell; keep the key itself in a password manager.
               </p>
             </div>
           )}

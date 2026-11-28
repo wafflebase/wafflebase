@@ -179,3 +179,71 @@ describe('ctx switch failures', () => {
     });
   });
 });
+
+// `ctx switch` moves the session's workspace, but an exported workspace or
+// API key wins over the session (resolveConfig). Saying only "Switched"
+// would be a lie in exactly that setup.
+describe('ctx switch under an environment override', () => {
+  const sessionPath = join(tmpdir(), `wb-ctx-override-${process.pid}.json`);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.WAFFLEBASE_SESSION;
+    delete process.env.WAFFLEBASE_WORKSPACE;
+    delete process.env.WAFFLEBASE_API_KEY;
+    process.exitCode = undefined;
+    rmSync(sessionPath, { force: true });
+  });
+
+  async function switchTo(query: string): Promise<{ out: string[]; err: string[] }> {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+    writeFileSync(
+      sessionPath,
+      JSON.stringify({
+        server: 'http://localhost:3000',
+        user: { id: 1, username: 'bob', email: 'b@e.com', photo: null },
+        accessToken: 'at',
+        refreshToken: 'rt',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        activeWorkspace: workspaces[0].id,
+        workspaces,
+      }),
+    );
+    const out: string[] = [];
+    const err: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.map(String).join(' '));
+    });
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      err.push(a.map(String).join(' '));
+    });
+    const program = new Command();
+    program.name('wafflebase').exitOverride();
+    registerCtxCommand(program);
+    await program.parseAsync(['ctx', 'switch', query], { from: 'user' });
+    return { out, err };
+  }
+
+  it('warns that WAFFLEBASE_WORKSPACE still wins', async () => {
+    process.env.WAFFLEBASE_WORKSPACE = 'pinned-ws';
+    const target = workspaces[1];
+    const { out, err } = await switchTo(target.id);
+    expect(out).toContain(`Switched to ${target.name}.`);
+    expect(err).toContain(
+      `WAFFLEBASE_WORKSPACE is set (pinned-ws), so commands still use that workspace. Unset it to use ${target.name}.`,
+    );
+  });
+
+  it('warns that an API key in the environment wins over the session', async () => {
+    process.env.WAFFLEBASE_API_KEY = 'wfb_x';
+    const { err } = await switchTo(workspaces[1].id);
+    expect(err).toContain(
+      'WAFFLEBASE_API_KEY is set, so commands use that key and its workspace, not this login session.',
+    );
+  });
+
+  it('says nothing extra without an override', async () => {
+    const { err } = await switchTo(workspaces[1].id);
+    expect(err).toEqual([]);
+  });
+});
