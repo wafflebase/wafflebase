@@ -154,13 +154,14 @@ export function Composer({
   // Not on a touch device, where focusing would throw up the keyboard over
   // the conversation the reader just opened.
   // The caret goes to the end, so a restored draft is continued rather
-  // than typed in front of.
+  // than typed in front of — including one that arrives after mount, once
+  // the signed-in user resolves (`draftSwaps`).
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta || !autoFocus || disabled || isCoarsePointer()) return;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
-  }, [autoFocus, disabled, channelId]);
+  }, [autoFocus, disabled, channelId, draftSwaps]);
 
   const canSend = !disabled && !sending && !!trimmed && !tooLong;
 

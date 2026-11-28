@@ -12,3 +12,8 @@
   row of a scroller, or `overflow` clips it.
 
 ## Self-review rounds
+- Round 1: correctness (major) — the caret-to-end effect did not re-run
+  when a draft arrives after mount (user resolves late). Added `draftSwaps`
+  to its deps, plus two composer tests; the mount one fails without the fix.
+  Minor (not blocking): toolbar still clipped by `pt-1` — the row's own
+  `mt-2` adds 8px, and the toolbar was checked fully visible in the browser.

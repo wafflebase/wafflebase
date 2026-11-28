@@ -203,6 +203,33 @@ describe("Composer", () => {
     expect(box()).toHaveValue("saved");
   });
 
+  describe("autoFocus", () => {
+    const atEnd = () => {
+      const ta = box() as HTMLTextAreaElement;
+      return ta.selectionStart === ta.value.length &&
+        ta.selectionEnd === ta.value.length;
+    };
+
+    it("puts the caret after a restored draft", () => {
+      window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "half a thought");
+      render(<Composer channelId="c1" userId={1} onSend={vi.fn()} autoFocus />);
+      expect(box()).toHaveFocus();
+      expect(box()).toHaveValue("half a thought");
+      expect(atEnd()).toBe(true);
+    });
+
+    it("puts the caret after a draft that loads once the user resolves", () => {
+      window.sessionStorage.setItem("wafflebase:chat-draft:1:c1", "saved");
+      const view = render(<Composer channelId="c1" onSend={vi.fn()} autoFocus />);
+      (box() as HTMLTextAreaElement).setSelectionRange(0, 0);
+      view.rerender(
+        <Composer channelId="c1" userId={1} onSend={vi.fn()} autoFocus />,
+      );
+      expect(box()).toHaveValue("saved");
+      expect(atEnd()).toBe(true);
+    });
+  });
+
   it("measures the limit after picked mentions expand", async () => {
     render(
       <Composer
