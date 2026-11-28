@@ -26,6 +26,15 @@ this task. Related: issue #696 (Notes AI toolbar, BYOK seam).
       types)
 - [x] Index row in `docs/design/README.md`; cross-link from chat.md's push
       non-goal
+- [x] `/impeccable critique` of the install → bot setup journey (25/40, 3 P1
+      in the design); folded in: pairing codes + agent-only key file, bot
+      creation asks *Who will mention this bot?*, connect step with host
+      status, listen mode as the first host, runner start banner, docs page
+      moved to the listen-mode phase, `wafflebase bots` CLI parity
+- [ ] Follow-up PR (separate branch): today's P2s — API key dialog next
+      step + Done-only dismiss, revoke confirmation, README/setup
+      `WAFFLEBASE_WORKSPACE`, settings section index, setup skill pointer,
+      CLI login re-prompt on an invalid workspace number
 - [ ] Maintainer review of the design and its three open questions
 - [ ] Open a PR
 

@@ -21,3 +21,15 @@ The first draft had the agent snapshot a revision before its first write.
 Neither the CLI nor `/api/v1` exposes revisions — claude-plugin.md lists it
 as future work. **Rule:** every capability a design leans on gets a grep of
 the CLI commands and `/api/v1` controllers before it goes in the doc.
+
+## A setup example is a design decision
+
+The first draft's runner example was `export WAFFLEBASE_API_KEY=<bot key>`.
+The CLI resolves an env key ahead of the login session, so on a laptop that
+one line turns the member's own Claude Code sessions into the bot. The
+journey critique caught it; the design review did not, because nobody read
+the example as a step a user would really take.
+
+**Rule:** for every credential a design asks a user to place, trace where it
+lands and what else on that machine reads it (resolve order, hooks,
+profiles) before writing the example.

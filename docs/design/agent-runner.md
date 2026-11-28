@@ -8,15 +8,20 @@ target-version: 0.7.0
 ## Summary
 
 Let a workspace put a Claude agent to work in chat and on documents **without
-Wafflebase ever holding a Claude credential**. A member runs a small daemon —
-`wafflebase agent run` — on a machine they control (laptop, team server, CI).
-The daemon signs in to Wafflebase as a **bot member** (see
-[chat.md § Bot Members](chat.md#bot-members)), receives the bot's mentions over
-an outbound SSE stream, and answers each one by running the **unmodified
-Claude Code binary** headless with the Wafflebase plugin
-([claude-plugin.md](claude-plugin.md)). The Claude credential — a
-`claude setup-token` OAuth token or an API key — lives only in the runner's
-environment.
+Wafflebase ever holding a Claude credential**. A member creates a **bot
+member** (see [chat.md § Bot Members](chat.md#bot-members)), pairs it to a
+host they control with a one-time code, and that host answers the bot's
+mentions with the **unmodified Claude Code binary** and the Wafflebase plugin
+([claude-plugin.md](claude-plugin.md)). There are two hosts, one protocol:
+
+- **Listen mode** — `/wafflebase:listen` in the member's own interactive
+  Claude Code session. For a personal bot: no second machine, no second
+  secret, and the member watches (and approves) every write. Ships first.
+- **Runner** — `wafflebase agent run`, a headless daemon on a laptop, team
+  server or CI. For an always-on or team bot.
+
+The Claude credential — the member's own Claude Code login, a
+`claude setup-token` OAuth token or an API key — never leaves that host.
 
 ```
  Wafflebase (knows only the bot's API key)     Runner (member-controlled host)
@@ -93,8 +98,13 @@ that runs a model.
 
 ## Goals
 
-- A member can make a bot, start a runner with one command, and have
-  teammates `@mention` the bot in any channel, thread or DM it belongs to.
+- A member can make a bot and have it answering mentions without copying a
+  long-lived secret or reading a design doc: the bot dialog hands them the
+  one command to run, and the bot row turns live when a host connects.
+- A bot's credential never displaces the member's own CLI identity on the
+  same machine.
+- Teammates `@mention` a bot in any channel, thread or DM it belongs to, and
+  are told before they try whether the bot is available to them.
 - The bot reads and edits documents through the same CLI and plugin a human
   Claude Code user has, so there is one tool surface to maintain.
 - Wafflebase stores no Claude credential, runs no model, and pays for no
@@ -135,9 +145,49 @@ model User {
   - `owner` (default): only `botOwnerId`. The only setting allowed with a
     subscription token.
   - `members`: any member of the bot's workspace. Requires an API key or a
-    cloud-provider credential in the runner (§ 5).
+    cloud-provider credential on the host (§ 7).
 - The `/api/v1` chat mirror and CLI chat verbs from chat.md P3 ship here:
   `wafflebase chat channels|history|thread|post|edit|inbox`.
+- **CLI parity** (PRODUCT.md: agents and people edit the same thing):
+  `wafflebase bots create|list|rename|delete|pair-code`, so a bot can be made
+  from the terminal the member is already in. Settings → Bots is the same
+  flow and the audit view.
+
+**Creation flow** (Settings → Bots → *New bot*, or `wafflebase bots create`).
+The policy question is asked here, where the choice is made, not discovered
+later at a terminal refusal:
+
+```
+ New bot
+ ─────────────────────────────────────────────────────────────
+ Name    [ deck-bot              ]    Avatar [◐]
+
+ Who will mention this bot?
+ (•) Just me        Runs on your own Claude Code login or setup token.
+ ( ) Any member     Needs an Anthropic API key or a Bedrock / Vertex /
+                    Foundry credential on the host — a personal Claude
+                    subscription can't serve a team.
+
+                                           [ Cancel ]  [ Create ]
+```
+
+Create opens the **connect** step (§ 4) instead of a shown-once key:
+
+```
+ Connect deck-bot
+ ─────────────────────────────────────────────────────────────
+ In Claude Code (Just me):   /wafflebase:listen 4F2K-9QXD
+ Or on a server:             wafflebase agent pair 4F2K-9QXD
+                             wafflebase agent run deck-bot
+ Code expires in 10:00 · single use · [ New code ]
+
+ ○ Waiting for a host…            ← turns into ● Connected (MacBook)
+                                                      [ Done ]
+```
+
+Each bot row in Settings → Bots shows: name, *Just me* / *Any member*,
+owner, and host status — *Not connected*, *● Listening (host, since)*,
+*Offline (last seen)* — from the bot's event-stream connections (§ 3).
 
 ### 2. Agent tasks
 
@@ -186,7 +236,7 @@ model ChatMessage {
    bot, plus a per-workspace cap on tasks per hour.
 
 The invoker of a bot→bot task stays the **original human** (copied from the
-parent task), so authority narrowing (§ 6) and audit always name a person.
+parent task), so authority narrowing (§ 8) and audit always name a person.
 
 ### 3. Bot event stream and leases
 
@@ -211,15 +261,81 @@ POST /api/v1/workspaces/:wid/bots/me/tasks/:id/complete      { status }
 - `task.cancelled` fires when a person replies "stop" to the bot in the
   thread or presses Stop on the bot's status message.
 
-### 4. The runner — `wafflebase agent run`
+### 4. Pairing a bot to a host
+
+A bot's API key never passes through a clipboard or a shell `export`. The
+connect step shows a **pairing code** instead, the way GitHub hands a
+self-hosted runner a registration token:
+
+```
+POST /workspaces/:wid/bots/:id/pairing-codes        JWT (bot owner / ws owner)
+     → { code: "4F2K-9QXD", expiresAt }             10 min, single use
+POST /auth/bot-pair  { code, hostName }             unauthenticated, throttled
+     → { botId, workspaceId, server, apiKey }       mints a fresh bot key
+```
+
+- `wafflebase agent pair <code>` (and `/wafflebase:listen <code>`, which
+  calls it) exchanges the code and writes `~/.wafflebase/agents/<bot>.json`
+  (mode 0600): server, workspace, bot id, key. The workspace comes with the
+  code, so no command takes `--workspace` and the user never copies an id.
+- **This file is the only place a bot key lives on the host.** It is not a
+  CLI profile and not `WAFFLEBASE_API_KEY`: `resolveConfig` puts an env key
+  ahead of the login session (`packages/cli/src/config/config.ts`), so an
+  exported bot key would silently turn the member's own Claude Code sessions
+  in that shell into the bot. Bot credentials are read only by `agent`
+  commands and by CLI calls that name a bot explicitly (`--as-bot <name>`).
+- Each pairing mints its own key, labelled with `hostName`, so Settings →
+  Bots lists hosts and revoking one host leaves the others running.
+  *New code* never revokes anything.
+- The SessionStart hook reports the identity it found, and says so when it
+  is a bot (`/auth/me` returns `kind`), so an env key belonging to a bot is
+  visible at the start of every session rather than discovered in the
+  attribution later.
+
+### 5. Listen mode — `/wafflebase:listen`
+
+A plugin command that turns the member's current interactive Claude Code
+session into the host for one of **their own** bots:
+
+1. `/wafflebase:listen <code>` pairs (first time) or
+   `/wafflebase:listen deck-bot` reuses the stored pairing.
+2. The command refuses a bot whose `botInvokers` is `members`: the session
+   runs on the member's own Claude login, which may only serve the member
+   (§ 7).
+3. It loops on `wafflebase agent next --wait`, a CLI call that blocks on the
+   bot event stream (§ 3), claims one task and prints it as JSON.
+4. Claude handles the task with the plugin's ordinary skills. CLI calls run
+   with `--as-bot deck-bot`, so writes and replies are attributed to the bot
+   and carry the task header (§ 8).
+5. The interactive guard stays in force: the member is present, so a write
+   still asks unless they opted into auto-approve. That is the point of
+   listen mode — a human-in-the-loop bot, before a headless one.
+6. `wafflebase agent complete`, then back to step 3. Esc or `/wafflebase:stop`
+   ends the loop and releases any claimed task.
+
+Limits, stated in the command's own output: while listening the session
+is dedicated to the bot (Esc to talk to Claude, re-run to resume), tasks run
+one at a time, they share the session's context (each task starts with a short "new task"
+boundary and the thread it came from), and the bot goes *Offline* when the
+session closes. Anything always-on is the runner.
+
+### 6. The runner — `wafflebase agent run`
 
 A CLI subcommand, so it reuses the CLI's config, HTTP client and error
 envelope:
 
 ```bash
-export WAFFLEBASE_API_KEY=wfb_…              # the bot's key
-export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-… # or ANTHROPIC_API_KEY=…
-wafflebase agent run --workspace acme --concurrency 2
+wafflebase agent pair 4F2K-9QXD              # once per host
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-… # from `claude setup-token`,
+                                              # or ANTHROPIC_API_KEY=…
+wafflebase agent run deck-bot --concurrency 2
+```
+
+It starts with a one-line banner that restates the policy check it just ran,
+so the operator sees the decision rather than only a refusal:
+
+```
+deck-bot · Just me · subscription token · OK — listening on acme (2 slots)
 ```
 
 Per task:
@@ -233,7 +349,7 @@ Per task:
 3. **Run** Claude Code headless in a fresh per-task working directory:
    `claude -p --output-format stream-json` with the Wafflebase plugin and
    `--allowedTools` limited to the `wafflebase` CLI. Environment for the
-   child: the bot key, `WAFFLEBASE_AGENT_TASK=<task id>`, the Claude
+   child process only: the bot key from the agent file, `WAFFLEBASE_AGENT_TASK=<task id>`, the Claude
    credential, and `WAFFLEBASE_AGENT_HEADLESS=1`. Do not pass `--bare`: per
    the authentication docs, bare mode does not read `CLAUDE_CODE_OAUTH_TOKEN`
    (verify in phase 3; the GitHub Action runs headless with that token).
@@ -248,10 +364,11 @@ Per task:
 The runner holds no workspace state beyond that session map; losing the host
 loses only conversational memory.
 
-### 5. Credential and invocation policy
+### 7. Credential and invocation policy
 
-| Bot `botInvokers` | Runner credential | Allowed |
+| Bot `botInvokers` | Host credential | Allowed |
 | --- | --- | --- |
+| `owner` | listen mode: the owner's own Claude Code login | Yes — the owner using their own subscription, interactively |
 | `owner` | owner's `CLAUDE_CODE_OAUTH_TOKEN` | Yes — the owner using their own subscription |
 | `owner` | API key / Bedrock / Vertex / Foundry | Yes |
 | `members` | team API key / Bedrock / Vertex / Foundry | Yes — the customer's own key for its own authorized users |
@@ -267,10 +384,14 @@ Enforcement is layered, and honest about what each layer can know:
   credential, it refuses to start and explains why. The server cannot see the
   runner's environment, so this protects honest operators, not against a
   modified runner.
-- **Settings UI:** switching a bot to `members` shows the policy in one line
-  and links the runner setup docs for API-key credentials.
+- **Creation flow:** the *Who will mention this bot?* question (§ 1) states
+  the credential each answer needs before the bot exists, and the runner's
+  start banner (§ 6) restates the result. Switching an existing bot to *Any
+  member* repeats the one-line rule and marks paired hosts *Re-check on
+  restart*.
+- **Listen mode** refuses *Any member* bots outright (§ 5).
 
-### 6. Authority: the bot never sees more than its invoker
+### 8. Authority: the bot never sees more than its invoker
 
 Documents: every workspace member can open every document in the workspace
 today (the schema has no per-document ACL inside a workspace), so a bot with
@@ -293,7 +414,7 @@ already a core skill rule in the plugin. The headless profile adds: no local
 file reads outside the task directory, no network tools, and the plugin's
 destructive commands are denied outright rather than asked.
 
-### 7. Edits and attribution
+### 9. Edits and attribution
 
 - Writes go through the bot's API key, so `runAsApiWriter` attributes them to
   the bot, and webhook events name the bot as actor.
@@ -309,7 +430,7 @@ destructive commands are denied outright rather than asked.
   "snapshot before the first write, link Restore in the answer" waits for that
   API and lands in phase 4. Suggestion mode is later still.
 
-### 8. Agent-to-agent
+### 10. Agent-to-agent
 
 Two bots in one thread talk only through visible thread messages: bot A's
 reply mentions bot B → a task for B with `hop + 1` and the same human invoker.
@@ -321,36 +442,44 @@ can spend one.
 ## Phases
 
 1. **Bot members + chat API** (chat.md P3 subset): `User.kind/botOwnerId/
-   botWorkspaceId/botInvokers`, settings → Bots, login refusal, lifecycle,
-   `/api/v1` chat mirror, CLI chat verbs, Bot / via API labels.
-2. **Agent tasks**: `AgentTask`, `ChatMessage.agentTaskId`, creation rules,
-   bot event stream, claim/lease/heartbeat, cancel, system notices.
-3. **Runner**: `wafflebase agent run`, plugin headless profile, status
-   message streaming, session resume, credential guard, task-header authority
-   narrowing.
-4. **Hardening**: per-workspace caps and an owner-visible task log (who asked,
-   which bot, duration, outcome), Docker image for team servers, docs-site
-   page, comment mentions feeding the same queue, revision snapshot before
-   the first write once `/api/v1` exposes revisions.
+   botWorkspaceId/botInvokers`, Settings → Bots with the creation flow,
+   login refusal, lifecycle, `/api/v1` chat mirror, CLI chat verbs and
+   `wafflebase bots`, Bot / via API labels, `/auth/me` returning `kind`.
+2. **Agent tasks + pairing**: `AgentTask`, `ChatMessage.agentTaskId`,
+   creation rules, bot event stream, claim/lease/heartbeat, cancel, system
+   notices, pairing codes, `wafflebase agent pair|next|complete`, host status
+   on the bot row, task-header authority narrowing.
+3. **Listen mode**: `/wafflebase:listen`, `--as-bot`, SessionStart bot
+   identity line, and the docs-site page "Put a bot to work" — written with
+   the first host, not after it.
+4. **Runner**: `wafflebase agent run`, plugin headless profile, start banner,
+   status message streaming, session resume, credential guard; the docs page
+   gains the server section.
+5. **Hardening**: per-workspace caps and an owner-visible task log (who asked,
+   which bot, duration, outcome), Docker image for team servers, comment
+   mentions feeding the same queue, revision snapshot before the first write
+   once `/api/v1` exposes revisions.
 
-Each phase is shippable alone: phase 1 already lets a person script a bot
-with the CLI and pull its inbox; phase 2 lets any agent framework consume the
-stream; phase 3 is the batteries-included path.
+Each phase is shippable alone: phase 1 lets a person script a bot with the
+CLI and pull its inbox; phase 2 lets any agent framework consume the stream;
+phase 3 is a personal bot with a human watching; phase 4 is always-on.
 
 ## Alternatives Considered
 
 | Option | Verdict |
 | --- | --- |
 | Store a setup token in workspace settings, run the agent in the backend | Rejected — the terms forbid collecting, storing or intermediating Claude.ai credentials |
-| Built-in backend agent with a workspace API key (BYOK, #696's seam) | Complementary, not a replacement — needs the backend to own a model loop (a non-goal in notes.md and agentic-office-workflow.md today) and a secret store; can reuse `AgentTask` and § 6 later |
+| Built-in backend agent with a workspace API key (BYOK, #696's seam) | Complementary, not a replacement — needs the backend to own a model loop (a non-goal in notes.md and agentic-office-workflow.md today) and a secret store; can reuse `AgentTask` and § 8 later |
 | Push tasks over workspace webhooks | Rejected for v1 — needs a public HTTPS endpoint; webhooks.md already excludes private-channel and DM events from workspace webhooks |
+| Hand the bot key over as a shown-once secret exported as `WAFFLEBASE_API_KEY` | Rejected — an env key overrides the login session, so the member's own sessions would become the bot; and a long-lived secret on a clipboard is the riskiest step in the flow. Pairing code + agent-only file instead (§ 4) |
+| Only the headless runner, no listen mode | Rejected for the first host — a personal bot would need a second process and a setup token; listen mode reuses the session the member already has and keeps a human approving writes |
 | Runner as a new package with its own HTTP client | Rejected — duplicates the CLI's auth and envelope; a subcommand is less code |
 | Remote MCP connector so each person's Claude acts directly | Deferred — no in-product chat UX, and needs an OAuth 2.1 server; orthogonal to this design |
 | Agent SDK in the runner instead of the Claude Code binary | Possible later; the binary path reuses the plugin as-is, and its subscription sign-in is the case the terms explicitly allow |
 
 ## Risks
 
-- **Policy drift.** The terms can change; the credential table (§ 5) is the
+- **Policy drift.** The terms can change; the credential table (§ 7) is the
   single place to update, and the runner guard is one function.
 - **Self-declared runner.** The server cannot verify which credential a
   runner uses; only invocation is enforced server-side. Documented, not
@@ -360,6 +489,12 @@ stream; phase 3 is the batteries-included path.
   mention chip shows the bot as offline (last stream connection time).
 - **Cost surprise on `members` bots.** The team key pays for every member's
   request; phase 4 adds caps and the task log.
+- **Listen mode mixes contexts.** Tasks share one session; a long thread can
+  crowd out the next task. The task boundary line helps; the honest answer
+  for heavy use is the runner, and the command says so.
+- **Pairing code interception.** 10-minute single-use codes, shown only to
+  the bot owner, exchanged over the same TLS as everything else; the
+  exchange endpoint is throttled per IP and per bot.
 - **Headless guard over-allows.** The headless profile is a second table in
   the plugin guard, generated and drift-tested like the first.
 
@@ -371,5 +506,10 @@ stream; phase 3 is the batteries-included path.
 2. Should a bot be addable to private channels by any channel member, or only
    by the bot owner? Default: bot owner or workspace owner only, because
    adding a bot widens what its owner's runner can read.
-3. Does phase 1 need the full chat.md P3 (search included), or only bots +
+3. While `agent next --wait` blocks, the session is dedicated to the bot; the
+   member presses Esc to talk to Claude and re-runs `/wafflebase:listen` to
+   resume. Is that acceptable, or should listen mode run the wait as a
+   background task that wakes the session? Default: the blocking loop —
+   simple and visible; revisit once the plugin can rely on background tasks.
+4. Does phase 1 need the full chat.md P3 (search included), or only bots +
    API mirror + CLI verbs? Default: the latter; search is independent.
