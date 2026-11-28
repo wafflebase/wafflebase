@@ -146,7 +146,12 @@ import {
 } from './adjustment-tooltip';
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
-import { renderOverlay, renderPeerCursors, type OverlayOptions } from './overlay';
+import {
+  OVERLAY_PERSISTENT_ATTR,
+  renderOverlay,
+  renderPeerCursors,
+  type OverlayOptions,
+} from './overlay';
 import { computeAnimationOrder } from './animation-order';
 import { SlidesRuler, rulerUnitOf } from './ruler/ruler';
 import {
@@ -1539,13 +1544,12 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * `renderOverlay` + the overlay's PERSISTENT children.
+   * `renderOverlay` + the peer-cursor layer.
    *
-   * `renderOverlay` clears `overlay.innerHTML` on every call, which also
-   * unmounts the peer-cursor layer and the in-place text-box container.
-   * Both are re-appended here so every overlay path keeps them, instead
-   * of each call site remembering to. Re-appending the text box last
-   * preserves its z-order on top of the freshly built chrome.
+   * `renderOverlay` rebuilds the selection chrome but leaves the
+   * overlay's persistent children (the peer-cursor layer and the in-place
+   * text-box container, see `OVERLAY_PERSISTENT_ATTR`) mounted and on
+   * top, so a repaint never blurs the text box mid-typing.
    */
   private paintOverlay(
     selectedElements: readonly Element[],
@@ -1553,13 +1557,12 @@ class SlidesEditorImpl implements SlidesEditor {
   ): void {
     renderOverlay(this.options.overlay, selectedElements, options);
     this.repaintPeerCursors();
-    this.reattachEditingTextBox();
   }
 
   /**
    * The overlay child that peer cursors are painted into. Created lazily
-   * (a solo mount never allocates it) and re-appended after every
-   * `renderOverlay` rebuild — see {@link paintOverlay}. Positioned at the
+   * (a solo mount never allocates it) and marked persistent, so
+   * `renderOverlay` rebuilds leave it in place. Positioned at the
    * overlay's origin with no size of its own, so its absolutely
    * positioned children use exactly the coordinates the overlay's own
    * chrome uses.
@@ -1573,6 +1576,7 @@ class SlidesEditorImpl implements SlidesEditor {
       layer.style.left = '0';
       layer.style.top = '0';
       layer.style.pointerEvents = 'none';
+      layer.setAttribute(OVERLAY_PERSISTENT_ATTR, '');
       this.peerCursorLayer = layer;
     }
     if (layer.parentNode !== this.options.overlay) {
@@ -1652,13 +1656,6 @@ class SlidesEditorImpl implements SlidesEditor {
     // refit'd group state (frame + children's normalized local frames).
     this.renderer.markDirty();
     this.repaintOverlay();
-  }
-
-  private reattachEditingTextBox(): void {
-    const tb = this.editingTextBox;
-    if (tb === null) return;
-    if (tb.container.parentNode === this.options.overlay) return;
-    this.options.overlay.appendChild(tb.container);
   }
 
   private scale(): number {
@@ -1960,13 +1957,8 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.disposed) return;
     // Does anything the SELECTION CHROME depends on differ, or is this a
     // cursor-only tick? Cursors move at pointer rate (the board publishes
-    // one per animation frame), and rebuilding the overlay at that rate
-    // is not merely wasteful — `renderOverlay` clears `overlay.innerHTML`,
-    // which detaches the in-place text-box container and moves focus off
-    // its hidden IME textarea. The local user's keystrokes then fall
-    // through to the editor's GLOBAL key rules (Delete removes the
-    // selected element, printable keys arm insert mode), i.e. a peer
-    // waving their mouse would make local text editing unusable.
+    // one per animation frame), and rebuilding the selection chrome at
+    // that rate would be pure waste.
     const chromeChanged = !peersEqualIgnoringCursor(this.peers, peers);
     this.peers = peers;
     // Peers live only in the DOM overlay; no canvas markDirty needed.
@@ -3124,7 +3116,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.hoverPreview = null;
     this.connectorCursor = null;
     // Rotate-angle tooltip is attached to the overlay's parent, not the
-    // overlay itself, so renderOverlay's innerHTML rebuilds don't wipe
+    // overlay itself, so renderOverlay's chrome rebuilds don't wipe
     // it. That same parent ownership means we must remove it explicitly
     // on teardown — otherwise a SlidesView remount leaves an orphan
     // hidden div behind every cycle.
@@ -7061,7 +7053,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
     const tooltip = this.acquireRotateTooltip();
     // The tooltip is appended to overlay.parentElement (see
-    // `acquireRotateTooltip`) so `renderOverlay`'s innerHTML reset
+    // `acquireRotateTooltip`) so `renderOverlay`'s chrome reset
     // doesn't wipe it mid-drag. That means `tooltip.style.transform`
     // is interpreted in the PARENT's containing block — not the
     // overlay's. When the slides-view installs a pasteboard, the
@@ -7157,7 +7149,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
   /**
    * Lazily create and attach the rotation-angle tooltip. Lives outside
-   * the overlay's `innerHTML` so `renderOverlay` rebuilds don't wipe it
+   * the overlay so `renderOverlay` rebuilds don't wipe it
    * mid-drag. Hidden by default.
    */
   private rotateTooltipEl: HTMLDivElement | null = null;
@@ -7184,7 +7176,7 @@ class SlidesEditorImpl implements SlidesEditor {
     el.style.pointerEvents = 'none';
     el.style.zIndex = '1000';
     el.style.display = 'none';
-    // Append to the overlay's parent so renderOverlay's innerHTML reset
+    // Append to the overlay's parent so renderOverlay's chrome reset
     // can't remove it. The overlay is positioned over the canvas; its
     // parent is the same containing block, so absolute coordinates line up.
     const parent = this.options.overlay.parentElement ?? this.options.overlay;

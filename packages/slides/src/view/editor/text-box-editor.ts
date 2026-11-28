@@ -36,6 +36,7 @@ import {
 import type { AutofitMode, Element, Frame, VerticalAnchorMode } from '../../model/element';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
 import { resizeFrameToSize } from './interactions/resize';
+import { OVERLAY_PERSISTENT_ATTR } from './overlay';
 
 /**
  * Logical-px inset applied to a text-capable element's frame when
@@ -332,6 +333,9 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
   container.className = 'wfb-slides-text-box-editor';
+  // Survives the overlay's chrome rebuilds — a collaborator's edit must
+  // not detach (and so blur, and so commit) the box mid-typing.
+  container.setAttribute(OVERLAY_PERSISTENT_ATTR, '');
   container.style.position = 'absolute';
   container.style.left = `${frame.x * scale + panX}px`;
   container.style.top = `${frame.y * scale + panY}px`;

@@ -180,9 +180,23 @@ export interface OverlayOptions {
 }
 
 /**
+ * Marks an overlay child that {@link renderOverlay} must leave mounted:
+ * the in-place text-box editor and the peer-cursor layer. Detaching the
+ * text box would detach its hidden IME textarea, and the browser blurs a
+ * focused element it removes — committing and closing the local edit
+ * every time a collaborator's change repaints the chrome.
+ */
+export const OVERLAY_PERSISTENT_ATTR = 'data-overlay-persistent';
+
+function isPersistent(node: Node): boolean {
+  return node instanceof HTMLElement && node.hasAttribute(OVERLAY_PERSISTENT_ATTR);
+}
+
+/**
  * Render selection handles + the selection frame into `overlay`. The
- * overlay is cleared and rebuilt on every call (cheap with at most
- * ~10 child nodes).
+ * chrome is cleared and rebuilt on every call (cheap with at most ~10
+ * child nodes); {@link OVERLAY_PERSISTENT_ATTR} children survive and
+ * stay on top of it.
  *
  * For a single selected element with rotation === 0 we draw handles
  * on the element's axis-aligned frame. For a single rotated element we
@@ -197,8 +211,28 @@ export function renderOverlay(
   selectedElements: readonly Element[],
   options: OverlayOptions,
 ): void {
-  overlay.innerHTML = '';
+  for (const child of Array.from(overlay.childNodes)) {
+    if (!isPersistent(child)) child.remove();
+  }
+  paintOverlayChrome(overlay, selectedElements, options);
+  // The chrome was appended after the persistent children; move it in
+  // front of them so they keep painting on top. Only fresh chrome moves —
+  // a persistent node never leaves the tree.
+  const first = Array.from(overlay.childNodes).find(isPersistent);
+  if (!first) return;
+  let node = first.nextSibling;
+  while (node !== null) {
+    const next = node.nextSibling;
+    if (!isPersistent(node)) overlay.insertBefore(node, first);
+    node = next;
+  }
+}
 
+function paintOverlayChrome(
+  overlay: HTMLDivElement,
+  selectedElements: readonly Element[],
+  options: OverlayOptions,
+): void {
   // Board-mode pan offset (screen px, applied after scale). Default 0
   // keeps every position identical to the pre-viewport call sites.
   const px = options.panX ?? 0;
@@ -978,11 +1012,9 @@ function renderPeerOverlays(
  * name tag beside it — into a DEDICATED layer.
  *
  * Deliberately not part of {@link renderPeerOverlays}: cursors update at
- * pointer rate, and `renderOverlay` rebuilds the whole overlay DOM
- * (`overlay.innerHTML = ''`), which detaches — and so blurs — the
- * in-place text-box editor mounted in that same overlay. Painting into
- * its own layer lets the editor refresh cursors ~60×/s without touching
- * the selection chrome or the text box.
+ * pointer rate, and `renderOverlay` rebuilds all of the overlay's
+ * selection chrome. Painting into its own layer lets the editor refresh
+ * cursors ~60×/s without touching the selection chrome or the text box.
  *
  * `layer` is expected to sit at the overlay's origin, so the world →
  * screen math here (`world * scale + pan`) is the same one the rings use

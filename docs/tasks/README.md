@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board text edit focus (2026-11-28) | [20261128-board-text-edit-focus-todo.md](./active/20261128-board-text-edit-focus-todo.md) | [20261128-board-text-edit-focus-lessons.md](./active/20261128-board-text-edit-focus-lessons.md) |
 | desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
 | release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./active/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./active/20261127-release-v0.6.19-lessons.md) |
 | desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
@@ -66,4 +67,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 677
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: desktop download (2026-11-27)
+Latest active task: board text edit focus (2026-11-28)
