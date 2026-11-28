@@ -20,6 +20,7 @@ import { CHAT_BODY_MAX } from "@/api/chat";
 import { userFacingError } from "@/api/http-error";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { avatarInitials } from "@/components/avatar-size";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -232,6 +233,11 @@ function MessageLine({ message, showHeader, author, host }: LineProps) {
             <span className="truncate text-sm font-semibold text-foreground">
               {authorName}
             </span>
+            {author?.kind === "bot" && (
+              <Badge variant="outline" className="self-center">
+                Bot
+              </Badge>
+            )}
             <time
               dateTime={message.createdAt}
               className="text-xs text-muted-foreground tabular-nums"

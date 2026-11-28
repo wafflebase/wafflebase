@@ -101,7 +101,7 @@ A plugin hook checks every `wafflebase` command Claude runs. By default it asks 
 | Writes: create, rename, set cells, import, add slides | Asks |
 | Deletes, whole-document replaces, `--replace` imports | Always asks |
 | Exports and downloads that write a local file, and uploads of a local file | Always asks |
-| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` | Always asks |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use`, `bots create`, `bots pair-code`, `agent pair` | Always asks |
 | Any command with `--server`, `--api-key`, `--profile`, or `--frontend`, or with a `VAR=` prefix | Always asks |
 | A cell batch that deletes cells or reads its data from standard input | Always asks |
 | A command inside a pipe, `&&` chain, or substitution, or one the plugin doesn't recognize | Asks |
@@ -134,17 +134,18 @@ export WAFFLEBASE_WEB_URL=https://office.example.com
 | Setting | Effect |
 |---|---|
 | `WAFFLEBASE_WEB_URL` | Web app address for document links. A path is kept, for an app served under one. |
-| `WAFFLEBASE_API_KEY` | Use a workspace API key instead of `wafflebase login`. Also set `WAFFLEBASE_WORKSPACE`. |
+| `WAFFLEBASE_API_KEY` | Use a workspace API key instead of `wafflebase login`. Also set `WAFFLEBASE_WORKSPACE`; Settings → API keys prints both lines when it creates the key. |
 | **Auto-allow read-only commands** | See [Turn on auto-approval](#turn-on-auto-approval). |
 | **Auto-approve document writes** | See [Turn on auto-approval](#turn-on-auto-approval). |
 
 ## Known limitations
 
 - Claude can do only what the CLI can. It can't create a board or open a comment thread on doc text, for example. See [Automation and agents](/developers/cli/automation#known-limitations).
-- `wafflebase status` reports only the browser sign-in. With an API key, `/wafflebase:setup` sees you as signed out and confirms access by listing documents instead.
+- `wafflebase status` reports what your commands authenticate with in `auth` (`session`, `api-key` or `none`). `/wafflebase:setup` reads it, so an API key no longer looks like being signed out.
 
 ## Related
 
+- [Put a bot to work](/developers/bots) to answer chat mentions from this session with `/wafflebase:listen`.
 - [Install and sign in](/developers/cli/) for CLI sign-in, profiles, and API keys.
 - [Automation and agents](/developers/cli/automation) for safety levels, skills, and error codes.
 - [Documents and notes](/developers/cli/documents) for the commands Claude runs most.

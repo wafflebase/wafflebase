@@ -2,6 +2,7 @@ import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { AccessContext } from './chat-access';
+import { ChatAgentTaskTrigger } from './chat-agent-tasks';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { ChatMessageService } from './chat-message.service';
@@ -72,7 +73,7 @@ function setup(
     channelId: 'c1',
     seq: 6n,
     authorId: AUTHOR,
-    author: { id: AUTHOR, username: 'alice', photo: null },
+    author: { id: AUTHOR, username: 'alice', photo: null, kind: 'person' },
     body: 'hello',
     threadRootId: null,
     alsoInChannel: false,
@@ -145,14 +146,16 @@ function setup(
     syncChatMessage: jest.fn().mockResolvedValue(undefined),
   };
   const documentRefs = { sync: jest.fn().mockResolvedValue([]) };
+  const agentTasks = { onPosted: jest.fn().mockResolvedValue(undefined) };
   const service = new ChatMessageService(
     prisma as unknown as PrismaService,
     channels as unknown as ChatChannelService,
     bus as unknown as ChatBus,
     notifications as unknown as NotificationService,
     documentRefs as unknown as ChatDocumentRefService,
+    agentTasks as unknown as ChatAgentTaskTrigger,
   );
-  return { service, prisma, tx, notifications };
+  return { service, prisma, tx, notifications, agentTasks };
 }
 
 describe('ChatMessageService', () => {
@@ -338,6 +341,58 @@ describe('ChatMessageService', () => {
       notifications.syncChatMessage.mockRejectedValue(new Error('down'));
       await expect(service.edit(AUTHOR, 'm1', 'x')).resolves.toMatchObject({
         body: 'x',
+      });
+    });
+  });
+
+  describe('agent tasks', () => {
+    it('hands a new post to the task trigger with its channel', async () => {
+      const { service, agentTasks } = setup();
+      const dto = await service.post(AUTHOR, 'c1', { body: 'hello' });
+      expect(agentTasks.onPosted).toHaveBeenCalledWith(
+        dto,
+        expect.objectContaining({ id: 'c1', workspaceId: 'w1' }),
+      );
+    });
+
+    it('never creates a task on an edit', async () => {
+      const { service, agentTasks } = setup();
+      await service.edit(AUTHOR, 'm1', 'changed');
+      expect(agentTasks.onPosted).not.toHaveBeenCalled();
+    });
+
+    it('stores the task and the API key a message was posted under', async () => {
+      const { service, tx } = setup();
+      await service.post(AUTHOR, 'c1', {
+        body: 'done',
+        agentTaskId: 't1',
+        apiKeyId: 'k1',
+      });
+      const [arg] = tx.chatMessage.create.mock.calls[0] as [
+        { data: { agentTaskId: string | null; apiKeyId: string | null } },
+      ];
+      expect(arg.data.agentTaskId).toBe('t1');
+      expect(arg.data.apiKeyId).toBe('k1');
+    });
+
+    it('stores neither for an ordinary post', async () => {
+      const { service, tx } = setup();
+      await service.post(AUTHOR, 'c1', { body: 'hello' });
+      const [arg] = tx.chatMessage.create.mock.calls[0] as [
+        { data: { agentTaskId: string | null; apiKeyId: string | null } },
+      ];
+      expect(arg.data.agentTaskId).toBeNull();
+      expect(arg.data.apiKeyId).toBeNull();
+    });
+
+    it("reports the author's kind on the message", async () => {
+      const { service } = setup();
+      const dto = await service.post(AUTHOR, 'c1', { body: 'hello' });
+      expect(dto.author).toEqual({
+        id: AUTHOR,
+        username: 'alice',
+        photo: null,
+        kind: 'person',
       });
     });
   });

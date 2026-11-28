@@ -42,6 +42,7 @@ export function useWorkspaceMembersQuery(workspaceId: string | undefined) {
         userId: String(m.user.id),
         username: m.user.username,
         photo: m.user.photo || undefined,
+        kind: m.user.kind,
       })),
     [data],
   );

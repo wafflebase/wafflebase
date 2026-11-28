@@ -147,5 +147,11 @@ export function removalConsequences(
       `${n === 1 ? "1 webhook" : `${n} webhooks`} ${who} created will be turned off.`,
     );
   }
+  const bots = impact.botsRemoved ?? 0;
+  if (bots > 0) {
+    lines.push(
+      `${bots === 1 ? "1 bot" : `${bots} bots`} ${who} own will be deleted, and every host connected to ${bots === 1 ? "it" : "them"} disconnected.`,
+    );
+  }
   return lines;
 }

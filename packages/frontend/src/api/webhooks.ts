@@ -381,6 +381,8 @@ export async function redeliverWebhookDelivery(
 export interface MemberRemovalImpact {
   privateChannelsDeleted: number;
   webhooksDisabled: number;
+  /** Bots they own here, deleted with them; absent from older servers. */
+  botsRemoved?: number;
 }
 
 /** What removing a member would delete or turn off, for the confirm dialog. */

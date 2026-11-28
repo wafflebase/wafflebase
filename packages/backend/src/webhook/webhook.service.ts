@@ -455,7 +455,11 @@ export class WebhookService {
     workspace: string,
     requesterId: number,
     targetUserId: number,
-  ): Promise<{ privateChannelsDeleted: number; webhooksDisabled: number }> {
+  ): Promise<{
+    privateChannelsDeleted: number;
+    webhooksDisabled: number;
+    botsRemoved: number;
+  }> {
     const workspaceId = await this.workspaceService.resolveId(workspace);
     if (requesterId === targetUserId) {
       await this.workspaceService.assertMember(workspaceId, requesterId);
@@ -468,15 +472,28 @@ export class WebhookService {
     });
     if (!member) throw new NotFoundException('Member not found');
 
+    // Their bots here leave with them (WorkspaceService.removeMember), so a
+    // channel holding only them and their bots empties as well.
+    const bots = await this.prisma.user.findMany({
+      where: {
+        kind: 'bot',
+        botOwnerId: targetUserId,
+        botWorkspaceId: workspaceId,
+        workspaceMembers: { some: { workspaceId } },
+      },
+      select: { id: true },
+    });
+    const leaving = [targetUserId, ...bots.map((b) => b.id)];
+
     const [privateChannelsDeleted, webhooksDisabled] = await Promise.all([
       this.prisma.chatChannel.count({
         where: {
           workspaceId,
           kind: 'private',
-          // A member, and the only one.
+          // A member, and nobody stays behind.
           members: {
             some: { userId: targetUserId },
-            every: { userId: targetUserId },
+            every: { userId: { in: leaving } },
           },
         },
       }),
@@ -484,7 +501,7 @@ export class WebhookService {
         where: { workspaceId, createdBy: targetUserId, status: 'active' },
       }),
     ]);
-    return { privateChannelsDeleted, webhooksDisabled };
+    return { privateChannelsDeleted, webhooksDisabled, botsRemoved: bots.length };
   }
 
   // -------------------------------------------------------------------------

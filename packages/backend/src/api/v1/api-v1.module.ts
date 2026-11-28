@@ -19,6 +19,7 @@ import { ApiV1ImageReadController } from './image-read.controller';
 import { ApiV1ShareImageUploadController } from './image-share-upload.controller';
 import { ApiV1FilesController } from './files.controller';
 import { ApiV1FoldersController } from './folders.controller';
+import { ApiV1AgentTasksController } from './agent-tasks.controller';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -36,6 +37,8 @@ import { NotificationModule } from '../../notification/notification.module';
 import { DocumentModule } from '../../document/document.module';
 import { ShareLinkModule } from '../../share-link/share-link.module';
 import { WebhookEventModule } from '../../webhook/webhook-event.module';
+// A bot's work queue (`agent/tasks/*`); see `agent-tasks.controller.ts`.
+import { AgentModule } from '../../agent/agent.module';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/optional-jwt-auth.guard';
 import { ApiKeyAuthGuard } from '../../api-key/api-key-auth.guard';
@@ -55,6 +58,7 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ShareLinkModule,
     // This module provides its own `DocumentService`, which emits.
     WebhookEventModule,
+    AgentModule,
   ],
   controllers: [
     ApiV1DocumentsController,
@@ -77,6 +81,7 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ApiV1ShareImageUploadController,
     ApiV1FilesController,
     ApiV1FoldersController,
+    ApiV1AgentTasksController,
   ],
   providers: [
     DocumentService,

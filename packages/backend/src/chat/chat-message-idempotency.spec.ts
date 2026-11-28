@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { ChatAgentTaskTrigger } from './chat-agent-tasks';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { ChatDocumentRefService } from './chat-document-refs';
@@ -25,7 +26,7 @@ function row(over: Record<string, unknown> = {}) {
     deletedAt: null,
     createdAt: new Date('2026-11-25T00:00:00Z'),
     clientId: 'k1',
-    author: { id: AUTHOR, username: 'me', photo: null },
+    author: { id: AUTHOR, username: 'me', photo: null, kind: 'person' },
     ...over,
   };
 }
@@ -69,12 +70,14 @@ function setup() {
     createChatThreadReply: jest.fn(),
   };
   const documentRefs = { sync: jest.fn().mockResolvedValue([]) };
+  const agentTasks = { onPosted: jest.fn().mockResolvedValue(undefined) };
   const service = new ChatMessageService(
     prisma as unknown as PrismaService,
     channels as unknown as ChatChannelService,
     bus as unknown as ChatBus,
     notifications as unknown as NotificationService,
     documentRefs as unknown as ChatDocumentRefService,
+    agentTasks as unknown as ChatAgentTaskTrigger,
   );
   return { service, prisma, tx, bus, notifications };
 }

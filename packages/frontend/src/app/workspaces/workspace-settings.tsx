@@ -52,9 +52,48 @@ import {
 import { WorkspaceWebhooksSection } from "./webhooks/webhooks-section";
 import { WEBHOOKS_SECTION_ID } from "./webhooks/webhook-paths";
 import { RemoveMemberDialog } from "./webhooks/remove-member-dialog";
+import { BotsSection } from "./bots/bots-section";
+import { BOTS_SECTION_ID } from "./bots/bot-status";
+import { CLI_DEFAULT_SERVER, apiServer } from "./cli-server";
+
+const MEMBERS_SECTION_ID = "members";
+const API_KEYS_SECTION_ID = "api-keys";
 
 /** Sections the page scrolls to when the URL's hash names one. */
-const ANCHORED_SECTIONS = [DATASOURCES_SECTION_ID, WEBHOOKS_SECTION_ID];
+const ANCHORED_SECTIONS = [
+  MEMBERS_SECTION_ID,
+  API_KEYS_SECTION_ID,
+  BOTS_SECTION_ID,
+  DATASOURCES_SECTION_ID,
+  WEBHOOKS_SECTION_ID,
+];
+
+/** The index at the top of the page: the long, list-shaped sections. */
+const SECTION_INDEX = [
+  { id: MEMBERS_SECTION_ID, label: "Members" },
+  { id: API_KEYS_SECTION_ID, label: "API keys" },
+  { id: BOTS_SECTION_ID, label: "Bots" },
+  { id: DATASOURCES_SECTION_ID, label: "Data sources" },
+  { id: WEBHOOKS_SECTION_ID, label: "Webhooks" },
+];
+
+/**
+ * The shell lines that put a freshly minted key to work with the CLI and
+ * the Claude Code plugin. The workspace goes in by id, not slug, so renaming
+ * the workspace URL later does not break a script set up from here; the
+ * server line appears only when this deployment is not the CLI's default.
+ */
+function cliSetupLines(key: string, workspaceId: string): string {
+  const server = apiServer();
+  const lines = [
+    `export WAFFLEBASE_API_KEY=${key}`,
+    `export WAFFLEBASE_WORKSPACE=${workspaceId}`,
+  ];
+  if (server !== CLI_DEFAULT_SERVER) {
+    lines.push(`export WAFFLEBASE_SERVER=${server}`);
+  }
+  return lines.join("\n");
+}
 
 /**
  * Renders the workspace settings page with name editing, members, and invites.
@@ -73,6 +112,7 @@ export default function WorkspaceSettings() {
   const [revealedKey, setRevealedKey] = useState<ApiKeyCreateResponse | null>(
     null,
   );
+  const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null);
   const [memberToRemove, setMemberToRemove] = useState<{
     userId: number;
     username: string;
@@ -209,6 +249,7 @@ export default function WorkspaceSettings() {
       queryClient.invalidateQueries({
         queryKey: ["workspaces", workspaceId, "api-keys"],
       });
+      setKeyToRevoke(null);
       toast.success("API key revoked");
     },
     onError: () => toast.error("Couldn't revoke the API key"),
@@ -281,6 +322,21 @@ export default function WorkspaceSettings() {
 
   return (
     <div className="p-4 lg:p-6 max-w-2xl space-y-8">
+      <nav
+        aria-label="Settings sections"
+        className="flex flex-wrap gap-x-4 gap-y-1 text-sm"
+      >
+        {SECTION_INDEX.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:text-foreground"
+          >
+            {section.label}
+          </a>
+        ))}
+      </nav>
+
       {/* Workspace name */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Workspace name</h2>
@@ -348,7 +404,7 @@ export default function WorkspaceSettings() {
       <Separator />
 
       {/* Members */}
-      <section className="space-y-2">
+      <section id={MEMBERS_SECTION_ID} className="scroll-mt-4 space-y-2">
         <h2 className="text-lg font-semibold">Members</h2>
         <p className="text-sm text-muted-foreground">
           People who have access to this workspace.
@@ -366,7 +422,14 @@ export default function WorkspaceSettings() {
             <TableBody>
               {workspace.members.map((member) => (
                 <TableRow key={member.id}>
-                  <TableCell>{member.user.username}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2">
+                      {member.user.username}
+                      {member.user.kind === "bot" && (
+                        <Badge variant="outline">Bot</Badge>
+                      )}
+                    </span>
+                  </TableCell>
                   {/* Wraps instead of nowrap so a long address cannot push
                       the Actions column off a phone-width screen. */}
                   <TableCell className="text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
@@ -480,7 +543,7 @@ export default function WorkspaceSettings() {
 
       {/* API Keys */}
       <Separator />
-      <section className="space-y-2">
+      <section id={API_KEYS_SECTION_ID} className="scroll-mt-4 space-y-2">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">API keys</h2>
@@ -521,7 +584,7 @@ export default function WorkspaceSettings() {
                   <TableRow key={apiKey.id}>
                     <TableCell>{apiKey.name}</TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">
-                      {apiKey.prefix}...
+                      {apiKey.prefix}…
                     </TableCell>
                     {isOwner && (
                       <TableCell className="text-sm text-muted-foreground">
@@ -541,8 +604,8 @@ export default function WorkspaceSettings() {
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
-                        aria-label="Revoke API key"
-                        onClick={() => revokeApiKeyMutation.mutate(apiKey.id)}
+                        aria-label={`Revoke API key ${apiKey.name}`}
+                        onClick={() => setKeyToRevoke(apiKey)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -556,6 +619,19 @@ export default function WorkspaceSettings() {
           <p className="text-sm text-muted-foreground">No API keys.</p>
         )}
       </section>
+
+      <Separator />
+      <BotsSection
+        workspaceId={workspace.id}
+        meId={me?.id}
+        isOwner={!!isOwner}
+        onMembersChanged={() =>
+          void queryClient.invalidateQueries({
+            queryKey: ["workspaces", workspaceId],
+            exact: true,
+          })
+        }
+      />
 
       <Separator />
       <WorkspaceDataSourcesSection workspaceId={workspaceId!} />
@@ -590,6 +666,43 @@ export default function WorkspaceSettings() {
             </div>
           </section>
         )}
+
+      <Dialog
+        open={!!keyToRevoke}
+        onOpenChange={(open) => {
+          if (!open) setKeyToRevoke(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revoke {keyToRevoke?.name ?? ""}</DialogTitle>
+            <DialogDescription>
+              Anything using this key — a script, the CLI, an agent — stops
+              working right away. This can't be undone; you can create a new
+              key instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setKeyToRevoke(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={revokeApiKeyMutation.isPending}
+              onClick={() =>
+                keyToRevoke && revokeApiKeyMutation.mutate(keyToRevoke.id)
+              }
+            >
+              Revoke
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <RemoveMemberDialog
         workspaceId={workspace.id}
@@ -726,13 +839,24 @@ export default function WorkspaceSettings() {
           if (!open) setRevealedKey(null);
         }}
       >
-        <DialogContent>
+        {/* Escape or a stray click outside would throw the key away for
+            good, so only Done (or the close button) dismisses it. */}
+        <DialogContent
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>API key created</DialogTitle>
             <DialogDescription>
               Copy your key now. It is shown only once.
             </DialogDescription>
           </DialogHeader>
+          <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            <span>Workspace: {workspace.name}</span>
+            <span className="[overflow-wrap:anywhere]">
+              Server: {apiServer()}
+            </span>
+          </p>
           <div className="flex items-center gap-2 rounded-md border bg-muted p-3">
             <Key className="h-4 w-4 shrink-0 text-muted-foreground" />
             <code className="flex-1 text-sm break-all">
@@ -752,6 +876,38 @@ export default function WorkspaceSettings() {
               <Copy className="h-4 w-4" />
             </Button>
           </div>
+          {revealedKey && (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                To use it with the CLI or the Claude Code plugin, run:
+              </p>
+              <div className="flex items-start gap-2 rounded-md border bg-muted p-3">
+                <pre
+                  aria-label="CLI setup"
+                  className="flex-1 whitespace-pre-wrap font-mono text-xs leading-relaxed [overflow-wrap:anywhere]"
+                >
+                  {cliSetupLines(revealedKey.key, workspace.id)}
+                </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Copy CLI setup"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      cliSetupLines(revealedKey.key, workspace.id),
+                    );
+                    toast.success("CLI setup copied");
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Start Claude Code from that same shell. The lines last only as
+                long as the shell; keep the key itself in a password manager.
+              </p>
+            </div>
+          )}
           <DialogFooter>
             <Button onClick={() => setRevealedKey(null)}>Done</Button>
           </DialogFooter>

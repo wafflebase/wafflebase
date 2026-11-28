@@ -48,6 +48,15 @@ describe("LoginForm", () => {
     },
   );
 
+  // A workspace bot's account is never signed in to; the callback refuses it
+  // with `bot_account`, which has to read as that rather than the fallback.
+  it("explains the bot_account refusal", () => {
+    renderForm("bot_account");
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("bot");
+    expect(alert.textContent).not.toContain("could not be completed");
+  });
+
   /**
    * Google OAuth is optional and configured per deployment, so the button
    * follows `GET /auth/providers`. A button that is always there would lead

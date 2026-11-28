@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import type { ChannelMember, ChannelSummary } from "@/api/chat";
 import { userFacingError } from "@/api/http-error";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -216,6 +217,7 @@ export function ChannelMembersDialog({
                       <span className="text-muted-foreground"> (you)</span>
                     )}
                   </span>
+                  {m.kind === "bot" && <Badge variant="outline">Bot</Badge>}
                   {m.canRemove && (
                     <Button
                       variant="ghost"

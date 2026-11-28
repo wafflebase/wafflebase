@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  removalConsequences,
   disabledExplanation,
   statusLabel,
   testResultLine,
@@ -122,5 +123,26 @@ describe("status and disabled copy", () => {
     const now = Date.parse("2026-11-22T00:00:00Z");
     expect(timeUntil("2026-11-22T22:10:00Z", now)).toBe("23 h");
     expect(timeUntil("2026-11-22T00:30:00Z", now)).toBe("30 min");
+  });
+});
+
+describe("removalConsequences for bots", () => {
+  it("says their bots go too, and the hosts connected to them", () => {
+    expect(
+      removalConsequences(
+        { privateChannelsDeleted: 0, webhooksDisabled: 0, botsRemoved: 2 },
+        false,
+      ),
+    ).toEqual([
+      "2 bots they own will be deleted, and every host connected to them disconnected.",
+    ]);
+    expect(
+      removalConsequences(
+        { privateChannelsDeleted: 0, webhooksDisabled: 0, botsRemoved: 1 },
+        true,
+      ),
+    ).toEqual([
+      "1 bot you own will be deleted, and every host connected to it disconnected.",
+    ]);
   });
 });

@@ -23,6 +23,11 @@ describe('AuthService', () => {
     email: 'alice@example.com',
     photo: null,
     emailVerifiedAt: null,
+    kind: 'person',
+    botOwnerId: null,
+    botWorkspaceId: null,
+    botInvokers: null,
+    botLastSeenAt: null,
   };
 
   it('creates access and refresh tokens with different token types', () => {

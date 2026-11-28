@@ -9,6 +9,47 @@
       "--workspace"
     ],
     "children": {
+      "agent": {
+        "children": {
+          "complete": {
+            "safety": "write",
+            "description": "Close a task as done, or as failed with --failed"
+          },
+          "list": {
+            "safety": "read-only",
+            "description": "List bots paired on this host (local; never shows keys)"
+          },
+          "next": {
+            "valueOptions": [
+              "--wait"
+            ],
+            "safety": "read-only",
+            "description": "Claim the bot's oldest queued task (a 10-minute lease), waiting up to --wait seconds for one"
+          },
+          "pair": {
+            "valueOptions": [
+              "--host-name"
+            ],
+            "safety": "write",
+            "description": "Redeem a pairing code and store the bot key in ~/.wafflebase/agents/<bot>.json (0600); the key is never printed",
+            "neverAutoApprove": true
+          },
+          "reply": {
+            "valueOptions": [
+              "--body-file"
+            ],
+            "safety": "write",
+            "description": "Post a message as the bot in the task's thread",
+            "localInputOptions": [
+              "--body-file"
+            ]
+          },
+          "thread": {
+            "safety": "read-only",
+            "description": "Read the chat thread a task came from (root and replies, oldest first)"
+          }
+        }
+      },
       "api-keys": {
         "aliases": [
           "api-key"
@@ -105,6 +146,31 @@
             ],
             "safety": "destructive",
             "description": "Replace board content from JSON (stdin or --data)"
+          }
+        }
+      },
+      "bots": {
+        "aliases": [
+          "bot"
+        ],
+        "children": {
+          "create": {
+            "safety": "write",
+            "description": "Create a bot you manage; only you can mention it for now",
+            "neverAutoApprove": true
+          },
+          "delete": {
+            "safety": "destructive",
+            "description": "Delete a bot: revokes its host keys and removes it from the workspace; its messages stay"
+          },
+          "list": {
+            "safety": "read-only",
+            "description": "List bots in workspace, with their owners and connected hosts"
+          },
+          "pair-code": {
+            "safety": "write",
+            "description": "Get a single-use pairing code (valid 10 minutes) to connect a host with `agent pair`",
+            "neverAutoApprove": true
           }
         }
       },

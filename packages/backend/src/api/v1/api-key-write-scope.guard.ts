@@ -5,6 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../../auth/auth.types';
+import { AGENT_SCOPE, isAgentKeyRoute } from '../../api-key/agent-key-scope';
 
 /** HTTP methods that mutate state and therefore need the `write` scope. */
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -42,6 +43,14 @@ export class ApiKeyWriteScopeGuard implements CanActivate {
     if (!MUTATING_METHODS.has(request.method ?? '')) return true;
     const user = request.user;
     if (!user?.isApiKey) return true;
+    // A bot key has no `write`; on the agent routes its `agent` scope is
+    // what lets it reply (`ApiKeyAuthGuard` keeps it off every other route).
+    if (
+      user.scopes?.includes(AGENT_SCOPE) &&
+      isAgentKeyRoute(context.getClass())
+    ) {
+      return true;
+    }
     if (!user.scopes?.includes('write')) {
       throw new ForbiddenException('This API key does not have write access');
     }

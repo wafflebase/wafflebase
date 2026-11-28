@@ -6,13 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 678
+Total archived tasks: 681
 
-## 2026/11 (48 tasks)
+## 2026/11 (51 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent runner design (2026-11-28) | [20261128-agent-runner-design-todo.md](./2026/11/20261128-agent-runner-design-todo.md) | [20261128-agent-runner-design-lessons.md](./2026/11/20261128-agent-runner-design-lessons.md) |
+| api key setup flow (2026-11-28) | [20261128-api-key-setup-flow-todo.md](./2026/11/20261128-api-key-setup-flow-todo.md) | [20261128-api-key-setup-flow-lessons.md](./2026/11/20261128-api-key-setup-flow-lessons.md) |
 | board text edit focus (2026-11-28) | [20261128-board-text-edit-focus-todo.md](./2026/11/20261128-board-text-edit-focus-todo.md) | [20261128-board-text-edit-focus-lessons.md](./2026/11/20261128-board-text-edit-focus-lessons.md) |
+| workspace bots (2026-11-28) | [20261128-workspace-bots-todo.md](./2026/11/20261128-workspace-bots-todo.md) | [20261128-workspace-bots-lessons.md](./2026/11/20261128-workspace-bots-lessons.md) |
 | instruction context budget (2026-11-27) | [20261127-instruction-context-budget-todo.md](./2026/11/20261127-instruction-context-budget-todo.md) | [20261127-instruction-context-budget-lessons.md](./2026/11/20261127-instruction-context-budget-lessons.md) |
 | chat review hardening (2026-11-25) | [20261125-chat-review-hardening-todo.md](./2026/11/20261125-chat-review-hardening-todo.md) | [20261125-chat-review-hardening-lessons.md](./2026/11/20261125-chat-review-hardening-lessons.md) |
 | desktop app (2026-11-23) | [20261123-desktop-app-todo.md](./2026/11/20261123-desktop-app-todo.md) | [20261123-desktop-app-lessons.md](./2026/11/20261123-desktop-app-lessons.md) |

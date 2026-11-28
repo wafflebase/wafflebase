@@ -15,19 +15,24 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { stopQueuedDeliveries } from '../webhook/webhook-disable';
 import { WebhookEventService } from '../webhook/webhook-event.service';
+import {
+  removeBotsInTx,
+  WORKSPACE_CONTENT_NOTIFICATION_TYPES,
+} from './bot-teardown';
+
+export { WORKSPACE_CONTENT_NOTIFICATION_TYPES } from './bot-teardown';
 
 /**
- * Notification types whose preview quotes workspace content — a chat
- * message or a document comment — and so must not outlive the recipient's
- * membership of that workspace (`removeMember`).
+ * `User` columns that only the Bots section reads (`src/bot/`), left out of
+ * the member list every member receives. `kind` stays, so the UI can badge a
+ * bot.
  */
-export const WORKSPACE_CONTENT_NOTIFICATION_TYPES = [
-  'chat_mention',
-  'chat_thread_reply',
-  'comment_mention',
-  'comment_reply',
-  'thread_resolved',
-] as const;
+export const BOT_PRIVATE_FIELDS = {
+  botOwnerId: true,
+  botWorkspaceId: true,
+  botInvokers: true,
+  botLastSeenAt: true,
+} as const satisfies Prisma.UserOmit;
 
 @Injectable()
 export class WorkspaceService {
@@ -92,7 +97,7 @@ export class WorkspaceService {
     const workspace = await this.prisma.workspace.findUnique({
       where: isUUID ? { id: idOrSlug } : { slug: idOrSlug },
       include: {
-        members: { include: { user: true } },
+        members: { include: { user: { omit: BOT_PRIVATE_FIELDS } } },
       },
     });
     if (!workspace) throw new NotFoundException('Workspace not found');
@@ -199,6 +204,17 @@ export class WorkspaceService {
         await tx.chatChannelMember.deleteMany({
           where: { userId: targetUserId, channelId: { in: channelIds } },
         });
+        // Their bots here go with them (chat.md § Bot Members): a bot is
+        // managed by its owner, and a bot left behind would keep its paired
+        // hosts' read/write keys into a workspace the owner has left.
+        for (const id of await this.removeOwnedBots(
+          tx,
+          workspaceId,
+          targetUserId,
+          requesterId,
+        )) {
+          if (!channelIds.includes(id)) channelIds.push(id);
+        }
         // Their bell rows that quote this workspace go too: a chat row
         // quotes a channel (public ones included) and a comment row quotes a
         // document's comment thread, and they can read neither now. Rows
@@ -246,6 +262,36 @@ export class WorkspaceService {
     );
     await this.announceChatMembership(announce);
     return deleted;
+  }
+
+  /**
+   * Inside `removeMember`'s transaction: remove the bots `ownerId` manages
+   * in this workspace the way `BotService.remove` does (membership, keys,
+   * unused pairing codes, chat rows, bell rows, `member.removed`). The bot
+   * `User` rows stay so their messages keep a name. Returns the chat
+   * channels the bots left, for the membership announcement.
+   */
+  private async removeOwnedBots(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    ownerId: number,
+    actor: number,
+  ): Promise<string[]> {
+    const bots = await tx.user.findMany({
+      where: {
+        kind: 'bot',
+        botOwnerId: ownerId,
+        botWorkspaceId: workspaceId,
+        workspaceMembers: { some: { workspaceId } },
+      },
+      select: { id: true },
+    });
+    const { channelIds } = await removeBotsInTx(tx, this.webhookEvents, {
+      workspaceId,
+      botIds: bots.map((b) => b.id),
+      actor,
+    });
+    return channelIds;
   }
 
   /**

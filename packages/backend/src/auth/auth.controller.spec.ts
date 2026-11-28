@@ -2,6 +2,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import {
+  BotSignInRefusedError,
   EmailProviderConflictError,
   UserService,
 } from 'src/user/user.service';
@@ -785,6 +786,104 @@ describe('AuthController', () => {
         'http://localhost:5173/login?error=email_conflict',
       );
       expect(res.cookie).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A bot is a member only an agent host drives, through its API key. No
+   * path that issues a session JWT may land on one — the OAuth callback
+   * refuses it with a code the sign-in page can show, and the code-redeeming
+   * and refresh paths treat it as an unknown user.
+   */
+  describe('bot accounts never get a session', () => {
+    const botUser = {
+      id: 77,
+      kind: 'bot',
+      authProvider: 'bot',
+      username: 'deck-bot',
+      email: 'bot-x@bots.wafflebase.invalid',
+      photo: null,
+    };
+
+    beforeEach(() => {
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+    });
+
+    it('routes a sign-in that lands on a bot to ?error=bot_account', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockRejectedValue(
+        new BotSignInRefusedError(),
+      );
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+      const req = {
+        user: {
+          authProvider: 'google',
+          username: 'deck-bot',
+          email: 'bot-x@bots.wafflebase.invalid',
+        },
+        query: {},
+        cookies: { wafflebase_oauth_state: secret },
+      } as unknown as Request;
+
+      await controller.googleAuthCallback(req as any, res, state);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=bot_account',
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
+    it('refuses a CLI code that names a bot', async () => {
+      const code = cliAuthStore.createCode(77, CLI_CHALLENGE, 'cli');
+      (userService.user as jest.Mock).mockResolvedValue(botUser);
+
+      await expect(
+        controller.cliExchange({ code, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
+    it('refuses a desktop code that names a bot', async () => {
+      const code = cliAuthStore.createCode(77, CLI_CHALLENGE, 'desktop');
+      (userService.user as jest.Mock).mockResolvedValue(botUser);
+      const res = createMockResponse();
+
+      await controller.desktopSession(
+        {
+          headers: { origin: 'tauri://localhost' },
+          body: { code, verifier: CLI_VERIFIER },
+        } as unknown as Request,
+        res,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        303,
+        'http://localhost:5173/login?error=desktop_session',
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
+    it('refuses to refresh a session for a bot', async () => {
+      const req = {
+        cookies: {},
+        body: { refreshToken: 'bot-refresh' },
+      } as unknown as Request;
+      const res = createMockResponse();
+      (authService.verifyRefreshToken as jest.Mock).mockReturnValue({
+        sub: 77,
+      });
+      (userService.user as jest.Mock).mockResolvedValue(botUser);
+
+      await expect(controller.refresh(req, res)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(authService.createTokens).not.toHaveBeenCalled();
+      expect(res.json).not.toHaveBeenCalled();
     });
   });
 

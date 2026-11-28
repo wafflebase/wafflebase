@@ -20,6 +20,7 @@ import {
   fetchWorkspaceDataSources,
 } from "@/api/workspaces";
 import { deleteDataSource, testDataSourceConnection } from "@/api/datasources";
+import { fetchBots } from "@/api/bots";
 import { fetchMemberRemovalImpact, fetchWebhooks } from "@/api/webhooks";
 import type { WebhookList } from "@/api/webhooks";
 import type { DataSource } from "@/types/datasource";
@@ -62,6 +63,13 @@ vi.mock("@/api/webhooks", async (importOriginal) => ({
   createWebhook: vi.fn(),
 }));
 
+vi.mock("@/api/bots", () => ({
+  fetchBots: vi.fn().mockResolvedValue([]),
+  createBot: vi.fn(),
+  deleteBot: vi.fn(),
+  createPairingCode: vi.fn(),
+}));
+
 vi.mock("@/api/datasources", () => ({
   deleteDataSource: vi.fn(),
   testDataSourceConnection: vi.fn(),
@@ -85,6 +93,18 @@ const OTHER_MEMBER = {
   role: "member",
   joinedAt: "2026-01-03T00:00:00.000Z",
   user: { id: 3, username: "other", email: "other@example.com" },
+};
+
+const BOT_MEMBER = {
+  id: "m-bot",
+  role: "member",
+  joinedAt: "2026-01-04T00:00:00.000Z",
+  user: {
+    id: 4,
+    username: "helper",
+    email: "bot-1@bots.wafflebase.invalid",
+    kind: "bot" as const,
+  },
 };
 
 const WORKSPACE: WorkspaceDetail = {
@@ -133,13 +153,14 @@ function renderAs(
     canManage: userId === OWNER.user.id,
     webhooks: [],
   },
+  workspace: WorkspaceDetail = WORKSPACE,
 ) {
   vi.mocked(fetchMe).mockResolvedValue({
     id: userId,
     username: "u",
     email: "u@example.com",
   } as Awaited<ReturnType<typeof fetchMe>>);
-  vi.mocked(fetchWorkspace).mockResolvedValue(WORKSPACE);
+  vi.mocked(fetchWorkspace).mockResolvedValue(workspace);
   vi.mocked(fetchInvites).mockResolvedValue([INVITE]);
   vi.mocked(fetchApiKeys).mockResolvedValue(keys);
   vi.mocked(fetchWorkspaceDataSources).mockResolvedValue(datasources);
@@ -396,7 +417,7 @@ describe("WorkspaceSettings API keys", () => {
     ).toBeTruthy();
 
     // An owner may revoke any of them.
-    expect(screen.getAllByLabelText("Revoke API key")).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Revoke API key /)).toHaveLength(2);
   });
 
   it("shows the section to a non-owner member, without Created by", async () => {
@@ -406,13 +427,13 @@ describe("WorkspaceSettings API keys", () => {
     // member too — the server is what narrows the list to their own keys.
     await waitFor(() => expect(keyRow(MEMBER_KEY.name)).toBeTruthy());
     expect(vi.mocked(fetchApiKeys)).toHaveBeenCalledWith("acme");
-    expect(screen.getByText("API keys")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API keys" })).toBeTruthy();
     expect(screen.getByText("Create API key")).toBeTruthy();
 
     expect(
       screen.queryByRole("columnheader", { name: "Created by" }),
     ).toBeNull();
-    expect(screen.getAllByLabelText("Revoke API key")).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^Revoke API key /)).toHaveLength(1);
   });
 
   it("lets a non-owner member mint a key and reveals it once", async () => {
@@ -439,14 +460,84 @@ describe("WorkspaceSettings API keys", () => {
     );
   });
 
-  it("lets a non-owner member revoke their own key", async () => {
+  it("hands over the CLI setup lines with a new key, and keeps it on Escape", async () => {
+    vi.mocked(createApiKey).mockResolvedValue({
+      id: "k-new",
+      name: "Laptop",
+      prefix: "wfb_k-new",
+      key: "wfb_k-new_secret",
+    });
+    renderAs(MEMBER.user.id);
+
+    await waitFor(() => expect(screen.getByText("Create API key")).toBeTruthy());
+    await userEvent.click(screen.getByText("Create API key"));
+    await userEvent.type(screen.getByLabelText("API key name"), "Laptop");
+    await userEvent.click(screen.getByText("Create"));
+
+    const dialog = await screen.findByRole("dialog", { name: "API key created" });
+    // The workspace id, not the slug: renaming the URL must not break a
+    // script that was set up from this dialog.
+    const setup = within(dialog).getByLabelText("CLI setup");
+    expect(setup.textContent).toContain(
+      "export WAFFLEBASE_API_KEY=wfb_k-new_secret",
+    );
+    expect(setup.textContent).toContain(
+      `export WAFFLEBASE_WORKSPACE=${WORKSPACE.id}`,
+    );
+    // An export lives only as long as its shell, and Claude Code reads the
+    // environment when it starts: say both.
+    expect(
+      within(dialog).getByText(/Start Claude Code from that same shell/),
+    ).toBeTruthy();
+    // Which workspace the key belongs to is said, not left to the id.
+    expect(within(dialog).getByText(`Workspace: ${WORKSPACE.name}`)).toBeTruthy();
+    // A shell-profile export would outlive the session and override the
+    // browser login on that machine for good — never recommend it.
+    expect(within(dialog).queryByText(/shell profile/)).toBeNull();
+
+    // Escape (or a stray click outside) must not throw the key away.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "API key created" })).toBeTruthy();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "API key created" })).toBeNull(),
+    );
+  });
+
+  it("links each long section from an index at the top", async () => {
+    renderAs(MEMBER.user.id, [MEMBER_KEY]);
+
+    const nav = await screen.findByRole("navigation", { name: "Settings sections" });
+    for (const [label, id] of [
+      ["Members", "members"],
+      ["API keys", "api-keys"],
+      ["Data sources", "datasources"],
+      ["Webhooks", "webhooks"],
+    ]) {
+      const link = within(nav).getByRole("link", { name: label });
+      expect(link.getAttribute("href")).toBe(`#${id}`);
+      expect(document.getElementById(id)).toBeTruthy();
+    }
+  });
+
+  it("lets a non-owner member revoke their own key, after confirming", async () => {
     vi.mocked(revokeApiKey).mockResolvedValue(undefined);
     renderAs(MEMBER.user.id, [MEMBER_KEY]);
 
     const button = await waitFor(() =>
-      within(keyRow(MEMBER_KEY.name)).getByLabelText("Revoke API key"),
+      within(keyRow(MEMBER_KEY.name)).getByLabelText(
+        `Revoke API key ${MEMBER_KEY.name}`,
+      ),
     );
     await userEvent.click(button);
+
+    // The trash can only opens the confirmation; nothing is revoked yet.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(`Revoke ${MEMBER_KEY.name}`)).toBeTruthy();
+    expect(vi.mocked(revokeApiKey)).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
     await waitFor(() =>
       expect(vi.mocked(revokeApiKey)).toHaveBeenCalledWith(
@@ -581,6 +672,48 @@ describe("WorkspaceSettings data sources", () => {
     );
     await waitFor(() =>
       expect(vi.mocked(fetchWorkspaceDataSources)).toHaveBeenCalledTimes(2),
+    );
+  });
+});
+
+describe("WorkspaceSettings bots", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("labels a bot in the Members table", async () => {
+    renderAs(OWNER.user.id, [], [], undefined, {
+      ...WORKSPACE,
+      members: [...WORKSPACE.members, BOT_MEMBER],
+    });
+
+    await waitFor(() =>
+      expect(
+        within(memberRow(BOT_MEMBER.user.email)).getByText("Bot"),
+      ).toBeTruthy(),
+    );
+    expect(within(memberRow(MEMBER.user.email)).queryByText("Bot")).toBeNull();
+  });
+
+  it("lists the Bots section in the index, between API keys and Data sources", async () => {
+    renderAs(MEMBER.user.id);
+    const nav = await screen.findByRole("navigation", {
+      name: "Settings sections",
+    });
+    const labels = within(nav)
+      .getAllByRole("link")
+      .map((a) => a.textContent);
+    expect(labels).toEqual([
+      "Members",
+      "API keys",
+      "Bots",
+      "Data sources",
+      "Webhooks",
+    ]);
+    expect(await screen.findByRole("heading", { name: "Bots" })).toBeTruthy();
+    // Asked for by the workspace's real id, not the route's slug.
+    await waitFor(() =>
+      expect(vi.mocked(fetchBots)).toHaveBeenCalledWith(WORKSPACE.id),
     );
   });
 });

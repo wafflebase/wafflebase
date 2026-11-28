@@ -83,11 +83,12 @@ const LOCAL_OUTPUT_ARGS = new Set(['file', 'out']);
 const LOCAL_OUTPUT_OPTIONS = new Set(['--out']);
 /**
  * Options whose value is a local path a WRITE reads and sends to the server
- * (`board add-stickies --file list.txt`). On a read-only command the same
- * flag (`slides lint --file deck.pptx`) only reads this machine's disk and
- * sends nothing, so it is not flagged there.
+ * (`board add-stickies --file list.txt`, `agent reply --body-file r.txt`,
+ * which posts the file into a chat channel). On a read-only command the
+ * same flag (`slides lint --file deck.pptx`) only reads this machine's disk
+ * and sends nothing, so it is not flagged there.
  */
-const LOCAL_INPUT_OPTIONS = new Set(['--file']);
+const LOCAL_INPUT_OPTIONS = new Set(['--file', '--body-file']);
 
 /**
  * Writes that are not document edits: they mint credentials, change who is
@@ -110,6 +111,11 @@ export const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set([
   'webhooks.enable',
   'webhooks.reveal-secret',
   'webhooks.rotate-secret',
+  // A bot is a new member of the workspace; a pairing code mints a bot key
+  // for whoever redeems it; pairing stores that key on this machine.
+  'bots.create',
+  'bots.pair-code',
+  'agent.pair',
 ]);
 
 function optionNames(opt: Option): string[] {

@@ -118,6 +118,10 @@ export default defineConfig({
               link: "/developers/claude-code-plugin"
             },
             {
+              text: "Put a bot to work",
+              link: "/developers/bots"
+            },
+            {
               text: "Webhooks",
               link: "/developers/webhooks"
             }

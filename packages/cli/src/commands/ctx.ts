@@ -121,6 +121,20 @@ export function registerCtxCommand(program: Command): void {
         session.activeWorkspace = ws.id;
         saveSession(session);
         console.log(`Switched to ${ws.name}.`);
+        // resolveConfig lets the environment win over the session, so the
+        // switch above is not what commands will use in this shell.
+        if (process.env.WAFFLEBASE_API_KEY) {
+          console.error(
+            'WAFFLEBASE_API_KEY is set, so commands use that key and its workspace, not this login session.',
+          );
+        } else if (
+          process.env.WAFFLEBASE_WORKSPACE &&
+          process.env.WAFFLEBASE_WORKSPACE !== ws.id
+        ) {
+          console.error(
+            `WAFFLEBASE_WORKSPACE is set (${process.env.WAFFLEBASE_WORKSPACE}), so commands still use that workspace. Unset it to use ${ws.name}.`,
+          );
+        }
       } catch (e) {
         outputError(e, this);
       }

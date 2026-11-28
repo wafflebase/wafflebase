@@ -63,7 +63,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 678
+- Archived task count: 681
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: desktop download (2026-11-27)

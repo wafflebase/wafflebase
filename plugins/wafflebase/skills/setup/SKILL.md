@@ -9,18 +9,23 @@ step and stop at the first one that needs the user.
 
 1. `wafflebase --version`. Missing → ask the user to run
    `npm install -g @wafflebase/cli` (Node 20.18+). Do not run it for them.
-2. `wafflebase status`. It reports the browser-login session only; an API
-   key (`WAFFLEBASE_API_KEY`, or one saved in a CLI profile) authenticates
-   without one and wins over it.
-   - `loggedIn: false` but the session context says an API key is in use,
-     or `wafflebase docs list` succeeds → authenticated; go on to step 3.
-   - `loggedIn: false` otherwise → ask the user to run `! wafflebase login` (it
-     opens a browser; pass `--server <url>` for a self-hosted server), or
-     to set `WAFFLEBASE_API_KEY` for a workspace API key.
-   - `session: "expired"` → the CLI refreshes it on the next call; only
-     if step 4 fails with `AUTH_ERROR`, ask for `! wafflebase login`.
-3. `wafflebase ctx list` → show the workspaces; mark the active one. Offer
-   `wafflebase ctx switch <id>` if the user wants another.
+2. `wafflebase status`. `auth` says what commands authenticate with;
+   `loggedIn` only says whether a browser session exists.
+   - `auth: "api-key"` → an API key (`WAFFLEBASE_API_KEY`, `--api-key` or a
+     CLI profile) is in charge; report `workspaceId` and `server`, or relay
+     `message` when no workspace is set, and skip step 3 — `ctx` reads only
+     the browser session and fails without one.
+   - `auth: "session"` → go on to step 3. `session: "expired"` refreshes
+     itself on the next call; only if step 4 fails with `AUTH_ERROR`, ask
+     for `! wafflebase login`.
+   - `auth: "none"` → ask the user to run `! wafflebase login` (it opens a
+     browser; pass `--server <url>` for a self-hosted server), or to set
+     `WAFFLEBASE_API_KEY` and `WAFFLEBASE_WORKSPACE` for a workspace API
+     key (Settings → API keys prints both lines when it creates the key)
+     and restart Claude Code from that shell.
+3. Session only: `wafflebase ctx list` → show the workspaces; mark the
+   active one. Offer `wafflebase ctx switch <name-or-id>` if the user wants
+   another.
 4. `wafflebase docs list` → confirm access by reporting how many
    documents the workspace has.
 
@@ -38,3 +43,5 @@ Finish with what the plugin does on its own:
   ask.
 - Links use the web origin derived from the server; set
   `WAFFLEBASE_WEB_URL` if they do not open.
+- `/wafflebase:listen <code>` connects one of the user's bots (Settings →
+  Bots) to this session so it answers its mentions and DMs.

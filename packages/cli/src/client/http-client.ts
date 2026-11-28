@@ -6,7 +6,10 @@ import { parseContentDispositionFilename } from './content-disposition.js';
 // and the two non-v1 URL shapes come from the same builders the `--dry-run`
 // preview prints — see `./url.js` for why escaping alone is not enough.
 import {
+  agentTasksPath,
   apiKeysUrl,
+  botsUrl,
+  pairUrl,
   webhooksUrl,
   apiV1Base,
   documentTemplateUrl,
@@ -1214,6 +1217,33 @@ export class HttpClient {
       webhooksUrl(this.config, segments, query),
       body,
     );
+  }
+
+  // Bots. JWT workspace routes like the API-key ones; every URL comes from
+  // `botsUrl()`, which the `--dry-run` preview prints too.
+  botRequest<T = unknown>(method: string, segments: string[] = [], body?: unknown) {
+    return this.sendJson<T>(method, botsUrl(this.config, segments), body);
+  }
+
+  /**
+   * Exchange a pairing code for a bot key. The route is unauthenticated, and
+   * `agent pair` calls it on a client built with `authMode: 'none'` so that
+   * neither the member's session nor an env key travels with the code.
+   */
+  pairHost<T = unknown>(code: string, hostName: string) {
+    return this.sendJson<T>('POST', pairUrl(this.config), { code, hostName });
+  }
+
+  // A bot's own task queue (`/api/v1/workspaces/:wid/agent/tasks/…`), called
+  // with the bot key from the agent file. The path comes from
+  // `agentTasksPath()`, shared with the `--dry-run` preview.
+  agentRequest<T = unknown>(
+    method: string,
+    segments: string[],
+    body?: unknown,
+    query?: URLSearchParams,
+  ) {
+    return this.request<T>(method, agentTasksPath(segments, query), body);
   }
 
   // Templates (the gallery). Outside the `/api/v1` base like the API-key

@@ -147,6 +147,20 @@ wafflebase
 │   │                                      --tag (repeatable)/--visibility
 │   └── use <template-id>                  --into <workspace>
 │
+├── bots (alias: bot)                      Workspace bots (needs `login`)
+│   ├── list                               Owners and connected hosts
+│   ├── create <name>                      Only you can mention it for now
+│   ├── pair-code <name-or-id>             Single-use code, 10 minutes
+│   └── delete <name-or-id>                Revokes its keys; messages stay
+│
+├── agent                                  Act as a paired bot on this host
+│   ├── pair <code>                        --host-name, --replace; key → ~/.wafflebase/agents/<bot>.json
+│   ├── list                               Local; never shows keys
+│   ├── next <bot>                         --wait 0-240; { task } or { task: null }
+│   ├── thread <bot> <task-id>
+│   ├── reply <bot> <task-id> [body]       or --body-file <path|->
+│   └── complete <bot> <task-id>           --failed
+│
 └── schema [<command>]                     Discover parameters/safety
 ```
 
@@ -206,6 +220,15 @@ wafflebase templates list --scope public --query budget
 wafflebase templates publish abc-123 --title "Weekly Report" \
   --category work/meeting --tag weekly --visibility workspace
 wafflebase templates use tpl-1 --into other-workspace
+
+# Bots. `bots` needs `login`; `agent` authenticates only with the key that
+# `agent pair` stored, never with --api-key, WAFFLEBASE_API_KEY or the session.
+wafflebase bots create deck-bot
+wafflebase bots pair-code deck-bot            # → { code, expiresAt }
+wafflebase agent pair 4F2K-9QXD
+wafflebase agent next deck-bot --wait 240
+wafflebase agent reply deck-bot task-1 --body-file reply.txt
+wafflebase agent complete deck-bot task-1
 
 # Schema introspection (singular aliases resolve too)
 wafflebase schema docs.content

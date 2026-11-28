@@ -8,10 +8,14 @@ import type { ChatDocumentAnchor } from '@wafflebase/core/document-link';
 
 export type ChannelKind = 'public' | 'private' | 'dm';
 
+/** A person signs in; a bot is driven by an agent host (`agent-runner.md`). */
+export type UserKind = 'person' | 'bot';
+
 export interface ChatUserSummary {
   id: number;
   username: string;
   photo: string | null;
+  kind: UserKind;
 }
 
 /** A row of a public or private channel's member list. */

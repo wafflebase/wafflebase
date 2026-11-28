@@ -21,7 +21,11 @@ import { Throttle } from '@nestjs/throttler';
 import { User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { CliExchangeDto } from './auth.dto';
-import { EmailProviderConflictError, UserService } from '../user/user.service';
+import {
+  BotSignInRefusedError,
+  EmailProviderConflictError,
+  UserService,
+} from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -131,6 +135,17 @@ export function isDesktopOrigin(raw: unknown): boolean {
 function isValidDesktopRedemption(code: unknown, verifier: unknown): boolean {
   const dto = plainToInstance(CliExchangeDto, { code, verifier });
   return validateSync(dto).length === 0;
+}
+
+/**
+ * Whether this user may be issued a session JWT. A bot never may: it acts
+ * only through the API key a pairing minted for its host. The OAuth callback
+ * already refuses one (`BotSignInRefusedError`), so a CLI or desktop code
+ * can never name a bot; these checks keep the redeeming and refresh paths
+ * from relying on that.
+ */
+function canHoldSession(user: Pick<User, 'kind'>): boolean {
+  return user.kind !== 'bot';
 }
 
 @Controller('auth')
@@ -369,6 +384,9 @@ export class AuthController {
       if (error instanceof EmailProviderConflictError) {
         return { error: 'email_conflict' };
       }
+      if (error instanceof BotSignInRefusedError) {
+        return { error: 'bot_account' };
+      }
       throw error;
     }
 
@@ -529,7 +547,7 @@ export class AuthController {
     }
 
     const user = await this.userService.user({ id: userId });
-    if (!user) {
+    if (!user || !canHoldSession(user)) {
       throw new UnauthorizedException('User not found');
     }
 
@@ -595,7 +613,7 @@ export class AuthController {
       );
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }
-    if (!user) {
+    if (!user || !canHoldSession(user)) {
       return res.redirect(303, this.loginErrorUrl('desktop_session'));
     }
 
@@ -637,7 +655,7 @@ export class AuthController {
         id: payload.sub,
       });
 
-      if (!user) {
+      if (!user || !canHoldSession(user)) {
         if (!fromBody) this.clearAuthCookies(res);
         throw new UnauthorizedException('User not found');
       }

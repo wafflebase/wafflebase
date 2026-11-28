@@ -87,6 +87,20 @@ describe("ChannelMembersDialog", () => {
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 
+  it("labels a bot member", async () => {
+    fetchMembersSpy.mockResolvedValue([
+      ...people,
+      { id: 3, username: "helper", photo: null, canRemove: false, kind: "bot" },
+    ]);
+    renderDialog(channel());
+
+    const list = await screen.findByRole("list", { name: "Channel members" });
+    const row = within(list).getByText("helper").closest("li")!;
+    expect(within(row).getByText("Bot")).toBeInTheDocument();
+    const person = within(list).getByText("minji").closest("li")!;
+    expect(within(person).queryByText("Bot")).toBeNull();
+  });
+
   it("offers Remove only where the server allows it, not wherever the caller manages", async () => {
     // Any member of a private channel may archive it, but removing people is
     // the creator's or an owner's: the rows say no, so no Remove appears.

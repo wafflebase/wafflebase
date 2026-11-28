@@ -10,6 +10,7 @@ import { extractMentionedUserIds } from '@wafflebase/sheets';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { AccessContext, canPost, mentionOutcome } from './chat-access';
+import { ChatAgentTaskTrigger } from './chat-agent-tasks';
 import { ChatBus } from './chat-bus';
 import { ChatChannelService } from './chat-channel.service';
 import { canonicalMentions } from './chat-mentions';
@@ -21,7 +22,12 @@ import {
   RefRow,
   toRefDtos,
 } from './chat-document-refs';
-import { ChatMessageDto, ChatUserSummary } from './chat.types';
+import { ChatMessageDto } from './chat.types';
+import {
+  toUserSummary,
+  USER_SUMMARY_SELECT,
+  UserSummaryRow,
+} from './chat-user';
 
 export const PAGE_SIZE = 50;
 
@@ -35,7 +41,7 @@ const POST_TRANSACTION = { maxWait: 10_000, timeout: 10_000 };
 const DELETED_ROOT = 'That message was deleted, so it cannot be replied to';
 const DELETED_REPLAY = 'That message was sent and has since been deleted';
 
-const AUTHOR = { select: { id: true, username: true, photo: true } } as const;
+const AUTHOR = { select: USER_SUMMARY_SELECT } as const;
 
 /** What a message read includes: its author and its document cards. */
 const MESSAGE_INCLUDE = {
@@ -45,7 +51,7 @@ const MESSAGE_INCLUDE = {
 } as const;
 
 type MessageRow = ChatMessage & {
-  author: ChatUserSummary | null;
+  author: UserSummaryRow | null;
   refs?: RefRow[];
   channel?: { workspaceId: string };
 };
@@ -67,7 +73,7 @@ function toDto(m: MessageRow): ChatMessageDto {
     id: m.id,
     channelId: m.channelId,
     seq: Number(m.seq),
-    author: m.author,
+    author: m.author ? toUserSummary(m.author) : null,
     body: m.deletedAt ? '' : m.body,
     threadRootId: m.threadRootId,
     alsoInChannel: m.alsoInChannel,
@@ -111,6 +117,7 @@ export class ChatMessageService {
     private readonly bus: ChatBus,
     private readonly notifications: NotificationService,
     private readonly documentRefs: ChatDocumentRefService,
+    private readonly agentTasks: ChatAgentTaskTrigger,
   ) {}
 
   /**
@@ -131,6 +138,10 @@ export class ChatMessageService {
    * has since been deleted the retry is a 409, a refusal the client reports
    * and does not retry: the blank row is not a send that just landed, and a
    * fresh insert would collide with the same `clientId`.
+   *
+   * `agentTaskId` and `apiKeyId` are for a bot answering through
+   * `/api/v1/…/agent/tasks/:id/reply`: the task the message belongs to, and
+   * the key that posted it. The chat routes never set them.
    */
   async post(
     userId: number,
@@ -140,6 +151,8 @@ export class ChatMessageService {
       threadRootId?: string;
       alsoInChannel?: boolean;
       clientId?: string;
+      agentTaskId?: string;
+      apiKeyId?: string;
     },
   ): Promise<ChatMessageDto> {
     checkBody(data.body);
@@ -193,6 +206,8 @@ export class ChatMessageService {
           threadRootId,
           alsoInChannel,
           clientId,
+          agentTaskId: data.agentTaskId ?? null,
+          apiKeyId: data.apiKeyId ?? null,
         },
         include: { author: AUTHOR },
       });
@@ -560,7 +575,9 @@ export class ChatMessageService {
 
   /**
    * Runs after a post has committed and been announced: mentions and thread
-   * replies reach the bell. Each mentioned user is classified with
+   * replies reach the bell, and a message addressed to a bot becomes its
+   * task (`ChatAgentTaskTrigger`, which logs and swallows its own failures,
+   * so a broken bell never costs a task nor the other way round). Each mentioned user is classified with
    * `mentionOutcome` against their own access, so a private channel or a DM
    * never leaks to somebody outside it. A notification failure is logged and
    * swallowed — the message is already posted, and failing the request would
@@ -609,6 +626,7 @@ export class ChatMessageService {
         `chat notify failed for ${message.id}: ${describeError(err)}`,
       );
     }
+    await this.agentTasks.onPosted(message, channel);
   }
 
   /**
