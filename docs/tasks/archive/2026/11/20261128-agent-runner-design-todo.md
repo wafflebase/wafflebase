@@ -44,8 +44,9 @@ this task. Related: issue #696 (Notes AI toolbar, BYOK seam).
       step + Done-only dismiss, revoke confirmation, README/setup
       `WAFFLEBASE_WORKSPACE`, settings section index, setup skill pointer,
       CLI login re-prompt on an invalid workspace number
-- [ ] Maintainer review of the design and its three open questions
-- [ ] Open a PR
+- [x] Maintainer review of the design — merged with the bots MVP in #1213;
+      its open questions stay recorded in agent-runner.md
+- [x] Open a PR (#1213, together with the bots MVP)
 
 ## Review
 

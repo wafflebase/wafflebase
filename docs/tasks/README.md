@@ -18,9 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| agent runner design (2026-11-28) | [20261128-agent-runner-design-todo.md](./active/20261128-agent-runner-design-todo.md) | [20261128-agent-runner-design-lessons.md](./active/20261128-agent-runner-design-lessons.md) |
-| api key setup flow (2026-11-28) | [20261128-api-key-setup-flow-todo.md](./active/20261128-api-key-setup-flow-todo.md) | [20261128-api-key-setup-flow-lessons.md](./active/20261128-api-key-setup-flow-lessons.md) |
-| workspace bots (2026-11-28) | [20261128-workspace-bots-todo.md](./active/20261128-workspace-bots-todo.md) | [20261128-workspace-bots-lessons.md](./active/20261128-workspace-bots-lessons.md) |
 | desktop download (2026-11-27) | [20261127-desktop-download-todo.md](./active/20261127-desktop-download-todo.md) | [20261127-desktop-download-lessons.md](./active/20261127-desktop-download-lessons.md) |
 | release v0.6.19 (2026-11-27) | [20261127-release-v0.6.19-todo.md](./active/20261127-release-v0.6.19-todo.md) | [20261127-release-v0.6.19-lessons.md](./active/20261127-release-v0.6.19-lessons.md) |
 | desktop release (2026-11-26) | [20261126-desktop-release-todo.md](./active/20261126-desktop-release-todo.md) | [20261126-desktop-release-lessons.md](./active/20261126-desktop-release-lessons.md) |
@@ -66,7 +63,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 678
+- Archived task count: 681
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: agent runner design (2026-11-28)
+Latest active task: desktop download (2026-11-27)
