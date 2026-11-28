@@ -31,7 +31,13 @@ this task. Related: issue #696 (Notes AI toolbar, BYOK seam).
       creation asks *Who will mention this bot?*, connect step with host
       status, listen mode as the first host, runner start banner, docs page
       moved to the listen-mode phase, `wafflebase bots` CLI parity
-- [ ] Follow-up PR (separate branch): today's P2s — API key dialog next
+- [x] Second critique (26/40) folded in: chat.md now defers bot keys to
+      pairing; pairing generalised to people (`login --pair`); listen mode
+      waits in bounded 240 s calls with a guard row for `--as-bot` of the
+      listening bot only, and is labelled attended; runner Claude credential
+      via `agent credential set` from stdin; § 11 task log, caps and *Pause
+      all bots*, shipped together with *Any member* bots in phase 4
+- [x] Follow-up PR (separate branch): today's P2s — API key dialog next
       step + Done-only dismiss, revoke confirmation, README/setup
       `WAFFLEBASE_WORKSPACE`, settings section index, setup skill pointer,
       CLI login re-prompt on an invalid workspace number

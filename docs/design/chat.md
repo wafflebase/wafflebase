@@ -505,8 +505,9 @@ model User {
 - **Creation** (workspace settings → Bots, any member): name and avatar →
   backend creates the `User` (`kind: "bot"`, `authProvider: "bot"`, email
   `bot-<uuid>@bots.wafflebase.invalid`), a `WorkspaceMember` with role
-  `member`, and an API key whose `createdBy` is the bot — shown once, like
-  any key. More keys can be minted from the bot's settings row.
+  `member`. Its API keys are minted only by pairing a host, one key per
+  host and never displayed — see
+  [agent-runner.md § 4](agent-runner.md#4-pairing-a-host--bots-and-people).
 - **It can never sign in.** The `.invalid` TLD cannot be verified by any OAuth
   provider, so `findOrCreateUser` (which matches on email) can never land on
   it; the OAuth strategies also refuse any `kind: "bot"` row outright.
@@ -528,7 +529,7 @@ model User {
   of its creator's.
 
 REST: `POST/GET /workspaces/:wid/bots`, `PATCH/DELETE /workspaces/:wid/bots/:id`,
-`POST /workspaces/:wid/bots/:id/api-keys` (JWT; owner of the bot or workspace
+`POST /workspaces/:wid/bots/:id/pairing-codes` (JWT; owner of the bot or workspace
 owner for everything except create).
 
 ### Message Body
