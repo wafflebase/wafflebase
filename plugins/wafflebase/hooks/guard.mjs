@@ -2,13 +2,19 @@
 // Entry point for the PreToolUse(Bash) hook; the decision logic and its
 // rationale live in guard-lib.mjs.
 
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   decide,
-  forgetListening,
   listenBot,
   listeningFor,
   recordListening,
@@ -51,28 +57,43 @@ function realPath(p) {
 const PLUGIN_ROOT = realPath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-// Which sessions listen as a bot (docs/design/agent-runner.md § 5), in a
-// directory of its own: bot names cannot contain "/", so no agent file can
-// collide with it, and the guard protects it like the plugin's own files.
+// Which sessions listen as a bot (docs/design/agent-runner.md § 5): one
+// file per session in a directory of its own — no read-modify-write shared
+// between sessions, and no bot's agent file can collide with it. The guard
+// protects ~/.wafflebase like the plugin's own files.
 const GUARD_DIR = join(homedir(), '.wafflebase', 'guard');
-const LISTEN_STATE = join(GUARD_DIR, 'listening.json');
 
-function readListenState() {
+function stateFile(sessionId) {
+  return join(GUARD_DIR, `${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+}
+
+/** This session's record, in the shape guard-lib's helpers take. */
+function readListenState(sessionId) {
+  if (!sessionId) return {};
   try {
-    return JSON.parse(readFileSync(LISTEN_STATE, 'utf8'));
+    return { sessions: { [sessionId]: JSON.parse(readFileSync(stateFile(sessionId), 'utf8')) } };
   } catch {
     return {};
   }
 }
 
-function writeListenState(state) {
+function writeListenState(sessionId, state) {
   try {
     mkdirSync(GUARD_DIR, { recursive: true, mode: 0o700 });
-    const tmp = `${LISTEN_STATE}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
-    renameSync(tmp, LISTEN_STATE);
+    const file = stateFile(sessionId);
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(state.sessions[sessionId]), { mode: 0o600 });
+    renameSync(tmp, file);
   } catch {
     // Without the record the session simply is not listening: it asks.
+  }
+}
+
+function endListening(sessionId) {
+  try {
+    unlinkSync(stateFile(sessionId));
+  } catch {
+    // Nothing recorded: nothing to end.
   }
 }
 
@@ -101,21 +122,32 @@ function insideDir(dir, target) {
  * means a proposed call the user rejected — or one that failed — grants
  * nothing.
  */
+/** True when `agent next` printed its result: an object with a `task` key. */
+function printedTask(stdout) {
+  try {
+    const out = JSON.parse(String(stdout ?? ''));
+    return out !== null && typeof out === 'object' && Object.hasOwn(out, 'task');
+  } catch {
+    return false;
+  }
+}
+
 function afterBash(input, sessionId) {
   const command = input.tool_input?.command;
   if (typeof command !== 'string' || !sessionId) return;
+  // An interrupted call proves nothing ran to completion.
+  if (input.tool_response?.interrupted) return;
   const table = loadTable();
   const now = Date.now();
-  const state = readListenState();
-  const stdout = String(input.tool_response?.stdout ?? '');
+  const state = readListenState(sessionId);
   const bot = listenBot(command, table);
-  if (bot && /"task"\s*:/.test(stdout)) {
-    writeListenState(recordListening(state, sessionId, bot, now));
+  if (bot && printedTask(input.tool_response?.stdout)) {
+    writeListenState(sessionId, recordListening(state, sessionId, bot, now));
     return;
   }
   const current = listeningFor(state, sessionId, now);
   if (current && /^\s*wafflebase\s/.test(command)) {
-    writeListenState(recordListening(state, sessionId, current, now));
+    writeListenState(sessionId, recordListening(state, sessionId, current, now));
   }
 }
 
@@ -132,9 +164,7 @@ function main() {
   // The listen loop runs inside one turn, so the user typing anything — or
   // the session ending — ends it.
   if (event === 'UserPromptSubmit' || event === 'SessionEnd') {
-    if (sessionId && listeningFor(readListenState(), sessionId, Date.now()) !== null) {
-      writeListenState(forgetListening(readListenState(), sessionId));
-    }
+    if (sessionId) endListening(sessionId);
     return;
   }
   if (event === 'PostToolUse') {
@@ -167,7 +197,7 @@ function main() {
   let result;
   try {
     result = decide(command, loadTable(), {
-      listening: listeningFor(readListenState(), sessionId, Date.now()) !== null,
+      listening: listeningFor(readListenState(sessionId), sessionId, Date.now()) !== null,
       // Claude Code exports each userConfig option to hook processes as
       // CLAUDE_PLUGIN_OPTION_<KEY>. Anything but true/1 leaves writes asking.
       autoAllowReads: /^(true|1)$/i.test(

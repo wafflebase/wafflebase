@@ -509,7 +509,11 @@ const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/i;
  * developing this repository names it constantly.
  */
 function hasHiddenCall(segments, table, depth = 0) {
-  const subcommands = new Set(Object.keys(table.root?.children ?? {}));
+  const subcommands = new Set();
+  for (const [name, node] of Object.entries(table.root?.children ?? {})) {
+    subcommands.add(name);
+    for (const alias of node.aliases ?? []) subcommands.add(alias);
+  }
   // `"$(wafflebase …)"` is one quoted word to the splitter, but the shell
   // still runs the substitution: split each body and look again.
   if (depth < 3) {
@@ -524,24 +528,61 @@ function hasHiddenCall(segments, table, depth = 0) {
   }
   const bare = (t) => t.replace(/^(?:\$\(|[`({])+/, '').replace(/[`)}]+$/, '');
   for (const words of segments) {
-    for (let i = 0; i < words.length - 1; i++) {
-      const name = bare(words[i].text).split('/').pop()?.toLowerCase();
-      const cli = name === 'wafflebase' || bare(words[i].text).toLowerCase() === '@wafflebase/cli';
+    for (let i = 0; i < words.length; i++) {
+      const text = bare(words[i].text);
+      const name = text.split('/').pop()?.toLowerCase();
+      const cli = name === 'wafflebase' || text.toLowerCase() === '@wafflebase/cli';
       if (!cli) continue;
-      const next = bare(words[i + 1].text);
-      if (next.startsWith('-') || subcommands.has(next)) return true;
+      if (i === words.length - 1) {
+        // `… | xargs wafflebase`: the arguments come from elsewhere. A
+        // path ending in the name (`ls ~/src/wafflebase`) is a directory.
+        if (i > 0 && !text.includes('/')) return true;
+        continue;
+      }
+      const next = words[i + 1].text;
+      // An expanded subcommand (`wafflebase $sub`) is a call too.
+      if (next.startsWith('-') || /[$`]/.test(next) || subcommands.has(bare(next))) return true;
     }
   }
   return false;
 }
 
 /**
- * A command that can change a file: a write redirect, or a program that
- * writes, moves, links or deletes. Reading the plugin's files is fine; only
- * changing them decides what later commands are allowed.
+ * Programs that only read. A command made of nothing else — no write
+ * redirect, no inner shell — cannot change the plugin's files, so naming
+ * them does not ask. Everything else does: an allow-list, because the
+ * programs that can write a file (interpreters, archivers, `git`, editors,
+ * `find -delete`) are too many to enumerate.
  */
-const MUTATES =
-  /(?:^|[;&|(\s`])(?:rm|rmdir|mv|cp|ln|tee|chmod|chown|truncate|touch|install|rsync|dd|patch|unlink|sed\s+[^;&|]*-[a-zA-Z]*i|perl\s+[^;&|]*-[a-zA-Z]*i)(?=[\s;&|)]|$)|>/;
+const READ_PROGRAMS = new Set([
+  'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'ag',
+  'ls', 'cd', 'pwd', 'wc', 'file', 'stat', 'diff', 'cmp', 'du', 'tree',
+  'realpath', 'readlink', 'basename', 'dirname', 'echo', 'printf', 'test',
+  'sha256sum', 'shasum', 'md5', 'md5sum', 'jq', 'bat', 'true', 'false',
+]);
+const READ_GIT = new Set(['log', 'show', 'diff', 'status', 'blame', 'grep', 'ls-files', 'rev-parse']);
+const FIND_WRITES = new Set(['-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprintf', '-fls']);
+
+function onlyReads(segments) {
+  for (const words of segments) {
+    if (words.some((w) => w.redirect && w.text.includes('>'))) return false;
+    const texts = words.filter((w) => !w.redirect).map((w) => w.text);
+    if (texts.length === 0) continue;
+    // A wafflebase call is judged on its own, local files included.
+    if (wafflebaseArgs(words)) continue;
+    const program = texts[0].split('/').pop();
+    if (program === 'find') {
+      if (texts.some((t) => FIND_WRITES.has(t))) return false;
+      continue;
+    }
+    if (program === 'git') {
+      if (!READ_GIT.has(texts.find((t, i) => i > 0 && !t.startsWith('-')) ?? '')) return false;
+      continue;
+    }
+    if (!READ_PROGRAMS.has(program)) return false;
+  }
+  return true;
+}
 
 /**
  * Variables whose value, once in the persistent shell, changes what a later
@@ -680,22 +721,25 @@ const PLUGIN_FILES = [
  * of the plugin's files — the glob is evaluated against each file name.
  */
 function globHitsPluginFile(word) {
-  const base = word.split('/').pop() ?? '';
-  if (!/[*?[]/.test(base)) return false;
-  const re = new RegExp(
-    `^${base
-      .replace(/[.+^${}()|\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')}$`,
-  );
-  return PLUGIN_FILES.some((f) => re.test(f));
+  // Any segment of the word: `~/.waff*/guard/*` names the state directory.
+  return word.split('/').some((part) => {
+    if (!/[*?[]/.test(part)) return false;
+    const re = new RegExp(
+      `^${part
+        .replace(/[.+^${}()|\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.')}$`,
+    );
+    return [...PLUGIN_FILES, '.wafflebase', '.claude'].some((f) => re.test(f));
+  });
 }
 
 /** True when a command refers to the plugin's installed files or its state. */
 export function touchesPlugin(command, pluginRoot) {
   if (pluginRoot && command.includes(pluginRoot)) return true;
-  // The listen state decides what runs without asking (guard.mjs).
-  if (/\.wafflebase\/guard(?:[/\s'"]|$)/.test(command)) return true;
+  // ~/.wafflebase holds the listen state (what runs without asking) and the
+  // bots' keys: any path through it counts, `..` and ancestors included.
+  if (/\.wafflebase(?:[/\s'"]|$)/.test(command)) return true;
   // Relative or cache paths: the plugin's hook files by name, or its tree.
   return /(?:^|[/\s'"])(?:guard-lib\.mjs|guard\.mjs|command-safety\.json|session-lib\.mjs|session-start\.mjs|hooks\.json)(?:[\s'"]|$)|plugins\/wafflebase(?:\/(?:hooks|\.claude-plugin))?(?:[/\s'"]|$)|\.claude\/plugins(?:[/\s'"]|$)/.test(
     command,
@@ -801,7 +845,7 @@ export function decide(fullCommand, table, options = {}) {
   // Bash asks, whatever the command.
   const lexedText = segments.map((ws) => ws.map((w) => w.text).join(' ')).join(' ; ');
   if (
-    MUTATES.test(command) &&
+    !onlyReads(segments) &&
     (touchesPlugin(command, options.pluginRoot) ||
       touchesPlugin(lexedText, options.pluginRoot) ||
       segments.some((ws) => ws.some((w) => !w.exact && globHitsPluginFile(w.text))))
@@ -884,20 +928,26 @@ export function listenBot(command, table) {
   const c = classify(hit.args, table);
   if (!c.known || c.path !== 'agent next') return null;
   const words = hit.args.map((w) => w.text);
+  const takesValue = new Set([
+    ...(table.root?.valueOptions ?? []),
+    ...(table.root?.children?.agent?.children?.next?.valueOptions ?? []),
+  ]);
   const at = words.indexOf('next');
   for (let i = at + 1; i < words.length; i++) {
-    if (words[i] === '--wait') {
-      i++;
+    const w = words[i];
+    if (w.startsWith('-')) {
+      if (takesValue.has(w)) i++;
       continue;
     }
-    if (words[i].startsWith('-')) continue;
-    return BOT_NAME.test(words[i]) ? words[i] : null;
+    return BOT_NAME.test(w) ? w : null;
   }
   return null;
 }
 
 /** How long a session counts as listening after its last `agent next`. */
 export const LISTEN_WINDOW_MS = 10 * 60 * 1000;
+/** The most one approval grants, however often the loop renews it. */
+export const LISTEN_MAX_MS = 2 * 60 * 60 * 1000;
 const LISTEN_STATE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** The bot `sessionId` listens as at `now`, or null. */
@@ -907,6 +957,8 @@ export function listeningFor(state, sessionId, now) {
   if (!entry || typeof entry.at !== 'number' || typeof entry.bot !== 'string') return null;
   // A record from the future is not one this guard wrote.
   if (entry.at > now + 60_000) return null;
+  const started = typeof entry.startedAt === 'number' ? entry.startedAt : entry.at;
+  if (now - started > LISTEN_MAX_MS) return null;
   return now - entry.at <= LISTEN_WINDOW_MS ? entry.bot : null;
 }
 
@@ -925,7 +977,13 @@ export function recordListening(state, sessionId, bot, now) {
       sessions[id] = entry;
     }
   }
-  sessions[sessionId] = { bot, at: now };
+  // A renewal keeps the original start, so LISTEN_MAX_MS bounds the grant.
+  const prior = state?.sessions?.[sessionId];
+  const startedAt =
+    prior?.bot === bot && typeof prior.startedAt === 'number' && listeningFor(state, sessionId, now)
+      ? prior.startedAt
+      : now;
+  sessions[sessionId] = { bot, at: now, startedAt };
   return { sessions };
 }
 
@@ -957,7 +1015,7 @@ function judge(found, table, options, exact) {
 
   // Starting to listen is the consent: it always asks, once, and says
   // what it grants. While listening, the loop's own call runs below.
-  if (!options.listening && found.length === 1 && found[0].path === 'agent next') {
+  if (exact && !options.listening && found.length === 1 && found[0].path === 'agent next') {
     return {
       decision: 'ask',
       reason: `Start listening as ${options.listenBot ?? 'this bot'}: until you type in this session again, plain wafflebase reads and writes run without asking, and anything that would ask (deletes, local files, credentials, compositions) is refused.`,

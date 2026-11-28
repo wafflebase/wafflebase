@@ -77,6 +77,24 @@ redesign rather than patching:
       agent-runner.md § 5 contradiction resolved; accepted risk added to
       Risks.
 
+## Self-review round 2
+
+- [x] Plugin self-protection gated on a hand-written writer list (critical
+      ×3): replaced by an allow-list of read-only programs; `node -e`,
+      `tar -x`, `git checkout`, quote-split `"rm"`, `find -delete` ask.
+- [x] Hidden calls: aliases (`doc`), a trailing `… | xargs wafflebase`,
+      an expanded subcommand (`wafflebase $sub`).
+- [x] `~/.wafflebase` protected by any path through it and by globs on
+      any segment, not a literal `.wafflebase/guard` substring.
+- [x] Consent prompt only for an exact `agent next`; `listenBot` skips
+      every value-taking option the table knows.
+- [x] PostToolUse ignores an interrupted call and requires a JSON object
+      with a `task` key; keep-alive tested.
+- [x] One file per session (no shared read-modify-write); a two-hour cap
+      per approval.
+- [x] Tests assert exact decisions instead of `not.toBe('allow')`.
+- Accepted, documented: a shell change made before listening started.
+
 ## Review
 
 - 20 tests written first and seen failing; one existing test pinned the
@@ -85,7 +103,5 @@ redesign rather than patching:
   listening, `agent next` records the session (file 0600, dir 0700), the
   same write then runs, a delete is denied with the relay reason, and
   another session still asks.
-- Not changed: the guard's `MENTION` rule also matches a directory named
-  `wafflebase` (`cd …/wafflebase/wafflebase` asks). It cannot tell that
-  from `/usr/local/bin/wafflebase` by text, and loosening it would widen
-  what slips past; see lessons.
+- The `cd …/wafflebase/wafflebase` prompt was first left alone, then
+  fixed by "a mention is not a call" (second commit).

@@ -37,3 +37,10 @@ smuggle commands past the allow. **Rule:** when a guard stops asking,
 was proposed, and (4) only strip shell syntax you can prove is inert.
 
 - Self-review round 1: 8 blocking (2 critical); all fixed by the redesign.
+- Self-review round 2: 19 blocking (3 critical). The critical one was
+  self-inflicted by the "mentions" change: narrowing plugin protection to a
+  list of writer programs. Rule: to narrow a security check, allow-list
+  what is provably harmless (readers), never deny-list what is harmful.
+- Tooling trap: in a Node `String.replace` replacement string, `$\``
+  inserts the text before the match. A regex containing `[$\`]` was
+  silently mangled. Use a replacer function, `s.replace(a, () => b)`.

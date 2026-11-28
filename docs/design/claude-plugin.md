@@ -167,16 +167,25 @@ The guard reads the hook's stdin, and only when the Bash command is a
 **Listening.** It starts only after an approved `wafflebase agent next
 <bot>` actually ran and printed a task or `"task": null` — recorded in
 **PostToolUse**, so a call the user rejected, or one that failed, grants
-nothing. The guard keeps `{sessionId, bot, at}` in
-`~/.wafflebase/guard/listening.json` (directory 0700, file 0600; a
-directory of its own, so no bot's agent file can collide with it), from
-the hook's `session_id`, so another Claude Code session on the same
-machine is unaffected. Every plain `wafflebase` call refreshes it, and it
-lapses 10 minutes after the last one. It **ends** on
+nothing, and so does an interrupted one. The guard keeps
+`{bot, at, startedAt}` in `~/.wafflebase/guard/<session>.json` — one file
+per session, so concurrent sessions never rewrite each other's record, in
+a directory of its own (0700, files 0600) that no bot's agent file can
+collide with. Another Claude Code session on the same machine is
+unaffected. Every plain `wafflebase` call that ran refreshes it; it lapses
+10 minutes after the last one, and one approval never lasts more than two
+hours however often the loop renews it. It **ends** on
 **UserPromptSubmit** — the loop runs inside one turn, so the user typing
 anything (Esc, then a message) takes the session back — and on
-**SessionEnd**. Changing that file through Bash or the Write tool asks like
-a change to the plugin itself. A quoted heredoc (`<<'X'`) is stripped
+**SessionEnd**. Any path through `~/.wafflebase` — the listen state and
+the bots' keys — is protected like the plugin itself, for Bash and the
+Write tool alike.
+
+Accepted: the shell-state rule cannot see what an *earlier* command did. A
+`PATH` change made before listening started, while nothing was granted
+and so nothing asked, decides what a later allowed call runs. This is the
+same class the read and write opt-ins already accept, and the consent
+prompt names what listening grants. A quoted heredoc (`<<'X'`) is stripped
 only when what precedes it is a single plain `wafflebase` call and
 nothing follows the first delimiter line, so a body cannot smuggle
 commands and `bash <<'X'` is never read as inert. The guard judges only
@@ -212,7 +221,9 @@ between them is the whole design:
    wrapper (known or not), a `VAR=` or `export` prefix, a leading
    redirect, a substitution (also inside double quotes), an inner shell.
    A *call* is a word that is the CLI (`wafflebase`, a path to it, or
-   `@wafflebase/cli`) followed by one of its subcommands or an option.
+   `@wafflebase/cli`) followed by one of its subcommands or their aliases,
+   an option, or an expansion (`wafflebase $sub`) — or a bare
+   `wafflebase` that ends a wrapper's arguments (`… | xargs wafflebase`).
    When the guard can still classify the call it says what the call is;
    otherwise the prompt says the command is not exact.
 
@@ -263,12 +274,14 @@ was tried and dropped: it prompted on `~/go/bin/tool` and
 `"$HOME/.venv/bin/python"` in unrelated work.
 
 The plugin's own files — its guard, its command table, its manifest —
-decide every later answer, so a Bash command that can **change** a file
-(a write redirect, or `rm`, `mv`, `cp`, `ln`, `tee`, `chmod`,
-`touch`, `sed -i`, …) and names them (raw, after quote-joining, or as a
-glob that could match one), the plugin's tree or `~/.claude/plugins`
-asks. Reading them (`cat`, `grep`, `ls`, `cd`) does not: it decides
-nothing,
+decide every later answer, so a Bash command that names them (raw, after
+quote-joining, or as a glob any path segment of which could match), the
+plugin's tree, `~/.claude/plugins` or `~/.wafflebase` asks — unless every
+program in it only reads: an allow-list (`cat`, `grep`, `ls`, `cd`,
+`head`, `diff`, `git log|show|diff|status`, `find` without
+`-exec`/`-delete`, …) with no write redirect. An allow-list because the
+programs that can write a file — interpreters, archivers, `git checkout`,
+editors — are too many to enumerate. Reading decides nothing,
 and the hook also registers on `Edit|Write|MultiEdit|NotebookEdit` to ask
 before any edit whose real path (symlinks resolved, also for a file not
 created yet) lies inside the plugin root. The name is also matched
