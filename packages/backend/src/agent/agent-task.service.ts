@@ -171,6 +171,10 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
     await this.touch(botId);
     let touchedAt = Date.now();
     const deadline = Date.now() + waitMs;
+    // Set when a sleep ran to the deadline: the look after it is the last.
+    // A timer can fire a millisecond before the clock reaches the deadline,
+    // so "time left" after it would otherwise buy one more look.
+    let lastLook = false;
     for (;;) {
       if (signal?.aborted) return null;
       const task = await this.claim(botId, workspaceId, apiKeyId ?? null);
@@ -181,9 +185,11 @@ export class AgentTaskService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
       if (task) return task;
+      if (lastLook) return null;
       const remaining = deadline - Date.now();
       if (remaining <= 0 || signal?.aborted || this.stopped) return null;
       const pollMs = this.listening ? this.listeningPollMs : this.pollMs;
+      lastLook = pollMs >= remaining;
       await this.sleep(botId, Math.min(pollMs, remaining), signal);
       if (signal?.aborted || this.stopped) return null;
       if (Date.now() - touchedAt >= TOUCH_MS) {
